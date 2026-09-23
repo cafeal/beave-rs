@@ -122,24 +122,28 @@ broker-specific record. Do not force unrelated metadata into a universal struct.
 
 | Platform | Body | Broker-specific information |
 |---|---|---|
-| Kafka | value | key, headers, timestamp, partition, offset |
+| Kafka | nullable value | raw-byte key and headers; topic, partition, timestamp, offset |
+| Pulsar | value | raw-byte key, properties, message ID, publish and event times |
 | NATS | payload | subject, headers, reply subject |
 | SQS | string body | message attributes, message ID, receipt handle, receive count |
 
-Conceptual APIs, not yet implemented:
+Handlers can use the implemented `KafkaRecord<T>` or `PulsarRecord<T>` when they
+need broker metadata. Broker sinks accept separate user-controlled output
+types, `KafkaPublish<T>` and `PulsarPublish<T>`, so input delivery metadata is
+not copied into output implicitly. Keys remain raw bytes and codecs apply to
+values only. Typed keys remain a possible future API refinement.
 
 ```rust,ignore
 async fn handler(input: Order) -> Result<Event>
 
-async fn handler(input: KafkaRecord<String, Order>) -> Result<Event>
+async fn handler(input: KafkaRecord<Order>) -> Result<Event>
 
-async fn handler(input: KafkaRecord<String, Order>)
-    -> Result<KafkaPublishRecord<String, Event>>
+async fn handler(input: KafkaRecord<Order>) -> Result<KafkaPublish<Event>>
 ```
 
-`KafkaPublishRecord` is a provisional name. Distinguish received metadata from
-publish metadata so receive-only fields such as offset cannot be copied blindly.
-Kafka keys should be typed separately from values and other metadata:
+The current record separates received metadata from publish fields, preventing
+receive-only fields such as offset from being copied blindly. A future model
+may type keys separately from values and other metadata:
 
 ```rust,ignore
 struct KafkaRecord<K, V> {
@@ -157,7 +161,7 @@ null values with plain-value handlers is still open.
 Allow `value → value` when the subscription policy and sink configuration can
 determine output metadata. Using the same platform alone is not sufficient.
 
-Default Kafka-to-Kafka inheritance is intended to be:
+Future Kafka-to-Kafka inheritance is intended to be:
 
 | Field | Policy |
 |---|---|
@@ -205,23 +209,23 @@ Broker bytes → Source → Decoder → Input → Handler
 ```
 
 Keep thin framework-owned `Decoder<T>` and `Encoder<T>` traits; Serde itself is
-not the framework's codec abstraction. JSON uses serde_json. Planned codecs
-include Protobuf through prost, MessagePack through rmp-serde, and potentially
-Avro. Kafka with Protobuf is a first-class target.
+not the framework's codec abstraction. JSON uses serde_json. Raw bytes, UTF-8,
+Protobuf through prost, and schema-bound Avro are implemented. MessagePack is a
+future codec. Kafka with Protobuf is a first-class target.
 
 Select codecs through source/sink type parameters, inferring payload types from
-the handler. Planned Kafka syntax:
+the handler. The implemented Kafka types use a value codec and raw byte keys:
 
 ```rust,ignore
-KafkaSource::<Json>::new(source_config)
-KafkaSink::<Protobuf>::new(sink_config)
-KafkaSource::<Json, Utf8>::new(source_config)
+KafkaSource::<Json, Order>::new(source_config)
+KafkaSink::<Protobuf, Event>::new(sink_config)
 ```
 
-The abbreviated Kafka codec applies to the value. The proposed parameter order
-is `ValueCodec, KeyCodec = RawBytes`. Validate decode/encode compatibility at
-registration. Do not add `with_codec` now; reconsider when a concrete stateful or
-configured codec requires it.
+The codec applies to the value. Kafka keys and headers remain raw bytes in
+`KafkaRecord<T>`. Kafka and Pulsar provide `with_codec(config, codec)` for
+stateful or configured codec instances such as `Avro`; local stdin and stdout
+adapters still need a future configured-codec constructor. Compile-time codec
+compatibility follows the adapter trait bounds.
 
 Typed sources such as IterSource skip byte deserialization. Core contracts must
 support typed and byte-based input without forcing an unnecessary conversion.
@@ -331,7 +335,8 @@ In unordered mode, Kafka must only commit contiguous completed progress. If
 
 Bound in-flight messages with max_in_flight. A slow handler or sink must not cause
 unbounded source consumption. Use adapter pause/resume capabilities when available.
-Partition scheduling and commit management remain future broker work.
+Partition-aware scheduling remains future work. The Kafka adapter already tracks
+completed offsets and only commits a contiguous completed prefix.
 
 ## Kafka rebalance
 
@@ -362,6 +367,8 @@ Keep settings with their owning components:
 
 - KafkaSourceConfig: brokers, topic, and consumer-specific settings.
 - KafkaSinkConfig: brokers, topic, and producer-specific settings.
+- PulsarSourceConfig: service URL, topic, subscription, and consumer settings.
+- PulsarSinkConfig: service URL, topic, producer settings, and authentication.
 - SubscriptionConfig: concurrency, ordering, max_in_flight, independent retry
   policies, shutdown/drain policy, and delivery semantics. Attach typed middleware
   and DLQ components to the subscription builder.
@@ -439,9 +446,11 @@ Source, message, sink, handler, and codec contracts are independent of adapter
 implementations. Keep per-message processing and scheduling private. Broker
 commit/ACK details stay in adapters. Export public APIs explicitly from lib.rs.
 
-Future Kafka modules will cover source, sink, metadata, and transactions. NATS
-and SQS will have their own adapters. Separate adapter and codec crates when SDK
-dependencies or distribution require it, rather than splitting prematurely.
+Kafka source, sink, metadata, and at-least-once offset handling are implemented;
+transactions remain future work. Pulsar source and sink adapters are also
+implemented. NATS and SQS will have their own adapters. Separate adapter and
+codec crates when SDK dependencies or distribution require it, rather than
+splitting prematurely.
 
 ## Implementation order
 
@@ -449,12 +458,12 @@ Start with an end-to-end vertical slice, not Kafka transactions.
 
 | Phase | Scope |
 |---|---|
-| 1 — Core runtime | Local source → typed handler → local sink; codecs, Emit, errors, concurrency, backpressure, shutdown |
-| 2 — Kafka at-least-once | Kafka source → handler → Kafka sink with safe publish-before-ACK semantics |
-| 3 — Kafka production features | Partition ordering, unordered processing, offsets, rebalance, DLQ, observability |
-| 4 — Kafka exactly-once | Atomic consume-transform-produce using transactions |
-| 5 — NATS JetStream | NATS source and sink |
-| 6 — AWS SQS | SQS source and sink |
+| Complete — Core runtime | Local and channel adapters; codecs, Emit, errors, concurrency, backpressure, and shutdown |
+| Complete — Kafka baseline | Kafka source → handler → Kafka sink with publish-before-ACK, contiguous commits, and rebalance generations |
+| Complete — Pulsar baseline | Pulsar source and sink with individual ACKs and broker-receipt publication |
+| Next — Broker production features | Partition-aware scheduling, DLQ integration, observability, and hardening |
+| Future — Kafka exactly-once | Atomic consume-transform-produce using transactions |
+| Future — NATS JetStream and AWS SQS | Source and sink adapters |
 
 Phase 1 includes App registration, finite-input End and drain, independent receive
 retry, application-wide error shutdown, and the foundation for typed metadata
@@ -465,7 +474,8 @@ StdinSource. The first milestone is receive → decode → handler → encode �
 
 Kafka is the reference broker for consumer groups, ordering, concurrent
 processing, offsets, rebalance, keys/headers, transactions, exactly-once, and
-Protobuf. Blocking handler support is deferred.
+Protobuf. Its baseline adapter deliberately stops short of transaction support
+and runtime partition-aware scheduling. Blocking handler support is deferred.
 
 ## Open questions
 
