@@ -1,5 +1,5 @@
 //! One delivery: handler retries, output mapping, publishing, DLQ, then ACK.
-use super::{BoxHandler, DeadLetter, Mapper};
+use super::builder::{BoxHandler, DeadLetter, Mapper};
 use crate::{handler::HandlerError, message::SourceMessage, retry::RetryPolicy, sink::Sink};
 use std::{future::Future, sync::Arc};
 
@@ -39,15 +39,14 @@ pub(super) async fn process<M: SourceMessage, O: Send + Sync + 'static, K: Sink<
     // Resolve every output before publishing any; mapping errors never rerun the handler.
     let outputs = outputs
         .into_iter()
-        .map(|mut output| {
-            for map in &middleware {
-                output = map(&input, output).map_err(|error| match error {
+        .map(|output| {
+            middleware.iter().try_fold(output, |output, map| {
+                map(&input, output).map_err(|error| match error {
                     HandlerError::Retry(e) | HandlerError::Reject(e) | HandlerError::Fatal(e) => {
                         e.context("metadata mapping failed")
                     }
-                })?;
-            }
-            Ok(output)
+                })
+            })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     let outputs = outputs

@@ -1,5 +1,5 @@
 //! Receive scheduling, bounded concurrency, draining, and resource cleanup.
-use super::{Subscription, processing::process};
+use super::{builder::Subscription, processing::process};
 use crate::{
     shutdown::CancellationToken,
     sink::Sink,
