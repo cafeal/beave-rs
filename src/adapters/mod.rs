@@ -11,3 +11,6 @@ pub use stdout::StdoutSink;
 
 mod channel;
 pub use channel::{ChannelSink, ChannelSource, channel};
+
+#[cfg(feature = "kafka")]
+pub mod kafka;
