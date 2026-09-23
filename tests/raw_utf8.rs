@@ -1,4 +1,5 @@
 use beavers::{Decoder, Encoder, RawBytes, Utf8};
+use std::str::Utf8Error;
 
 #[test]
 fn raw_bytes_preserves_empty_and_arbitrary_payloads() {
@@ -25,7 +26,7 @@ fn utf8_preserves_empty_unicode_bom_and_line_endings() {
 fn utf8_rejects_malformed_input() {
     let error = Utf8.decode(&[0xf0, 0x28, 0x8c, 0x28]).unwrap_err();
 
-    assert!(error.downcast_ref::<std::str::Utf8Error>().is_some());
+    assert!(error.downcast_ref::<Utf8Error>().is_some());
 }
 
 #[test]

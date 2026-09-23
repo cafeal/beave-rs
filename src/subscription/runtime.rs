@@ -5,7 +5,7 @@ use crate::{
     sink::Sink,
     source::{Receive, ReceiveError, Source},
 };
-use std::sync::Arc;
+use std::{result::Result as StdResult, sync::Arc};
 use tokio::{
     task::JoinSet,
     time::{Instant, sleep_until, timeout},
@@ -96,8 +96,6 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         }
     }
 }
-fn flatten(
-    result: std::result::Result<anyhow::Result<()>, tokio::task::JoinError>,
-) -> anyhow::Result<()> {
+fn flatten(result: StdResult<anyhow::Result<()>, tokio::task::JoinError>) -> anyhow::Result<()> {
     result?
 }

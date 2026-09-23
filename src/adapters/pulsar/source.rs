@@ -9,7 +9,7 @@ use crate::{
     source::{Receive, ReceiveError, Source},
 };
 use pulsar::{Consumer, Pulsar, TokioExecutor};
-use std::{marker::PhantomData, sync::Arc};
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
 
 /// Establishes its broker client and subscription on the first `receive` call.
@@ -117,7 +117,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PulsarSource<C,
 pub struct PulsarMessage<C, T> {
     bytes: Vec<u8>,
     key: Option<Vec<u8>>,
-    properties: std::collections::HashMap<String, String>,
+    properties: HashMap<String, String>,
     event_time: Option<u64>,
     metadata: PulsarMetadata,
     codec: Arc<C>,

@@ -2,11 +2,15 @@ use beavers::{
     App, ChannelSink, ChannelSource, InMemorySink, IterSource, Receive, Sink, Source,
     SourceMessage, channel,
 };
-use std::{future::Future, task::Poll};
+use std::{
+    future::{Future, poll_fn},
+    pin::Pin,
+    task::Poll,
+};
 
-async fn assert_pending<F: Future>(future: std::pin::Pin<&mut F>) {
+async fn assert_pending<F: Future>(future: Pin<&mut F>) {
     let mut future = future;
-    std::future::poll_fn(|cx| {
+    poll_fn(|cx| {
         assert!(future.as_mut().poll(cx).is_pending());
         Poll::Ready(())
     })

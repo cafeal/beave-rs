@@ -7,6 +7,7 @@ use beavers::{
     },
 };
 use std::{
+    env,
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -66,7 +67,7 @@ fn records_and_publishes_keep_delivery_metadata_separate() {
 #[tokio::test]
 #[ignore = "requires a Kafka broker; run with cargo test --features kafka -- --ignored"]
 async fn publish_receive_and_ack_against_kafka() {
-    let brokers = std::env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
+    let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
     let topic = unique_name("beavers-kafka-test");
     let group = unique_name("beavers-kafka-group");
 

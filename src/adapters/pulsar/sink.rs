@@ -4,14 +4,18 @@ use pulsar::{
     Pulsar, TokioExecutor,
     producer::{Message as ProducerMessage, Producer},
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    collections::HashMap,
+    marker::PhantomData,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use tokio::sync::Mutex;
 
 /// Encoded Pulsar output. Clones can be retried without rerunning the codec.
 #[derive(Clone, Debug, Default)]
 pub struct PulsarPrepared {
     pub payload: Vec<u8>,
-    pub properties: std::collections::HashMap<String, String>,
+    pub properties: HashMap<String, String>,
     pub key: Option<Vec<u8>>,
     pub ordering_key: Option<Vec<u8>>,
     pub event_time: Option<u64>,
@@ -27,7 +31,7 @@ pub struct PulsarSink<C, T> {
     codec: C,
     state: Mutex<SinkState>,
     closed: AtomicBool,
-    marker: std::marker::PhantomData<fn(T)>,
+    marker: PhantomData<fn(T)>,
 }
 
 impl<C: Default, T> PulsarSink<C, T> {
@@ -43,7 +47,7 @@ impl<C, T> PulsarSink<C, T> {
             codec,
             state: Mutex::new(SinkState { producer: None }),
             closed: AtomicBool::new(false),
-            marker: std::marker::PhantomData,
+            marker: PhantomData,
         }
     }
 

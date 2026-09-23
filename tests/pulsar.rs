@@ -40,6 +40,7 @@ fn records_keep_delivery_facts_separate_from_application_fields() {
     assert_eq!(publish.event_time, record.event_time);
 }
 use std::{
+    env,
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -95,8 +96,7 @@ fn configs_validate_without_connecting() {
 #[tokio::test]
 #[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
 async fn publish_receive_and_ack_against_pulsar() -> anyhow::Result<()> {
-    let service_url =
-        std::env::var("PULSAR_URL").unwrap_or_else(|_| "pulsar://127.0.0.1:6650".into());
+    let service_url = env::var("PULSAR_URL").unwrap_or_else(|_| "pulsar://127.0.0.1:6650".into());
     let topic = format!(
         "persistent://public/default/{}",
         unique_name("beavers-pulsar-test")
