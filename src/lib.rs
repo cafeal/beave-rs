@@ -15,9 +15,15 @@ pub mod sink;
 pub mod source;
 pub mod subscription;
 
-pub use adapters::{InMemorySink, IterSource, StdinSource, StdoutSink};
+pub use adapters::{
+    ChannelSink, ChannelSource, InMemorySink, IterSource, StdinSource, StdoutSink, channel,
+};
 pub use app::App;
-pub use codec::{Decoder, Encoder, Json};
+#[cfg(feature = "avro")]
+pub use codec::Avro;
+#[cfg(feature = "protobuf")]
+pub use codec::Protobuf;
+pub use codec::{Decoder, Encoder, Json, RawBytes, Utf8};
 pub use handler::{Emit, Handler, HandlerError, Result};
 pub use message::{Delivery, SourceMessage};
 pub use retry::RetryPolicy;
