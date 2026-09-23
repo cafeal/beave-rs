@@ -71,10 +71,26 @@ appropriate when they isolate a substantial state machine or lifecycle.
 - Avoid implicit metadata inheritance. A middleware or explicit conversion may
   map metadata when the application requests it.
 
+## Readability and imports
+
+- Import commonly used standard-library and dependency types at the top of the
+  module instead of repeating inline paths such as `std::future::Future` or
+  `std::collections::HashMap` throughout declarations and implementations.
+- Use the unqualified prelude `Result` when it is unambiguous. When a domain
+  result alias and the standard result type are both needed, give one a clear
+  local alias such as `StdResult` rather than repeating its full path.
+- Keep an explicit path when it communicates ownership or avoids ambiguity
+  better than an import. Do not introduce imports solely to shorten a
+  one-off path whose namespace is useful context.
+- Prefer focused imports over wildcard imports in implementation and test code.
+
 ## Quality and documentation
 
 - Add focused unit tests for state machines and contract tests for public API
   behavior. Keep live broker tests ignored by default and runnable explicitly.
+- Split a large integration-test target into feature-oriented modules with a
+  small entry file. Put reusable mocks and helpers in a dedicated `fixtures`
+  module instead of duplicating them or mixing them with test cases.
 - Run formatting, the default test suite, all-feature tests, Clippy with
   warnings denied, and documentation generation before considering a change
   complete.
