@@ -1,6 +1,8 @@
 # Repository Instructions
 
 Read and follow [CODE_GUIDELINES.md](CODE_GUIDELINES.md) before changing code.
+Use [docs/plan.md](docs/plan.md) as the source of truth for planned work and
+unresolved design decisions.
 
 ## Required workflow
 
@@ -11,8 +13,11 @@ Read and follow [CODE_GUIDELINES.md](CODE_GUIDELINES.md) before changing code.
 3. Keep platform-specific delivery semantics inside the adapter while making
    the public source, record, publish, sink, configuration, and codec concepts
    consistent across adapters.
-4. Update tests and durable English documentation with the implementation.
-5. Run these checks before reporting completion:
+4. Update `docs/plan.md` as planning and implementation progress. Remove
+   completed work from the plan once its behavior is covered by the appropriate
+   architecture, runtime, adapter, codec, or API documentation.
+5. Update tests and durable English documentation with the implementation.
+6. Run these checks before reporting completion:
 
    ```text
    cargo fmt --check

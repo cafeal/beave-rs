@@ -83,5 +83,5 @@ appropriate when they isolate a substantial state machine or lifecycle.
 - Documentation and comments describe current contracts, rationale that remains
   relevant, and real limitations. Do not leave review history, temporary notes,
   agent activity, or implementation worklogs in the repository.
-- Keep the root `PLAN.md` out of commits. The maintained roadmap is
-  `docs/plan.md`.
+- Keep `docs/plan.md` focused on future work and unresolved decisions. Move
+  completed designs into the durable documentation for the implemented API.
