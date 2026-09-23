@@ -14,3 +14,5 @@ pub use channel::{ChannelSink, ChannelSource, channel};
 
 #[cfg(feature = "kafka")]
 pub mod kafka;
+#[cfg(feature = "pulsar")]
+pub mod pulsar;
