@@ -67,14 +67,17 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = anyhow::Result<()>>,
 {
-    for attempt in 1..=policy.max_attempts {
+    let mut attempt = 1;
+    loop {
         match publish().await {
             Ok(()) => return Ok(()),
-            Err(error) if attempt == policy.max_attempts => {
+            Err(error) if attempt >= policy.max_attempts => {
                 return Err(error.context("publish retry exhausted"));
             }
-            Err(_) => tokio::time::sleep(policy.delay(attempt)).await,
+            Err(_) => {
+                tokio::time::sleep(policy.delay(attempt)).await;
+                attempt += 1;
+            }
         }
     }
-    unreachable!("validated retry policy")
 }
