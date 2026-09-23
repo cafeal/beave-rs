@@ -25,13 +25,14 @@ Expensive serialization still occupies the executing thread; there is currently
 no dedicated codec execution pool.
 
 The traits do not require Serde. Each codec chooses its own representation and
-payload bounds. `Decoder`, `Encoder`, and the built-in `Json` codec are available
-through `beavers::codec` and re-exported at the crate root.
+payload bounds. `Decoder`, `Encoder`, `Json`, `RawBytes`, and `Utf8` are available
+through `beavers::codec` and re-exported at the crate root. `Protobuf` and `Avro`
+are available when their corresponding Cargo features are enabled.
 
 ## JSON
 
-`Json` is currently the only built-in codec. It uses `serde_json::from_slice` for
-decoding and `serde_json::to_vec` for encoding.
+`Json` uses `serde_json::from_slice` for decoding and `serde_json::to_vec` for
+encoding.
 
 | Operation | Payload requirement | Result |
 |---|---|---|
@@ -140,24 +141,31 @@ impl Encoder<String> for Utf8 {
 }
 ```
 
-Utf8 is an example implementation here, not an exported built-in codec. The local
-stdin and stdout adapters default-construct their codec, so using a custom codec
-with them also requires `Default`. The codec traits themselves do not require it.
-There is no `with_codec` constructor; configured codec instances are deferred
-until a concrete use case requires them.
+`Utf8` is an exported built-in codec; see [Raw bytes and UTF-8](codecs/raw-utf8.md)
+for its exact behavior and `RawBytes` for arbitrary payloads. The local stdin and
+stdout adapters default-construct their codec, so using a custom codec with them
+requires `Default`. The codec traits themselves do not require it. Kafka and
+Pulsar adapters also provide `with_codec(config, codec)` for existing configured
+codec instances.
 
 Choose framing-compatible codecs for line-based adapters. A binary encoding can
 contain newline bytes, and an arbitrary string may contain embedded newlines;
 neither automatically forms a safe one-record-per-line protocol. The UTF-8
 example preserves all bytes, including any newline supplied by the source.
 
-## Planned formats and broker integration
+## Available formats and broker integration
 
-Protobuf through prost and MessagePack through rmp-serde are planned; Avro may
-follow. Kafka with Protobuf is a first-class target. They are not implemented.
+`RawBytes` preserves arbitrary `Vec<u8>` payloads and `Utf8` converts valid UTF-8
+between bytes and `String`. See [Raw bytes and UTF-8](codecs/raw-utf8.md).
 
-The planned Kafka API treats value and key codecs separately, with the value
-codec first and raw key bytes by default. Broker record types, null handling,
-and metadata mapping require additional adapter design. See the
-[serialization plan](plan.md#serialization-and-codecs) for the intended API;
-these proposals should not be read as available constructors.
+The optional `protobuf` feature provides `Protobuf` for raw `prost::Message`
+payloads. The optional `avro` feature provides schema-bound `Avro` values. Both
+formats leave framing to the adapter. See [Protobuf](codecs/protobuf.md) and
+[Avro](codecs/avro.md).
+
+Kafka applies its selected codec to a record value; keys and headers remain raw
+bytes in `KafkaRecord<T>`, and a value can be null. Pulsar applies its selected
+codec to a non-null byte payload while exposing key and properties as metadata.
+Neither adapter implicitly carries received metadata into outgoing records. Typed
+metadata mapping and automatic inheritance remain future work; see the
+[serialization plan](plan.md#serialization-and-codecs).

@@ -27,7 +27,7 @@ impl<T> IterSource<T> {
 }
 impl<T: Clone + Send + Sync + 'static> Source for IterSource<T> {
     type Message = Delivery<T>;
-    async fn receive(&mut self) -> std::result::Result<Receive<Delivery<T>>, ReceiveError> {
+    async fn receive(&mut self) -> Result<Receive<Delivery<T>>, ReceiveError> {
         Ok(match self.items.next() {
             Some(value) => {
                 let counter = self.acknowledgements.clone();

@@ -1,5 +1,6 @@
 use beavers::{App, IterSource, Json, Result, StdinSource, StdoutSink};
 use serde::{Deserialize, Serialize};
+use std::env;
 #[derive(Clone, Deserialize)]
 struct Order {
     id: u64,
@@ -13,7 +14,7 @@ async fn handler(order: Order) -> Result<Event> {
 }
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    if std::env::args().any(|arg| arg == "--stdin") {
+    if env::args().any(|arg| arg == "--stdin") {
         App::new()
             .subscribe(
                 StdinSource::<Json, _>::new(),

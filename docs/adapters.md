@@ -1,9 +1,10 @@
 # Adapters
 
 Adapters connect the framework's [Source and Sink contracts](architecture.md#trait-boundaries)
-to concrete inputs and outputs. The current adapters support local development,
-command-line pipelines, and tests without an external broker. They are available
-through `beavers::adapters` and re-exported at the crate root.
+to concrete inputs and outputs. Local adapters and the channel adapter are
+available by default. Kafka and Pulsar adapters are optional features and are
+available through `beavers::adapters`; the default local adapters and channel
+types are also re-exported at the crate root.
 
 | Adapter | Role | Typical use |
 |---|---|---|
@@ -11,9 +12,24 @@ through `beavers::adapters` and re-exported at the crate root.
 | `StdinSource<C, T>` | Line-delimited input | Files, pipes, interactive input |
 | `InMemorySink<T>` | Typed output collection | Assertions and local inspection |
 | `StdoutSink<C>` | Line-delimited output | JSON output, files, pipes |
+| `ChannelSource<T>` / `ChannelSink<T>` | Bounded typed queue | In-process pipelines |
+| `KafkaSource<C, T>` / `KafkaSink<C, T>` | Kafka records and publishes | Durable broker pipelines (`kafka` feature) |
+| `PulsarSource<C, T>` / `PulsarSink<C, T>` | Pulsar records and publishes | Durable broker pipelines (`pulsar` feature) |
 
-Kafka, NATS JetStream, and SQS adapters are [planned](plan.md#implementation-order),
-not implemented. The local adapters do not provide durable delivery guarantees.
+NATS JetStream and SQS are [planned](plan.md#implementation-order). Local and
+channel adapters do not provide durable delivery guarantees.
+
+Enable a broker adapter in the application manifest:
+
+```toml
+[dependencies]
+beavers = { version = "0.1", features = ["kafka"] }
+# or: features = ["pulsar"]
+```
+
+The broker-specific guides document configuration, metadata, ACK behavior, and
+delivery boundaries: [Channel](adapters/channel.md), [Kafka](adapters/kafka.md),
+and [Pulsar](adapters/pulsar.md).
 
 ## IterSource
 
@@ -159,3 +175,18 @@ Keep these contracts explicit:
 
 See [architecture](architecture.md) for ownership boundaries and the
 [runtime guide](runtime.md) for retry, failure, and shutdown behavior.
+
+## Broker adapters
+
+Kafka and Pulsar keep their platform-specific message models explicit below
+`beavers::adapters::kafka` and `beavers::adapters::pulsar`. Both decode source
+messages into a broker-specific `*Record<T>` containing delivery metadata and
+accept a separate `*Publish<T>` type for user-controlled output. Prepared
+payloads hold encoded bytes for retries. See the dedicated guides for each
+broker's configuration and delivery behavior.
+
+Kafka and Pulsar constructors use `C::default()` for a codec. Their
+`with_codec(config, codec)` constructors accept an existing codec instance,
+which is required for configured codecs such as `Avro`. `StdinSource` and
+`StdoutSink` currently only construct `Default` codecs; configured codec
+injection for those local adapters remains future work.
