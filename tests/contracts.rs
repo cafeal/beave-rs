@@ -3,11 +3,14 @@ use beavers::{
     App, Handler, Receive, ReceiveError, Result, RetryPolicy, Sink, Source, SourceMessage,
     Subscription,
 };
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    result::Result as StdResult,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
 };
-use std::time::Duration;
 
 struct RawMessage {
     fail_decode: bool,
@@ -29,7 +32,7 @@ impl SourceMessage for RawMessage {
 struct RawSource(Option<RawMessage>);
 impl Source for RawSource {
     type Message = RawMessage;
-    async fn receive(&mut self) -> std::result::Result<Receive<RawMessage>, ReceiveError> {
+    async fn receive(&mut self) -> StdResult<Receive<RawMessage>, ReceiveError> {
         Ok(match self.0.take() {
             Some(message) => Receive::Message(message),
             None => Receive::End,

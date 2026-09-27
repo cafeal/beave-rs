@@ -48,11 +48,14 @@ attempt counts fail validation before subscriptions start.
 Concurrent jobs do not guarantee output ordering. Use concurrency 1 for sequential
 processing. Partition-aware scheduling is not implemented.
 
-## Local adapters
+## Adapters
 
 See the [adapter guide](adapters.md) for IterSource, StdinSource, InMemorySink,
-and StdoutSink, including examples, EOF behavior, ACK guarantees, and I/O limits.
-These components do not provide durable redelivery after process exit.
+StdoutSink, and the bounded Channel adapter, including examples, EOF behavior,
+ACK guarantees, and I/O limits. These components do not provide durable
+redelivery after process exit. Optional Kafka and Pulsar adapters provide
+broker-specific source and sink implementations; their documentation covers
+configuration and acknowledgement semantics.
 
 ## Per-message lifecycle
 
@@ -115,12 +118,19 @@ interrupt arbitrary synchronous code. Dedicated blocking-handler execution is a
 
 ## Implementation limits
 
-Kafka, NATS JetStream, SQS, Protobuf, broker record types, automatic metadata
-inheritance, partition ordering, transactions, and tracing / metrics integration
-are not implemented. The middleware is an output transformation hook, not yet a
+Kafka and Pulsar adapters, broker record types, Protobuf, and Avro codecs are
+implemented. Kafka maintains contiguous commits for completed offsets and
+handles assignment generations, but the runtime does not schedule work by
+partition and does not provide Kafka transactions or exactly-once processing.
+Pulsar uses individual acknowledgements and likewise provides no transactions or
+exactly-once processing. NATS JetStream, SQS, automatic metadata inheritance,
+partition-aware scheduling, and tracing / metrics integration are not
+implemented. The middleware is an output transformation hook, not yet a
 validated cross-broker metadata mapping API.
 
-Inputs currently require `Clone + Send + Sync`. Detailed decode/encode error
-classification and raw-input DLQ envelopes remain open design work. See
+Inputs currently require `Clone + Send + Sync`. Stdin and stdout construct
+`Default` codecs internally and do not yet accept configured codec instances.
+Detailed decode/encode error classification and raw-input DLQ envelopes remain
+open design work. See
 [architecture](architecture.md) for extension contracts and the [roadmap](plan.md#implementation-order)
 for the intended sequence.

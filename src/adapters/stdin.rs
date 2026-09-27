@@ -3,14 +3,20 @@ use crate::{
     codec::Decoder,
     source::{Receive, ReceiveError, Source},
 };
-use std::{marker::PhantomData, sync::Arc};
+use std::{
+    io::{self, BufRead},
+    marker::PhantomData,
+    sync::Arc,
+    thread,
+};
+use tokio::sync::mpsc;
 
 /// Newline-delimited input. One detached, bounded reader starts on the first receive.
 /// An OS read may remain blocked after close, but never blocks Tokio runtime shutdown.
 /// Use only one stdin source per process.
 pub struct StdinSource<C, T> {
     codec: Arc<C>,
-    receiver: Option<tokio::sync::mpsc::Receiver<std::io::Result<Vec<u8>>>>,
+    receiver: Option<mpsc::Receiver<io::Result<Vec<u8>>>>,
     marker: PhantomData<T>,
 }
 impl<C: Default, T> Default for StdinSource<C, T> {
@@ -29,14 +35,13 @@ impl<C: Default, T> StdinSource<C, T> {
 }
 impl<T: Clone + Send + Sync + 'static, C: Decoder<T>> Source for StdinSource<C, T> {
     type Message = StdinMessage<C, T>;
-    async fn receive(&mut self) -> std::result::Result<Receive<Self::Message>, ReceiveError> {
+    async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
         if self.receiver.is_none() {
-            let (sender, receiver) = tokio::sync::mpsc::channel(1);
-            std::thread::Builder::new()
+            let (sender, receiver) = mpsc::channel(1);
+            thread::Builder::new()
                 .name("beavers-stdin".into())
                 .spawn(move || {
-                    use std::io::BufRead;
-                    let stdin = std::io::stdin();
+                    let stdin = io::stdin();
                     let mut reader = stdin.lock();
                     while !sender.is_closed() {
                         let mut line = Vec::new();

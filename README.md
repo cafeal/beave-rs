@@ -6,9 +6,10 @@ A lightweight Rust message processing framework built around typed handlers.
 Source → Subscription → Handler → Sink
 ```
 
-The current prototype runs without an external broker. It includes iterator and
-stdin sources, in-memory and JSON stdout sinks, bounded concurrency, retries,
-and graceful shutdown. Kafka, NATS JetStream, and SQS support are planned.
+The current implementation includes local adapters, a bounded in-process
+channel, optional Kafka and Apache Pulsar adapters, typed codecs, bounded
+concurrency, retries, and graceful shutdown. NATS JetStream and SQS remain on
+the roadmap.
 
 ## Quick start
 
@@ -40,14 +41,16 @@ The example writes one JSON event per line, such as `{"order_id":10}`.
 ## Documentation
 
 - [Documentation index](docs/README.md)
-- [Local adapters and usage examples](docs/adapters.md)
+- [Adapters and usage examples](docs/adapters.md)
 - [Codecs and serialization](docs/codecs.md)
 - [Architecture and trait contracts](docs/architecture.md)
 - [Runtime behavior, configuration, and limitations](docs/runtime.md)
 - [Design plan and roadmap](docs/plan.md)
 
-Synchronous handlers through `blocking(sync_handler)` are a recorded design
-choice, not an implemented API. See the [execution model](docs/plan.md#handler-execution-model).
+Kafka and Pulsar are optional Cargo features. See the [adapter guide](docs/adapters.md)
+for feature flags and delivery semantics. Synchronous handlers through
+`blocking(sync_handler)` are a recorded design choice, not an implemented API.
+See the [execution model](docs/plan.md#handler-execution-model).
 
 ## Development
 

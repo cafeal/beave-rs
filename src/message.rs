@@ -1,5 +1,5 @@
 //! Received message ownership, decoding, and acknowledgement.
-use std::future::Future;
+use std::{future::Future, pin::Pin};
 
 /// A delivery owns its ACK capability; handlers only receive decoded values.
 /// Decode must not acknowledge or publish. Dropping a message must never ACK it.
@@ -12,7 +12,7 @@ pub trait SourceMessage: Send + 'static {
     fn ack(self) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
-type AckFuture = std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>;
+type AckFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
 type Acknowledge = Box<dyn FnOnce() -> AckFuture + Send>;
 
 /// Acknowledgement belongs to the delivery, not the handler's payload.
@@ -24,7 +24,7 @@ impl<T> Delivery<T> {
     pub fn new<F, Fut>(value: T, ack: F) -> Self
     where
         F: FnOnce() -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = anyhow::Result<()>> + Send + 'static,
+        Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
         Self {
             value,

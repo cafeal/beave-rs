@@ -1,5 +1,6 @@
 //! Receive lifecycle and source resource ownership.
 use crate::message::SourceMessage;
+use std::future::Future;
 
 /// Decoded handler input associated with a source.
 pub type SourceItem<S> = <<S as Source>::Message as SourceMessage>::Item;
@@ -20,9 +21,8 @@ pub trait Source: Send + 'static {
     type Message: SourceMessage;
     fn receive(
         &mut self,
-    ) -> impl std::future::Future<Output = std::result::Result<Receive<Self::Message>, ReceiveError>>
-    + Send;
-    fn close(&mut self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+    ) -> impl Future<Output = Result<Receive<Self::Message>, ReceiveError>> + Send;
+    fn close(&mut self) -> impl Future<Output = anyhow::Result<()>> + Send {
         async { Ok(()) }
     }
 }

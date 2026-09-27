@@ -21,7 +21,8 @@ src/
 │   ├── mod.rs             # Decoder and Encoder contracts
 │   └── json.rs            # JSON implementation
 ├── subscription/
-│   ├── mod.rs             # Subscription construction API
+│   ├── mod.rs             # Module declarations and public re-exports
+│   ├── builder.rs         # Subscription type and builder API
 │   ├── config.rs          # Runtime configuration and validation
 │   ├── runtime.rs         # Private scheduling, draining, and cleanup
 │   └── processing.rs      # Private per-message processing lifecycle
