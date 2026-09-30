@@ -3,7 +3,7 @@
 //! a key.
 use crate::{
     handler::{Emit, HandlerError, Result},
-    middleware::Middleware,
+    middleware::{Flow, Middleware},
 };
 
 /// A received record type that can carry a tombstone.
@@ -57,15 +57,15 @@ impl Tombstones {
 }
 
 impl<I: TombstoneRecord + 'static, O: 'static> Middleware<I, O> for Tombstones {
-    fn intercept(&self, input: &I) -> Result<Option<Emit<O>>> {
+    fn pre_handler(&self, input: I) -> Result<Flow<I, O>> {
         if !input.is_tombstone() {
-            return Ok(None);
+            return Ok(Flow::Continue(input));
         }
         match self.policy {
             Policy::Reject => Err(HandlerError::Reject(anyhow::anyhow!(
                 "tombstone rejected before the handler"
             ))),
-            Policy::Skip => Ok(Some(Emit::None)),
+            Policy::Skip => Ok(Flow::Intercept(Emit::None)),
         }
     }
 }
@@ -74,7 +74,7 @@ impl<I: TombstoneRecord + 'static, O: 'static> Middleware<I, O> for Tombstones {
 ///
 /// Suitable when the output shares the input's key space, such as forwarding
 /// between compacted topics. The propagated tombstone still passes through the
-/// other middleware's `map`, so inheritance middleware can add metadata.
+/// other middleware's `post_handler`, so inheritance middleware can add metadata.
 #[derive(Clone, Copy, Debug)]
 pub struct PropagateTombstones;
 
@@ -83,10 +83,10 @@ where
     I: TombstoneRecord + 'static,
     O: TombstonePublish<I> + 'static,
 {
-    fn intercept(&self, input: &I) -> Result<Option<Emit<O>>> {
+    fn pre_handler(&self, input: I) -> Result<Flow<I, O>> {
         if !input.is_tombstone() {
-            return Ok(None);
+            return Ok(Flow::Continue(input));
         }
-        O::tombstone(input).map(|output| Some(Emit::One(output)))
+        O::tombstone(&input).map(|output| Flow::Intercept(Emit::One(output)))
     }
 }

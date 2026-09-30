@@ -98,7 +98,7 @@ configuration and acknowledgement semantics.
 ## Per-message lifecycle
 
 ```text
-receive → decode → intercept or handler → map outputs → prepare all outputs → publish → ACK
+receive → decode → pre_handler → handler → post_handler → prepare all outputs → publish → ACK
 ```
 
 Use `Subscription::new_emitting` to register a handler returning
@@ -111,15 +111,42 @@ Decode and preparation failures stop without ACK.
 
 ## Middleware
 
-`Subscription::middleware` registers a `Middleware<Input, Output>`. Its `map`
-hook maps each emitted value using the decoded input that produced it, and its
-`intercept` hook can decide a delivery's outputs before the handler runs. Both
-hooks default to doing nothing. The source item and
-sink output types are checked at compile time, so a middleware written for one
-broker's record and publish types cannot be registered on a subscription whose
-source or sink uses different types. Wrap a function or closure in
-`MapMetadata::new` for an application-specific mapping, including conversions
-between different platforms:
+`Subscription::middleware` registers a `Middleware<Input, Output>` with two
+hooks, both of which default to doing nothing:
+
+```rust,ignore
+pub trait Middleware<I, O> {
+    fn pre_handler(&self, input: I) -> Result<Flow<I, O>>;
+    fn post_handler(&self, input: &I, output: O) -> Result<O>;
+}
+
+pub enum Flow<I, O> {
+    Continue(I),
+    Intercept(Emit<O>),
+}
+```
+
+`pre_handler` runs once per delivery, before the handler, in registration
+order. Each middleware receives the input returned by the previous one.
+`Flow::Continue(input)` passes a possibly transformed input on, and the handler
+receives the final one. `Flow::Intercept(emit)` skips the remaining
+`pre_handler` hooks and the handler: `Emit::None` acknowledges the delivery
+without output, and other values become its outputs. Handler retries reuse the
+transformed input and never rerun `pre_handler`.
+
+`post_handler` runs in registration order for every output, including outputs
+from an intercepting middleware, and every invocation receives the input as
+decoded from the source, before any `pre_handler` transformation. All outputs
+pass through `post_handler` and are prepared before the first publication, so
+publish retries never rerun a middleware. Handler outputs carry explicit
+publish fields; an inheriting middleware only fills fields that the output
+leaves unset.
+
+The source item and sink output types are checked at compile time, so a
+middleware written for one broker's record and publish types cannot be
+registered on a subscription whose source or sink uses different types. Wrap a
+function or closure in `MapMetadata::new` to use it as a `post_handler`,
+including for conversions between different platforms:
 
 ```rust,ignore
 Subscription::new(kafka_source, pulsar_sink, handler)
@@ -129,23 +156,10 @@ Subscription::new(kafka_source, pulsar_sink, handler)
     }))
 ```
 
-Middleware runs in registration order, once for every value in `Emit::One` or
-`Emit::Many`, and each invocation receives the same original input. All outputs
-are mapped and prepared before the first publication, so publish retries reuse
-the mapped output and never rerun a middleware. Handler outputs carry explicit
-publish fields; an inheriting middleware only fills fields that the output
-leaves unset.
-
-`intercept` runs once per delivery, before the handler, in registration order.
-The first middleware that returns `Some(emit)` replaces the handler for that
-delivery: `Emit::None` acknowledges it without output, and other values become
-its outputs, which still pass through every middleware's `map`. Handler retries
-never rerun `intercept`.
-
-A mapping or interception error never reruns the handler. `Reject` publishes the original input
-to the DLQ and then acknowledges it, publishing none of the delivery's outputs;
-without a DLQ, it stops without ACK. `Retry` and `Fatal` stop processing without
-ACK.
+A middleware error never reruns the handler or the middleware. `Reject` publishes
+the input as decoded from the source to the DLQ and then acknowledges it,
+publishing none of the delivery's outputs; without a DLQ, it stops without ACK.
+`Retry` and `Fatal` stop processing without ACK.
 
 Adapters provide same-platform inheritance middleware: `KafkaInherit` for Kafka
 to Kafka and `PulsarInherit` for Pulsar to Pulsar. They copy user-controlled
@@ -206,10 +220,10 @@ Subscription::forward(kafka_source, kafka_sink, handler)
 Records with a value always reach the handler. `propagate()` requires the output
 type to implement `TombstonePublish` for the input, so it compiles only for
 sinks that can publish a tombstone; `KafkaPublish` and `PulsarPublish` implement
-it for input from the same platform and require a key. Propagated tombstones still pass through every middleware's
-`map`, so inheritance adds metadata. Propagating is appropriate only when the
-output shares the input key space; a handler that re-keys its output should
-handle tombstones itself.
+it for input from the same platform and require a key. Propagated tombstones
+still pass through every middleware's `post_handler`, so inheritance adds
+metadata. Propagating is appropriate only when the output shares the input key
+space; a handler that re-keys its output should handle tombstones itself.
 
 Without `Tombstones`, a value-only `forward` handler rejects tombstones, while a
 record handler registered with `Subscription::new` receives them.
@@ -230,10 +244,8 @@ classifies them as Fatal; retry must be requested explicitly.
 | Receive `Retry` | Back off and retry receive; reset the failure count after receiving a message |
 | Receive `Fatal` or exhausted retry | Stop receiving, drain outstanding work, return an error |
 | Value-only input unavailable (tombstone) | Treated as handler `Reject` without invoking the handler |
-| Interception `Reject` | Publish the original typed input to the configured DLQ, then ACK; do not run the handler |
-| Interception `Retry` or `Fatal` | Stop without ACK |
-| Mapping `Reject` | Publish the original typed input to the configured DLQ, then ACK; publish no outputs |
-| Mapping `Retry` or `Fatal` | Stop without ACK; never rerun the handler or mapping |
+| Middleware `Reject` | Publish the decoded input to the configured DLQ, then ACK; publish no outputs |
+| Middleware `Retry` or `Fatal` | Stop without ACK; never rerun the handler or middleware |
 | Publish failure | Retry the prepared output; never rerun handler, mapping, or encoding |
 | Exhausted publish or DLQ retry | Stop without ACK; do not route infrastructure failures to DLQ |
 | ACK failure | Return an error; do not claim successful completion |

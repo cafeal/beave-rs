@@ -1,6 +1,8 @@
-//! One delivery: handler retries, output mapping, publishing, DLQ, then ACK.
+//! One delivery: middleware, handler retries, publishing, DLQ, then ACK.
 use super::builder::{BoxHandler, DeadLetter, Mapper};
-use crate::{handler::HandlerError, message::SourceMessage, retry::RetryPolicy, sink::Sink};
+use crate::{
+    handler::HandlerError, message::SourceMessage, middleware::Flow, retry::RetryPolicy, sink::Sink,
+};
 use std::{future::Future, sync::Arc};
 
 pub(super) async fn process<M: SourceMessage, O: Send + Sync + 'static, K: Sink<O>>(
@@ -15,24 +17,29 @@ pub(super) async fn process<M: SourceMessage, O: Send + Sync + 'static, K: Sink<
     let input = delivery
         .decode()
         .map_err(|error| error.context("decode failed"))?;
-    // The first middleware that intercepts the input replaces the handler for this delivery.
-    let intercepted = middleware
-        .iter()
-        .find_map(|middleware| middleware.intercept(&input).transpose());
-    let outputs = match intercepted {
-        Some(Ok(values)) => values.values(),
-        Some(Err(HandlerError::Reject(error))) => {
-            let error = error.context("rejected input interception");
-            return dead_letter(delivery, input, dlq, pp, error).await;
-        }
-        Some(Err(HandlerError::Retry(error) | HandlerError::Fatal(error))) => {
-            return Err(error.context("input interception failed"));
-        }
-        None => {
+    // Pre-handler hooks transform the handler input or intercept the delivery;
+    // `input` stays as decoded for post-handler hooks and dead letters.
+    let mut flow = Flow::Continue(input.clone());
+    for middleware in &middleware {
+        let Flow::Continue(value) = flow else { break };
+        flow = match middleware.pre_handler(value) {
+            Ok(next) => next,
+            Err(HandlerError::Reject(error)) => {
+                let error = error.context("rejected before the handler");
+                return dead_letter(delivery, input, dlq, pp, error).await;
+            }
+            Err(HandlerError::Retry(error) | HandlerError::Fatal(error)) => {
+                return Err(error.context("pre-handler middleware failed"));
+            }
+        };
+    }
+    let outputs = match flow {
+        Flow::Intercept(values) => values.values(),
+        Flow::Continue(handler_input) => {
             let mut attempts = 0;
             loop {
                 attempts += 1;
-                match handler(input.clone()).await {
+                match handler(handler_input.clone()).await {
                     Ok(values) => break values.values(),
                     Err(HandlerError::Retry(error)) => {
                         if attempts >= hp.max_attempts {
@@ -51,20 +58,19 @@ pub(super) async fn process<M: SourceMessage, O: Send + Sync + 'static, K: Sink<
             }
         }
     };
-    // Resolve every output before publishing any; mapping errors never rerun the handler.
+    // Resolve every output before publishing any; middleware errors never rerun the handler.
     let mut mapped = Vec::with_capacity(outputs.len());
     for output in outputs {
-        match middleware
-            .iter()
-            .try_fold(output, |output, map| map.map(&input, output))
-        {
+        match middleware.iter().try_fold(output, |output, middleware| {
+            middleware.post_handler(&input, output)
+        }) {
             Ok(output) => mapped.push(output),
             Err(HandlerError::Reject(error)) => {
-                let error = error.context("rejected metadata mapping");
+                let error = error.context("rejected after the handler");
                 return dead_letter(delivery, input, dlq, pp, error).await;
             }
             Err(HandlerError::Retry(error) | HandlerError::Fatal(error)) => {
-                return Err(error.context("metadata mapping failed"));
+                return Err(error.context("post-handler middleware failed"));
             }
         }
     }

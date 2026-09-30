@@ -49,7 +49,11 @@ impl Default for KafkaInherit {
 }
 
 impl<I: 'static, O: 'static> Middleware<KafkaRecord<I>, KafkaPublish<O>> for KafkaInherit {
-    fn map(&self, input: &KafkaRecord<I>, mut output: KafkaPublish<O>) -> Result<KafkaPublish<O>> {
+    fn post_handler(
+        &self,
+        input: &KafkaRecord<I>,
+        mut output: KafkaPublish<O>,
+    ) -> Result<KafkaPublish<O>> {
         if self.key && output.key.is_none() {
             output.key.clone_from(&input.key);
         }

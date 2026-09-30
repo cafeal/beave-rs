@@ -1,4 +1,4 @@
-use beavers::{App, Emit, InMemorySink, IterSource, MapMetadata, Middleware, Subscription};
+use beavers::{App, Emit, Flow, InMemorySink, IterSource, MapMetadata, Middleware, Subscription};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -28,13 +28,25 @@ async fn middleware_runs_in_registration_order_with_the_original_input() {
 struct Negatives;
 
 impl Middleware<i32, i32> for Negatives {
-    fn intercept(&self, input: &i32) -> beavers::Result<Option<Emit<i32>>> {
-        Ok((*input < 0).then_some(Emit::One(0)))
+    fn pre_handler(&self, input: i32) -> beavers::Result<Flow<i32, i32>> {
+        Ok(if input < 0 {
+            Flow::Intercept(Emit::One(0))
+        } else {
+            Flow::Continue(input)
+        })
+    }
+}
+
+struct Double;
+
+impl Middleware<i32, i32> for Double {
+    fn pre_handler(&self, input: i32) -> beavers::Result<Flow<i32, i32>> {
+        Ok(Flow::Continue(input * 2))
     }
 }
 
 #[tokio::test]
-async fn intercepted_input_skips_the_handler_but_still_maps_outputs() {
+async fn intercepted_input_skips_the_handler_but_still_runs_post_handlers() {
     let sink = InMemorySink::default();
     let calls = Arc::new(AtomicUsize::new(0));
     let counter = calls.clone();
@@ -52,4 +64,26 @@ async fn intercepted_input_skips_the_handler_but_still_maps_outputs() {
         .unwrap();
     assert_eq!(sink.values(), vec![1, 21]);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn pre_handlers_transform_handler_input_while_post_handlers_see_the_decoded_input() {
+    let sink = InMemorySink::default();
+    App::new()
+        .subscription(
+            Subscription::new(
+                IterSource::new([3]),
+                sink.clone(),
+                |n: i32| async move { Ok(n) },
+            )
+            .middleware(Double)
+            .middleware(Double)
+            .middleware(MapMetadata::new(|input: &i32, output: i32| {
+                Ok(output * 100 + input)
+            })),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(sink.values(), vec![1203]);
 }

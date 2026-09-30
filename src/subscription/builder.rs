@@ -161,10 +161,9 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         self
     }
 
-    /// Typed post-handler output mapping, applied in registration order once per
-    /// emitted value, before any output is prepared or published.
-    pub fn middleware<M: Middleware<SourceItem<S>, O>>(mut self, map: M) -> Self {
-        self.middleware.push(Arc::new(map));
+    /// Registers middleware whose hooks run around the handler in registration order.
+    pub fn middleware<M: Middleware<SourceItem<S>, O>>(mut self, middleware: M) -> Self {
+        self.middleware.push(Arc::new(middleware));
         self
     }
 

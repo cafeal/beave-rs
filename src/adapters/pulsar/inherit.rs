@@ -53,7 +53,7 @@ impl Default for PulsarInherit {
 }
 
 impl<I: 'static, O: 'static> Middleware<PulsarRecord<I>, PulsarPublish<O>> for PulsarInherit {
-    fn map(
+    fn post_handler(
         &self,
         input: &PulsarRecord<I>,
         mut output: PulsarPublish<O>,

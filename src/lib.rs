@@ -30,7 +30,7 @@ pub use codec::{Decoder, Encoder, Json, RawBytes, Utf8};
 pub use forward::{SamePlatform, ValueRecord};
 pub use handler::{Emit, Handler, HandlerError, Result};
 pub use message::{Delivery, OrderingKey, SourceMessage};
-pub use middleware::{MapMetadata, Middleware};
+pub use middleware::{Flow, MapMetadata, Middleware};
 pub use retry::RetryPolicy;
 pub use shutdown::CancellationToken;
 pub use sink::Sink;
