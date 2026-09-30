@@ -44,7 +44,7 @@ pub use middleware::{Flow, MapMetadata, Middleware};
 pub use propagation::PropagationCarrier;
 pub use retry::{Jitter, RetryPolicy};
 pub use shutdown::CancellationToken;
-pub use sink::Sink;
+pub use sink::{Completion, Sink};
 pub use source::{Receive, ReceiveError, Source, SourceItem, SourceRaw};
 pub use subscription::{ProcessingOrder, Subscription, SubscriptionConfig};
 #[cfg(feature = "opentelemetry")]

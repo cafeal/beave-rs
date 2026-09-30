@@ -2,7 +2,7 @@
 use super::{
     builder::Subscription,
     instruments::Instruments,
-    processing::{Pipeline, process},
+    processing::{PendingAck, Pipeline, process},
     scheduler::Scheduler,
 };
 use crate::{
@@ -11,14 +11,17 @@ use crate::{
     sink::Sink,
     source::{Receive, ReceiveError, Source},
 };
-use std::{result::Result as StdResult, sync::Arc};
+use std::{future::Future, result::Result as StdResult, sync::Arc};
 use tokio::{
     task::{JoinError, JoinSet},
     time::{Instant, sleep_until, timeout},
 };
 use tracing::{Instrument, debug, error, info, info_span, warn};
 
-type Jobs = JoinSet<anyhow::Result<Option<OrderingKey>>>;
+/// A finished job's ordering key and the acknowledgement still waiting for its outputs.
+type Jobs = JoinSet<anyhow::Result<(Option<OrderingKey>, Option<PendingAck>)>>;
+/// Acknowledgements waiting for submitted outputs to complete, outside job slots.
+type Acks = JoinSet<anyhow::Result<()>>;
 
 impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     pub(crate) async fn run(self, shutdown: CancellationToken) -> anyhow::Result<()> {
@@ -49,6 +52,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         let max_in_flight = self.config.max_in_flight;
         let mut scheduler = Scheduler::new(self.config.ordering);
         let mut jobs = JoinSet::new();
+        let mut acks: Acks = JoinSet::new();
         let mut failure = None;
         let mut failures = 0;
         let mut next_receive = Instant::now();
@@ -61,19 +65,25 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             CancellationToken::new()
         };
         loop {
-            in_flight.set(scheduler.outstanding() as f64);
+            in_flight.set((scheduler.outstanding() + acks.len()) as f64);
             worker.start_ready(&mut jobs, &mut scheduler, concurrency);
             tokio::select! {
                 biased;
                 _ = stop.cancelled() => break,
                 result = jobs.join_next(), if !jobs.is_empty() => {
                     match flatten(result.unwrap()) {
-                        Ok(key) => scheduler.complete(key),
+                        Ok((key, pending)) => {
+                            scheduler.complete(key);
+                            if let Some(pending) = pending { acks.spawn(pending); }
+                        }
                         Err(error) => { failure = Some(error); shutdown.cancel(); break; }
                     }
                 }
+                result = acks.join_next(), if !acks.is_empty() => {
+                    if let Err(error) = flatten(result.unwrap()) { failure = Some(error); shutdown.cancel(); break; }
+                }
                 received = async { sleep_until(next_receive).await; self.source.receive().await },
-                    if jobs.len() < concurrency && scheduler.outstanding() < max_in_flight => {
+                    if jobs.len() < concurrency && scheduler.outstanding() + acks.len() < max_in_flight => {
                     match received {
                         Ok(Receive::End) => { ended = true; break; }
                         Ok(Receive::Message(delivery)) => {
@@ -106,24 +116,30 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                 if stop.is_cancelled() || failure.is_some() {
                     scheduler.discard_pending();
                 }
-                in_flight.set(scheduler.outstanding() as f64);
+                in_flight.set((scheduler.outstanding() + acks.len()) as f64);
                 worker.start_ready(&mut jobs, &mut scheduler, concurrency);
-                let Some(result) = jobs.join_next().await else {
-                    break;
+                let result = tokio::select! {
+                    Some(result) = jobs.join_next() => flatten(result).map(|(key, pending)| {
+                        scheduler.complete(key);
+                        if let Some(pending) = pending {
+                            acks.spawn(pending);
+                        }
+                    }),
+                    Some(result) = acks.join_next() => flatten(result),
+                    else => break,
                 };
-                match flatten(result) {
-                    Ok(key) => scheduler.complete(key),
-                    Err(error) => {
-                        failure.get_or_insert(error);
-                        shutdown.cancel();
-                    }
+                if let Err(error) = result {
+                    failure.get_or_insert(error);
+                    shutdown.cancel();
                 }
             }
         })
         .await;
         if drained.is_err() {
             jobs.abort_all();
+            acks.abort_all();
             while jobs.join_next().await.is_some() {}
+            while acks.join_next().await.is_some() {}
             failure.get_or_insert_with(|| {
                 anyhow::anyhow!("drain timeout; unfinished deliveries were not acknowledged")
             });
@@ -193,27 +209,51 @@ where
             crate::telemetry::set_remote_parent(&span, &delivery.propagation_fields());
             let pipeline = self.pipeline.clone();
             let processing = process(delivery, pipeline.clone());
+            let span_for_ack = span.clone();
             let job = async move {
-                let Some(revoked) = revocation else {
-                    return processing.await.map(|()| key);
-                };
-                // A revoked delivery belongs to another consumer now. Its outcome,
-                // including an ACK rejected because of the revocation, is not a failure.
-                tokio::select! {
-                    biased;
-                    _ = revoked.cancelled() => {}
-                    result = processing => match result {
-                        Err(_) if revoked.is_cancelled() => {}
-                        result => return result.map(|()| key),
-                    },
-                }
-                pipeline.instruments.revoked.increment(1);
-                debug!("abandoned revoked delivery");
-                Ok(key)
+                let pending = abandon_on_revocation(processing, revocation.clone(), &pipeline)
+                    .await?
+                    .flatten();
+                // The acknowledgement after completion can still be revoked.
+                let pending = pending.map(|pending| -> PendingAck {
+                    Box::pin(
+                        async move {
+                            abandon_on_revocation(pending, revocation, &pipeline)
+                                .await
+                                .map(|_| ())
+                        }
+                        .instrument(span_for_ack),
+                    )
+                });
+                Ok((key, pending))
             };
             jobs.spawn(job.instrument(span));
         }
     }
+}
+
+/// Runs `work` unless the delivery is revoked first. A revoked delivery belongs to
+/// another consumer now; its outcome, including an ACK rejected because of the
+/// revocation, is not a failure. Returns `None` when the work was abandoned.
+async fn abandon_on_revocation<T, I, R, O, K>(
+    work: impl Future<Output = anyhow::Result<T>>,
+    revocation: Option<CancellationToken>,
+    pipeline: &Pipeline<I, R, O, K>,
+) -> anyhow::Result<Option<T>> {
+    let Some(revoked) = revocation else {
+        return work.await.map(Some);
+    };
+    tokio::select! {
+        biased;
+        _ = revoked.cancelled() => {}
+        result = work => match result {
+            Err(_) if revoked.is_cancelled() => {}
+            result => return result.map(Some),
+        },
+    }
+    pipeline.instruments.revoked.increment(1);
+    debug!("abandoned revoked delivery");
+    Ok(None)
 }
 
 fn flatten<T>(result: StdResult<anyhow::Result<T>, JoinError>) -> anyhow::Result<T> {

@@ -33,46 +33,51 @@ instead, use the [application ends](#application-ends).
 
 ## Delivery and completion
 
-A publication to `ChannelSink` succeeds only after the downstream subscription has
-acknowledged the value: all of its outputs were published, or its error
-policy dead-lettered or discarded the value. The upstream subscription
-acknowledges its own delivery after that, so a process failure at any point
-before the final stage completes leaves the original broker delivery
-unacknowledged and it is redelivered. Delivery remains at-least-once: a value
-the downstream stage already published can be published again after
-redelivery.
+A subscription publishing to a `ChannelSink` submits each output: the job ends
+and frees its concurrency slot as soon as the value is enqueued, while the
+input stays unacknowledged. The upstream subscription acknowledges its delivery
+only after the downstream subscription has acknowledged the value: all of its
+outputs were published, or its error policy dead-lettered or discarded the
+value. A process failure at any point before the final stage completes leaves
+the original broker delivery unacknowledged and it is redelivered. Delivery
+remains at-least-once: a value the downstream stage already published can be
+published again after redelivery.
 
 When the downstream subscription stops without acknowledging a value, for
-example after a fatal handler error, the upstream publication fails and follows
-the upstream publish retry policy.
+example after a fatal handler error, the upstream completion fails and the
+upstream subscription stops without acknowledging the input.
 
-An upstream job holds its concurrency slot and its `max_in_flight` entry until
-the downstream stage finishes, so the upstream limits bound the work in flight
-across the whole chain. Size the upstream `concurrency` for the number of values
-that should be in flight end to end, and the downstream `concurrency` or
-`BlockingPool` for the work that stage can run in parallel. The channel capacity
-bounds values waiting to be received by the downstream subscription.
+| Limit | Bounds |
+|---|---|
+| Upstream `concurrency` | Upstream handler jobs running at once |
+| Channel capacity | Finished values waiting for the downstream subscription; a job waits for space before it ends |
+| Upstream `max_in_flight` | Upstream deliveries not yet acknowledged, including those whose values wait in the channel or run downstream |
+| Downstream `concurrency` or `BlockingPool` | Work the downstream stage runs in parallel |
+
+Upstream work therefore runs ahead of the downstream stage by up to the
+channel capacity, independently of its own concurrency, and the upstream
+`max_in_flight` bounds the work in flight across the whole chain.
 
 Outputs of one upstream delivery, including each value of `Emit::Many`, are
-sent one at a time. Because an upstream key's delivery does not finish before
-the downstream stage does, `ProcessingOrder::PerKey` upstream also keeps the
-downstream processing of one key in order. Linked deliveries carry no ordering
-key of their own.
+enqueued in order, and the delivery is acknowledged after all of them complete.
+With `ProcessingOrder::PerKey`, the next delivery of a key starts once the
+previous one has enqueued its outputs, so values of one key enter the channel in
+order. Channel deliveries carry no ordering key of their own.
 
 ## Revocation
 
-When the upstream publication is dropped before the downstream stage completes
-it, the channel delivery is revoked: the downstream runtime abandons it without
+When the upstream subscription stops waiting before the downstream stage
+completes the value, the channel delivery is revoked: the downstream runtime abandons it without
 ACK and without a failure, and a value still buffered in the channel is skipped.
 This happens when the upstream delivery is revoked, for example by a Kafka
-partition revocation, or when the upstream drain timeout cancels its job. The
+partition revocation, or when the upstream drain timeout cancels its wait. The
 upstream delivery is redelivered to its new owner.
 
 ## Shutdown
 
 Application shutdown does not stop a `ChannelSource` subscription from receiving.
-The upstream subscription stops receiving and drains its running jobs, which
-wait for the downstream stage. After the upstream subscription finishes it
+The upstream subscription stops receiving and drains its running jobs and the
+acknowledgements waiting for the downstream stage. After the upstream subscription finishes it
 closes its `ChannelSink`, and the downstream subscription receives
 `Receive::End` once every sink clone is closed or dropped and the buffered
 values have been received, then drains and stops. In-flight values therefore complete end to end within the upstream
@@ -128,9 +133,10 @@ async fn main() -> anyhow::Result<()> {
 
 A subscription publishing to a `ChannelSink::bounded` sink acknowledges its
 input only after application code takes the output with `recv`, so a process
-failure before then leaves the input unacknowledged. Each waiting job holds an
-upstream concurrency slot, so upstream work runs ahead of `recv` by at most its
-`concurrency`. Dropping the receiver fails publications still waiting for it.
+failure before then leaves the input unacknowledged. As with a downstream
+subscription, upstream work runs ahead of `recv` by up to the channel capacity
+and its `max_in_flight`. Dropping the receiver fails the completions of values
+still waiting for it, which stops the upstream subscription.
 `ChannelReceiver::recv` returns `None` after every sink clone is closed or
 dropped and the buffer is empty.
 

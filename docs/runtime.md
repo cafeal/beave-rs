@@ -113,7 +113,7 @@ configuration and acknowledgement semantics.
 ## Per-message lifecycle
 
 ```text
-receive → decode → pre_handler → handler → post_handler → prepare all outputs → publish → ACK
+receive → decode → pre_handler → handler → post_handler → prepare all outputs → submit → complete → ACK
 ```
 
 Use `Subscription::new_emitting` to register a handler returning
@@ -123,6 +123,17 @@ are published sequentially and the input is acknowledged only after all succeed.
 With no outputs, successful processing can proceed directly to ACK.
 
 Decode and preparation failures follow the [error policy](#error-policy).
+
+`Sink::submit` hands an output to the sink and returns a `Completion` once the
+sink has accepted it. Most sinks complete at submission. A sink whose
+acceptance precedes its acknowledgement boundary, such as a
+[channel](adapters/channel.md) drained by another subscription, returns a
+pending completion: the job ends and frees its concurrency slot, and the
+delivery is acknowledged after every completion succeeds. Deliveries waiting
+for completion still count toward `max_in_flight`, are abandoned without ACK
+when revoked, and are drained on shutdown. A failed completion stops the
+subscription without acknowledging the delivery. Publish retries apply to
+submission only.
 
 ## Middleware
 
@@ -462,7 +473,7 @@ Every metric carries a `subscription` label with the subscription name.
 | `beavers_receive_errors_total` | counter | | Failed receive attempts |
 | `beavers_deliveries_revoked_total` | counter | | Deliveries abandoned after revocation |
 | `beavers_deliveries_in_flight` | gauge | | Received deliveries that have not finished |
-| `beavers_stage_duration_seconds` | histogram | `stage` | Duration of `decode`, `handler`, `encode`, `publish`, `dead_letter`, and `ack` |
+| `beavers_stage_duration_seconds` | histogram | `stage` | Duration of `decode`, `handler`, `encode`, `publish`, `complete`, `dead_letter`, and `ack` |
 
 `failure` is `decode`, `rejected`, `retry_exhausted`, or `encode`. `action` is
 `stop`, `dead_letter`, or `discard`; a `DeadLetter` action without a

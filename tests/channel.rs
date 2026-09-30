@@ -1,6 +1,7 @@
 use beavers::{
-    App, CancellationToken, ChannelSink, ChannelSource, Delivery, HandlerError, InMemorySink,
-    IterSource, Receive, ReceiveError, Sink, Source, SourceMessage, blocking, channel,
+    App, CancellationToken, ChannelSink, ChannelSource, Completion, Delivery, HandlerError,
+    InMemorySink, IterSource, Receive, ReceiveError, Sink, Source, SourceMessage, Subscription,
+    blocking, channel,
 };
 use std::{
     collections::VecDeque,
@@ -429,4 +430,79 @@ async fn application_fed_source_stops_on_shutdown() {
     shutdown.cancel();
     run.await.unwrap().unwrap();
     drop(sender);
+}
+
+async fn run_ahead(capacity: usize, max_in_flight: usize) -> (usize, usize) {
+    let source = IterSource::new(0..10);
+    let acks = source.acknowledgements();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (sink, mut results) = ChannelSink::bounded(capacity);
+    let counted = calls.clone();
+    let run = tokio::spawn(
+        App::new()
+            .subscription(
+                Subscription::new("ahead", source, sink, move |n: i32| {
+                    counted.fetch_add(1, Ordering::SeqCst);
+                    async move { Ok(n) }
+                })
+                .max_in_flight(max_in_flight),
+            )
+            .run_until(CancellationToken::new()),
+    );
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let ahead = calls.load(Ordering::SeqCst);
+    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    for expected in 0..10 {
+        assert_eq!(results.recv().await, Some(expected));
+    }
+    run.await.unwrap().unwrap();
+    assert_eq!(acks.load(Ordering::SeqCst), 10);
+    (ahead, calls.load(Ordering::SeqCst))
+}
+
+#[tokio::test]
+async fn enqueued_outputs_free_the_job_slot_until_capacity() {
+    // Three values fill the channel; the fourth finished its handler and waits for space.
+    assert_eq!(run_ahead(3, 64).await, (4, 10));
+}
+
+#[tokio::test]
+async fn unacknowledged_outputs_count_toward_max_in_flight() {
+    assert_eq!(run_ahead(8, 2).await, (2, 10));
+}
+
+struct FailingCompletion;
+
+impl Sink<i32> for FailingCompletion {
+    type Prepared = i32;
+
+    fn prepare(&self, value: i32) -> anyhow::Result<i32> {
+        Ok(value)
+    }
+
+    async fn publish(&self, output: &i32) -> anyhow::Result<()> {
+        self.submit(output).await?.wait().await
+    }
+
+    async fn submit(&self, _: &i32) -> anyhow::Result<Completion> {
+        Ok(Completion::pending(async { anyhow::bail!("lost") }))
+    }
+}
+
+#[tokio::test]
+async fn failed_completion_stops_without_ack() {
+    let source = IterSource::new([1]);
+    let acks = source.acknowledgements();
+    let result = App::new()
+        .subscribe(
+            "lost",
+            source,
+            FailingCompletion,
+            |n: i32| async move { Ok(n) },
+        )
+        .run_until(CancellationToken::new())
+        .await;
+    let error = format!("{:#}", result.unwrap_err());
+    assert!(error.contains("output completion failed"), "{error}");
+    assert_eq!(acks.load(Ordering::SeqCst), 0);
 }

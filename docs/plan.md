@@ -92,6 +92,11 @@ state across rebalances.
   `App`, since an unregistered upstream leaves the downstream subscription
   waiting for `Receive::End` during shutdown.
 
+Broker sinks complete at submission today. The Kafka sink could return from
+`submit` once the producer has queued the record and complete on its delivery
+report, pipelining publication without holding job slots. This needs a policy
+for delivery-report failures, which currently stop the subscription.
+
 Upstream revocation and redelivery through a channel are covered by local tests
 only. Verify with Kafka that a partition revocation during a downstream stage
 abandons the downstream work and that the next owner reprocesses it.

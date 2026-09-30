@@ -17,15 +17,17 @@ pub(super) enum Stage {
     Handler,
     Encode,
     Publish,
+    Complete,
     DeadLetter,
     Ack,
 }
 
-const STAGES: [Stage; 6] = [
+const STAGES: [Stage; 7] = [
     Stage::Decode,
     Stage::Handler,
     Stage::Encode,
     Stage::Publish,
+    Stage::Complete,
     Stage::DeadLetter,
     Stage::Ack,
 ];
@@ -37,6 +39,7 @@ impl Stage {
             Self::Handler => "handler",
             Self::Encode => "encode",
             Self::Publish => "publish",
+            Self::Complete => "complete",
             Self::DeadLetter => "dead_letter",
             Self::Ack => "ack",
         }
@@ -53,7 +56,7 @@ pub(super) struct Instruments {
     pub(super) dead_letter_publish_failures: Counter,
     pub(super) in_flight: Gauge,
     failures: [Counter; 4],
-    stages: [Histogram; 6],
+    stages: [Histogram; 7],
 }
 
 impl Instruments {

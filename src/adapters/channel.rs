@@ -30,7 +30,7 @@
 use crate::{
     message::Delivery,
     shutdown::CancellationToken,
-    sink::Sink,
+    sink::{Completion, Sink},
     source::{Receive, ReceiveError, Source},
 };
 use std::sync::{Mutex, PoisonError};
@@ -77,45 +77,42 @@ pub fn channel<T>(capacity: usize) -> (ChannelSink<T>, ChannelSource<T>) {
     )
 }
 
-/// Enqueues a value for a downstream subscription and, when `wait` is set, waits
-/// until that subscription acknowledges it.
-async fn hand_off<T>(sender: &mpsc::Sender<Queued<T>>, value: T, wait: bool) -> anyhow::Result<()> {
-    // Reserve first: cancellation while waiting for capacity never enqueues a value.
+/// Enqueues a value, waiting for capacity, and returns the completion that resolves
+/// when the receiving end takes responsibility for it. Dropping the completion before
+/// then abandons the value. Cancellation while waiting for capacity never enqueues it.
+async fn enqueue<T>(sender: &mpsc::Sender<Queued<T>>, value: T) -> anyhow::Result<Completion> {
     let permit = sender
         .reserve()
         .await
-        .map_err(|_| anyhow::anyhow!("channel downstream subscription has stopped"))?;
+        .map_err(|_| anyhow::anyhow!("channel receiving end has stopped"))?;
     let (done, completed) = oneshot::channel();
     let abandoned = CancellationToken::new();
-    if !wait {
-        permit.send(Queued {
-            value,
-            done,
-            abandoned,
-        });
-        return Ok(());
-    }
     let guard = AbandonOnDrop(Some(abandoned.clone()));
     permit.send(Queued {
         value,
         done,
         abandoned,
     });
-    let result = completed.await;
-    guard.disarm();
-    result.map_err(|_| {
-        anyhow::anyhow!("channel downstream subscription stopped before acknowledging the value")
-    })
+    Ok(Completion::pending(async move {
+        let result = completed.await;
+        guard.disarm();
+        result.map_err(|_| {
+            anyhow::anyhow!(
+                "channel receiving end stopped before taking responsibility for the value"
+            )
+        })
+    }))
 }
 
 /// Upstream end of a channel, used as a subscription's sink.
 ///
-/// Publication succeeds once the receiving end has taken responsibility for the
+/// A subscription publishing here frees its job slot once the value is enqueued and
+/// acknowledges its input once the receiving end has taken responsibility for the
 /// value. Created by [`channel`], that is when the downstream subscription
 /// acknowledges it: its outputs were published, or its error policy dead-lettered or
 /// discarded it. Created by [`ChannelSink::bounded`], that is when application code
 /// takes it from the [`ChannelReceiver`]. Until then the upstream delivery stays
-/// unacknowledged.
+/// unacknowledged. Calling [`Sink::publish`] directly waits for both steps.
 ///
 /// Each clone is an independent sender with its own close state, so several
 /// subscriptions can feed one channel. The receiving end ends once every clone has
@@ -162,10 +159,16 @@ impl<T: Clone + Send + Sync + 'static> Sink<T> for ChannelSink<T> {
     }
 
     async fn publish(&self, output: &T) -> anyhow::Result<()> {
+        self.submit(output).await?.wait().await
+    }
+
+    /// Returns once the value is enqueued. The completion resolves when the
+    /// receiving end takes responsibility for it.
+    async fn submit(&self, output: &T) -> anyhow::Result<Completion> {
         let sender = self
             .sender()
             .ok_or_else(|| anyhow::anyhow!("channel sink is closed"))?;
-        hand_off(&sender, output.clone(), true).await
+        enqueue(&sender, output.clone()).await
     }
 
     /// Rejects later publications from this clone. The receiving end ends after every
@@ -225,14 +228,26 @@ impl<T> ChannelSender<T> {
     /// Enqueue a value, waiting for capacity. Returns once the value is buffered.
     /// Cancellation while waiting for capacity never enqueues it.
     pub async fn send(&self, value: T) -> anyhow::Result<()> {
-        hand_off(&self.sender, value, false).await
+        let permit = self
+            .sender
+            .reserve()
+            .await
+            .map_err(|_| anyhow::anyhow!("channel receiving end has stopped"))?;
+        // Nobody waits for completion, so the value can never be abandoned.
+        let (done, _) = oneshot::channel();
+        permit.send(Queued {
+            value,
+            done,
+            abandoned: CancellationToken::new(),
+        });
+        Ok(())
     }
 
     /// Enqueue a value and wait until the subscription acknowledges it: its outputs
     /// were published, or its error policy dead-lettered or discarded it. Dropping the
     /// returned future after the value was enqueued abandons the delivery.
     pub async fn send_and_wait(&self, value: T) -> anyhow::Result<()> {
-        hand_off(&self.sender, value, true).await
+        enqueue(&self.sender, value).await?.wait().await
     }
 }
 

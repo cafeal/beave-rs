@@ -1,6 +1,6 @@
 //! One delivery: decode, middleware, handler retries, publishing, failure routing, then ACK.
 use super::{
-    builder::{BoxHandler, DeadLetterRoute, Mapper},
+    builder::{BoxFuture, BoxHandler, DeadLetterRoute, Mapper},
     instruments::{Instruments, Stage},
 };
 use crate::{
@@ -10,7 +10,7 @@ use crate::{
     message::SourceMessage,
     middleware::Flow,
     retry::RetryPolicy,
-    sink::Sink,
+    sink::{Completion, Sink},
 };
 use metrics::Counter;
 use std::{future::Future, sync::Arc, time::Instant};
@@ -30,6 +30,16 @@ pub(super) struct Pipeline<I, R, O, K> {
     pub(super) instruments: Instruments,
 }
 
+/// Waits for submitted outputs to complete, then acknowledges the delivery.
+pub(super) type PendingAck = BoxFuture<anyhow::Result<()>>;
+
+/// Result of running the handler for one input.
+enum Handled<I> {
+    /// Every output was submitted; the delivery may be acknowledged once they complete.
+    Submitted(Vec<Completion>),
+    Failed(Failure<I>),
+}
+
 /// A routable failure; `input` is absent only when decoding failed.
 struct Failure<I> {
     kind: FailureKind,
@@ -38,10 +48,12 @@ struct Failure<I> {
     input: Option<I>,
 }
 
+/// Processes one delivery. Returns the acknowledgement still waiting for submitted
+/// outputs to complete, if any; otherwise the delivery was already settled.
 pub(super) async fn process<M, O, K>(
     delivery: M,
     pipeline: Arc<Pipeline<M::Item, M::Raw, O, K>>,
-) -> anyhow::Result<()>
+) -> anyhow::Result<Option<PendingAck>>
 where
     M: SourceMessage,
     O: Send + Sync + 'static,
@@ -52,17 +64,39 @@ where
     pipeline.instruments.record(Stage::Decode, started);
     let outcome = match decoded {
         Ok(input) => handle(input, &pipeline).await?,
-        Err(error) => Some(Failure {
+        Err(error) => Handled::Failed(Failure {
             kind: FailureKind::Decode,
             error,
             attempts: 0,
             input: None,
         }),
     };
-    match outcome {
-        None => acknowledge(delivery, &pipeline.instruments).await,
-        Some(failure) => route(delivery, &pipeline, failure).await,
+    let completions = match outcome {
+        Handled::Submitted(completions) => completions,
+        Handled::Failed(failure) => {
+            return route(delivery, &pipeline, failure).await.map(|()| None);
+        }
+    };
+    if completions.iter().all(Completion::is_done) {
+        return acknowledge(delivery, &pipeline.instruments)
+            .await
+            .map(|()| None);
     }
+    // The job ends here and frees its slot; the acknowledgement follows completion.
+    Ok(Some(Box::pin(async move {
+        let started = Instant::now();
+        async {
+            for completion in completions {
+                completion.wait().await?;
+            }
+            anyhow::Ok(())
+        }
+        .instrument(info_span!("complete"))
+        .await
+        .map_err(|error| error.context("output completion failed"))?;
+        pipeline.instruments.record(Stage::Complete, started);
+        acknowledge(delivery, &pipeline.instruments).await
+    })))
 }
 
 async fn acknowledge<M: SourceMessage>(
@@ -76,11 +110,7 @@ async fn acknowledge<M: SourceMessage>(
     Ok(())
 }
 
-/// Returns `Ok(None)` when every output was published and the delivery may be acknowledged.
-async fn handle<I, R, O, K>(
-    input: I,
-    pipeline: &Pipeline<I, R, O, K>,
-) -> anyhow::Result<Option<Failure<I>>>
+async fn handle<I, R, O, K>(input: I, pipeline: &Pipeline<I, R, O, K>) -> anyhow::Result<Handled<I>>
 where
     I: Clone + 'static,
     O: Send + Sync + 'static,
@@ -94,7 +124,7 @@ where
         flow = match middleware.pre_handler(value) {
             Ok(next) => next,
             Err(HandlerError::Reject(error)) => {
-                return Ok(Some(Failure {
+                return Ok(Handled::Failed(Failure {
                     kind: FailureKind::Rejected,
                     error: error.context("rejected before the handler"),
                     attempts: 0,
@@ -137,7 +167,7 @@ where
             Err(HandlerError::Reject(error)) => (FailureKind::Rejected, error),
             Err(HandlerError::Fatal(error)) => return Err(error.context("fatal handler error")),
         };
-        return Ok(Some(Failure {
+        return Ok(Handled::Failed(Failure {
             kind,
             error,
             attempts,
@@ -147,13 +177,13 @@ where
     finish(outputs, input, attempts, pipeline).await
 }
 
-/// Runs post-handler hooks, then prepares and publishes every output.
+/// Runs post-handler hooks, then prepares and submits every output.
 async fn finish<I, R, O, K>(
     outputs: Vec<O>,
     input: I,
     attempts: usize,
     pipeline: &Pipeline<I, R, O, K>,
-) -> anyhow::Result<Option<Failure<I>>>
+) -> anyhow::Result<Handled<I>>
 where
     I: 'static,
     O: Send + Sync + 'static,
@@ -170,7 +200,7 @@ where
             }) {
             Ok(output) => mapped.push(output),
             Err(HandlerError::Reject(error)) => {
-                return Ok(Some(Failure {
+                return Ok(Handled::Failed(Failure {
                     kind: FailureKind::Rejected,
                     error: error.context("rejected after the handler"),
                     attempts,
@@ -194,7 +224,7 @@ where
     let outputs = match prepared {
         Ok(outputs) => outputs,
         Err(error) => {
-            return Ok(Some(Failure {
+            return Ok(Handled::Failed(Failure {
                 kind: FailureKind::Encode,
                 error,
                 attempts,
@@ -204,19 +234,22 @@ where
     };
     let started = Instant::now();
     let failures = &pipeline.instruments.publish_failures;
-    async {
+    let completions = async {
+        let mut completions = Vec::with_capacity(outputs.len());
         for output in &outputs {
-            retry_publish(&pipeline.publish_retry, failures, || {
-                pipeline.sink.publish(output)
-            })
-            .await?;
+            completions.push(
+                retry_publish(&pipeline.publish_retry, failures, || {
+                    pipeline.sink.submit(output)
+                })
+                .await?,
+            );
         }
-        anyhow::Ok(())
+        anyhow::Ok(completions)
     }
     .instrument(info_span!("publish", outputs = outputs.len()))
     .await?;
     pipeline.instruments.record(Stage::Publish, started);
-    Ok(None)
+    Ok(Handled::Submitted(completions))
 }
 
 async fn route<M, O, K>(
@@ -281,14 +314,14 @@ where
     }
 }
 
-pub(super) async fn retry_publish<F, Fut>(
+pub(super) async fn retry_publish<T, F, Fut>(
     policy: &RetryPolicy,
     failures: &Counter,
     mut publish: F,
-) -> anyhow::Result<()>
+) -> anyhow::Result<T>
 where
     F: FnMut() -> Fut,
-    Fut: Future<Output = anyhow::Result<()>>,
+    Fut: Future<Output = anyhow::Result<T>>,
 {
     let mut attempt = 1;
     loop {
@@ -297,7 +330,7 @@ where
             failures.increment(1);
         }
         match result {
-            Ok(()) => return Ok(()),
+            Ok(value) => return Ok(value),
             Err(error) if attempt >= policy.max_attempts => {
                 return Err(error.context("publish retry exhausted"));
             }
