@@ -1,5 +1,6 @@
 //! Subscription construction, configuration, and execution.
 mod builder;
+mod completion;
 mod config;
 mod instruments;
 mod processing;

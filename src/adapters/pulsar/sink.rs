@@ -1,36 +1,88 @@
-use super::{config::PulsarSinkConfig, record::PulsarPublish};
-use crate::{codec::Encoder, sink::Sink};
-use pulsar::{
-    Pulsar, TokioExecutor,
-    producer::{Message as ProducerMessage, Producer},
+use super::{
+    config::PulsarSinkConfig, producer::Producers, record::PulsarPublish,
+    transaction::PulsarTransactionalSink,
 };
+use crate::{codec::Encoder, sink::Sink};
 use std::{
     collections::HashMap,
     marker::PhantomData,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
-use tokio::sync::Mutex;
+use tokio::sync::{OwnedRwLockReadGuard, RwLock};
 
 /// Encoded Pulsar output. Clones can be retried without rerunning the codec.
 #[derive(Clone, Debug, Default)]
 pub struct PulsarPrepared {
-    pub payload: Vec<u8>,
+    /// `None` publishes a null value.
+    pub value: Option<Vec<u8>>,
     pub properties: HashMap<String, String>,
     pub key: Option<Vec<u8>>,
     pub ordering_key: Option<Vec<u8>>,
     pub event_time: Option<u64>,
 }
 
-struct SinkState {
-    producer: Option<Producer<TokioExecutor>>,
+/// The lazily connected producers and closure state of a sink.
+pub(super) struct Connection {
+    config: PulsarSinkConfig,
+    producers: Arc<RwLock<Option<Producers>>>,
+    closed: AtomicBool,
+}
+
+impl Connection {
+    pub(super) fn new(config: PulsarSinkConfig) -> Self {
+        Self {
+            config,
+            producers: Arc::new(RwLock::new(None)),
+            closed: AtomicBool::new(false),
+        }
+    }
+
+    pub(super) fn config(&self) -> &PulsarSinkConfig {
+        &self.config
+    }
+
+    /// Connects on first use. The returned guard keeps `close` waiting until
+    /// the publication that holds it has finished.
+    pub(super) async fn producers(
+        &self,
+    ) -> anyhow::Result<OwnedRwLockReadGuard<Option<Producers>, Producers>> {
+        loop {
+            let producers = self.producers.clone().read_owned().await;
+            anyhow::ensure!(
+                !self.closed.load(Ordering::Acquire),
+                "Pulsar sink is closed"
+            );
+            if let Ok(producers) = OwnedRwLockReadGuard::try_map(producers, Option::as_ref) {
+                return Ok(producers);
+            }
+            let mut producers = self.producers.write().await;
+            anyhow::ensure!(
+                !self.closed.load(Ordering::Acquire),
+                "Pulsar sink is closed"
+            );
+            if producers.is_none() {
+                *producers = Some(Producers::connect(&self.config).await?);
+            }
+        }
+    }
+
+    pub(super) async fn close(&self) -> anyhow::Result<()> {
+        self.closed.store(true, Ordering::Release);
+        let producers = self.producers.write().await.take();
+        match producers {
+            Some(producers) => producers.close().await,
+            None => Ok(()),
+        }
+    }
 }
 
 /// Publishes prepared messages and waits for the Pulsar broker receipt.
 pub struct PulsarSink<C, T> {
-    config: PulsarSinkConfig,
-    codec: C,
-    state: Mutex<SinkState>,
-    closed: AtomicBool,
+    connection: Connection,
+    codec: Arc<C>,
     marker: PhantomData<fn(T)>,
 }
 
@@ -43,26 +95,20 @@ impl<C: Default, T> PulsarSink<C, T> {
 impl<C, T> PulsarSink<C, T> {
     pub fn with_codec(config: PulsarSinkConfig, codec: C) -> Self {
         Self {
-            config,
-            codec,
-            state: Mutex::new(SinkState { producer: None }),
-            closed: AtomicBool::new(false),
+            connection: Connection::new(config),
+            codec: Arc::new(codec),
             marker: PhantomData,
         }
     }
 
-    async fn connect(&self) -> anyhow::Result<Producer<TokioExecutor>> {
-        self.config.validate()?;
-        let mut builder = Pulsar::builder(&self.config.service_url, TokioExecutor);
-        if let Some(auth) = &self.config.authentication {
-            builder = builder.with_auth(auth.provider());
-        }
-        let client: Pulsar<_> = builder.build().await?;
-        let mut producer = client.producer().with_topic(&self.config.topic);
-        if let Some(name) = &self.config.producer_name {
-            producer = producer.with_name(name);
-        }
-        Ok(producer.build().await?)
+    /// Converts this sink into one that publishes in Pulsar transactions.
+    ///
+    /// Register the result with
+    /// [`Subscription::transactional`](crate::Subscription::transactional)
+    /// for exactly-once processing behind a `PulsarSource`. The broker must
+    /// run with `transactionCoordinatorEnabled=true`.
+    pub fn transactional(self) -> PulsarTransactionalSink<C, T> {
+        PulsarTransactionalSink::new(self.connection, self.codec)
     }
 }
 
@@ -70,90 +116,32 @@ impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarS
     type Prepared = PulsarPrepared;
 
     fn prepare(&self, output: PulsarPublish<T>) -> anyhow::Result<Self::Prepared> {
-        Ok(PulsarPrepared {
-            // A null value is published as an empty payload, which topic
-            // compaction treats as deleting the key.
-            payload: output
-                .value
-                .as_ref()
-                .map(|value| self.codec.encode(value))
-                .transpose()?
-                .unwrap_or_default(),
-            properties: output.properties,
-            key: output.key,
-            ordering_key: output.ordering_key,
-            event_time: output.event_time,
-        })
+        prepare(&*self.codec, output)
     }
 
     async fn publish(&self, output: &Self::Prepared) -> anyhow::Result<()> {
-        let mut state = self.state.lock().await;
-        anyhow::ensure!(
-            !self.closed.load(Ordering::Acquire),
-            "Pulsar sink is closed"
-        );
-        if state.producer.is_none() {
-            state.producer = Some(self.connect().await?);
-        }
-        let message = ProducerMessage {
-            payload: output.payload.clone(),
-            properties: output.properties.clone(),
-            partition_key: output.key.as_ref().map(|key| base64_encode(key)),
-            partition_key_b64_encoded: output.key.as_ref().map(|_| true),
-            ordering_key: output.ordering_key.clone(),
-            event_time: output.event_time,
-            ..Default::default()
-        };
-        let receipt = state
-            .producer
-            .as_mut()
-            .expect("connected producer")
-            .send_non_blocking(message)
-            .await?;
-        receipt.await?;
-        Ok(())
+        let producers = self.connection.producers().await?;
+        producers.route(output).send(output, None).await
     }
 
     async fn close(&self) -> anyhow::Result<()> {
-        self.closed.store(true, Ordering::Release);
-        if let Some(mut producer) = self.state.lock().await.producer.take() {
-            producer.close().await?;
-        }
-        Ok(())
+        self.connection.close().await
     }
 }
 
-fn base64_encode(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut output = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let bits = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        output.push(TABLE[((bits >> 18) & 63) as usize] as char);
-        output.push(TABLE[((bits >> 12) & 63) as usize] as char);
-        output.push(if chunk.len() > 1 {
-            TABLE[((bits >> 6) & 63) as usize] as char
-        } else {
-            '='
-        });
-        output.push(if chunk.len() > 2 {
-            TABLE[(bits & 63) as usize] as char
-        } else {
-            '='
-        });
-    }
-    output
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn binary_keys_use_pulsars_base64_representation() {
-        assert_eq!(base64_encode(&[0, 1, 2, 253, 254, 255]), "AAEC/f7/");
-        assert_eq!(base64_encode(b"a"), "YQ==");
-        assert_eq!(base64_encode(b"ab"), "YWI=");
-    }
+pub(super) fn prepare<C: Encoder<T>, T>(
+    codec: &C,
+    output: PulsarPublish<T>,
+) -> anyhow::Result<PulsarPrepared> {
+    Ok(PulsarPrepared {
+        value: output
+            .value
+            .as_ref()
+            .map(|value| codec.encode(value))
+            .transpose()?,
+        properties: output.properties,
+        key: output.key,
+        ordering_key: output.ordering_key,
+        event_time: output.event_time,
+    })
 }

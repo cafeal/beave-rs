@@ -14,7 +14,9 @@ types are also re-exported at the crate root.
 | `StdoutSink<C>` | Line-delimited output | JSON output, files, pipes |
 | `ChannelSource<T>` / `ChannelSink<T>` | Chained subscriptions and application ends | Pipeline stages whose upstream ACK waits for the downstream stage; in-process workers fed and read by application code |
 | `KafkaSource<C, T>` / `KafkaSink<C, T>` | Kafka records and publishes | Durable broker pipelines (`kafka` feature) |
+| `KafkaTransactionalSink<C, T>` | Kafka publishes in producer transactions | Exactly-once Kafka-to-Kafka pipelines (`kafka` feature) |
 | `PulsarSource<C, T>` / `PulsarSink<C, T>` | Pulsar records and publishes | Durable broker pipelines (`pulsar` feature) |
+| `PulsarTransactionalSink<C, T>` | Pulsar publishes in transactions | Exactly-once Pulsar-to-Pulsar pipelines (`pulsar` feature) |
 
 NATS JetStream and SQS are [planned](plan.md#implementation-order). Local and
 channel adapters do not provide durable delivery guarantees.

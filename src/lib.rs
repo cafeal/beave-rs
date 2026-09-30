@@ -23,6 +23,7 @@ pub mod subscription;
 #[cfg(feature = "opentelemetry")]
 pub mod telemetry;
 pub mod tombstone;
+pub mod transaction;
 
 pub use adapters::{
     ChannelReceiver, ChannelSender, ChannelSink, ChannelSource, InMemorySink, IterSource,
@@ -50,3 +51,4 @@ pub use subscription::{ProcessingOrder, Subscription, SubscriptionConfig};
 #[cfg(feature = "opentelemetry")]
 pub use telemetry::TraceContext;
 pub use tombstone::{PropagateTombstones, TombstonePublish, TombstoneRecord, Tombstones};
+pub use transaction::TransactionalSink;

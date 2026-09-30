@@ -1,9 +1,20 @@
-use pulsar::SubType;
+use bytes::Bytes;
+use magnetar::proto::{AuthError, AuthProvider, pb::command_subscribe::SubType};
+use std::{fmt, sync::Arc, time::Duration};
 
-#[derive(Clone, Debug)]
+/// Static credentials sent with Pulsar's `CONNECT` command.
+#[derive(Clone)]
 pub struct PulsarAuthentication {
     pub name: String,
     pub data: Vec<u8>,
+}
+
+impl fmt::Debug for PulsarAuthentication {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PulsarAuthentication")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
 }
 
 impl PulsarAuthentication {
@@ -14,11 +25,8 @@ impl PulsarAuthentication {
         }
     }
 
-    pub(super) fn provider(&self) -> pulsar::Authentication {
-        pulsar::Authentication {
-            name: self.name.clone(),
-            data: self.data.clone(),
-        }
+    pub(super) fn provider(&self) -> Arc<dyn AuthProvider> {
+        Arc::new(self.clone())
     }
 
     fn validate(&self) -> anyhow::Result<()> {
@@ -31,13 +39,45 @@ impl PulsarAuthentication {
     }
 }
 
+impl AuthProvider for PulsarAuthentication {
+    fn method(&self) -> &str {
+        &self.name
+    }
+
+    fn initial(&self) -> Result<Bytes, AuthError> {
+        Ok(Bytes::copy_from_slice(&self.data))
+    }
+}
+
+/// How the broker distributes a subscription's messages among its consumers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PulsarSubscriptionType {
+    Exclusive,
+    #[default]
+    Shared,
+    Failover,
+    KeyShared,
+}
+
+impl From<PulsarSubscriptionType> for SubType {
+    fn from(value: PulsarSubscriptionType) -> Self {
+        match value {
+            PulsarSubscriptionType::Exclusive => Self::Exclusive,
+            PulsarSubscriptionType::Shared => Self::Shared,
+            PulsarSubscriptionType::Failover => Self::Failover,
+            PulsarSubscriptionType::KeyShared => Self::KeyShared,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PulsarSourceConfig {
     pub service_url: String,
     pub topic: String,
     pub subscription: String,
-    pub subscription_type: SubType,
+    pub subscription_type: PulsarSubscriptionType,
     pub authentication: Option<PulsarAuthentication>,
+    /// Messages each partition's consumer prefetches from the broker.
     pub buffer_size: usize,
     /// Treat an empty payload as a null value, matching topic compaction,
     /// which deletes a key on an empty payload. Enabled by default.
@@ -54,7 +94,7 @@ impl PulsarSourceConfig {
             service_url: service_url.into(),
             topic: topic.into(),
             subscription: subscription.into(),
-            subscription_type: SubType::Shared,
+            subscription_type: PulsarSubscriptionType::Shared,
             authentication: None,
             buffer_size: 100,
             empty_payload_is_tombstone: true,
@@ -84,6 +124,11 @@ pub struct PulsarSinkConfig {
     pub topic: String,
     pub producer_name: Option<String>,
     pub authentication: Option<PulsarAuthentication>,
+    /// Broker-side timeout of a transaction opened by a
+    /// [`PulsarTransactionalSink`](super::PulsarTransactionalSink). The
+    /// transaction coordinator aborts a transaction that is still open after
+    /// this duration.
+    pub transaction_timeout: Duration,
 }
 
 impl PulsarSinkConfig {
@@ -93,6 +138,7 @@ impl PulsarSinkConfig {
             topic: topic.into(),
             producer_name: None,
             authentication: None,
+            transaction_timeout: Duration::from_secs(60),
         }
     }
 
@@ -107,6 +153,10 @@ impl PulsarSinkConfig {
                 "Pulsar producer name must not be empty"
             );
         }
+        anyhow::ensure!(
+            !self.transaction_timeout.is_zero(),
+            "Pulsar transaction timeout must be greater than zero"
+        );
         Ok(())
     }
 }

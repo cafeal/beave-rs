@@ -136,6 +136,43 @@ without ACK when revoked and are drained on shutdown. A failed completion stops 
 subscription without acknowledging the delivery. Publish retries apply to
 submission only.
 
+## Transactions
+
+`Subscription::transactional()` replaces the final publish and ACK steps with
+one sink transaction per delivery:
+
+```text
+… → prepare all outputs → commit(delivery, outputs)
+```
+
+```rust,ignore
+Subscription::forward("orders", kafka_source, kafka_transactional_sink, handler)
+    .transactional()
+```
+
+The method only compiles when the sink implements
+`TransactionalSink<Source::Message, Output>`, which an adapter provides for the
+source messages whose acknowledgement can join its transactions. The
+Kafka adapter implements it for a `KafkaSource` and a `KafkaTransactionalSink`,
+and the Pulsar adapter for a `PulsarSource` and a `PulsarTransactionalSink`;
+see the [Kafka](adapters/kafka.md#transactions) and
+[Pulsar](adapters/pulsar.md#transactions) guides. The runtime never calls
+the delivery's own ACK in a transactional subscription.
+
+`commit` publishes every output and acknowledges the delivery atomically. A
+failed commit leaves neither in effect and is retried with the same prepared
+outputs under the subscription's `publish_retry` policy; an exhausted retry
+stops the subscription without acknowledgement. A delivery that completes
+without output, including one that emitted nothing, was discarded, or was
+dead-lettered, is committed in a transaction without outputs. Dead letters are
+published by the dead-letter sink before that transaction and are not part of
+it, so they remain at-least-once.
+
+A transactional subscription requires `ProcessingOrder::PerKey`. Deliveries of
+one ordering scope then commit one at a time in receive order, so every commit
+acknowledges exactly the delivery whose outputs it contains. Other orderings
+fail validation before the application starts.
+
 ## Middleware
 
 `Subscription::middleware` registers a `Middleware<Input, Output>` with two
@@ -440,8 +477,12 @@ subscription                 subscription = <name>
        ├── encode            `Sink::prepare` for every output
        ├── publish           every output, including publish retries
        ├── dead_letter       conversion and dead-letter publication
-       └── ack
+       ├── ack
+       └── commit            transactional subscriptions: every commit attempt
 ```
+
+A [transactional subscription](#transactions) records `commit` in place of
+`publish` and `ack`.
 
 `pre_handler` and `post_handler` middleware run in the `message` span.
 
@@ -467,14 +508,14 @@ Every metric carries a `subscription` label with the subscription name.
 | Metric | Type | Additional labels | Meaning |
 |---|---|---|---|
 | `beavers_deliveries_received_total` | counter | | Deliveries received from the source |
-| `beavers_deliveries_acknowledged_total` | counter | | Successful ACKs, including after discard and dead-lettering |
+| `beavers_deliveries_acknowledged_total` | counter | | Successful ACKs or transaction commits, including after discard and dead-lettering |
 | `beavers_delivery_failures_total` | counter | `failure`, `action` | Routable failures by `FailureKind` and the action taken |
 | `beavers_handler_retries_total` | counter | | Handler attempts that returned `Retry` and were retried |
-| `beavers_publish_failures_total` | counter | `sink` (`output`, `dead_letter`) | Failed publish attempts, including retried ones |
+| `beavers_publish_failures_total` | counter | `sink` (`output`, `dead_letter`) | Failed publish or transaction commit attempts, including retried ones |
 | `beavers_receive_errors_total` | counter | | Failed receive attempts |
 | `beavers_deliveries_revoked_total` | counter | | Deliveries abandoned after revocation |
 | `beavers_deliveries_in_flight` | gauge | | Received deliveries that have not finished |
-| `beavers_stage_duration_seconds` | histogram | `stage` | Duration of `decode`, `handler`, `encode`, `publish`, `complete`, `dead_letter`, and `ack` |
+| `beavers_stage_duration_seconds` | histogram | `stage` | Duration of `decode`, `handler`, `encode`, `publish`, `complete`, `dead_letter`, `ack`, and `commit` |
 
 `failure` is `decode`, `rejected`, `retry_exhausted`, or `encode`. `action` is
 `stop`, `dead_letter`, or `discard`; a `DeadLetter` action without a
@@ -522,10 +563,11 @@ as children of the processing step. Middleware runs in registration order, and
 
 Kafka and Pulsar adapters, broker record types, Protobuf, and Avro codecs are
 implemented. Kafka commits up to the first unfinished offset per partition,
-schedules work per partition, and abandons revoked work, but does not provide
-Kafka transactions or exactly-once processing. Pulsar uses individual
+schedules work per partition, and abandons revoked work. Kafka-to-Kafka
+subscriptions can publish and commit offsets in one Kafka transaction per
+delivery; other pairs are at-least-once. Pulsar uses individual
 acknowledgements, schedules work by its subscription type's ordering scope, and
-likewise provides no transactions or exactly-once processing. NATS JetStream,
+provides no transactions or exactly-once processing. NATS JetStream,
 SQS and adapter pause/resume backpressure are not implemented. Async handler
 futures run on the shared Tokio executor without isolation. Metadata inheritance
 is limited to same-platform middleware;
