@@ -17,7 +17,8 @@
 use beavers::{
     App, IterSource, Json, Result, Subscription,
     adapters::pulsar::{
-        PulsarPublish, PulsarSink, PulsarSinkConfig, PulsarSource, PulsarSourceConfig, SubType,
+        PulsarPublish, PulsarSink, PulsarSinkConfig, PulsarSource, PulsarSourceConfig,
+        PulsarSubscriptionType,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -93,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Some("process") | None => {
             let mut source = PulsarSourceConfig::new(&service_url, ORDERS, "beavers-examples");
-            source.subscription_type = SubType::KeyShared;
+            source.subscription_type = PulsarSubscriptionType::KeyShared;
             println!("consuming {ORDERS} and publishing to {EVENTS}; press Ctrl-C to stop");
             App::new()
                 .subscription(

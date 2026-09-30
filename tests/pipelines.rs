@@ -2,7 +2,7 @@
 //!
 //! These tests are ignored by default. Start the brokers with `make up` and run
 //! them with `make test-live`. `KAFKA_BROKERS`, `PULSAR_URL`, and
-//! `PULSAR_ADMIN_URL` override the compose defaults.
+//! `PULSAR_ADMIN_ADDR` override the compose defaults.
 #![cfg(all(feature = "kafka", feature = "pulsar"))]
 
 use beavers::{
@@ -228,12 +228,8 @@ fn committed_kafka_offsets(group: String, topic: String) -> i64 {
 /// Sends one request to the Pulsar admin REST API and returns the status code
 /// and body. The compose broker speaks plain HTTP/1.1.
 async fn pulsar_admin(method: &str, path: &str, body: &str) -> (u16, String) {
-    let base = env::var("PULSAR_ADMIN_URL").unwrap_or_else(|_| "http://localhost:8081".into());
-    let authority = base
-        .strip_prefix("http://")
-        .expect("PULSAR_ADMIN_URL must be an http:// URL")
-        .trim_end_matches('/');
-    let mut stream = TcpStream::connect(authority).await.unwrap();
+    let authority = env::var("PULSAR_ADMIN_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
+    let mut stream = TcpStream::connect(&authority).await.unwrap();
     let request = format!(
         "{method} {path} HTTP/1.1\r\nHost: {authority}\r\nContent-Type: application/json\r\n\
          Content-Length: {}\r\nConnection: close\r\n\r\n{body}",

@@ -16,9 +16,9 @@ subscription.
 | Service | Address | Purpose |
 |---|---|---|
 | Kafka | `localhost:9092` | Kafka 4.1 in KRaft mode |
-| Kafka UI | <http://localhost:8080> | Topics, messages, and consumer groups (kafbat kafka-ui) |
+| Kafka UI | <http://localhost:8081> | Topics, messages, and consumer groups (kafbat kafka-ui) |
 | Pulsar | `pulsar://localhost:6650` | Pulsar 4.0 standalone |
-| Pulsar admin API | <http://localhost:8081> | `pulsar-admin --admin-url` and REST |
+| Pulsar admin API | <http://localhost:8080> | `pulsar-admin --admin-url` and REST |
 | Pulsar Manager | <http://localhost:9527> | Tenants, topics, and subscriptions; log in as `admin` / `apachepulsar` |
 
 These are the defaults of the live tests and examples, which also read
@@ -94,7 +94,7 @@ applications: a Kafka pipeline that inherits keys and headers and commits every
 consumed offset, a Pulsar pipeline that inherits keys and properties and leaves
 no subscription backlog, and a Kafka-to-Pulsar pipeline with an explicit
 metadata mapping. They create Pulsar subscriptions through the admin API at
-`PULSAR_ADMIN_URL` (default `http://localhost:8081`) before producing input.
+`PULSAR_ADMIN_ADDR` (default `127.0.0.1:8080`) before producing input.
 
 Every live test uses unique topic, group, and subscription names, so the tests
 can run repeatedly without resetting the brokers. GitHub Actions runs them in
