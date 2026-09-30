@@ -82,7 +82,7 @@ cargo doc --all-features --no-deps
 Building with `--all-features` requires `protoc`, which the Pulsar client uses
 to generate its protocol types. GitHub Actions runs these checks on every pull
 request and on pushes to `main`. Live Kafka and Pulsar tests are ignored by
-default and are not run in CI; run them against the local brokers with
-`make test-live`.
+default; CI runs them against the Docker Compose brokers, and `make test-live`
+runs them locally.
 
 **Let application code process events. Let beave.rs manage the flow.**

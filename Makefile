@@ -23,7 +23,7 @@ logs:
 	docker compose logs --follow
 
 test-live:
-	cargo test --features kafka,pulsar --test kafka --test pulsar -- --ignored
+	cargo test --features kafka,pulsar -- --ignored
 
 kafka-produce:
 	$(CARGO_RUN) kafka_orders --features kafka -- produce $(COUNT)

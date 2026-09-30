@@ -82,12 +82,21 @@ docker compose exec pulsar bin/pulsar-admin topics stats \
 
 ## Live tests
 
-The Kafka and Pulsar integration tests are ignored by default. With the
-environment running:
+The Kafka and Pulsar adapter tests and the end-to-end pipeline tests in
+`tests/pipelines.rs` are ignored by default. With the environment running:
 
 ```sh
-make test-live   # cargo test --features kafka,pulsar --test kafka --test pulsar -- --ignored
+make test-live   # cargo test --features kafka,pulsar -- --ignored
 ```
 
-Each live test uses unique topic, group, and subscription names, so the tests
-can run repeatedly without resetting the brokers.
+The pipeline tests run the same flows as the examples as complete
+applications: a Kafka pipeline that inherits keys and headers and commits every
+consumed offset, a Pulsar pipeline that inherits keys and properties and leaves
+no subscription backlog, and a Kafka-to-Pulsar pipeline with an explicit
+metadata mapping. They create Pulsar subscriptions through the admin API at
+`PULSAR_ADMIN_URL` (default `http://localhost:8081`) before producing input.
+
+Every live test uses unique topic, group, and subscription names, so the tests
+can run repeatedly without resetting the brokers. GitHub Actions runs them in
+the `Live broker tests` job, which starts the `kafka` and `pulsar` services from
+`compose.yaml`.
