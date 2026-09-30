@@ -27,8 +27,12 @@ impl TraceContext {
     }
 }
 
-impl<I: 'static, O: PropagationCarrier + 'static> Middleware<I, O> for TraceContext {
-    fn post_handler(&self, _input: &I, mut output: O) -> Result<O> {
+impl<I, O> Middleware<I, O> for TraceContext
+where
+    I: Send + Sync + 'static,
+    O: PropagationCarrier + Send + 'static,
+{
+    async fn post_handler(&self, _input: &I, mut output: O) -> Result<O> {
         let context = Span::current().context();
         global::get_text_map_propagator(|propagator| {
             propagator.inject_context(&context, &mut CarrierInjector(&mut output));

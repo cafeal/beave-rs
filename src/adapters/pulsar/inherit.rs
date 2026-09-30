@@ -52,8 +52,12 @@ impl Default for PulsarInherit {
     }
 }
 
-impl<I: 'static, O: 'static> Middleware<PulsarRecord<I>, PulsarPublish<O>> for PulsarInherit {
-    fn post_handler(
+impl<I, O> Middleware<PulsarRecord<I>, PulsarPublish<O>> for PulsarInherit
+where
+    I: Send + Sync + 'static,
+    O: Send + 'static,
+{
+    async fn post_handler(
         &self,
         input: &PulsarRecord<I>,
         mut output: PulsarPublish<O>,
