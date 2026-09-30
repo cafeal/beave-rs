@@ -104,7 +104,8 @@ and can produce a duplicate.
 ## Adapters
 
 See the [adapter guide](adapters.md) for IterSource, StdinSource, InMemorySink,
-StdoutSink, and the bounded Channel adapter, including examples, EOF behavior,
+StdoutSink, the bounded Channel adapter, and the Link adapter that chains
+subscriptions, including examples, EOF behavior,
 ACK guarantees, and I/O limits. These components do not provide durable
 redelivery after process exit. Optional Kafka and Pulsar adapters provide
 broker-specific source and sink implementations; their documentation covers
@@ -273,6 +274,11 @@ publishing, or ACK on the Tokio executor.
 | Running work | A synchronous call cannot be interrupted. After a drain timeout it runs to completion on its worker thread, which does not delay subscription shutdown |
 | Pool shutdown | Workers exit after their current job once every pool clone and every handler using it is dropped, which happens when their subscriptions finish |
 
+To give I/O-bound and CPU-bound steps of one pipeline their own concurrency,
+retries, and error policies, split them into subscriptions chained with the
+[link adapter](adapters/link.md): an async handler upstream and a blocking
+handler downstream, with the upstream delivery acknowledged after both finish.
+
 Handler retries submit a new job for every attempt. Queue capacity counts jobs
 waiting for a thread, not running ones; subscription `concurrency` still bounds
 the jobs each subscription submits.
@@ -393,7 +399,10 @@ application, which ultimately returns an error.
 
 SIGINT / SIGTERM or `App::run_until(CancellationToken)` stops new receives and
 starts draining running jobs. Deliveries still queued behind an ordering key are
-dropped without ACK. After `Receive::End`, queued deliveries still run. A drain
+dropped without ACK. After `Receive::End`, queued deliveries still run. A source whose
+`stops_on_shutdown` returns `false`, such as a `LinkSource`, keeps receiving
+until its upstream subscription closes it; see
+[link shutdown](adapters/link.md#shutdown). A drain
 timeout cancels unfinished tasks, then cleanup runs with its own deadline. In-progress publish or ACK can have an uncertain result if
 interrupted; a durable broker may redeliver and cause duplicates.
 

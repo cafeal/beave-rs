@@ -78,6 +78,25 @@ Kafka partition whose queue reaches a per-key limit, so other partitions keep
 flowing. The design must define the per-key limit, resume timing, and the pause
 state across rebalances.
 
+## Linked subscriptions
+
+`link` chains subscriptions one-to-one, as described in the
+[link adapter guide](adapters/link.md). Remaining decisions:
+
+- fan-in from several upstream subscriptions and fan-out to several downstream
+  subscriptions, which need a close rule for shared ends and a completion rule
+  for one upstream value observed by several stages;
+- whether a linked delivery should carry the upstream ordering key, so the
+  downstream stage can schedule `PerKey` independently of the upstream job
+  that waits for it;
+- startup validation that both ends of a link are registered in the same
+  `App`, since an unregistered upstream leaves the downstream subscription
+  waiting for `Receive::End` during shutdown.
+
+Upstream revocation and redelivery through a link are covered by local tests
+only. Verify with Kafka that a partition revocation during a downstream stage
+abandons the linked work and that the next owner reprocesses it.
+
 ## Kafka rebalance behavior
 
 Revoked partitions currently abandon in-flight work immediately. Evaluate an

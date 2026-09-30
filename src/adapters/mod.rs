@@ -10,7 +10,9 @@ pub use stdin::{StdinMessage, StdinSource};
 pub use stdout::StdoutSink;
 
 mod channel;
+mod link;
 pub use channel::{ChannelSink, ChannelSource, channel};
+pub use link::{LinkSink, LinkSource, link};
 
 #[cfg(feature = "kafka")]
 pub mod kafka;

@@ -35,6 +35,8 @@ src/
 │   └── processing.rs      # Private per-message processing lifecycle
 └── adapters/
     ├── mod.rs
+    ├── channel.rs         # Typed queue without ACK propagation
+    ├── link.rs            # Chained subscriptions with deferred upstream ACK
     ├── iter.rs
     ├── memory.rs
     ├── stdin.rs
@@ -51,7 +53,7 @@ The scheduler and per-message processing implementation remain private.
 
 | Contract | Responsibility |
 |---|---|
-| `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure |
+| `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure; declare whether application shutdown stops receiving |
 | `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, revocation, and propagation fields |
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
 | `Decoder<T>` / `Encoder<T>` | Convert serialization formats without broker operations |

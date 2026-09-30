@@ -12,7 +12,8 @@ types are also re-exported at the crate root.
 | `StdinSource<C, T>` | Line-delimited input | Files, pipes, interactive input |
 | `InMemorySink<T>` | Typed output collection | Assertions and local inspection |
 | `StdoutSink<C>` | Line-delimited output | JSON output, files, pipes |
-| `ChannelSource<T>` / `ChannelSink<T>` | Bounded typed queue | In-process pipelines |
+| `ChannelSource<T>` / `ChannelSink<T>` | Bounded typed queue | In-process hand-off without ACK propagation |
+| `LinkSource<T>` / `LinkSink<T>` | Chained subscriptions | Pipeline stages whose upstream ACK waits for the downstream stage |
 | `KafkaSource<C, T>` / `KafkaSink<C, T>` | Kafka records and publishes | Durable broker pipelines (`kafka` feature) |
 | `PulsarSource<C, T>` / `PulsarSink<C, T>` | Pulsar records and publishes | Durable broker pipelines (`pulsar` feature) |
 
@@ -28,7 +29,8 @@ beavers = { version = "0.1", features = ["kafka"] }
 ```
 
 The broker-specific guides document configuration, metadata, ACK behavior, and
-delivery boundaries: [Channel](adapters/channel.md), [Kafka](adapters/kafka.md),
+delivery boundaries: [Channel](adapters/channel.md), [Link](adapters/link.md),
+[Kafka](adapters/kafka.md),
 and [Pulsar](adapters/pulsar.md).
 
 ## IterSource

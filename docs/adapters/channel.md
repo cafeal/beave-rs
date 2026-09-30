@@ -47,7 +47,9 @@ sends while preserving buffered values for draining.
 A successful sink publication confirms that the typed value was enqueued. It
 does not mean another subscription processed the value or stored it durably.
 Channel deliveries therefore have a no-op ACK and cannot be recovered after a
-process failure.
+process failure. To chain subscriptions so the upstream delivery is acknowledged
+only after the downstream subscription finishes, use the
+[link adapter](link.md).
 
 ## Closing
 

@@ -54,12 +54,18 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         let mut next_receive = Instant::now();
         let mut ended = false;
         let in_flight = worker.pipeline.instruments.in_flight.clone();
+        // A source fed by an upstream subscription ends when that upstream closes it.
+        let stop = if self.source.stops_on_shutdown() {
+            shutdown.clone()
+        } else {
+            CancellationToken::new()
+        };
         loop {
             in_flight.set(scheduler.outstanding() as f64);
             worker.start_ready(&mut jobs, &mut scheduler, concurrency);
             tokio::select! {
                 biased;
-                _ = shutdown.cancelled() => break,
+                _ = stop.cancelled() => break,
                 result = jobs.join_next(), if !jobs.is_empty() => {
                     match flatten(result.unwrap()) {
                         Ok(key) => scheduler.complete(key),
@@ -97,7 +103,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         }
         let drained = timeout(self.config.drain_timeout, async {
             loop {
-                if shutdown.is_cancelled() {
+                if stop.is_cancelled() || failure.is_some() {
                     scheduler.discard_pending();
                 }
                 in_flight.set(scheduler.outstanding() as f64);
