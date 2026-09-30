@@ -176,12 +176,12 @@ fail validation before the application starts.
 ## Middleware
 
 `Subscription::middleware` registers a `Middleware<Input, Output>` with two
-hooks, both of which default to doing nothing:
+asynchronous hooks, both of which default to doing nothing:
 
 ```rust,ignore
 pub trait Middleware<I, O> {
-    fn pre_handler(&self, input: I) -> Result<Flow<I, O>>;
-    fn post_handler(&self, input: &I, output: O) -> Result<O>;
+    fn pre_handler(&self, input: I) -> impl Future<Output = Result<Flow<I, O>>> + Send;
+    fn post_handler(&self, input: &I, output: O) -> impl Future<Output = Result<O>> + Send;
 }
 
 pub enum Flow<I, O> {
@@ -189,6 +189,35 @@ pub enum Flow<I, O> {
     Intercept(Emit<O>),
 }
 ```
+
+Implement the hooks with `async fn`. A hook can await external lookups, such
+as a cache, a schema registry, or a metadata service, before the handler runs
+or before the outputs are prepared:
+
+```rust,ignore
+struct Customers(CustomerClient);
+
+impl Middleware<KafkaRecord<Order>, KafkaPublish<Order>> for Customers {
+    async fn pre_handler(
+        &self,
+        mut input: KafkaRecord<Order>,
+    ) -> beavers::Result<Flow<KafkaRecord<Order>, KafkaPublish<Order>>> {
+        if let Some(order) = input.value.as_mut() {
+            order.customer = self.0.fetch(order.customer_id).await.map_err(HandlerError::Retry)?;
+        }
+        Ok(Flow::Continue(input))
+    }
+}
+```
+
+The runtime awaits each hook before starting the next, so the hooks of one
+delivery never run concurrently. Other deliveries keep processing while a hook
+waits, within the subscription's concurrency and ordering limits. The input and
+output types must be `Send`, and the input type also `Sync`, because the hook
+futures run on the multi-threaded Tokio executor. Like handlers, hooks must
+not block executor threads, and a hook future is dropped at its current await
+point when the delivery is revoked or a drain timeout cancels it; the delivery
+is then not acknowledged.
 
 `pre_handler` runs once per delivery, before the handler, in registration
 order. Each middleware receives the input returned by the previous one.
@@ -209,7 +238,8 @@ leaves unset.
 The source item and sink output types are checked at compile time, so a
 middleware written for one broker's record and publish types cannot be
 registered on a subscription whose source or sink uses different types. Wrap a
-function or closure in `MapMetadata::new` to use it as a `post_handler`,
+synchronous function or closure in `MapMetadata::new` to use it as a
+`post_handler`,
 including for conversions between different platforms:
 
 ```rust,ignore
@@ -454,7 +484,7 @@ keeps receiving until its upstream subscriptions close it; see
 timeout cancels unfinished tasks, then cleanup runs with its own deadline. In-progress publish or ACK can have an uncertain result if
 interrupted; a durable broker may redeliver and cause duplicates.
 
-Async handlers share the Tokio executor with runtime work. They must not block
+Async handlers and middleware hooks share the Tokio executor with runtime work. They must not block
 worker threads; use [blocking handlers](#blocking-handlers) for synchronous work.
 Cancellation and timeouts are cooperative and cannot forcibly interrupt
 arbitrary synchronous code.

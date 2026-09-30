@@ -2,6 +2,7 @@
 mod builder;
 mod completion;
 mod config;
+mod hooks;
 mod instruments;
 mod processing;
 mod runtime;
