@@ -124,6 +124,9 @@ pub struct PulsarSinkConfig {
     pub topic: String,
     pub producer_name: Option<String>,
     pub authentication: Option<PulsarAuthentication>,
+    /// Maximum number of messages queued by `submit` whose broker receipt has
+    /// not arrived. `submit` waits while this many are outstanding.
+    pub max_pending: usize,
     /// Broker-side timeout of a transaction opened by a
     /// [`PulsarTransactionalSink`](super::PulsarTransactionalSink). The
     /// transaction coordinator aborts a transaction that is still open after
@@ -138,6 +141,7 @@ impl PulsarSinkConfig {
             topic: topic.into(),
             producer_name: None,
             authentication: None,
+            max_pending: 1000,
             transaction_timeout: Duration::from_secs(60),
         }
     }
@@ -153,6 +157,11 @@ impl PulsarSinkConfig {
                 "Pulsar producer name must not be empty"
             );
         }
+        anyhow::ensure!(
+            (1..=tokio::sync::Semaphore::MAX_PERMITS).contains(&self.max_pending),
+            "Pulsar sink max_pending must be between 1 and {}",
+            tokio::sync::Semaphore::MAX_PERMITS
+        );
         anyhow::ensure!(
             !self.transaction_timeout.is_zero(),
             "Pulsar transaction timeout must be greater than zero"

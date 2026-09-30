@@ -123,6 +123,9 @@ fn configs_validate_without_connecting() {
     let mut transactional = PulsarSinkConfig::new("pulsar://broker", "topic");
     transactional.transaction_timeout = Duration::ZERO;
     assert!(transactional.validate().is_err());
+    let mut unbounded = PulsarSinkConfig::new("pulsar://broker", "topic");
+    unbounded.max_pending = 0;
+    assert!(unbounded.validate().is_err());
 }
 
 fn uppercase_pipeline(
@@ -440,6 +443,40 @@ async fn publish_receive_and_ack_against_pulsar() -> anyhow::Result<()> {
             .iter()
             .any(|(key, value)| key == "kind" && value == "test")
     );
+    sink.close().await?;
+    Ok(())
+}
+
+/// Requires a reachable development broker (`PULSAR_URL`, default
+/// `pulsar://127.0.0.1:6650`).
+#[tokio::test]
+#[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
+async fn submitted_messages_complete_on_their_broker_receipts() -> anyhow::Result<()> {
+    let topic = unique_topic("beavers-pulsar-submit");
+    let mut config = PulsarSinkConfig::new(service_url(), &topic);
+    config.max_pending = 2;
+    let sink = PulsarSink::<Utf8, String>::new(config);
+    let prepared = sink.prepare(PulsarPublish::new("a".to_owned()))?;
+
+    let first = tokio::time::timeout(Duration::from_secs(20), sink.submit(&prepared))
+        .await
+        .expect("timed out connecting")?;
+    let second = sink.submit(&prepared).await?;
+    assert!(!first.is_done() && !second.is_done());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), sink.submit(&prepared))
+            .await
+            .is_err(),
+        "a third message was accepted beyond max_pending"
+    );
+    for completion in [first, second] {
+        tokio::time::timeout(Duration::from_secs(20), completion.wait())
+            .await
+            .expect("timed out waiting for a broker receipt")?;
+    }
+    tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
+        .await
+        .expect("timed out publishing after the completions freed their slots")?;
     sink.close().await?;
     Ok(())
 }
