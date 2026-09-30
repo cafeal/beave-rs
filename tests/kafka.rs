@@ -76,6 +76,45 @@ fn sink_configuration_rejects_a_transactional_id_property() {
     assert!(config.validate().is_err());
 }
 
+#[test]
+fn sink_configuration_requires_room_for_a_pending_record() {
+    let mut config = KafkaSinkConfig::new("broker", "topic");
+    config.max_pending = 0;
+    assert!(config.validate().is_err());
+}
+
+/// librdkafka queues records without a reachable broker, so acceptance and
+/// the pending bound are observable offline.
+#[tokio::test]
+async fn submit_returns_at_acceptance_and_waits_for_pending_capacity() {
+    let mut config = KafkaSinkConfig::new("127.0.0.1:1", "topic");
+    config.max_pending = 1;
+    config.close_timeout = Duration::from_millis(100);
+    let sink = KafkaSink::<Utf8, String>::new(config);
+    let prepared = sink.prepare(KafkaPublish::new("a".to_owned())).unwrap();
+
+    let first = tokio::time::timeout(Duration::from_secs(5), sink.submit(&prepared))
+        .await
+        .expect("submission waited for a delivery report")
+        .unwrap();
+    assert!(!first.is_done());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), sink.submit(&prepared))
+            .await
+            .is_err(),
+        "a second record was accepted beyond max_pending"
+    );
+
+    drop(first);
+    let second = tokio::time::timeout(Duration::from_secs(5), sink.submit(&prepared))
+        .await
+        .expect("an abandoned completion kept its pending slot")
+        .unwrap();
+    drop(second);
+    let _ = sink.close().await;
+    assert!(sink.submit(&prepared).await.is_err());
+}
+
 #[tokio::test]
 async fn transactional_sink_requires_a_transactional_id_before_connecting() {
     let sink =
@@ -258,5 +297,38 @@ async fn publish_receive_and_ack_against_kafka() {
     assert_eq!(record.metadata.topic, topic);
     message.ack().await.unwrap();
     source.close().await.unwrap();
+    sink.close().await.unwrap();
+}
+
+/// Requires a reachable development broker. It uses `KAFKA_BROKERS` when set,
+/// otherwise `localhost:9092`.
+#[tokio::test]
+#[ignore = "requires a Kafka broker; run with cargo test --features kafka -- --ignored"]
+async fn submitted_records_complete_on_their_delivery_reports() {
+    let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
+    let mut config = KafkaSinkConfig::new(&brokers, unique_name("beavers-kafka-submit"));
+    config.max_pending = 2;
+    let sink = KafkaSink::<Utf8, String>::new(config);
+    let prepared = sink.prepare(KafkaPublish::new("a".to_owned())).unwrap();
+
+    let first = sink.submit(&prepared).await.unwrap();
+    let second = sink.submit(&prepared).await.unwrap();
+    assert!(!first.is_done() && !second.is_done());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), sink.submit(&prepared))
+            .await
+            .is_err(),
+        "a third record was accepted beyond max_pending"
+    );
+    for completion in [first, second] {
+        tokio::time::timeout(Duration::from_secs(20), completion.wait())
+            .await
+            .expect("timed out waiting for a delivery report")
+            .unwrap();
+    }
+    tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
+        .await
+        .expect("timed out publishing after the completions freed their slots")
+        .unwrap();
     sink.close().await.unwrap();
 }

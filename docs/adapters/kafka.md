@@ -44,7 +44,35 @@ Input metadata is never inherited implicitly. The sink always publishes to its
 configured topic and lets Kafka choose a partition from the explicit key. It
 does not copy a source partition, offset, timestamp, or topic into output.
 `prepare` encodes the nullable value, key, and headers once; publication retries
-reuse that prepared value and wait for Kafka's producer delivery report.
+reuse that prepared value.
+
+## Publication
+
+`KafkaSink::submit` returns once the producer has queued the record, with a
+completion that resolves on the record's delivery report. The runtime frees the
+job's concurrency slot at submission and acknowledges the input when the report
+arrives, so a subscription keeps several records in the producer while each
+input is still acknowledged only after Kafka has its output. `publish` queues
+the record and waits for the report.
+
+`KafkaSinkConfig::max_pending` bounds the records queued by `submit` whose
+report has not arrived; the default is 1000. `submit` waits while that many are
+outstanding, and also while librdkafka's own queue
+(`queue.buffering.max.messages`, `queue.buffering.max.kbytes`) is full. A
+completion dropped before its report, as when the input's partition is revoked,
+frees its slot; the record stays queued and may still be written.
+
+librdkafka retries a failed produce request internally until
+`delivery.timeout.ms`. A delivery report that still carries an error fails the
+completion, which stops the subscription without acknowledging the input. The
+input is then redelivered from the last committed offset. Publish retries apply
+to queueing only, such as a record rejected before it reaches the queue.
+
+Records queued for one partition keep their order when the producer does not
+reorder retried batches. Set `enable.idempotence=true` so that a retry cannot
+move a record behind a later record with the same key.
+`close` stops new submissions and flushes the producer for at most
+`close_timeout`.
 
 ## Metadata inheritance
 
@@ -113,7 +141,9 @@ A publication that completed before the revoke is not undone, and the new owner
 reprocesses the record from the last committed offset.
 
 With a `KafkaSink`, producer publication and source offset commits are separate
-operations, so a failure or rebalance between them can produce duplicates. Use
+operations, so a failure or rebalance between them can produce duplicates.
+Because publication is pipelined, a crash can leave records whose reports had
+not arrived; their inputs are uncommitted and are reprocessed. Use
 a [transactional subscription](#transactions) to make them atomic. The adapter
 does not delay a rebalance to let in-flight work finish.
 

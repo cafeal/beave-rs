@@ -125,9 +125,11 @@ With no outputs, successful processing can proceed directly to ACK.
 Decode and preparation failures follow the [error policy](#error-policy).
 
 `Sink::submit` hands an output to the sink and returns a `Completion` once the
-sink has accepted it. Most sinks complete at submission. A sink whose
+sink has accepted it. Sinks that keep the default complete at submission. A sink whose
 acceptance precedes its acknowledgement boundary, such as a
-[channel](adapters/channel.md) drained by another subscription, returns a
+[channel](adapters/channel.md) drained by another subscription, a
+[Kafka sink](adapters/kafka.md#publication) waiting for a delivery report, or a
+[Pulsar sink](adapters/pulsar.md#publication) waiting for a broker receipt, returns a
 pending completion: the job ends and frees its concurrency slot, and the
 delivery is acknowledged after every completion succeeds. Deliveries waiting
 for completion do not count toward `max_in_flight`; the sink bounds them by
@@ -158,6 +160,11 @@ and the Pulsar adapter for a `PulsarSource` and a `PulsarTransactionalSink`;
 see the [Kafka](adapters/kafka.md#transactions) and
 [Pulsar](adapters/pulsar.md#transactions) guides. The runtime never calls
 the delivery's own ACK in a transactional subscription.
+
+A transaction is not split into acceptance and completion: the commit is both
+the publication and the acknowledgement, so the job holds its concurrency slot
+until the commit finishes. Kafka and Pulsar transactional sinks keep the default
+`submit`, which also applies when one is used as a plain sink.
 
 `commit` publishes every output and acknowledges the delivery atomically. A
 failed commit leaves neither in effect and is retried with the same prepared

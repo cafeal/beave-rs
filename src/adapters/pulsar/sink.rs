@@ -2,7 +2,10 @@ use super::{
     config::PulsarSinkConfig, producer::Producers, record::PulsarPublish,
     transaction::PulsarTransactionalSink,
 };
-use crate::{codec::Encoder, sink::Sink};
+use crate::{
+    codec::Encoder,
+    sink::{Completion, Sink},
+};
 use std::{
     collections::HashMap,
     marker::PhantomData,
@@ -11,7 +14,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-use tokio::sync::{OwnedRwLockReadGuard, RwLock};
+use tokio::sync::{OwnedRwLockReadGuard, RwLock, Semaphore};
 
 /// Encoded Pulsar output. Clones can be retried without rerunning the codec.
 #[derive(Clone, Debug, Default)]
@@ -79,10 +82,13 @@ impl Connection {
     }
 }
 
-/// Publishes prepared messages and waits for the Pulsar broker receipt.
+/// Queues prepared messages on the producers and completes each one on its
+/// Pulsar broker receipt.
 pub struct PulsarSink<C, T> {
     connection: Connection,
     codec: Arc<C>,
+    /// One permit per message awaiting its broker receipt.
+    pending: Arc<Semaphore>,
     marker: PhantomData<fn(T)>,
 }
 
@@ -95,6 +101,9 @@ impl<C: Default, T> PulsarSink<C, T> {
 impl<C, T> PulsarSink<C, T> {
     pub fn with_codec(config: PulsarSinkConfig, codec: C) -> Self {
         Self {
+            pending: Arc::new(Semaphore::new(
+                config.max_pending.min(Semaphore::MAX_PERMITS),
+            )),
             connection: Connection::new(config),
             codec: Arc::new(codec),
             marker: PhantomData,
@@ -120,11 +129,25 @@ impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarS
     }
 
     async fn publish(&self, output: &Self::Prepared) -> anyhow::Result<()> {
+        self.submit(output).await?.wait().await
+    }
+
+    /// Returns once a producer has queued the message. The completion resolves
+    /// on its broker receipt and keeps `close` waiting until then.
+    async fn submit(&self, output: &Self::Prepared) -> anyhow::Result<Completion> {
         let producers = self.connection.producers().await?;
-        producers.route(output).send(output, None).await
+        let permit = (self.pending.clone().acquire_owned().await)
+            .map_err(|_| anyhow::anyhow!("Pulsar sink is closed"))?;
+        let receipt = producers.route(output).enqueue(output, None);
+        Ok(Completion::pending(async move {
+            let _held = (producers, permit);
+            receipt.await?;
+            Ok(())
+        }))
     }
 
     async fn close(&self) -> anyhow::Result<()> {
+        self.pending.close();
         self.connection.close().await
     }
 }

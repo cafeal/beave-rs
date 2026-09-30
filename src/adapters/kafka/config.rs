@@ -52,6 +52,9 @@ pub struct KafkaSinkConfig {
     pub topic: String,
     /// Additional librdkafka producer settings.
     pub properties: HashMap<String, String>,
+    /// Maximum number of records queued by `submit` whose delivery report
+    /// has not arrived. `submit` waits while this many are outstanding.
+    pub max_pending: usize,
     /// Maximum time `close` waits for queued delivery reports.
     pub close_timeout: Duration,
     /// Maximum time each blocking operation of a
@@ -66,6 +69,7 @@ impl KafkaSinkConfig {
             brokers: brokers.into(),
             topic: topic.into(),
             properties: HashMap::new(),
+            max_pending: 1000,
             close_timeout: Duration::from_secs(30),
             transaction_timeout: Duration::from_secs(60),
         }
@@ -77,6 +81,11 @@ impl KafkaSinkConfig {
             "Kafka brokers are required"
         );
         anyhow::ensure!(!self.topic.trim().is_empty(), "Kafka topic is required");
+        anyhow::ensure!(
+            (1..=tokio::sync::Semaphore::MAX_PERMITS).contains(&self.max_pending),
+            "Kafka sink max_pending must be between 1 and {}",
+            tokio::sync::Semaphore::MAX_PERMITS
+        );
         anyhow::ensure!(
             !self.properties.contains_key(TRANSACTIONAL_ID),
             "set the Kafka transactional ID with KafkaSink::transactional"

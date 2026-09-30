@@ -120,10 +120,28 @@ partition of a partitioned topic. A keyed message is routed like the Java
 client's default: the Java `String.hashCode` of its base64 key, modulo the
 partition count, so the same key always reaches the same partition. Keyless
 messages rotate across partitions. Keys are always sent in Pulsar's base64
-representation because they are arbitrary bytes. Each publish clones the
-prepared bytes and metadata into a fresh producer message, then waits for
-Pulsar's broker receipt. Retrying a prepared value does not rerun the codec.
-`close` waits for publications in flight, then closes the producers.
+representation because they are arbitrary bytes. Each submission clones the
+prepared bytes and metadata into a fresh producer message. Retrying a prepared
+value does not rerun the codec.
+
+## Publication
+
+`PulsarSink::submit` returns once the partition's producer has queued the
+message, with a completion that resolves on Pulsar's broker receipt. The
+runtime frees the job's concurrency slot at submission and acknowledges the
+input when the receipt arrives. `publish` queues the message and waits for the
+receipt. A producer sends queued messages in order and replays unacknowledged
+ones in order after a reconnect, so outputs of one partition keep their
+submission order.
+
+`PulsarSinkConfig::max_pending` bounds the messages queued by `submit` whose
+receipt has not arrived; the default is 1000. `submit` waits while that many
+are outstanding. A completion dropped before its receipt, as when the input is
+abandoned, frees its slot; the message stays queued and may still be written.
+A send error on the receipt fails the completion, which stops the subscription
+without acknowledging the input. Publish retries apply to queueing only.
+`close` stops new submissions, waits for every outstanding receipt, then closes
+the producers.
 
 ## Metadata inheritance
 
