@@ -84,10 +84,6 @@ pub struct PulsarSinkConfig {
     pub topic: String,
     pub producer_name: Option<String>,
     pub authentication: Option<PulsarAuthentication>,
-    /// Publish a null value as an empty payload, and refuse to publish a
-    /// non-null value that encodes to an empty payload. Enabled by default.
-    /// When disabled, null values cannot be published.
-    pub empty_payload_is_tombstone: bool,
 }
 
 impl PulsarSinkConfig {
@@ -97,7 +93,6 @@ impl PulsarSinkConfig {
             topic: topic.into(),
             producer_name: None,
             authentication: None,
-            empty_payload_is_tombstone: true,
         }
     }
 

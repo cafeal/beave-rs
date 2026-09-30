@@ -26,7 +26,7 @@ impl<T> PulsarRecord<T> {
 }
 
 /// User-controlled Pulsar output. A `None` value is a tombstone, published as
-/// an empty payload when the sink treats empty payloads as tombstones.
+/// an empty payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PulsarPublish<T> {
     pub value: Option<T>,

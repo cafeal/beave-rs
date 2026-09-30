@@ -34,22 +34,22 @@ time.
 
 A null value is a tombstone. Pulsar topic compaction deletes a key when it sees
 a message with that key and an empty payload, and producers can also mark a
-value as null explicitly. `empty_payload_is_tombstone`, enabled by default on
-both `PulsarSourceConfig` and `PulsarSinkConfig`, follows the compaction rule:
+value as null explicitly. `PulsarSourceConfig::empty_payload_is_tombstone`,
+enabled by default, follows the compaction rule: an empty payload or a
+null-marked message becomes `PulsarRecord { value: None, .. }` and is not passed
+to the codec. When disabled, only a null-marked message becomes `None`, and an
+empty payload is decoded by the codec. Disable it only for topics that carry
+meaningful empty values and are not compacted.
 
-| Setting | Source | Sink |
-|---|---|---|
-| `true` (default) | An empty payload or a null-marked message becomes `value: None` and is not passed to the codec | `value: None` publishes an empty payload; a value that encodes to an empty payload is refused |
-| `false` | Only a null-marked message becomes `value: None`; an empty payload is decoded by the codec | `value: None` is refused; empty encoded values are published |
-
-Disable the setting only for topics that carry meaningful empty values and are
-not compacted. The `pulsar` 6.9 client cannot publish the null marker, and it
-drops the marker for messages inside a producer batch, which then arrive as
-empty payloads. With the default setting both cases still round-trip as
-tombstones; with it disabled, a batched null value reaches the codec as empty
-input. `PulsarPublish::tombstone(key)` builds a tombstone, and
-`Tombstones::propagate()` supports Pulsar-to-Pulsar forwarding. See
-[tombstones](../runtime.md#tombstones).
+The `pulsar` 6.9 client drops the null marker for messages inside a producer
+batch, which then arrive as empty payloads; with the default setting they are
+still read as tombstones. The client also cannot publish the null marker, so the
+sink publishes `PulsarPublish { value: None, .. }` as an empty payload.
+`PulsarPublish::tombstone(key)` builds one, and `Tombstones::propagate()`
+supports Pulsar-to-Pulsar forwarding. The sink publishes non-null values as
+encoded, even when the encoding is empty; readers that treat empty payloads as
+tombstones, including topic compaction, will read such a value as a deletion.
+See [tombstones](../runtime.md#tombstones).
 
 The source owns a dedicated consumer task. `receive` only waits on a bounded
 delivery channel, so dropping a pending receive future does not consume a
