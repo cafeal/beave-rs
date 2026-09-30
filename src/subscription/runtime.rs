@@ -1,12 +1,11 @@
 //! Receive scheduling, bounded concurrency, revocation, draining, and resource cleanup.
 use super::{
-    builder::{BoxHandler, DeadLetter, Mapper, Subscription},
-    processing::process,
+    builder::Subscription,
+    processing::{Pipeline, process},
     scheduler::Scheduler,
 };
 use crate::{
     message::{OrderingKey, SourceMessage},
-    retry::RetryPolicy,
     shutdown::CancellationToken,
     sink::Sink,
     source::{Receive, ReceiveError, Source},
@@ -23,12 +22,17 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     pub(crate) async fn run(mut self, shutdown: CancellationToken) -> anyhow::Result<()> {
         let sink = Arc::new(self.sink);
         let worker = Worker {
-            handler: self.handler.clone(),
-            sink: sink.clone(),
-            dlq: self.dlq.clone(),
-            middleware: self.middleware.clone(),
-            handler_retry: self.config.handler_retry.clone(),
-            publish_retry: self.config.publish_retry.clone(),
+            pipeline: Arc::new(Pipeline {
+                name: self.config.name.clone(),
+                handler: self.handler,
+                middleware: self.middleware,
+                sink: sink.clone(),
+                dlq: self.dlq,
+                handler_retry: self.config.handler_retry.clone(),
+                publish_retry: self.config.publish_retry.clone(),
+                dead_letter_retry: self.config.dead_letter_retry.clone(),
+                error_policy: self.config.error_policy.clone(),
+            }),
         };
         let concurrency = self.config.concurrency;
         let max_in_flight = self.config.max_in_flight;
@@ -132,17 +136,18 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
 }
 
 /// Everything a job needs to process one delivery independently of the scheduler.
-struct Worker<I, O, K> {
-    handler: BoxHandler<I, O>,
-    sink: Arc<K>,
-    dlq: Option<DeadLetter<I>>,
-    middleware: Vec<Mapper<I, O>>,
-    handler_retry: RetryPolicy,
-    publish_retry: RetryPolicy,
+struct Worker<I, R, O, K> {
+    pipeline: Arc<Pipeline<I, R, O, K>>,
 }
 
-impl<I: Clone + Send + Sync + 'static, O: Send + Sync + 'static, K: Sink<O>> Worker<I, O, K> {
-    fn start_ready<M: SourceMessage<Item = I>>(
+impl<I, R, O, K> Worker<I, R, O, K>
+where
+    I: Clone + Send + Sync + 'static,
+    R: Send + Sync + 'static,
+    O: Send + Sync + 'static,
+    K: Sink<O>,
+{
+    fn start_ready<M: SourceMessage<Item = I, Raw = R>>(
         &self,
         jobs: &mut Jobs,
         scheduler: &mut Scheduler<M>,
@@ -153,15 +158,7 @@ impl<I: Clone + Send + Sync + 'static, O: Send + Sync + 'static, K: Sink<O>> Wor
                 return;
             };
             let revocation = delivery.revocation();
-            let processing = process(
-                delivery,
-                self.handler.clone(),
-                self.sink.clone(),
-                self.dlq.clone(),
-                self.handler_retry.clone(),
-                self.publish_retry.clone(),
-                self.middleware.clone(),
-            );
+            let processing = process(delivery, self.pipeline.clone());
             jobs.spawn(async move {
                 let Some(revoked) = revocation else {
                     return processing.await.map(|()| key);

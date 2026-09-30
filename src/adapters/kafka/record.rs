@@ -1,5 +1,7 @@
+use serde::Serialize;
+
 /// Read-only delivery location; never copied into producer routing implicitly.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct KafkaMetadata {
     pub topic: String,
     pub partition: i32,
@@ -8,7 +10,7 @@ pub struct KafkaMetadata {
 }
 
 /// A decoded Kafka delivery, including nullable values and source metadata.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct KafkaRecord<T> {
     pub key: Option<Vec<u8>>,
     pub value: Option<T>,

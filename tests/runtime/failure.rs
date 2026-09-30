@@ -1,5 +1,5 @@
 use super::fixtures::{Flaky, Waiting, fast};
-use beavers::{App, HandlerError, InMemorySink, IterSource, Subscription};
+use beavers::{App, DeadLetter, FailureKind, HandlerError, InMemorySink, IterSource, Subscription};
 use std::{
     sync::{
         Arc,
@@ -18,12 +18,18 @@ async fn reject_goes_to_dlq_before_ack() {
             Subscription::new(source, InMemorySink::<i32>::default(), |_| async {
                 Err(HandlerError::Reject(anyhow::anyhow!("invalid")))
             })
+            .name("orders")
             .dlq(dlq.clone()),
         )
         .run()
         .await
         .unwrap();
-    assert_eq!(dlq.values(), vec![7]);
+    let [dead_letter]: [DeadLetter<i32, ()>; 1] = dlq.values().try_into().unwrap();
+    assert_eq!(dead_letter.subscription, "orders");
+    assert_eq!(dead_letter.failure, FailureKind::Rejected);
+    assert_eq!(dead_letter.error, "invalid");
+    assert_eq!(dead_letter.attempts, 1);
+    assert_eq!(dead_letter.input, Some(7));
     assert_eq!(acks.load(Ordering::SeqCst), 1);
 }
 
@@ -89,8 +95,8 @@ async fn failed_dlq_does_not_ack() {
                 Subscription::new(source, InMemorySink::<i32>::default(), |_| async {
                     Err(HandlerError::Reject(anyhow::anyhow!("reject")))
                 })
-                .dlq(dlq)
-                .publish_retry(fast())
+                .dlq_with(dlq, |dead_letter| Ok(dead_letter.input.unwrap()))
+                .dlq_retry(fast())
             )
             .run()
             .await

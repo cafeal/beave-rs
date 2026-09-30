@@ -151,6 +151,7 @@ pub struct PulsarMessage<C, T> {
 
 impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMessage<C, T> {
     type Item = PulsarRecord<T>;
+    type Raw = PulsarRecord<Vec<u8>>;
 
     fn decode(&self) -> anyhow::Result<Self::Item> {
         Ok(PulsarRecord {
@@ -160,6 +161,16 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMe
             event_time: self.event_time,
             metadata: self.metadata.clone(),
         })
+    }
+
+    fn raw(&self) -> Self::Raw {
+        PulsarRecord {
+            value: self.bytes.clone(),
+            key: self.key.clone(),
+            properties: self.properties.clone(),
+            event_time: self.event_time,
+            metadata: self.metadata.clone(),
+        }
     }
 
     async fn ack(self) -> anyhow::Result<()> {

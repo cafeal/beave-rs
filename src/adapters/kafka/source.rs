@@ -15,6 +15,7 @@ use rdkafka::{
     message::{Headers, Message, OwnedMessage},
 };
 use std::{
+    convert::Infallible,
     marker::PhantomData,
     sync::{Arc, Mutex},
 };
@@ -139,27 +140,10 @@ pub struct KafkaMessage<C, T> {
 }
 
 impl<C, T> KafkaMessage<C, T> {
-    fn metadata(&self) -> KafkaMetadata {
-        KafkaMetadata {
-            topic: self.raw.topic().to_owned(),
-            partition: self.raw.partition(),
-            offset: self.raw.offset(),
-            timestamp: self.raw.timestamp().to_millis(),
-        }
-    }
-}
-
-impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for KafkaMessage<C, T> {
-    type Item = KafkaRecord<T>;
-
-    fn decode(&self) -> anyhow::Result<Self::Item> {
+    fn record<V, E>(&self, value: impl FnOnce(&[u8]) -> Result<V, E>) -> Result<KafkaRecord<V>, E> {
         Ok(KafkaRecord {
             key: self.raw.key().map(<[u8]>::to_vec),
-            value: self
-                .raw
-                .payload()
-                .map(|bytes| self.codec.decode(bytes))
-                .transpose()?,
+            value: self.raw.payload().map(value).transpose()?,
             headers: self
                 .raw
                 .headers()
@@ -172,6 +156,29 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for KafkaMes
                 .unwrap_or_default(),
             metadata: self.metadata(),
         })
+    }
+
+    fn metadata(&self) -> KafkaMetadata {
+        KafkaMetadata {
+            topic: self.raw.topic().to_owned(),
+            partition: self.raw.partition(),
+            offset: self.raw.offset(),
+            timestamp: self.raw.timestamp().to_millis(),
+        }
+    }
+}
+
+impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for KafkaMessage<C, T> {
+    type Item = KafkaRecord<T>;
+    type Raw = KafkaRecord<Vec<u8>>;
+
+    fn decode(&self) -> anyhow::Result<Self::Item> {
+        self.record(|bytes| self.codec.decode(bytes))
+    }
+
+    fn raw(&self) -> Self::Raw {
+        let Ok(record) = self.record(|bytes| Ok::<_, Infallible>(bytes.to_vec()));
+        record
     }
 
     async fn ack(self) -> anyhow::Result<()> {
