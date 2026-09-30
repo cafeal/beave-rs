@@ -70,7 +70,7 @@ impl<I: 'static, O: 'static> Middleware<KafkaRecord<I>, KafkaPublish<O>> for Kaf
 impl<T: Clone + Send + Sync + 'static> ValueRecord for KafkaRecord<T> {
     type Value = T;
 
-    /// A Kafka null value is rejected; register `KafkaTombstones` to choose
+    /// A Kafka null value is rejected; register `Tombstones` to choose
     /// another policy before the handler runs.
     fn value(&self) -> Result<T> {
         self.value

@@ -1,11 +1,12 @@
 use beavers::{
-    App, InMemorySink, IterSource, Subscription,
+    App, InMemorySink, IterSource, Subscription, Tombstones,
     adapters::pulsar::{PulsarInherit, PulsarMetadata, PulsarPublish, PulsarRecord},
 };
+use std::sync::atomic::Ordering;
 
 fn record() -> PulsarRecord<String> {
     PulsarRecord {
-        value: "order".to_owned(),
+        value: Some("order".to_owned()),
         key: Some(b"customer-7".to_vec()),
         properties: [
             ("trace".to_owned(), "abc".to_owned()),
@@ -30,7 +31,7 @@ async fn inherits_application_fields_without_overriding_explicit_ones() {
                 IterSource::new([record()]),
                 sink.clone(),
                 |record: PulsarRecord<String>| async move {
-                    let mut output = PulsarPublish::new(record.value);
+                    let mut output = PulsarPublish::new(record.value.unwrap_or_default());
                     output.properties.insert("kind".into(), "processed".into());
                     output.event_time = Some(50);
                     Ok(output)
@@ -60,7 +61,9 @@ async fn disabled_fields_are_not_inherited() {
             Subscription::new(
                 IterSource::new([record()]),
                 sink.clone(),
-                |record: PulsarRecord<String>| async move { Ok(PulsarPublish::new(record.value)) },
+                |record: PulsarRecord<String>| async move {
+                    Ok(PulsarPublish::new(record.value.unwrap_or_default()))
+                },
             )
             .middleware(
                 PulsarInherit::new()
@@ -93,4 +96,35 @@ async fn value_handlers_inherit_pulsar_metadata_by_default() {
     expected.properties = input.properties;
     expected.event_time = input.event_time;
     assert_eq!(sink.values(), vec![expected]);
+}
+
+#[tokio::test]
+async fn tombstone_policies_apply_to_pulsar_null_values() {
+    let mut tombstone = record();
+    tombstone.value = None;
+    for (skip, published_by_dlq) in [(true, 0), (false, 1)] {
+        let source = IterSource::new([tombstone.clone(), record()]);
+        let acks = source.acknowledgements();
+        let sink = InMemorySink::default();
+        let dlq = InMemorySink::default();
+        let policy = if skip {
+            Tombstones::skip()
+        } else {
+            Tombstones::reject()
+        };
+        App::new()
+            .subscription(
+                Subscription::forward(source, sink.clone(), |value: String| async move {
+                    Ok(value.len())
+                })
+                .middleware(policy)
+                .dlq(dlq.clone()),
+            )
+            .run()
+            .await
+            .unwrap();
+        assert_eq!(sink.values().len(), 1);
+        assert_eq!(dlq.values().len(), published_by_dlq);
+        assert_eq!(acks.load(Ordering::SeqCst), 2);
+    }
 }

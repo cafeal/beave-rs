@@ -79,7 +79,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PulsarSource<C,
             .await
         {
             Some(Ok(raw)) => Ok(Receive::Message(PulsarMessage {
-                bytes: raw.bytes,
+                payload: raw.payload,
                 key: raw.key,
                 properties: raw.properties,
                 event_time: raw.event_time,
@@ -115,7 +115,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PulsarSource<C,
 
 /// One delivery; dropping it leaves the broker message unacknowledged.
 pub struct PulsarMessage<C, T> {
-    bytes: Vec<u8>,
+    payload: Option<Vec<u8>>,
     key: Option<Vec<u8>>,
     properties: HashMap<String, String>,
     event_time: Option<u64>,
@@ -130,7 +130,11 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMe
 
     fn decode(&self) -> anyhow::Result<Self::Item> {
         Ok(PulsarRecord {
-            value: self.codec.decode(&self.bytes)?,
+            value: self
+                .payload
+                .as_deref()
+                .map(|bytes| self.codec.decode(bytes))
+                .transpose()?,
             key: self.key.clone(),
             properties: self.properties.clone(),
             event_time: self.event_time,

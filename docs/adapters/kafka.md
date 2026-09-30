@@ -68,31 +68,12 @@ value-only handler between a Kafka source and sink. See the
 
 ## Tombstones
 
-Kafka producers send a null value as a tombstone, typically to delete a key in
-a compacted topic or to follow a deleted row from change data capture. Whether
-a tombstone is expected depends on the topic. Register `KafkaTombstones` to
-decide its handling before the handler runs:
-
-```rust,ignore
-use beavers::adapters::kafka::KafkaTombstones;
-
-Subscription::forward(kafka_source, kafka_sink, handler)
-    .middleware(KafkaTombstones::propagate())
-```
-
-| Policy | Behavior for a null value |
-|---|---|
-| `reject()` | Route the record to the DLQ, or stop without ACK when none is configured |
-| `skip()` | Acknowledge without output |
-| `propagate()` | Publish a tombstone with the same key; reject a tombstone without a key |
-
-Records with a value always reach the handler. Propagated tombstones still pass
-through `KafkaInherit`, so inherited headers are added. Without
-`KafkaTombstones`, a value-only `forward` handler rejects null values, while a
-record handler registered with `Subscription::new` receives them as
-`KafkaRecord { value: None, .. }`. Propagating is appropriate only when the
-output topic shares the input key space; a handler that re-keys its output
-should handle tombstones itself.
+A Kafka producer sends a null value as a tombstone, typically to delete a key in
+a compacted topic. Use the platform-neutral `Tombstones` middleware to reject,
+skip, or propagate them before the handler runs; see
+[tombstones](../runtime.md#tombstones). Propagation publishes
+`KafkaPublish::tombstone` with the received key and rejects a tombstone without
+a key.
 
 ## Acknowledgements and ordering
 

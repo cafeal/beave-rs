@@ -16,6 +16,7 @@ pub mod shutdown;
 pub mod sink;
 pub mod source;
 pub mod subscription;
+pub mod tombstone;
 
 pub use adapters::{
     ChannelSink, ChannelSource, InMemorySink, IterSource, StdinSource, StdoutSink, channel,
@@ -35,3 +36,4 @@ pub use shutdown::CancellationToken;
 pub use sink::Sink;
 pub use source::{Receive, ReceiveError, Source, SourceItem};
 pub use subscription::{Subscription, SubscriptionConfig};
+pub use tombstone::{PropagateTombstones, TombstonePublish, TombstoneRecord, Tombstones};

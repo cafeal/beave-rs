@@ -8,9 +8,11 @@ pub struct PulsarMetadata {
     pub publish_time: u64,
 }
 
+/// A decoded Pulsar delivery. `value` is `None` when the producer marked the
+/// message value as null, which topic compaction treats as a key deletion.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PulsarRecord<T> {
-    pub value: T,
+    pub value: Option<T>,
     pub key: Option<Vec<u8>>,
     pub properties: HashMap<String, String>,
     pub event_time: Option<u64>,

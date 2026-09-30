@@ -13,4 +13,3 @@ pub use inherit::KafkaInherit;
 pub use record::{KafkaMetadata, KafkaPublish, KafkaRecord};
 pub use sink::{KafkaPrepared, KafkaSink};
 pub use source::{KafkaMessage, KafkaSource};
-pub use tombstone::KafkaTombstones;

@@ -1,6 +1,6 @@
 use beavers::{
-    App, Emit, InMemorySink, IterSource, Subscription,
-    adapters::kafka::{KafkaInherit, KafkaMetadata, KafkaPublish, KafkaRecord, KafkaTombstones},
+    App, Emit, InMemorySink, IterSource, Subscription, Tombstones,
+    adapters::kafka::{KafkaInherit, KafkaMetadata, KafkaPublish, KafkaRecord},
 };
 use std::sync::atomic::Ordering;
 
@@ -152,7 +152,7 @@ async fn tombstone_policies_run_before_the_value_handler() {
             Subscription::forward(source, sink.clone(), |value: String| async move {
                 Ok(value.len())
             })
-            .middleware(KafkaTombstones::propagate())
+            .middleware(Tombstones::propagate())
             .dlq(dlq.clone()),
         )
         .run()
@@ -192,7 +192,7 @@ async fn skipped_tombstones_are_acknowledged_without_output() {
                 sink.clone(),
                 |value: String| async move { Ok(value) },
             )
-            .middleware(KafkaTombstones::skip()),
+            .middleware(Tombstones::skip()),
         )
         .run()
         .await

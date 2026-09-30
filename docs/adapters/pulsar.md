@@ -30,9 +30,17 @@ The codec applies to the payload. `PulsarMessage::decode` returns a
 `PulsarRecord<T>` with top-level `value`, `key`, `properties`, and `event_time`
 fields. These application fields map directly to `PulsarPublish<T>`. Its
 `metadata` contains read-only delivery facts: topic, message ID, and publish
-time. Pulsar payloads are byte vectors, so an empty payload remains an empty
-byte vector rather than a nullable value. Pulsar does not have Kafka-style
-tombstones.
+time.
+
+A message whose producer marked the value as null becomes
+`PulsarRecord { value: None, .. }` and is not passed to the codec. With a key,
+such a message is a tombstone: topic compaction treats it as deleting that key.
+An empty payload without the null marker is still decoded by the codec. The
+`pulsar` 6.9 client keeps the null marker only for non-batched messages; a null
+value inside a producer batch arrives as an empty payload. `PulsarPublish<T>`
+always carries a value because that client cannot publish null values, so
+tombstones can be skipped or rejected but not propagated to a Pulsar sink. See
+[tombstones](../runtime.md#tombstones).
 
 The source owns a dedicated consumer task. `receive` only waits on a bounded
 delivery channel, so dropping a pending receive future does not consume a

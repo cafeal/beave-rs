@@ -11,7 +11,7 @@ use beavers::{
 #[test]
 fn records_keep_delivery_facts_separate_from_application_fields() {
     let record = PulsarRecord {
-        value: "order-1".to_owned(),
+        value: Some("order-1".to_owned()),
         key: Some(b"customer-7".to_vec()),
         properties: [("kind".to_owned(), "order".to_owned())].into(),
         event_time: Some(42),
@@ -146,7 +146,7 @@ async fn publish_receive_and_ack_against_pulsar() -> anyhow::Result<()> {
     let (record, metadata) = tokio::time::timeout(Duration::from_secs(20), receive_task)
         .await
         .expect("timed out waiting for Pulsar record")??;
-    assert_eq!(record.value, "hello pulsar");
+    assert_eq!(record.value.as_deref(), Some("hello pulsar"));
     assert_eq!(metadata.topic, topic);
     assert_eq!(record.key.as_deref(), Some(b"binary-key".as_slice()));
     assert!(

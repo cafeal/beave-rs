@@ -6,6 +6,7 @@ mod inherit;
 mod record;
 mod sink;
 mod source;
+mod tombstone;
 
 pub use config::{PulsarAuthentication, PulsarSinkConfig, PulsarSourceConfig};
 pub use inherit::PulsarInherit;
