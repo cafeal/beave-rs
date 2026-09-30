@@ -122,6 +122,10 @@ have not been verified against a live broker. Verify with Kafka:
 - After `assignment_lost`, all tokens are cancelled and the next assignment
   resumes processing.
 - A revoked delivery's in-flight commit does not affect the next assignment.
+- Commits advance past offset gaps on a compacted topic and on a topic written
+  by transactional producers (`isolation.level=read_committed`, including
+  aborted transactions). This assumes the consumer returns a partition's
+  records in strictly increasing offset order within an assignment.
 
 Verify with Pulsar that Failover and Key_Shared deliveries carry the partition
 index and ordering key expected by the adapter.
