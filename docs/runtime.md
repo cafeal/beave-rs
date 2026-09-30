@@ -144,6 +144,7 @@ submission only.
 one sink transaction per delivery:
 
 ```text
+first delivery: verify_source(delivery)
 … → prepare all outputs → commit(delivery, outputs)
 ```
 
@@ -174,6 +175,14 @@ without output, including one that emitted nothing, was discarded, or was
 dead-lettered, is committed in a transaction without outputs. Dead letters are
 published by the dead-letter sink before that transaction and are not part of
 it, so they remain at-least-once.
+
+Types cannot tell whether a source and a sink of the same platform connect to
+the same cluster, and a transaction can only acknowledge a delivery of its own
+cluster. The runtime therefore passes the first delivery of a transactional
+subscription to `TransactionalSink::verify_source` before processing it. The
+check is retried under the `publish_retry` policy, and a failure stops the
+subscription before any handler runs or anything is published or
+acknowledged. Shutdown during the check leaves the delivery unacknowledged.
 
 A transactional subscription requires `ProcessingOrder::PerKey`. Deliveries of
 one ordering scope then commit one at a time in receive order, so every commit

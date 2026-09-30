@@ -58,6 +58,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         let mut failures = 0;
         let mut next_receive = Instant::now();
         let mut ended = false;
+        let mut verified = false;
         let in_flight = worker.pipeline.instruments.in_flight.clone();
         // A source fed by an upstream subscription ends when that upstream closes it.
         let stop = if self.source.stops_on_shutdown() {
@@ -91,6 +92,17 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                             worker.pipeline.instruments.received.increment(1);
                             failures = 0;
                             next_receive = Instant::now();
+                            let delivery = if verified {
+                                delivery
+                            } else {
+                                // The first delivery waits for the check; shutdown abandons it unacknowledged.
+                                let verify = output.verify(delivery, &self.config.publish_retry);
+                                match tokio::select! { biased; _ = stop.cancelled() => None, result = verify => Some(result) } {
+                                    None => break,
+                                    Some(Ok(delivery)) => { verified = true; delivery }
+                                    Some(Err(error)) => { failure = Some(error); shutdown.cancel(); break; }
+                                }
+                            };
                             scheduler.push(delivery);
                         }
                         Err(ReceiveError::Retry(error)) => {

@@ -113,7 +113,10 @@ A sink can also implement `TransactionalSink<M, T>` for a source message type
 publishes a delivery's prepared outputs and acknowledges the delivery
 atomically, and must finish or abort the transaction even when its future is
 dropped. `Subscription::transactional()` requires this implementation, so an
-unsupported source and sink pair is rejected at compile time. See the
+unsupported source and sink pair is rejected at compile time. Its
+`verify_source` checks what types cannot express, such as whether the source
+and the sink connect to the same cluster, and the runtime calls it with the
+first delivery before processing it. See the
 [runtime guide](runtime.md#transactions).
 
 ### Configuration ownership

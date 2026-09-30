@@ -203,9 +203,15 @@ aborts its unfinished transaction. The adapter sets the ID itself, so
 `KafkaSinkConfig` rejects `transactional.id` in `properties`.
 `KafkaSinkConfig::transaction_timeout` bounds each blocking transaction call:
 initialization, sending offsets, commit, and abort. The producer is created and
-its transactions are initialized on first use. The source and sink must use the
-same Kafka cluster, because the offsets are committed through the sink's
-transaction coordinator.
+its transactions are initialized on first use.
+
+The source and sink must use the same Kafka cluster, because the offsets are
+committed through the group coordinator of the sink's cluster. Before the
+first delivery is processed, the sink compares the cluster ID reported by the
+source's consumer with the one reported by its brokers, read with a separate
+non-transactional client, and a mismatch stops the subscription. Different
+`brokers` lists for the same cluster are accepted. Each cluster ID request
+waits up to `transaction_timeout`.
 
 A producer runs one transaction at a time, so transactions from every
 partition and every clone of the sink are serialized, while handlers still run

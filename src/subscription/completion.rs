@@ -6,6 +6,8 @@ use super::{
 use crate::{
     message::SourceMessage, retry::RetryPolicy, sink, sink::Sink, transaction::TransactionalSink,
 };
+use anyhow::Context as _;
+use metrics::Counter;
 use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc, time::Instant};
 use tracing::{Instrument, info_span};
 
@@ -33,6 +35,13 @@ pub(super) trait Complete<M, O>: Send + Sync + 'static {
         policy: &'a RetryPolicy,
         instruments: &'a Instruments,
     ) -> BoxFuture<'a, anyhow::Result<Completion<M>>>;
+    /// Checks before the first delivery is processed that deliveries of this
+    /// source can be completed, and returns the delivery.
+    fn verify<'a>(
+        &'a self,
+        delivery: M,
+        policy: &'a RetryPolicy,
+    ) -> BoxFuture<'a, anyhow::Result<M>>;
     fn close(&self) -> BoxFuture<'_, anyhow::Result<()>>;
 }
 
@@ -81,6 +90,10 @@ where
         })
     }
 
+    fn verify<'a>(&'a self, delivery: M, _: &'a RetryPolicy) -> BoxFuture<'a, anyhow::Result<M>> {
+        Box::pin(async move { Ok(delivery) })
+    }
+
     fn close(&self) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(self.0.close())
     }
@@ -120,6 +133,21 @@ where
             instruments.record(Stage::Commit, started);
             instruments.acknowledged.increment(1);
             Ok(Completion::Done)
+        })
+    }
+
+    fn verify<'a>(
+        &'a self,
+        delivery: M,
+        policy: &'a RetryPolicy,
+    ) -> BoxFuture<'a, anyhow::Result<M>> {
+        Box::pin(async move {
+            retry_publish(policy, &Counter::noop(), || {
+                self.sink.verify_source(&delivery)
+            })
+            .await
+            .context("the source cannot join the sink's transactions")?;
+            Ok(delivery)
         })
     }
 

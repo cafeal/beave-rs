@@ -39,6 +39,7 @@ struct Connection {
     client: Arc<SharedClient>,
     consumers: Vec<Consumer>,
     subscription: Arc<str>,
+    service_url: Arc<str>,
     closed: Arc<AtomicBool>,
     /// The consumer polled first by the next `receive`, so that a busy
     /// partition cannot starve the others.
@@ -84,6 +85,7 @@ impl<C, T> PulsarSource<C, T> {
             client: SharedClient::new(client),
             consumers,
             subscription: self.config.subscription.as_str().into(),
+            service_url: self.config.service_url.as_str().into(),
             closed: Arc::new(AtomicBool::new(false)),
             next: 0,
         })
@@ -148,6 +150,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PulsarSource<C,
                 consumer,
                 id: message.message_id,
                 subscription: connection.subscription.clone(),
+                service_url: connection.service_url.clone(),
                 closed: connection.closed.clone(),
                 _client: connection.client.clone(),
             },
@@ -273,6 +276,8 @@ pub(super) struct Acknowledgement {
     pub(super) consumer: Consumer,
     pub(super) id: MessageId,
     pub(super) subscription: Arc<str>,
+    /// The source's service URL, which a transactional sink compares with its own.
+    pub(super) service_url: Arc<str>,
     closed: Arc<AtomicBool>,
     _client: Arc<SharedClient>,
 }
