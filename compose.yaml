@@ -48,12 +48,17 @@ services:
 
   pulsar:
     image: apachepulsar/pulsar:4.0.6
-    command: bin/pulsar standalone --no-functions-worker --no-stream-storage
+    command:
+      - sh
+      - -c
+      - bin/apply-config-from-env.py conf/standalone.conf && exec bin/pulsar standalone --no-functions-worker --no-stream-storage
     ports:
       - "6650:6650"
       - "8081:8080"
     environment:
       PULSAR_MEM: -Xms512m -Xmx512m -XX:MaxDirectMemorySize=512m
+      # Applied to conf/standalone.conf by apply-config-from-env.py.
+      transactionCoordinatorEnabled: "true"
     healthcheck:
       test:
         - CMD-SHELL

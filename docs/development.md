@@ -32,7 +32,11 @@ transaction state log accepts a single replica, which allows transactional
 producers against the one broker. Applications on the host use the listener
 advertised as `localhost:9092`; containers use `kafka:29092`.
 
-Pulsar runs in standalone mode without the functions worker or stream storage.
+Pulsar runs in standalone mode without the functions worker or stream storage
+and with the transaction coordinator enabled. The coordinator is loaded when
+the first transactional client connects. Other `standalone.conf` settings can
+be added to the `pulsar` service environment, which `apply-config-from-env.py`
+applies before the broker starts.
 The one-shot `pulsar-init` service creates the `beavers-examples` subscription
 on `persistent://public/default/orders` at the earliest position and the Pulsar
 Manager login. Pulsar Manager is preconfigured with a `local` environment
