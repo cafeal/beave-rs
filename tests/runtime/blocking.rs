@@ -19,6 +19,7 @@ async fn blocking_handlers_run_on_pool_threads() {
     let seen = threads.clone();
     App::new()
         .subscribe(
+            "pool-threads",
             source,
             sink.clone(),
             blocking(move |n: i32| {
@@ -43,6 +44,7 @@ async fn blocking_handlers_can_emit_many() {
     let sink = InMemorySink::default();
     App::new()
         .subscription(Subscription::new_emitting(
+            "emit-many",
             IterSource::new([2]),
             sink.clone(),
             blocking(|n: i32| Ok(Emit::Many(vec![n; n as usize]))),
@@ -70,20 +72,20 @@ async fn shared_pool_bounds_parallel_calls() {
     App::new()
         .subscription(
             Subscription::new(
+                "first",
                 IterSource::new(0..4),
                 InMemorySink::default(),
                 handler(running.clone(), peak.clone()),
             )
-            .name("first")
             .concurrency(4),
         )
         .subscription(
             Subscription::new(
+                "second",
                 IterSource::new(0..4),
                 InMemorySink::default(),
                 handler(running.clone(), peak.clone()),
             )
-            .name("second")
             .concurrency(4),
         )
         .run()
@@ -98,6 +100,7 @@ async fn panicking_blocking_handler_stops_without_ack() {
     let acks = source.acknowledgements();
     let result = App::new()
         .subscribe(
+            "panics",
             source,
             InMemorySink::<i32>::default(),
             blocking(|_: i32| -> beavers::Result<i32> { panic!("broken handler") }),
@@ -120,6 +123,7 @@ async fn drain_timeout_abandons_running_blocking_work_without_ack() {
     let done = finished.clone();
     let app = App::new().subscription(
         Subscription::new(
+            "drain",
             source,
             sink.clone(),
             blocking(move |n: i32| {

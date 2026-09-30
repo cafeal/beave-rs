@@ -19,6 +19,8 @@ src/
 ├── error_policy.rs        # FailureKind, FailureAction, and ErrorPolicy
 ├── dead_letter.rs         # DeadLetter envelope
 ├── retry.rs               # Retry policy and jitter
+├── propagation.rs         # Trace-context carrier contract for outputs
+├── telemetry.rs           # OpenTelemetry propagation (`opentelemetry` feature)
 ├── shutdown.rs            # Cancellation and process signals
 ├── codec/
 │   ├── mod.rs             # Decoder and Encoder contracts
@@ -29,6 +31,7 @@ src/
 │   ├── config.rs          # Runtime configuration and validation
 │   ├── runtime.rs         # Private receive loop, draining, and cleanup
 │   ├── scheduler.rs       # Private ordering-key queues
+│   ├── instruments.rs     # Private per-subscription metric handles
 │   └── processing.rs      # Private per-message processing lifecycle
 └── adapters/
     ├── mod.rs
@@ -49,7 +52,7 @@ The scheduler and per-message processing implementation remain private.
 | Contract | Responsibility |
 |---|---|
 | `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure |
-| `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key and revocation |
+| `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, revocation, and propagation fields |
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
 | `Decoder<T>` / `Encoder<T>` | Convert serialization formats without broker operations |
 | `Sink<T>` | Prepare an associated output representation, publish it, and close resources |

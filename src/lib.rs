@@ -14,11 +14,14 @@ pub mod forward;
 pub mod handler;
 pub mod message;
 pub mod middleware;
+pub mod propagation;
 pub mod retry;
 pub mod shutdown;
 pub mod sink;
 pub mod source;
 pub mod subscription;
+#[cfg(feature = "opentelemetry")]
+pub mod telemetry;
 pub mod tombstone;
 
 pub use adapters::{
@@ -37,9 +40,12 @@ pub use forward::{SamePlatform, ValueRecord};
 pub use handler::{Classify, Emit, Handler, HandlerError, Result};
 pub use message::{Delivery, OrderingKey, SourceMessage};
 pub use middleware::{Flow, MapMetadata, Middleware};
+pub use propagation::PropagationCarrier;
 pub use retry::{Jitter, RetryPolicy};
 pub use shutdown::CancellationToken;
 pub use sink::Sink;
 pub use source::{Receive, ReceiveError, Source, SourceItem, SourceRaw};
 pub use subscription::{ProcessingOrder, Subscription, SubscriptionConfig};
+#[cfg(feature = "opentelemetry")]
+pub use telemetry::TraceContext;
 pub use tombstone::{PropagateTombstones, TombstonePublish, TombstoneRecord, Tombstones};

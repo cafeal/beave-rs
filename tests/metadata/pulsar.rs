@@ -1,5 +1,5 @@
 use beavers::{
-    App, InMemorySink, IterSource, Subscription, Tombstones,
+    App, InMemorySink, IterSource, PropagationCarrier, Subscription, Tombstones,
     adapters::pulsar::{PulsarInherit, PulsarMetadata, PulsarPublish, PulsarRecord},
 };
 use std::sync::atomic::Ordering;
@@ -28,6 +28,7 @@ async fn inherits_application_fields_without_overriding_explicit_ones() {
     App::new()
         .subscription(
             Subscription::new(
+                "inherits_application_fields_without_overriding_explicit_ones",
                 IterSource::new([record()]),
                 sink.clone(),
                 |record: PulsarRecord<String>| async move {
@@ -59,6 +60,7 @@ async fn disabled_fields_are_not_inherited() {
     App::new()
         .subscription(
             Subscription::new(
+                "disabled_fields_are_not_inherited",
                 IterSource::new([record()]),
                 sink.clone(),
                 |record: PulsarRecord<String>| async move {
@@ -83,6 +85,7 @@ async fn value_handlers_inherit_pulsar_metadata_by_default() {
     let sink = InMemorySink::default();
     App::new()
         .subscription(Subscription::forward(
+            "value_handlers_inherit_pulsar_metadata_by_default",
             IterSource::new([record()]),
             sink.clone(),
             |value: String| async move { Ok(value.to_uppercase()) },
@@ -114,9 +117,12 @@ async fn tombstone_policies_apply_to_pulsar_null_values() {
         };
         App::new()
             .subscription(
-                Subscription::forward(source, sink.clone(), |value: String| async move {
-                    Ok(value.len())
-                })
+                Subscription::forward(
+                    "tombstone_policies_apply_to_pulsar_null_values",
+                    source,
+                    sink.clone(),
+                    |value: String| async move { Ok(value.len()) },
+                )
                 .middleware(policy)
                 .dlq_with(dlq.clone(), |dead_letter| Ok(dead_letter.input.unwrap())),
             )
@@ -137,6 +143,7 @@ async fn propagated_pulsar_tombstones_keep_the_key_and_inherited_fields() {
     App::new()
         .subscription(
             Subscription::forward(
+                "propagated_pulsar_tombstones_keep_the_key_and_inherited_fields",
                 IterSource::new([tombstone.clone()]),
                 sink.clone(),
                 |value: String| async move { Ok(value) },
@@ -150,4 +157,15 @@ async fn propagated_pulsar_tombstones_keep_the_key_and_inherited_fields() {
     expected.properties = tombstone.properties;
     expected.event_time = tombstone.event_time;
     assert_eq!(sink.values(), vec![expected]);
+}
+
+#[test]
+fn propagation_fields_replace_properties() {
+    let mut output = PulsarPublish::new("order".to_owned());
+    output
+        .properties
+        .insert("traceparent".into(), "inherited".into());
+    output.set_propagation_field("traceparent", "current".into());
+    assert_eq!(output.properties["traceparent"], "current");
+    assert_eq!(output.properties.len(), 1);
 }

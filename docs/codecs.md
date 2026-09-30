@@ -70,6 +70,7 @@ async fn handler(order: Order) -> Result<Event> {
 async fn main() -> anyhow::Result<()> {
     App::new()
         .subscribe(
+            "orders",
             StdinSource::<Json, _>::new(),
             StdoutSink::<Json>::new(),
             handler,

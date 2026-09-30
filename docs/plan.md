@@ -106,25 +106,19 @@ index and ordering key expected by the adapter.
 
 ## Observability
 
-Add tracing spans around subscriptions and individual message stages:
+Spans, events, metrics, and trace-context propagation are described in the
+[runtime guide](runtime.md#observability). Remaining decisions:
 
-```text
-subscription
-  └── message
-       ├── decode
-       ├── handler
-       ├── encode
-       ├── publish
-       └── ack
-```
+- OpenTelemetry messaging semantic-convention attributes, such as destination,
+  partition, and offset, which need an adapter-provided description of each
+  delivery;
+- a producer span per published output instead of injecting the `message`
+  span's context into every output;
+- whether an application that uses OpenTelemetry metrics should get a built-in
+  bridge from the `metrics` facade.
 
-Candidate metrics include received, processed, rejected, retried, publish
-failures, error-policy outcomes per `FailureKind` (dead-lettered and discarded
-deliveries), duration per stage, and in-flight work. Discarded deliveries must
-always be counted and logged, because `FailureAction::Discard` otherwise leaves
-no trace. Plan OpenTelemetry integration for standard monitoring backends.
-Trace-context propagation needs explicit mappings for Kafka headers, Pulsar
-properties, NATS headers, and SQS attributes.
+Trace-context propagation has not been verified against live brokers or an
+OpenTelemetry collector.
 
 ## Future adapters
 
@@ -136,8 +130,9 @@ Candidate adapters are:
   framing and durability semantics.
 
 Each broker adapter must define its native record and publish types, ACK model,
-redelivery behavior, ordering scope, cancellation behavior, and connection
-lifecycle before implementation.
+redelivery behavior, ordering scope, cancellation behavior, connection
+lifecycle, and mapping of trace-context propagation fields (NATS headers, SQS
+message attributes) before implementation.
 
 ## Implementation order
 
@@ -145,7 +140,7 @@ lifecycle before implementation.
 |---|---|
 | 1 | Adapter pause/resume backpressure and graceful rebalance handoff |
 | 2 | Cross-platform metadata mapping policy |
-| 3 | Observability and trace-context propagation |
+| 3 | Observability refinements |
 | 4 | Kafka transactions and exactly-once processing |
 | 5 | NATS JetStream and AWS SQS adapters |
 | 6 | Schema Registry and additional codecs |

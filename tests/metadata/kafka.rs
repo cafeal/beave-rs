@@ -1,5 +1,5 @@
 use beavers::{
-    App, Emit, InMemorySink, IterSource, Subscription, Tombstones,
+    App, Emit, InMemorySink, IterSource, PropagationCarrier, Subscription, Tombstones,
     adapters::kafka::{KafkaInherit, KafkaMetadata, KafkaPublish, KafkaRecord},
 };
 use std::sync::atomic::Ordering;
@@ -30,6 +30,7 @@ async fn inherits_key_and_headers_for_every_emitted_record() {
     App::new()
         .subscription(
             Subscription::new_emitting(
+                "inherits_key_and_headers_for_every_emitted_record",
                 IterSource::new([record()]),
                 sink.clone(),
                 |record: KafkaRecord<String>| async move {
@@ -68,6 +69,7 @@ async fn disabled_fields_are_not_inherited() {
     App::new()
         .subscription(
             Subscription::new(
+                "disabled_fields_are_not_inherited",
                 IterSource::new([record()]),
                 sink.clone(),
                 |record: KafkaRecord<String>| async move {
@@ -87,6 +89,7 @@ async fn value_handlers_inherit_kafka_metadata_by_default() {
     let sink = InMemorySink::default();
     App::new()
         .subscription(Subscription::forward_emitting(
+            "value_handlers_inherit_kafka_metadata_by_default",
             IterSource::new([record()]),
             sink.clone(),
             |value: String| async move { Ok(Emit::Many(vec![value.len(), 0])) },
@@ -123,6 +126,7 @@ async fn value_handlers_reject_null_kafka_values() {
     App::new()
         .subscription(
             Subscription::forward(
+                "value_handlers_reject_null_kafka_values",
                 source,
                 sink.clone(),
                 |value: String| async move { Ok(value) },
@@ -149,9 +153,12 @@ async fn tombstone_policies_run_before_the_value_handler() {
     let dlq = InMemorySink::default();
     App::new()
         .subscription(
-            Subscription::forward(source, sink.clone(), |value: String| async move {
-                Ok(value.len())
-            })
+            Subscription::forward(
+                "tombstone_policies_run_before_the_value_handler",
+                source,
+                sink.clone(),
+                |value: String| async move { Ok(value.len()) },
+            )
             .middleware(Tombstones::propagate())
             .dlq_with(dlq.clone(), |dead_letter| Ok(dead_letter.input.unwrap())),
         )
@@ -188,6 +195,7 @@ async fn skipped_tombstones_are_acknowledged_without_output() {
     App::new()
         .subscription(
             Subscription::forward(
+                "skipped_tombstones_are_acknowledged_without_output",
                 source,
                 sink.clone(),
                 |value: String| async move { Ok(value) },
@@ -199,4 +207,19 @@ async fn skipped_tombstones_are_acknowledged_without_output() {
         .unwrap();
     assert!(sink.values().is_empty());
     assert_eq!(acks.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn propagation_fields_replace_every_header_of_that_name() {
+    let mut output = KafkaPublish::new("order".to_owned());
+    output.headers = vec![
+        header("traceparent", "inherited"),
+        header("kind", "new"),
+        header("traceparent", "duplicate"),
+    ];
+    output.set_propagation_field("traceparent", "current".into());
+    assert_eq!(
+        output.headers,
+        vec![header("kind", "new"), header("traceparent", "current")]
+    );
 }

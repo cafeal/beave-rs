@@ -79,9 +79,12 @@ async fn same_key_runs_sequentially_while_other_keys_run_in_parallel() {
     let handler_probe = probe.clone();
     let sink = InMemorySink::default();
     let app = App::new().subscription(
-        Subscription::new(source, sink.clone(), move |value| {
-            handler_probe.clone().handle(value)
-        })
+        Subscription::new(
+            "same_key_runs_sequentially_while_other_keys_run_in_parallel",
+            source,
+            sink.clone(),
+            move |value| handler_probe.clone().handle(value),
+        )
         .concurrency(4),
     );
     let run = tokio::spawn(app.run());
@@ -107,9 +110,12 @@ async fn unordered_mode_runs_same_key_in_parallel() {
     let probe = Probe::new();
     let handler_probe = probe.clone();
     let app = App::new().subscription(
-        Subscription::new(source, InMemorySink::default(), move |value| {
-            handler_probe.clone().handle(value)
-        })
+        Subscription::new(
+            "unordered_mode_runs_same_key_in_parallel",
+            source,
+            InMemorySink::default(),
+            move |value| handler_probe.clone().handle(value),
+        )
         .concurrency(2)
         .ordering(ProcessingOrder::Unordered),
     );
@@ -130,9 +136,12 @@ async fn max_in_flight_bounds_deliveries_queued_behind_a_key() {
     let probe = Probe::new();
     let handler_probe = probe.clone();
     let app = App::new().subscription(
-        Subscription::new(source, InMemorySink::default(), move |value| {
-            handler_probe.clone().handle(value)
-        })
+        Subscription::new(
+            "max_in_flight_bounds_deliveries_queued_behind_a_key",
+            source,
+            InMemorySink::default(),
+            move |value| handler_probe.clone().handle(value),
+        )
         .concurrency(4)
         .max_in_flight(3),
     );
@@ -161,6 +170,7 @@ async fn revocation_abandons_in_flight_work_without_ack_or_failure() {
     let handler_started = started.clone();
     let sink = InMemorySink::default();
     let app = App::new().subscription(Subscription::new(
+        "revocation_abandons_in_flight_work_without_ack_or_failure",
         source,
         sink.clone(),
         move |value: i32| {
@@ -201,6 +211,7 @@ async fn ack_rejected_because_of_revocation_is_not_a_failure() {
     let sink = InMemorySink::default();
     App::new()
         .subscribe(
+            "ack_rejected_because_of_revocation_is_not_a_failure",
             DeliverySource::new([delivery]),
             sink.clone(),
             |value| async move { Ok(value) },
@@ -220,9 +231,12 @@ async fn shutdown_leaves_deliveries_queued_behind_a_key_unstarted() {
     let receives = source.receives.clone();
     let token = CancellationToken::new();
     let app = App::new().subscription(
-        Subscription::new(source, InMemorySink::default(), move |value| {
-            handler_probe.clone().handle(value)
-        })
+        Subscription::new(
+            "shutdown_leaves_deliveries_queued_behind_a_key_unstarted",
+            source,
+            InMemorySink::default(),
+            move |value| handler_probe.clone().handle(value),
+        )
         .concurrency(2),
     );
     let run = tokio::spawn(app.run_until(token.clone()));

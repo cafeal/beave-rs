@@ -54,7 +54,7 @@ key and headers:
 ```rust,ignore
 use beavers::adapters::kafka::KafkaInherit;
 
-Subscription::new(kafka_source, kafka_sink, handler)
+Subscription::new("orders", kafka_source, kafka_sink, handler)
     .middleware(KafkaInherit::new())
 ```
 
@@ -70,6 +70,10 @@ timestamp, and the source offset is only used for the source's own commits.
 `Subscription::forward` applies `KafkaInherit::new()` automatically for a
 value-only handler between a Kafka source and sink. See the
 [runtime guide](../runtime.md#same-platform-forwarding).
+
+Inherited headers include trace-context headers such as `traceparent`. Register
+`TraceContext` after `KafkaInherit` to replace them with the processing span's
+context; see [trace-context propagation](../runtime.md#trace-context-propagation).
 
 ## Tombstones
 

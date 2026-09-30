@@ -12,6 +12,7 @@
 //! }
 //!
 //! let app = App::new().subscribe(
+//!     "checksums",
 //!     IterSource::new(["a".to_string()]),
 //!     InMemorySink::default(),
 //!     blocking(checksum),

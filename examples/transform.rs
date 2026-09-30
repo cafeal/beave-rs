@@ -17,6 +17,7 @@ async fn main() -> anyhow::Result<()> {
     if env::args().any(|arg| arg == "--stdin") {
         App::new()
             .subscribe(
+                "orders",
                 StdinSource::<Json, _>::new(),
                 StdoutSink::<Json>::new(),
                 handler,
@@ -26,6 +27,7 @@ async fn main() -> anyhow::Result<()> {
     } else {
         App::new()
             .subscribe(
+                "orders",
                 IterSource::new([Order { id: 1 }, Order { id: 2 }]),
                 StdoutSink::<Json>::new(),
                 handler,

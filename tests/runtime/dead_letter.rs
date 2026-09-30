@@ -24,12 +24,17 @@ async fn decode_failure_dead_letters_raw_delivery_and_continues() {
     let dlq = InMemorySink::default();
     App::new()
         .subscription(
-            Subscription::new(source, sink.clone(), |n| async move { Ok(n) })
-                .dlq(dlq.clone())
-                .error_policy(ErrorPolicy {
-                    decode: FailureAction::DeadLetter,
-                    ..ErrorPolicy::default()
-                }),
+            Subscription::new(
+                "decode_failure_dead_letters_raw_delivery_and_continues",
+                source,
+                sink.clone(),
+                |n| async move { Ok(n) },
+            )
+            .dlq(dlq.clone())
+            .error_policy(ErrorPolicy {
+                decode: FailureAction::DeadLetter,
+                ..ErrorPolicy::default()
+            }),
         )
         .run()
         .await
@@ -50,12 +55,16 @@ async fn discard_acknowledges_without_output() {
     let sink = InMemorySink::default();
     App::new()
         .subscription(
-            Subscription::new(source, sink.clone(), |n| async move { Ok(n) }).error_policy(
-                ErrorPolicy {
-                    decode: FailureAction::Discard,
-                    ..ErrorPolicy::default()
-                },
-            ),
+            Subscription::new(
+                "discard_acknowledges_without_output",
+                source,
+                sink.clone(),
+                |n| async move { Ok(n) },
+            )
+            .error_policy(ErrorPolicy {
+                decode: FailureAction::Discard,
+                ..ErrorPolicy::default()
+            }),
         )
         .run()
         .await
@@ -71,13 +80,18 @@ async fn propagated_errors_are_dead_lettered_without_retry_by_default() {
         let counter = calls.clone();
         let (source, acks) = text_source(&["5"]);
         let dlq = InMemorySink::default();
-        let mut subscription = Subscription::new(source, InMemorySink::default(), move |_: i32| {
-            counter.fetch_add(1, Ordering::SeqCst);
-            async {
-                let value: i32 = "invalid".parse()?;
-                Ok(value)
-            }
-        })
+        let mut subscription = Subscription::new(
+            "propagated_errors_are_dead_lettered_without_retry_by_default",
+            source,
+            InMemorySink::default(),
+            move |_: i32| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                async {
+                    let value: i32 = "invalid".parse()?;
+                    Ok(value)
+                }
+            },
+        )
         .retry(fast());
         if with_dlq {
             subscription = subscription.dlq(dlq.clone());
@@ -107,9 +121,12 @@ async fn retry_exhaustion_can_stop() {
     let dlq = InMemorySink::<DeadLetter<i32, Vec<u8>>>::default();
     let error = App::new()
         .subscription(
-            Subscription::new(source, InMemorySink::default(), |_: i32| async {
-                Err::<i32, _>(HandlerError::Retry(anyhow::anyhow!("busy")))
-            })
+            Subscription::new(
+                "retry_exhaustion_can_stop",
+                source,
+                InMemorySink::default(),
+                |_: i32| async { Err::<i32, _>(HandlerError::Retry(anyhow::anyhow!("busy"))) },
+            )
             .retry(fast())
             .dlq(dlq.clone())
             .error_policy(ErrorPolicy {
@@ -133,9 +150,12 @@ async fn encode_failure_dead_letters_input_without_partial_publish() {
     let dlq = InMemorySink::default();
     App::new()
         .subscription(
-            Subscription::new_emitting(source, sink.clone(), |n: i32| async move {
-                Ok(Emit::Many(vec![n, -n]))
-            })
+            Subscription::new_emitting(
+                "encode_failure_dead_letters_input_without_partial_publish",
+                source,
+                sink.clone(),
+                |n: i32| async move { Ok(Emit::Many(vec![n, -n])) },
+            )
             .dlq(dlq.clone())
             .error_policy(ErrorPolicy::dead_letter_all()),
         )
@@ -156,8 +176,13 @@ async fn dead_letter_policy_without_sink_fails_validation() {
     let sink = InMemorySink::<i32>::default();
     let error = App::new()
         .subscription(
-            Subscription::new(source, sink.clone(), |n| async move { Ok(n) })
-                .error_policy(ErrorPolicy::dead_letter_all()),
+            Subscription::new(
+                "dead_letter_policy_without_sink_fails_validation",
+                source,
+                sink.clone(),
+                |n| async move { Ok(n) },
+            )
+            .error_policy(ErrorPolicy::dead_letter_all()),
         )
         .run()
         .await
@@ -179,9 +204,12 @@ async fn dead_letter_retry_is_independent_of_publish_retry() {
     };
     App::new()
         .subscription(
-            Subscription::new(source, InMemorySink::<i32>::default(), |_| async {
-                Err(HandlerError::Reject(anyhow::anyhow!("reject")))
-            })
+            Subscription::new(
+                "dead_letter_retry_is_independent_of_publish_retry",
+                source,
+                InMemorySink::<i32>::default(),
+                |_| async { Err(HandlerError::Reject(anyhow::anyhow!("reject"))) },
+            )
             .dlq_with(dlq, |letter| Ok(letter.input.unwrap()))
             .publish_retry(RetryPolicy {
                 max_attempts: 1,
@@ -203,9 +231,12 @@ async fn dead_letter_conversion_failure_does_not_ack() {
     let dlq = InMemorySink::<i32>::default();
     let error = App::new()
         .subscription(
-            Subscription::new(source, InMemorySink::<i32>::default(), |_| async {
-                Err(HandlerError::Reject(anyhow::anyhow!("reject")))
-            })
+            Subscription::new(
+                "dead_letter_conversion_failure_does_not_ack",
+                source,
+                InMemorySink::<i32>::default(),
+                |_| async { Err(HandlerError::Reject(anyhow::anyhow!("reject"))) },
+            )
             .dlq_with(dlq.clone(), |_| anyhow::bail!("unsupported")),
         )
         .run()
@@ -225,11 +256,11 @@ async fn dead_letter_serializes_failure_context() {
     App::new()
         .subscription(
             Subscription::new(
+                "numbers",
                 source,
                 InMemorySink::default(),
                 |n: i32| async move { Ok(n) },
             )
-            .name("numbers")
             .dlq(dlq.clone())
             .error_policy(ErrorPolicy::dead_letter_all()),
         )
@@ -252,13 +283,18 @@ async fn retry_classified_errors_are_retried_then_dead_lettered() {
     let dlq = InMemorySink::default();
     App::new()
         .subscription(
-            Subscription::new(source, InMemorySink::default(), move |_: i32| {
-                counter.fetch_add(1, Ordering::SeqCst);
-                async {
-                    let value: i32 = "busy".parse().retry()?;
-                    Ok(value)
-                }
-            })
+            Subscription::new(
+                "retry_classified_errors_are_retried_then_dead_lettered",
+                source,
+                InMemorySink::default(),
+                move |_: i32| {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    async {
+                        let value: i32 = "busy".parse().retry()?;
+                        Ok(value)
+                    }
+                },
+            )
             .retry(fast())
             .dlq(dlq.clone()),
         )
@@ -280,13 +316,18 @@ async fn fatal_errors_stop_without_retry_or_dead_letter() {
     let dlq = InMemorySink::<DeadLetter<i32, Vec<u8>>>::default();
     let result = App::new()
         .subscription(
-            Subscription::new(source, InMemorySink::default(), move |_: i32| {
-                counter.fetch_add(1, Ordering::SeqCst);
-                async {
-                    let value: i32 = "broken".parse().fatal()?;
-                    Ok(value)
-                }
-            })
+            Subscription::new(
+                "fatal_errors_stop_without_retry_or_dead_letter",
+                source,
+                InMemorySink::default(),
+                move |_: i32| {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    async {
+                        let value: i32 = "broken".parse().fatal()?;
+                        Ok(value)
+                    }
+                },
+            )
             .retry(fast())
             .dlq(dlq.clone()),
         )
@@ -304,10 +345,15 @@ async fn reject_classified_errors_match_propagated_errors() {
     let dlq = InMemorySink::default();
     App::new()
         .subscription(
-            Subscription::new(source, InMemorySink::default(), |_: i32| async {
-                let value: i32 = "invalid".parse().reject()?;
-                Ok(value)
-            })
+            Subscription::new(
+                "reject_classified_errors_match_propagated_errors",
+                source,
+                InMemorySink::default(),
+                |_: i32| async {
+                    let value: i32 = "invalid".parse().reject()?;
+                    Ok(value)
+                },
+            )
             .dlq(dlq.clone()),
         )
         .run()

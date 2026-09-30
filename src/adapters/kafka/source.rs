@@ -12,7 +12,7 @@ use crate::{
 use rdkafka::{
     ClientConfig, Offset, TopicPartitionList,
     consumer::{CommitMode, Consumer},
-    message::{Headers, Message, OwnedMessage},
+    message::{Headers, Message, OwnedHeaders, OwnedMessage},
 };
 use std::{
     convert::Infallible,
@@ -225,5 +225,48 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for KafkaMes
 
     fn revocation(&self) -> Option<CancellationToken> {
         Some(self.revoked.clone())
+    }
+
+    fn propagation_fields(&self) -> Vec<(&str, &str)> {
+        self.raw.headers().map(text_headers).unwrap_or_default()
+    }
+}
+
+/// Headers with UTF-8 values, in record order; null and binary headers are skipped.
+fn text_headers(headers: &OwnedHeaders) -> Vec<(&str, &str)> {
+    headers
+        .iter()
+        .filter_map(|header| Some((header.key, std::str::from_utf8(header.value?).ok()?)))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::text_headers;
+    use rdkafka::message::{Header, OwnedHeaders};
+
+    #[test]
+    fn propagation_fields_are_text_headers() {
+        let headers = OwnedHeaders::new()
+            .insert(Header {
+                key: "traceparent",
+                value: Some("00-trace"),
+            })
+            .insert(Header::<&str> {
+                key: "null",
+                value: None,
+            })
+            .insert(Header {
+                key: "binary",
+                value: Some(&[0xff_u8][..]),
+            })
+            .insert(Header {
+                key: "tracestate",
+                value: Some("vendor=1"),
+            });
+        assert_eq!(
+            text_headers(&headers),
+            vec![("traceparent", "00-trace"), ("tracestate", "vendor=1")]
+        );
     }
 }

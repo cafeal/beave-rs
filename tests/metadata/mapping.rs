@@ -9,9 +9,12 @@ async fn middleware_runs_in_registration_order_with_the_original_input() {
     let sink = InMemorySink::default();
     App::new()
         .subscription(
-            Subscription::new(IterSource::new([2]), sink.clone(), |n: i32| async move {
-                Ok(n * 10)
-            })
+            Subscription::new(
+                "middleware_runs_in_registration_order_with_the_original_input",
+                IterSource::new([2]),
+                sink.clone(),
+                |n: i32| async move { Ok(n * 10) },
+            )
             .middleware(MapMetadata::new(|input: &i32, output: i32| {
                 Ok(output + input)
             }))
@@ -52,10 +55,15 @@ async fn intercepted_input_skips_the_handler_but_still_runs_post_handlers() {
     let counter = calls.clone();
     App::new()
         .subscription(
-            Subscription::new(IterSource::new([-1, 2]), sink.clone(), move |n: i32| {
-                counter.fetch_add(1, Ordering::SeqCst);
-                async move { Ok(n * 10) }
-            })
+            Subscription::new(
+                "intercepted_input_skips_the_handler_but_still_runs_post_handlers",
+                IterSource::new([-1, 2]),
+                sink.clone(),
+                move |n: i32| {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    async move { Ok(n * 10) }
+                },
+            )
             .middleware(Negatives)
             .middleware(MapMetadata::new(|_: &i32, output: i32| Ok(output + 1))),
         )
@@ -72,6 +80,7 @@ async fn pre_handlers_transform_handler_input_while_post_handlers_see_the_decode
     App::new()
         .subscription(
             Subscription::new(
+                "pre_handlers_transform_handler_input_while_post_handlers_see_the_decoded_input",
                 IterSource::new([3]),
                 sink.clone(),
                 |n: i32| async move { Ok(n) },

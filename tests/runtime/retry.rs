@@ -23,6 +23,7 @@ async fn publish_retry_does_not_repeat_handler_or_mapping() {
     App::new()
         .subscription(
             Subscription::new(
+                "publish_retry_does_not_repeat_handler_or_mapping",
                 source,
                 Flaky {
                     calls: calls.clone(),
@@ -61,7 +62,13 @@ async fn exhausted_publish_never_acks() {
     assert!(
         App::new()
             .subscription(
-                Subscription::new(source, sink, |n| async move { Ok(n) }).publish_retry(fast())
+                Subscription::new(
+                    "exhausted_publish_never_acks",
+                    source,
+                    sink,
+                    |n| async move { Ok(n) }
+                )
+                .publish_retry(fast())
             )
             .run()
             .await
@@ -88,7 +95,13 @@ async fn receive_retries_reset_after_success() {
     let sink = InMemorySink::default();
     App::new()
         .subscription(
-            Subscription::new(source, sink.clone(), |n| async move { Ok(n) }).receive_retry(fast()),
+            Subscription::new(
+                "receive_retries_reset_after_success",
+                source,
+                sink.clone(),
+                |n| async move { Ok(n) },
+            )
+            .receive_retry(fast()),
         )
         .run()
         .await
@@ -107,8 +120,13 @@ async fn receive_fatal_and_exhaustion_stop() {
         assert!(
             App::new()
                 .subscription(
-                    Subscription::new(source, InMemorySink::default(), |n| async move { Ok(n) })
-                        .receive_retry(fast())
+                    Subscription::new(
+                        "receive_fatal_and_exhaustion_stop",
+                        source,
+                        InMemorySink::default(),
+                        |n| async move { Ok(n) }
+                    )
+                    .receive_retry(fast())
                 )
                 .run()
                 .await
@@ -128,14 +146,18 @@ async fn receive_backoff_can_be_interrupted() {
     let token = CancellationToken::new();
     let stop = token.clone();
     let app = App::new().subscription(
-        Subscription::new(source, InMemorySink::default(), |n| async move { Ok(n) }).receive_retry(
-            RetryPolicy {
-                max_attempts: 3,
-                initial_delay: Duration::from_secs(60),
-                max_delay: Duration::from_secs(60),
-                ..RetryPolicy::default()
-            },
-        ),
+        Subscription::new(
+            "receive_backoff_can_be_interrupted",
+            source,
+            InMemorySink::default(),
+            |n| async move { Ok(n) },
+        )
+        .receive_retry(RetryPolicy {
+            max_attempts: 3,
+            initial_delay: Duration::from_secs(60),
+            max_delay: Duration::from_secs(60),
+            ..RetryPolicy::default()
+        }),
     );
     let run = tokio::spawn(app.run_until(token));
     while calls.load(Ordering::SeqCst) == 0 {
@@ -158,16 +180,21 @@ async fn handler_retry_is_explicit() {
     let acks = source.acknowledgements();
     App::new()
         .subscription(
-            Subscription::new(source, InMemorySink::default(), move |n| {
-                let attempt = counter.fetch_add(1, Ordering::SeqCst);
-                async move {
-                    if attempt < 2 {
-                        Err(HandlerError::Retry(anyhow::anyhow!("again")))
-                    } else {
-                        Ok(n)
+            Subscription::new(
+                "handler_retry_is_explicit",
+                source,
+                InMemorySink::default(),
+                move |n| {
+                    let attempt = counter.fetch_add(1, Ordering::SeqCst);
+                    async move {
+                        if attempt < 2 {
+                            Err(HandlerError::Retry(anyhow::anyhow!("again")))
+                        } else {
+                            Ok(n)
+                        }
                     }
-                }
-            })
+                },
+            )
             .retry(fast()),
         )
         .run()
