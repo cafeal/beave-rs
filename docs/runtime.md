@@ -368,9 +368,9 @@ interrupt arbitrary synchronous code. Dedicated blocking-handler execution is a
 ## Implementation limits
 
 Kafka and Pulsar adapters, broker record types, Protobuf, and Avro codecs are
-implemented. Kafka maintains contiguous commits for completed offsets, schedules
-work per partition, and abandons revoked work, but does not provide Kafka
-transactions or exactly-once processing. Pulsar uses individual
+implemented. Kafka commits up to the first unfinished offset per partition,
+schedules work per partition, and abandons revoked work, but does not provide
+Kafka transactions or exactly-once processing. Pulsar uses individual
 acknowledgements, schedules work by its subscription type's ordering scope, and
 likewise provides no transactions or exactly-once processing. NATS JetStream,
 SQS, adapter pause/resume backpressure, and tracing / metrics integration are

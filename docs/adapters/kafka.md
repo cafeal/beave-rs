@@ -83,17 +83,20 @@ a key.
 ## Acknowledgements and ordering
 
 The source disables Kafka auto-commit and auto-offset-store. A successful ACK
-records a completed delivery and commits only the contiguous completed prefix
-for that topic partition. A completion after an earlier in-flight or unseen
-offset cannot advance the commit. Broker commit failures leave completed local
-progress in place, so a later acknowledgement can retry the same prefix.
+records a completed delivery and commits up to the first unfinished delivery
+of that topic partition, or past the last received delivery when all are
+finished. Because Kafka delivers a partition in offset order, offsets missing
+between received deliveries, such as compacted records or transaction markers,
+do not hold the commit back. A completion after an earlier in-flight offset
+cannot advance the commit. Broker commit failures leave completed local
+progress in place, so a later acknowledgement can retry the same position.
 
 Each delivery's ordering key is its topic partition. Under the default
 `ProcessingOrder::PerKey`, a subscription processes one record at a time per
 partition, in offset order, while different partitions run in parallel up to
 the subscription's `concurrency`. With `ProcessingOrder::Unordered`, records of
-one partition can complete out of order; the contiguous commit rule still
-prevents a commit from skipping unfinished records.
+one partition can complete out of order; the commit still never skips an
+unfinished record.
 
 Each partition assignment has its own generation and revocation token. When
 Kafka revokes a partition, or the adapter detects that its assignment was lost,
