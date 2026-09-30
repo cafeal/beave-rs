@@ -350,31 +350,66 @@ async fn application_ends_run_an_in_process_worker() {
             .run_until(shutdown.clone()),
     );
     sender.send(1).await.unwrap();
-    sender.send_and_wait(2).await.unwrap();
     assert_eq!(results.recv().await, Some(2));
-    assert_eq!(results.recv().await, Some(4));
+    // Completes once the output is taken from the receiver.
+    let (sent, received) = tokio::join!(sender.send_and_wait(2), results.recv());
+    sent.unwrap();
+    assert_eq!(received, Some(4));
     drop(sender);
     run.await.unwrap().unwrap();
     assert_eq!(results.recv().await, None);
 }
 
 #[tokio::test]
-async fn application_receiver_completes_publication_at_enqueue() {
-    let (sink, mut results) = ChannelSink::bounded(1);
-    sink.publish(&1).await.unwrap();
+async fn application_receiver_completes_publication_on_recv() {
+    let (sink, mut results) = ChannelSink::bounded(2);
+    let mut first = Box::pin(sink.publish(&1));
+    assert_pending(first.as_mut()).await;
     {
-        let publish = sink.publish(&2);
-        tokio::pin!(publish);
-        assert_pending(publish.as_mut()).await;
+        let abandoned = sink.publish(&2);
+        tokio::pin!(abandoned);
+        assert_pending(abandoned.as_mut()).await;
     }
     assert_eq!(results.recv().await, Some(1));
+    first.await.unwrap();
+    // The abandoned value is skipped.
+    let third = sink.publish(&3);
+    tokio::pin!(third);
+    assert_pending(third.as_mut()).await;
+    assert_eq!(results.recv().await, Some(3));
+    third.await.unwrap();
     sink.close().await.unwrap();
-    assert!(sink.publish(&3).await.is_err());
+    assert!(sink.publish(&4).await.is_err());
     assert_eq!(results.recv().await, None);
+}
 
-    let (sink, mut results) = ChannelSink::<i32>::bounded(1);
-    results.close();
-    assert!(sink.publish(&1).await.is_err());
+#[tokio::test]
+async fn dropped_receiver_fails_buffered_publications() {
+    let (sink, results) = ChannelSink::<i32>::bounded(1);
+    let mut publish = Box::pin(sink.publish(&1));
+    assert_pending(publish.as_mut()).await;
+    drop(results);
+    assert!(publish.await.is_err());
+    assert!(sink.publish(&2).await.is_err());
+}
+
+#[tokio::test]
+async fn upstream_ack_waits_for_application_recv() {
+    let source = IterSource::new([1, 2]);
+    let acks = source.acknowledgements();
+    let (sink, mut results) = ChannelSink::bounded(4);
+    let run = tokio::spawn(
+        App::new()
+            .subscribe("fetch", source, sink, |n: i32| async move { Ok(n) })
+            .run_until(CancellationToken::new()),
+    );
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(results.recv().await, Some(1));
+    assert_eq!(results.recv().await, Some(2));
+    run.await.unwrap().unwrap();
+    assert_eq!(acks.load(Ordering::SeqCst), 2);
+    assert_eq!(results.recv().await, None);
 }
 
 #[tokio::test]

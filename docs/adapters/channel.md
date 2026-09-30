@@ -124,13 +124,15 @@ async fn main() -> anyhow::Result<()> {
 |---|---|---|
 | `ChannelSender::send` | The value is enqueued | The source stops receiving; buffered values are dropped |
 | `ChannelSender::send_and_wait` | The subscription acknowledges the value | A value the subscription did not finish returns an error |
-| `ChannelSink::bounded` publication | The value is enqueued for the `ChannelReceiver` | Values already enqueued stay available to `recv` |
+| `ChannelSink::bounded` publication | `ChannelReceiver::recv` takes the value | The upstream subscription drains while it waits for `recv` |
 
 A subscription publishing to a `ChannelSink::bounded` sink acknowledges its
-input as soon as the output is enqueued, so upstream work can run ahead by the
-channel capacity and then waits for `recv`. A value still buffered for the
-receiver is lost if the process stops. `ChannelReceiver::recv` returns `None`
-after every sink clone is closed or dropped and the buffer is empty.
+input only after application code takes the output with `recv`, so a process
+failure before then leaves the input unacknowledged. Each waiting job holds an
+upstream concurrency slot, so upstream work runs ahead of `recv` by at most its
+`concurrency`. Dropping the receiver fails publications still waiting for it.
+`ChannelReceiver::recv` returns `None` after every sink clone is closed or
+dropped and the buffer is empty.
 
 A source created by `ChannelSource::bounded` stops receiving on application
 shutdown like other sources, and ends once every `ChannelSender` clone is
