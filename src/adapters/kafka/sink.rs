@@ -92,43 +92,12 @@ where
     type Prepared = KafkaPrepared;
 
     fn prepare(&self, record: KafkaPublish<T>) -> anyhow::Result<Self::Prepared> {
-        Ok(KafkaPrepared {
-            key: record.key,
-            value: record
-                .value
-                .as_ref()
-                .map(|value| self.codec.encode(value))
-                .transpose()?,
-            headers: record.headers,
-        })
+        prepare(&*self.codec, record)
     }
 
     async fn publish(&self, output: &Self::Prepared) -> anyhow::Result<()> {
         let producer = self.producer()?;
-        let mut headers = OwnedHeaders::new_with_capacity(output.headers.len());
-        for (key, value) in &output.headers {
-            headers = headers.insert(Header {
-                key,
-                value: value.as_deref(),
-            });
-        }
-
-        let mut record = FutureRecord::<[u8], [u8]>::to(&self.config.topic);
-        if let Some(key) = &output.key {
-            record = record.key(key);
-        }
-        if let Some(value) = &output.value {
-            record = record.payload(value);
-        }
-        if !output.headers.is_empty() {
-            record = record.headers(headers);
-        }
-
-        producer
-            .send(record, Timeout::Never)
-            .await
-            .map_err(|(error, _)| error)?;
-        Ok(())
+        send(&producer, &self.config.topic, output).await
     }
 
     async fn close(&self) -> anyhow::Result<()> {
@@ -140,4 +109,51 @@ where
         }
         Ok(())
     }
+}
+
+pub(super) fn prepare<C: Encoder<T>, T>(
+    codec: &C,
+    record: KafkaPublish<T>,
+) -> anyhow::Result<KafkaPrepared> {
+    Ok(KafkaPrepared {
+        key: record.key,
+        value: record
+            .value
+            .as_ref()
+            .map(|value| codec.encode(value))
+            .transpose()?,
+        headers: record.headers,
+    })
+}
+
+/// Sends one prepared record and waits for its delivery report.
+pub(super) async fn send(
+    producer: &FutureProducer,
+    topic: &str,
+    output: &KafkaPrepared,
+) -> anyhow::Result<()> {
+    let mut headers = OwnedHeaders::new_with_capacity(output.headers.len());
+    for (key, value) in &output.headers {
+        headers = headers.insert(Header {
+            key,
+            value: value.as_deref(),
+        });
+    }
+
+    let mut record = FutureRecord::<[u8], [u8]>::to(topic);
+    if let Some(key) = &output.key {
+        record = record.key(key);
+    }
+    if let Some(value) = &output.value {
+        record = record.payload(value);
+    }
+    if !output.headers.is_empty() {
+        record = record.headers(headers);
+    }
+
+    producer
+        .send(record, Timeout::Never)
+        .await
+        .map_err(|(error, _)| error)?;
+    Ok(())
 }

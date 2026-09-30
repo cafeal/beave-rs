@@ -1,5 +1,6 @@
 use beavers::{
     Delivery, OrderingKey, Receive, ReceiveError, RetryPolicy, Sink, Source, SourceMessage,
+    TransactionalSink,
 };
 use std::{
     collections::VecDeque,
@@ -166,4 +167,99 @@ pub(crate) fn keyed(value: i32, partition: i64, acks: &Arc<AtomicUsize>) -> Deli
         Ok(())
     })
     .with_ordering_key(OrderingKey::new("events", partition))
+}
+
+/// A delivery whose acknowledgement belongs to [`Transactions`]; its own ACK
+/// is counted so tests can assert that the runtime never calls it.
+pub(crate) struct Transactional {
+    pub(crate) value: i32,
+    pub(crate) acks: Arc<AtomicUsize>,
+}
+
+impl SourceMessage for Transactional {
+    type Item = i32;
+    type Raw = i32;
+
+    fn decode(&self) -> anyhow::Result<i32> {
+        anyhow::ensure!(self.value != 0, "zero does not decode");
+        Ok(self.value)
+    }
+
+    async fn ack(self) -> anyhow::Result<()> {
+        self.acks.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn raw(&self) -> i32 {
+        self.value
+    }
+
+    fn ordering_key(&self) -> Option<OrderingKey> {
+        Some(OrderingKey::new("events", 0))
+    }
+}
+
+pub(crate) struct TransactionalSource {
+    pub(crate) values: VecDeque<i32>,
+    pub(crate) acks: Arc<AtomicUsize>,
+}
+
+impl TransactionalSource {
+    pub(crate) fn new(values: impl IntoIterator<Item = i32>) -> Self {
+        Self {
+            values: values.into_iter().collect(),
+            acks: Arc::default(),
+        }
+    }
+}
+
+impl Source for TransactionalSource {
+    type Message = Transactional;
+
+    async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
+        Ok(match self.values.pop_front() {
+            Some(value) => Receive::Message(Transactional {
+                value,
+                acks: self.acks.clone(),
+            }),
+            None => Receive::End,
+        })
+    }
+}
+
+/// A committed delivery value and the outputs committed with it.
+pub(crate) type Committed = (i32, Vec<i32>);
+
+/// Records each committed transaction as the delivery value and its outputs.
+/// Negative outputs fail to prepare; the first `failures` commits fail.
+#[derive(Clone, Default)]
+pub(crate) struct Transactions {
+    pub(crate) committed: Arc<Mutex<Vec<Committed>>>,
+    pub(crate) attempts: Arc<AtomicUsize>,
+    pub(crate) failures: usize,
+}
+
+impl Sink<i32> for Transactions {
+    type Prepared = i32;
+
+    fn prepare(&self, value: i32) -> anyhow::Result<i32> {
+        anyhow::ensure!(value >= 0, "negative output");
+        Ok(value)
+    }
+
+    async fn publish(&self, _: &i32) -> anyhow::Result<()> {
+        anyhow::bail!("transactional test sink publishes only through commit")
+    }
+}
+
+impl TransactionalSink<Transactional, i32> for Transactions {
+    async fn commit(&self, delivery: &Transactional, outputs: &[i32]) -> anyhow::Result<()> {
+        let attempt = self.attempts.fetch_add(1, Ordering::SeqCst);
+        anyhow::ensure!(attempt >= self.failures, "transaction aborted");
+        self.committed
+            .lock()
+            .unwrap()
+            .push((delivery.value, outputs.to_vec()));
+        Ok(())
+    }
 }

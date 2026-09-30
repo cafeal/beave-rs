@@ -1,5 +1,6 @@
 //! Subscription type and builder API.
 use super::{
+    completion::{Complete, Publish, Transact},
     config::{ProcessingOrder, SubscriptionConfig},
     processing,
 };
@@ -12,9 +13,10 @@ use crate::{
     retry::RetryPolicy,
     sink::Sink,
     source::{Source, SourceItem, SourceRaw},
+    transaction::TransactionalSink,
 };
 use metrics::Counter;
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc, time::Duration};
 
 pub(super) type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 pub(super) type BoxHandler<I, O> =
@@ -27,7 +29,9 @@ pub(super) type DeadLetterRoute<I, R> = Arc<
 pub struct Subscription<S: Source, K, O> {
     pub(super) name: String,
     pub(super) source: S,
-    pub(super) sink: K,
+    pub(super) sink: Arc<K>,
+    pub(super) output: Arc<dyn Complete<S::Message, O>>,
+    pub(super) transactional: bool,
     pub(super) handler: BoxHandler<SourceItem<S>, O>,
     pub(super) dlq: Option<DeadLetterRoute<SourceItem<S>, SourceRaw<S>>>,
     pub(super) middleware: Vec<Mapper<SourceItem<S>, O>>,
@@ -55,10 +59,13 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         H: Handler<SourceItem<S>, Output = Emit<O>>,
     {
         let handler = Arc::new(handler);
+        let sink = Arc::new(sink);
         Self {
             name: name.into(),
             source,
+            output: Arc::new(Publish(sink.clone())),
             sink,
+            transactional: false,
             handler: Arc::new(move |value| {
                 let handler = handler.clone();
                 Box::pin(async move { handler.handle(value).await })
@@ -210,12 +217,51 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         &self.name
     }
 
+    /// Publishes each delivery's outputs and acknowledges the delivery in one
+    /// sink transaction, for exactly-once processing between a source and a
+    /// sink whose transactions include the source's acknowledgement.
+    ///
+    /// Only compiles when the sink implements [`TransactionalSink`] for the
+    /// source's message type:
+    ///
+    /// ```compile_fail
+    /// use beavers::{InMemorySink, IterSource, Subscription};
+    ///
+    /// let source = IterSource::new([1]);
+    /// Subscription::new("numbers", source, InMemorySink::default(), |n: i32| async move {
+    ///     Ok(n)
+    /// })
+    /// .transactional();
+    /// ```
+    ///
+    /// A delivery acknowledged without output, because it was discarded or
+    /// dead-lettered, is committed in a transaction without outputs. Dead
+    /// letters are published by the dead-letter sink outside that transaction.
+    /// A transactional subscription requires [`ProcessingOrder::PerKey`], so
+    /// deliveries of one ordering scope commit in receive order.
+    pub fn transactional(mut self) -> Self
+    where
+        S::Message: Sync,
+        K: TransactionalSink<S::Message, O>,
+    {
+        self.output = Arc::new(Transact {
+            sink: self.sink.clone(),
+            marker: PhantomData,
+        });
+        self.transactional = true;
+        self
+    }
+
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.name.trim().is_empty(),
             "subscription name must not be empty"
         );
         self.config.validate()?;
+        anyhow::ensure!(
+            !self.transactional || self.config.ordering == ProcessingOrder::PerKey,
+            "transactional subscriptions require ProcessingOrder::PerKey"
+        );
         self.config.error_policy.validate(self.dlq.is_some())
     }
 }

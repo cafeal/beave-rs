@@ -72,9 +72,67 @@ impl KafkaSinkConfig {
             "Kafka brokers are required"
         );
         anyhow::ensure!(!self.topic.trim().is_empty(), "Kafka topic is required");
+        anyhow::ensure!(
+            !self.properties.contains_key(TRANSACTIONAL_ID),
+            "a Kafka sink with a transactional ID must be a KafkaTransactionalSink"
+        );
         validate_properties(&self.properties)
     }
 }
+
+/// Configuration of a Kafka producer that publishes in transactions.
+#[derive(Clone, Debug)]
+pub struct KafkaTransactionalSinkConfig {
+    pub brokers: String,
+    pub topic: String,
+    /// The producer's `transactional.id`. It must be unique among the running
+    /// producers of the application and should stay the same when one instance
+    /// restarts, so that the new producer fences its predecessor.
+    pub transactional_id: String,
+    /// Additional librdkafka producer settings, such as `transaction.timeout.ms`.
+    pub properties: HashMap<String, String>,
+    /// Maximum time each blocking transaction operation waits: initialization,
+    /// sending consumer offsets, commit, and abort.
+    pub operation_timeout: Duration,
+    /// Maximum time `close` waits for queued delivery reports.
+    pub close_timeout: Duration,
+}
+
+impl KafkaTransactionalSinkConfig {
+    pub fn new(
+        brokers: impl Into<String>,
+        topic: impl Into<String>,
+        transactional_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            brokers: brokers.into(),
+            topic: topic.into(),
+            transactional_id: transactional_id.into(),
+            properties: HashMap::new(),
+            operation_timeout: Duration::from_secs(60),
+            close_timeout: Duration::from_secs(30),
+        }
+    }
+
+    pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.brokers.trim().is_empty(),
+            "Kafka brokers are required"
+        );
+        anyhow::ensure!(!self.topic.trim().is_empty(), "Kafka topic is required");
+        anyhow::ensure!(
+            !self.transactional_id.trim().is_empty(),
+            "Kafka transactional ID is required"
+        );
+        anyhow::ensure!(
+            !self.properties.contains_key(TRANSACTIONAL_ID),
+            "set the Kafka transactional ID through transactional_id"
+        );
+        validate_properties(&self.properties)
+    }
+}
+
+const TRANSACTIONAL_ID: &str = "transactional.id";
 
 fn validate_properties(properties: &HashMap<String, String>) -> anyhow::Result<()> {
     for (key, value) in properties {
