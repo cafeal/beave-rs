@@ -35,6 +35,7 @@ src/
 │   └── processing.rs      # Private per-message processing lifecycle
 └── adapters/
     ├── mod.rs
+    ├── channel.rs         # Chained subscriptions with deferred upstream ACK
     ├── iter.rs
     ├── memory.rs
     ├── stdin.rs
@@ -51,11 +52,11 @@ The scheduler and per-message processing implementation remain private.
 
 | Contract | Responsibility |
 |---|---|
-| `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure |
+| `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure; declare whether application shutdown stops receiving |
 | `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, revocation, and propagation fields |
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
 | `Decoder<T>` / `Encoder<T>` | Convert serialization formats without broker operations |
-| `Sink<T>` | Prepare an associated output representation, publish it, and close resources |
+| `Sink<T>` | Prepare an associated output representation, submit or publish it, report its completion, and close resources |
 
 ### Source and message ownership
 
@@ -97,7 +98,11 @@ See the [codec guide](codecs.md) for serialization implementations and payload b
 `Sink<T>::Prepared` is not restricted to bytes: a broker implementation can retain
 keys, headers, and other publish fields in its own representation.
 
-The runtime maps and prepares all outputs before publishing any of them. Publish
+The runtime maps and prepares all outputs before submitting any of them.
+`Sink<T>::submit` returns once the sink accepts an output, with a `Completion`
+that resolves at the acknowledgement boundary; the default publishes and is
+already complete. The runtime frees the job's concurrency slot after submission
+and acknowledges the input once every completion succeeds. Publish
 retries reuse the same prepared value, without rerunning the handler, middleware,
 or encoder. A successful `publish` means the sink's acknowledgement boundary has
 been reached. It must not report success while required output confirmation is

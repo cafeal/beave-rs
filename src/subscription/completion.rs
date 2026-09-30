@@ -4,7 +4,7 @@ use super::{
     processing::retry_publish,
 };
 use crate::{
-    message::SourceMessage, retry::RetryPolicy, sink::Sink, transaction::TransactionalSink,
+    message::SourceMessage, retry::RetryPolicy, sink, sink::Sink, transaction::TransactionalSink,
 };
 use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc, time::Instant};
 use tracing::{Instrument, info_span};
@@ -14,6 +14,9 @@ pub(super) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// How a delivery's processing ended at the completion stage.
 pub(super) enum Completion<M> {
     Done,
+    /// Every output was submitted but some have not completed yet; the delivery is
+    /// returned unacknowledged, to be acknowledged once they succeed.
+    Pending(M, Vec<sink::Completion>),
     /// Preparing an output failed before anything was published; the
     /// delivery is returned unacknowledged for failure routing.
     Encode(M, anyhow::Error),
@@ -55,12 +58,14 @@ where
                 Ok(outputs) => outputs,
                 Err(error) => return Ok(Completion::Encode(delivery, error)),
             };
+            let mut completions = Vec::with_capacity(outputs.len());
             if !outputs.is_empty() {
                 let started = Instant::now();
                 let failures = &instruments.publish_failures;
                 async {
                     for output in &outputs {
-                        retry_publish(policy, failures, || self.0.publish(output)).await?;
+                        completions
+                            .push(retry_publish(policy, failures, || self.0.submit(output)).await?);
                     }
                     anyhow::Ok(())
                 }
@@ -68,10 +73,10 @@ where
                 .await?;
                 instruments.record(Stage::Publish, started);
             }
-            let started = Instant::now();
-            delivery.ack().instrument(info_span!("ack")).await?;
-            instruments.record(Stage::Ack, started);
-            instruments.acknowledged.increment(1);
+            if !completions.iter().all(sink::Completion::is_done) {
+                return Ok(Completion::Pending(delivery, completions));
+            }
+            acknowledge(delivery, instruments).await?;
             Ok(Completion::Done)
         })
     }
@@ -141,4 +146,15 @@ fn prepare<O, K: Sink<O>>(
     });
     instruments.record(Stage::Encode, started);
     prepared
+}
+
+pub(super) async fn acknowledge<M: SourceMessage>(
+    delivery: M,
+    instruments: &Instruments,
+) -> anyhow::Result<()> {
+    let started = Instant::now();
+    delivery.ack().instrument(info_span!("ack")).await?;
+    instruments.record(Stage::Ack, started);
+    instruments.acknowledged.increment(1);
+    Ok(())
 }
