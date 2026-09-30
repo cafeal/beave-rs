@@ -20,6 +20,7 @@ protobuf = ["dep:prost"]
 kafka = ["dep:rdkafka"]
 pulsar = ["dep:magnetar", "dep:base64", "dep:bytes", "dep:futures-util"]
 opentelemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
+http = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "tokio/net"]
 
 [dependencies.rdkafka]
 version = "0.39"
@@ -42,6 +43,20 @@ optional = true
 
 [dependencies.futures-util]
 version = "0.3"
+optional = true
+
+[dependencies.hyper]
+version = "1"
+features = ["server", "http1"]
+optional = true
+
+[dependencies.hyper-util]
+version = "0.1"
+features = ["tokio", "server", "server-graceful", "http1"]
+optional = true
+
+[dependencies.http-body-util]
+version = "0.1"
 optional = true
 
 [dependencies.prost]
@@ -68,6 +83,7 @@ optional = true
 metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
 opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "testing"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
+tokio = { version = "1", features = ["net"] }
 
 [[example]]
 name = "kafka_orders"

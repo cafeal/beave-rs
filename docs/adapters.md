@@ -2,7 +2,7 @@
 
 Adapters connect the framework's [Source and Sink contracts](architecture.md#trait-boundaries)
 to concrete inputs and outputs. Local adapters and the channel adapter are
-available by default. Kafka and Pulsar adapters are optional features and are
+available by default. Kafka, Pulsar, and HTTP adapters are optional features and are
 available through `beavers::adapters`; the default local adapters and channel
 types are also re-exported at the crate root.
 
@@ -17,6 +17,7 @@ types are also re-exported at the crate root.
 | `KafkaTransactionalSink<C, T>` | Kafka publishes in producer transactions | Exactly-once Kafka-to-Kafka pipelines (`kafka` feature) |
 | `PulsarSource<C, T>` / `PulsarSink<C, T>` | Pulsar records and publishes | Durable broker pipelines (`pulsar` feature) |
 | `PulsarTransactionalSink<C, T>` | Pulsar publishes in transactions | Exactly-once Pulsar-to-Pulsar pipelines (`pulsar` feature) |
+| `HttpSource<C, T>` | HTTP `POST` requests answered on ACK | Webhooks and push ingestion (`http` feature) |
 
 NATS JetStream and SQS are [planned](plan.md#implementation-order). Local and
 channel adapters do not provide durable delivery guarantees.
@@ -26,12 +27,12 @@ Enable a broker adapter in the application manifest:
 ```toml
 [dependencies]
 beavers = { version = "0.1", features = ["kafka"] }
-# or: features = ["pulsar"]
+# or: features = ["pulsar"] or features = ["http"]
 ```
 
 The broker-specific guides document configuration, metadata, ACK behavior, and
 delivery boundaries: [Channel](adapters/channel.md), [Kafka](adapters/kafka.md),
-and [Pulsar](adapters/pulsar.md).
+[Pulsar](adapters/pulsar.md), and [HTTP](adapters/http.md).
 
 ## IterSource
 

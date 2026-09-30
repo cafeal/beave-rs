@@ -179,6 +179,14 @@ Candidate adapters are:
 - local file input and output if concrete debugging use cases justify their
   framing and durability semantics.
 
+The HTTP source answers each request with a status only. Remaining decisions:
+
+- a request-reply mode that returns handler output in the response body, which
+  needs a sink bound to the originating request;
+- TLS and HTTP/2 in the adapter rather than at a reverse proxy;
+- a server-side request timeout and a limit on queued requests, which currently
+  wait for the subscription without a bound.
+
 Each broker adapter must define its native record and publish types, ACK model,
 redelivery behavior, ordering scope, cancellation behavior, connection
 lifecycle, and mapping of trace-context propagation fields (NATS headers, SQS
