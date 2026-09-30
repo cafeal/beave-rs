@@ -51,12 +51,15 @@ upstream subscription stops without acknowledging the input.
 |---|---|
 | Upstream `concurrency` | Upstream handler jobs running at once |
 | Channel capacity | Finished values waiting for the downstream subscription; a job waits for space before it ends |
-| Upstream `max_in_flight` | Upstream deliveries not yet acknowledged, including those whose values wait in the channel or run downstream |
+| Upstream `max_in_flight` | Upstream deliveries received and not yet enqueued |
 | Downstream `concurrency` or `BlockingPool` | Work the downstream stage runs in parallel |
 
 Upstream work therefore runs ahead of the downstream stage by up to the
-channel capacity, independently of its own concurrency, and the upstream
-`max_in_flight` bounds the work in flight across the whole chain.
+channel capacity, independently of its own concurrency and `max_in_flight`.
+Upstream deliveries whose values were enqueued stay unacknowledged but do not
+count toward `max_in_flight`; they are bounded by the channel capacity plus the
+deliveries the downstream subscription is processing. Those also widen the
+range a durable source redelivers after a crash.
 
 Outputs of one upstream delivery, including each value of `Emit::Many`, are
 enqueued in order, and the delivery is acknowledged after all of them complete.
@@ -134,8 +137,7 @@ async fn main() -> anyhow::Result<()> {
 A subscription publishing to a `ChannelSink::bounded` sink acknowledges its
 input only after application code takes the output with `recv`, so a process
 failure before then leaves the input unacknowledged. As with a downstream
-subscription, upstream work runs ahead of `recv` by up to the channel capacity
-and its `max_in_flight`. Dropping the receiver fails the completions of values
+subscription, upstream work runs ahead of `recv` by up to the channel capacity. Dropping the receiver fails the completions of values
 still waiting for it, which stops the upstream subscription.
 `ChannelReceiver::recv` returns `None` after every sink clone is closed or
 dropped and the buffer is empty.

@@ -54,6 +54,10 @@ pub trait Sink<T>: Send + Sync + 'static {
     /// acceptance precedes its acknowledgement boundary, such as a queue drained by
     /// another consumer, overrides it; `publish` must then equal `submit` followed
     /// by waiting for the completion.
+    ///
+    /// Pending completions do not count toward the subscription's `max_in_flight`,
+    /// so a sink that returns them must bound how many are outstanding by making
+    /// `submit` wait, for example for queue capacity.
     fn submit(
         &self,
         output: &Self::Prepared,

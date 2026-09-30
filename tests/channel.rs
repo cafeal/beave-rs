@@ -467,8 +467,8 @@ async fn enqueued_outputs_free_the_job_slot_until_capacity() {
 }
 
 #[tokio::test]
-async fn unacknowledged_outputs_count_toward_max_in_flight() {
-    assert_eq!(run_ahead(8, 2).await, (2, 10));
+async fn enqueued_outputs_do_not_count_toward_max_in_flight() {
+    assert_eq!(run_ahead(8, 2).await, (9, 10));
 }
 
 struct FailingCompletion;

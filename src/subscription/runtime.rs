@@ -20,7 +20,8 @@ use tracing::{Instrument, debug, error, info, info_span, warn};
 
 /// A finished job's ordering key and the acknowledgement still waiting for its outputs.
 type Jobs = JoinSet<anyhow::Result<(Option<OrderingKey>, Option<PendingAck>)>>;
-/// Acknowledgements waiting for submitted outputs to complete, outside job slots.
+/// Acknowledgements waiting for submitted outputs to complete, outside job slots and
+/// `max_in_flight`; sinks bound them by applying backpressure in `submit`.
 type Acks = JoinSet<anyhow::Result<()>>;
 
 impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
@@ -83,7 +84,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                     if let Err(error) = flatten(result.unwrap()) { failure = Some(error); shutdown.cancel(); break; }
                 }
                 received = async { sleep_until(next_receive).await; self.source.receive().await },
-                    if jobs.len() < concurrency && scheduler.outstanding() + acks.len() < max_in_flight => {
+                    if jobs.len() < concurrency && scheduler.outstanding() < max_in_flight => {
                     match received {
                         Ok(Receive::End) => { ended = true; break; }
                         Ok(Receive::Message(delivery)) => {

@@ -130,8 +130,9 @@ acceptance precedes its acknowledgement boundary, such as a
 [channel](adapters/channel.md) drained by another subscription, returns a
 pending completion: the job ends and frees its concurrency slot, and the
 delivery is acknowledged after every completion succeeds. Deliveries waiting
-for completion still count toward `max_in_flight`, are abandoned without ACK
-when revoked, and are drained on shutdown. A failed completion stops the
+for completion do not count toward `max_in_flight`; the sink bounds them by
+making `submit` wait, as a channel does for capacity. They are abandoned
+without ACK when revoked and are drained on shutdown. A failed completion stops the
 subscription without acknowledging the delivery. Publish retries apply to
 submission only.
 
