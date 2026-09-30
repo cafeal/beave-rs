@@ -4,7 +4,7 @@ use beavers::{
     App, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage, Subscription, Utf8,
     adapters::kafka::{
         KafkaPublish, KafkaRecord, KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig,
-        KafkaTransactionalSink, KafkaTransactionalSinkConfig,
+        KafkaTransactionalSink,
     },
 };
 use rdkafka::{
@@ -68,26 +68,21 @@ fn records_and_publishes_keep_delivery_metadata_separate() {
 }
 
 #[test]
-fn transactional_configuration_owns_the_transactional_id() {
-    let config = KafkaTransactionalSinkConfig::new("broker", "topic", "orders-1");
-    assert!(config.validate().is_ok());
-    assert!(
-        KafkaTransactionalSinkConfig::new("broker", "topic", " ")
-            .validate()
-            .is_err()
-    );
-
-    let mut config = KafkaTransactionalSinkConfig::new("broker", "topic", "orders-1");
-    config
-        .properties
-        .insert("transactional.id".into(), "other".into());
-    assert!(config.validate().is_err());
-
+fn sink_configuration_rejects_a_transactional_id_property() {
     let mut config = KafkaSinkConfig::new("broker", "topic");
     config
         .properties
         .insert("transactional.id".into(), "orders-1".into());
     assert!(config.validate().is_err());
+}
+
+#[tokio::test]
+async fn transactional_sink_requires_a_transactional_id_before_connecting() {
+    let sink =
+        KafkaSink::<Utf8, String>::new(KafkaSinkConfig::new("broker", "topic")).transactional(" ");
+    let prepared = sink.prepare(KafkaPublish::new("a".to_owned())).unwrap();
+    let error = sink.publish(&prepared).await.unwrap_err();
+    assert!(error.to_string().contains("transactional ID is required"));
 }
 
 fn uppercase_pipeline(
@@ -107,9 +102,7 @@ fn uppercase_pipeline(
 #[test]
 fn kafka_source_and_transactional_sink_form_a_transactional_pair() {
     let source = KafkaSource::new(KafkaSourceConfig::new("broker", "group", ["in"]));
-    let sink = KafkaTransactionalSink::new(KafkaTransactionalSinkConfig::new(
-        "broker", "out", "orders-1",
-    ));
+    let sink = KafkaSink::new(KafkaSinkConfig::new("broker", "out")).transactional("orders-1");
     let _ = uppercase_pipeline(source, sink);
 }
 
@@ -140,11 +133,8 @@ async fn transactional_pipeline_commits_outputs_with_offsets() {
     source_config
         .properties
         .insert("auto.offset.reset".into(), "earliest".into());
-    let sink = KafkaTransactionalSink::new(KafkaTransactionalSinkConfig::new(
-        &brokers,
-        &output,
-        unique_name("beavers-kafka-tx"),
-    ));
+    let sink = KafkaSink::new(KafkaSinkConfig::new(&brokers, &output))
+        .transactional(unique_name("beavers-kafka-tx"));
     let shutdown = CancellationToken::new();
     let app = tokio::spawn(
         App::new()

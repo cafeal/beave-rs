@@ -1,4 +1,4 @@
-use super::{config::KafkaSinkConfig, record::KafkaPublish};
+use super::{config::KafkaSinkConfig, record::KafkaPublish, transaction::KafkaTransactionalSink};
 use crate::{codec::Encoder, sink::Sink};
 use rdkafka::{
     ClientConfig,
@@ -63,6 +63,21 @@ impl<C, T> KafkaSink<C, T> {
             }),
             marker: PhantomData,
         }
+    }
+
+    /// Converts this sink into one that publishes in producer transactions,
+    /// using `transactional_id` as the producer's `transactional.id`.
+    ///
+    /// The ID must be unique among the application's running producers and
+    /// should stay the same when one instance restarts, so that the new
+    /// producer fences its predecessor. Register the result with
+    /// [`Subscription::transactional`](crate::Subscription::transactional)
+    /// for exactly-once processing behind a `KafkaSource`.
+    pub fn transactional(
+        self,
+        transactional_id: impl Into<String>,
+    ) -> KafkaTransactionalSink<C, T> {
+        KafkaTransactionalSink::new(self.config, transactional_id.into(), self.codec)
     }
 
     fn producer(&self) -> anyhow::Result<FutureProducer> {

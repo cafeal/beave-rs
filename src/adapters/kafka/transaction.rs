@@ -1,5 +1,5 @@
 use super::{
-    config::KafkaTransactionalSinkConfig,
+    config::KafkaSinkConfig,
     progress::{KafkaConsumer, Partition, Progress, TransactionGate},
     record::KafkaPublish,
     sink::{KafkaPrepared, prepare, send},
@@ -40,16 +40,23 @@ struct State {
 
 /// Publishes Kafka records in producer transactions.
 ///
+/// Created with [`KafkaSink::transactional`](super::KafkaSink::transactional).
 /// With [`Subscription::transactional`](crate::Subscription::transactional)
 /// and a [`KafkaSource`](super::KafkaSource), each transaction contains a
 /// delivery's outputs and its consumer offset. Used as a plain [`Sink`], each
 /// publication is a transaction of its own and becomes visible to
 /// `read_committed` consumers when it commits.
 pub struct KafkaTransactionalSink<C, T> {
-    config: Arc<KafkaTransactionalSinkConfig>,
+    config: Arc<Config>,
     codec: Arc<C>,
     state: Arc<State>,
     marker: PhantomData<fn(T)>,
+}
+
+/// The sink configuration and the producer's `transactional.id`.
+struct Config {
+    sink: KafkaSinkConfig,
+    transactional_id: String,
 }
 
 impl<C, T> Clone for KafkaTransactionalSink<C, T> {
@@ -63,17 +70,14 @@ impl<C, T> Clone for KafkaTransactionalSink<C, T> {
     }
 }
 
-impl<C: Default, T> KafkaTransactionalSink<C, T> {
-    pub fn new(config: KafkaTransactionalSinkConfig) -> Self {
-        Self::with_codec(config, C::default())
-    }
-}
-
 impl<C, T> KafkaTransactionalSink<C, T> {
-    pub fn with_codec(config: KafkaTransactionalSinkConfig, codec: C) -> Self {
+    pub(super) fn new(sink: KafkaSinkConfig, transactional_id: String, codec: Arc<C>) -> Self {
         Self {
-            config: Arc::new(config),
-            codec: Arc::new(codec),
+            config: Arc::new(Config {
+                sink,
+                transactional_id,
+            }),
+            codec,
             state: Arc::new(State {
                 producer: tokio::sync::Mutex::new(None),
                 closed: AtomicBool::new(false),
@@ -106,7 +110,7 @@ impl<C, T> KafkaTransactionalSink<C, T> {
             let producer = slot.clone().expect("connected producer");
             let result = run(&producer, &config, &outputs, offset).await;
             if let Err(error) = &result
-                && !recover(&producer, config.operation_timeout, error).await
+                && !recover(&producer, config.sink.transaction_timeout, error).await
             {
                 // A new producer with the same transactional ID fences this one
                 // and aborts its unfinished transaction during initialization.
@@ -139,7 +143,7 @@ where
         // Waits for a running transaction to finish.
         let producer = self.state.producer.lock().await.take();
         if let Some(producer) = producer {
-            let timeout = self.config.close_timeout;
+            let timeout = self.config.sink.close_timeout;
             tokio::task::spawn_blocking(move || producer.flush(Timeout::After(timeout))).await??;
         }
         Ok(())
@@ -228,18 +232,22 @@ impl SourceOffset {
     }
 }
 
-async fn connect(config: Arc<KafkaTransactionalSinkConfig>) -> anyhow::Result<FutureProducer> {
-    config.validate()?;
+async fn connect(config: Arc<Config>) -> anyhow::Result<FutureProducer> {
+    config.sink.validate()?;
+    anyhow::ensure!(
+        !config.transactional_id.trim().is_empty(),
+        "Kafka transactional ID is required"
+    );
     tokio::task::spawn_blocking(move || {
         let mut client = ClientConfig::new();
-        for (key, value) in &config.properties {
+        for (key, value) in &config.sink.properties {
             client.set(key, value);
         }
         client
-            .set("bootstrap.servers", &config.brokers)
+            .set("bootstrap.servers", &config.sink.brokers)
             .set("transactional.id", &config.transactional_id);
         let producer: FutureProducer = client.create()?;
-        producer.init_transactions(config.operation_timeout)?;
+        producer.init_transactions(config.sink.transaction_timeout)?;
         anyhow::Ok(producer)
     })
     .await?
@@ -247,16 +255,16 @@ async fn connect(config: Arc<KafkaTransactionalSinkConfig>) -> anyhow::Result<Fu
 
 async fn run(
     producer: &FutureProducer,
-    config: &KafkaTransactionalSinkConfig,
+    config: &Config,
     outputs: &[KafkaPrepared],
     offset: Option<SourceOffset>,
 ) -> anyhow::Result<()> {
     producer.begin_transaction()?;
     for output in outputs {
-        send(producer, &config.topic, output).await?;
+        send(producer, &config.sink.topic, output).await?;
     }
     let producer = producer.clone();
-    let timeout = config.operation_timeout;
+    let timeout = config.sink.transaction_timeout;
     tokio::task::spawn_blocking(move || match offset {
         Some(offset) => offset.commit(&producer, timeout),
         None => Ok(commit(&producer, timeout)?),

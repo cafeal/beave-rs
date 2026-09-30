@@ -123,10 +123,11 @@ does not acknowledge it.
 
 ## Transactions
 
-`KafkaTransactionalSink` publishes records in Kafka producer transactions.
-Registered with `Subscription::transactional()` behind a `KafkaSource`, each
-delivery is completed by one transaction that contains the delivery's outputs
-and the consumer offset after it:
+`KafkaSink::transactional(transactional_id)` converts a sink into a
+`KafkaTransactionalSink`, which publishes records in Kafka producer
+transactions. Registered with `Subscription::transactional()` behind a
+`KafkaSource`, each delivery is completed by one transaction that contains the
+delivery's outputs and the consumer offset after it:
 
 ```text
 begin transaction → produce outputs → send consumer offset → commit transaction
@@ -135,9 +136,7 @@ begin transaction → produce outputs → send consumer offset → commit transa
 ```rust
 use beavers::{
     Subscription, Utf8,
-    adapters::kafka::{
-        KafkaSource, KafkaSourceConfig, KafkaTransactionalSink, KafkaTransactionalSinkConfig,
-    },
+    adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
 };
 
 let source = KafkaSource::<Utf8, String>::new(KafkaSourceConfig::new(
@@ -145,16 +144,19 @@ let source = KafkaSource::<Utf8, String>::new(KafkaSourceConfig::new(
     "orders-workers",
     ["orders"],
 ));
-let sink = KafkaTransactionalSink::<Utf8, String>::new(KafkaTransactionalSinkConfig::new(
+let sink = KafkaSink::<Utf8, String>::new(KafkaSinkConfig::new(
     "localhost:9092",
     "processed-orders",
-    "orders-workers-1",
-));
+))
+.transactional("orders-workers-1");
 let subscription = Subscription::forward("orders", source, sink, |order: String| async move {
     Ok(order.to_uppercase())
 })
 .transactional();
 ```
+
+`KafkaTransactionalSink` is a separate type, so only a transactional sink can be
+registered with `Subscription::transactional()`.
 
 Consumers that read the output with `isolation.level=read_committed`, the
 librdkafka default, see a delivery's outputs only once its offset is committed
@@ -164,16 +166,16 @@ prepared outputs. Deliveries that complete without output, such as discarded
 or dead-lettered ones, commit their offset in a transaction without records.
 Dead letters are published outside the transaction.
 
-`KafkaTransactionalSinkConfig::transactional_id` becomes the producer's
-`transactional.id`. Give each running instance of the application its own ID
-and keep it across restarts of that instance: a new producer with the same ID
-fences the previous one and aborts its unfinished transaction. The adapter sets
-the ID itself and rejects `transactional.id` in `properties`, and a plain
-`KafkaSink` rejects it as well. `operation_timeout` bounds each blocking
-transaction call: initialization, sending offsets, commit, and abort. The
-producer is created and its transactions are initialized on first use. The
-source and sink must use the same Kafka cluster, because the offsets are
-committed through the sink's transaction coordinator.
+The transactional ID becomes the producer's `transactional.id`. Give each
+running instance of the application its own ID and keep it across restarts of
+that instance: a new producer with the same ID fences the previous one and
+aborts its unfinished transaction. The adapter sets the ID itself, so
+`KafkaSinkConfig` rejects `transactional.id` in `properties`.
+`KafkaSinkConfig::transaction_timeout` bounds each blocking transaction call:
+initialization, sending offsets, commit, and abort. The producer is created and
+its transactions are initialized on first use. The source and sink must use the
+same Kafka cluster, because the offsets are committed through the sink's
+transaction coordinator.
 
 A producer runs one transaction at a time, so transactions from every
 partition and every clone of the sink are serialized, while handlers still run
