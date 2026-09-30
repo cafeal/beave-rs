@@ -128,3 +128,26 @@ async fn tombstone_policies_apply_to_pulsar_null_values() {
         assert_eq!(acks.load(Ordering::SeqCst), 2);
     }
 }
+
+#[tokio::test]
+async fn propagated_pulsar_tombstones_keep_the_key_and_inherited_fields() {
+    let mut tombstone = record();
+    tombstone.value = None;
+    let sink = InMemorySink::default();
+    App::new()
+        .subscription(
+            Subscription::forward(
+                IterSource::new([tombstone.clone()]),
+                sink.clone(),
+                |value: String| async move { Ok(value) },
+            )
+            .middleware(Tombstones::propagate()),
+        )
+        .run()
+        .await
+        .unwrap();
+    let mut expected = PulsarPublish::<String>::tombstone(b"customer-7".to_vec());
+    expected.properties = tombstone.properties;
+    expected.event_time = tombstone.event_time;
+    assert_eq!(sink.values(), vec![expected]);
+}

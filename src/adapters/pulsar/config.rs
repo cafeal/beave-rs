@@ -39,6 +39,9 @@ pub struct PulsarSourceConfig {
     pub subscription_type: SubType,
     pub authentication: Option<PulsarAuthentication>,
     pub buffer_size: usize,
+    /// Treat an empty payload as a null value, matching topic compaction,
+    /// which deletes a key on an empty payload. Enabled by default.
+    pub empty_payload_is_tombstone: bool,
 }
 
 impl PulsarSourceConfig {
@@ -54,6 +57,7 @@ impl PulsarSourceConfig {
             subscription_type: SubType::Shared,
             authentication: None,
             buffer_size: 100,
+            empty_payload_is_tombstone: true,
         }
     }
 
@@ -80,6 +84,10 @@ pub struct PulsarSinkConfig {
     pub topic: String,
     pub producer_name: Option<String>,
     pub authentication: Option<PulsarAuthentication>,
+    /// Publish a null value as an empty payload, and refuse to publish a
+    /// non-null value that encodes to an empty payload. Enabled by default.
+    /// When disabled, null values cannot be published.
+    pub empty_payload_is_tombstone: bool,
 }
 
 impl PulsarSinkConfig {
@@ -89,6 +97,7 @@ impl PulsarSinkConfig {
             topic: topic.into(),
             producer_name: None,
             authentication: None,
+            empty_payload_is_tombstone: true,
         }
     }
 

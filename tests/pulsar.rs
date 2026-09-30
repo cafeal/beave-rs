@@ -34,7 +34,7 @@ fn records_keep_delivery_facts_separate_from_application_fields() {
     publish.key = record.key.clone();
     publish.properties = record.properties.clone();
     publish.event_time = record.event_time;
-    assert_eq!(publish.value, "processed");
+    assert_eq!(publish.value.as_deref(), Some("processed"));
     assert_eq!(publish.key, record.key);
     assert_eq!(publish.properties, record.properties);
     assert_eq!(publish.event_time, record.event_time);
@@ -54,6 +54,34 @@ fn unique_name(prefix: &str) -> String {
         .as_nanos();
     let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
     format!("{prefix}-{nanos}-{sequence}")
+}
+
+#[test]
+fn empty_payloads_represent_tombstones_by_default() {
+    let config = PulsarSinkConfig::new("pulsar://broker", "topic");
+    assert!(config.empty_payload_is_tombstone);
+    assert!(
+        PulsarSourceConfig::new("pulsar://broker", "topic", "subscription")
+            .empty_payload_is_tombstone
+    );
+    let sink = PulsarSink::<Utf8, String>::new(config.clone());
+    let tombstone = sink
+        .prepare(PulsarPublish::tombstone(b"customer-7".to_vec()))
+        .unwrap();
+    assert!(tombstone.payload.is_empty());
+    assert_eq!(tombstone.key.as_deref(), Some(b"customer-7".as_slice()));
+    assert!(sink.prepare(PulsarPublish::new(String::new())).is_err());
+
+    let mut config = config;
+    config.empty_payload_is_tombstone = false;
+    let sink = PulsarSink::<Utf8, String>::new(config);
+    assert!(sink.prepare(PulsarPublish::tombstone(vec![1])).is_err());
+    assert!(
+        sink.prepare(PulsarPublish::new(String::new()))
+            .unwrap()
+            .payload
+            .is_empty()
+    );
 }
 
 #[test]

@@ -79,7 +79,9 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PulsarSource<C,
             .await
         {
             Some(Ok(raw)) => Ok(Receive::Message(PulsarMessage {
-                payload: raw.payload,
+                payload: raw
+                    .payload
+                    .filter(|bytes| !(self.config.empty_payload_is_tombstone && bytes.is_empty())),
                 key: raw.key,
                 properties: raw.properties,
                 event_time: raw.event_time,

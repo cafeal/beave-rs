@@ -66,12 +66,35 @@ impl<C, T> PulsarSink<C, T> {
     }
 }
 
+impl<C: Encoder<T>, T> PulsarSink<C, T> {
+    fn payload(&self, value: Option<&T>) -> anyhow::Result<Vec<u8>> {
+        let tombstones = self.config.empty_payload_is_tombstone;
+        match value {
+            None => {
+                anyhow::ensure!(
+                    tombstones,
+                    "Pulsar sink cannot publish a null value unless empty payloads are tombstones"
+                );
+                Ok(Vec::new())
+            }
+            Some(value) => {
+                let payload = self.codec.encode(value)?;
+                anyhow::ensure!(
+                    !(tombstones && payload.is_empty()),
+                    "encoded Pulsar value is empty and would be read as a tombstone"
+                );
+                Ok(payload)
+            }
+        }
+    }
+}
+
 impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarSink<C, T> {
     type Prepared = PulsarPrepared;
 
     fn prepare(&self, output: PulsarPublish<T>) -> anyhow::Result<Self::Prepared> {
         Ok(PulsarPrepared {
-            payload: self.codec.encode(&output.value)?,
+            payload: self.payload(output.value.as_ref())?,
             properties: output.properties,
             key: output.key,
             ordering_key: output.ordering_key,

@@ -167,8 +167,8 @@ Subscription::forward(kafka_source, kafka_sink, handler)
 
 Records with a value always reach the handler. `propagate()` requires the output
 type to implement `TombstonePublish` for the input, so it compiles only for
-sinks that can publish a tombstone; `KafkaPublish` implements it for Kafka input
-and requires a key. Propagated tombstones still pass through every middleware's
+sinks that can publish a tombstone; `KafkaPublish` and `PulsarPublish` implement
+it for input from the same platform and require a key. Propagated tombstones still pass through every middleware's
 `map`, so inheritance adds metadata. Propagating is appropriate only when the
 output shares the input key space; a handler that re-keys its output should
 handle tombstones itself.
@@ -191,7 +191,7 @@ classifies them as Fatal; retry must be requested explicitly.
 | Handler `Fatal` | Stop without ACK |
 | Receive `Retry` | Back off and retry receive; reset the failure count after receiving a message |
 | Receive `Fatal` or exhausted retry | Stop receiving, drain outstanding work, return an error |
-| Value-only input unavailable (Kafka null) | Treated as handler `Reject` without invoking the handler |
+| Value-only input unavailable (tombstone) | Treated as handler `Reject` without invoking the handler |
 | Interception `Reject` | Publish the original typed input to the configured DLQ, then ACK; do not run the handler |
 | Interception `Retry` or `Fatal` | Stop without ACK |
 | Mapping `Reject` | Publish the original typed input to the configured DLQ, then ACK; publish no outputs |
