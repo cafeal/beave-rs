@@ -19,15 +19,18 @@ pub(super) enum Stage {
     Publish,
     DeadLetter,
     Ack,
+    /// A transaction that publishes outputs and acknowledges together.
+    Commit,
 }
 
-const STAGES: [Stage; 6] = [
+const STAGES: [Stage; 7] = [
     Stage::Decode,
     Stage::Handler,
     Stage::Encode,
     Stage::Publish,
     Stage::DeadLetter,
     Stage::Ack,
+    Stage::Commit,
 ];
 
 impl Stage {
@@ -39,6 +42,7 @@ impl Stage {
             Self::Publish => "publish",
             Self::DeadLetter => "dead_letter",
             Self::Ack => "ack",
+            Self::Commit => "commit",
         }
     }
 }
@@ -53,7 +57,7 @@ pub(super) struct Instruments {
     pub(super) dead_letter_publish_failures: Counter,
     pub(super) in_flight: Gauge,
     failures: [Counter; 4],
-    stages: [Histogram; 6],
+    stages: [Histogram; 7],
 }
 
 impl Instruments {

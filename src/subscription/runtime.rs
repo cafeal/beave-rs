@@ -30,13 +30,13 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         info!("subscription started");
         let instruments =
             Instruments::new(&self.name, &self.config.error_policy, self.dlq.is_some());
-        let sink = Arc::new(self.sink);
+        let output = self.output;
         let worker = Worker {
             pipeline: Arc::new(Pipeline {
                 name: self.name.clone(),
                 handler: self.handler,
                 middleware: self.middleware,
-                sink: sink.clone(),
+                output: output.clone(),
                 dlq: self.dlq,
                 handler_retry: self.config.handler_retry.clone(),
                 publish_retry: self.config.publish_retry.clone(),
@@ -126,7 +126,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         // Cleanup also has a deadline, even when the transport is broken.
         let cleanup = timeout(self.config.drain_timeout, async {
             let (source_result, sink_result, dlq_result) =
-                tokio::join!(self.source.close(), sink.close(), async {
+                tokio::join!(self.source.close(), output.close(), async {
                     match &self.close_dlq {
                         Some(close) => close().await,
                         None => Ok(()),
@@ -160,23 +160,12 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
 }
 
 /// Everything a job needs to process one delivery independently of the scheduler.
-struct Worker<I, R, O, K> {
-    pipeline: Arc<Pipeline<I, R, O, K>>,
+struct Worker<M: SourceMessage, O> {
+    pipeline: Arc<Pipeline<M, O>>,
 }
 
-impl<I, R, O, K> Worker<I, R, O, K>
-where
-    I: Clone + Send + Sync + 'static,
-    R: Send + Sync + 'static,
-    O: Send + Sync + 'static,
-    K: Sink<O>,
-{
-    fn start_ready<M: SourceMessage<Item = I, Raw = R>>(
-        &self,
-        jobs: &mut Jobs,
-        scheduler: &mut Scheduler<M>,
-        concurrency: usize,
-    ) {
+impl<M: SourceMessage, O: Send + Sync + 'static> Worker<M, O> {
+    fn start_ready(&self, jobs: &mut Jobs, scheduler: &mut Scheduler<M>, concurrency: usize) {
         while jobs.len() < concurrency {
             let Some((key, delivery)) = scheduler.next_ready() else {
                 return;

@@ -1,10 +1,15 @@
 #![cfg(feature = "kafka")]
 
 use beavers::{
-    Receive, ReceiveError, Sink, Source, SourceMessage, Utf8,
+    App, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage, Subscription, Utf8,
     adapters::kafka::{
         KafkaPublish, KafkaRecord, KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig,
+        KafkaTransactionalSink,
     },
+};
+use rdkafka::{
+    ClientConfig, Offset, TopicPartitionList,
+    consumer::{BaseConsumer, Consumer},
 };
 use std::{
     env,
@@ -60,6 +65,131 @@ fn records_and_publishes_keep_delivery_metadata_separate() {
             .validate()
             .is_err()
     );
+}
+
+#[test]
+fn sink_configuration_rejects_a_transactional_id_property() {
+    let mut config = KafkaSinkConfig::new("broker", "topic");
+    config
+        .properties
+        .insert("transactional.id".into(), "orders-1".into());
+    assert!(config.validate().is_err());
+}
+
+#[tokio::test]
+async fn transactional_sink_requires_a_transactional_id_before_connecting() {
+    let sink =
+        KafkaSink::<Utf8, String>::new(KafkaSinkConfig::new("broker", "topic")).transactional(" ");
+    let prepared = sink.prepare(KafkaPublish::new("a".to_owned())).unwrap();
+    let error = sink.publish(&prepared).await.unwrap_err();
+    assert!(error.to_string().contains("transactional ID is required"));
+}
+
+fn uppercase_pipeline(
+    source: KafkaSource<Utf8, String>,
+    sink: KafkaTransactionalSink<Utf8, String>,
+) -> Subscription<
+    KafkaSource<Utf8, String>,
+    KafkaTransactionalSink<Utf8, String>,
+    KafkaPublish<String>,
+> {
+    Subscription::forward("uppercase", source, sink, |value: String| async move {
+        Ok(value.to_uppercase())
+    })
+    .transactional()
+}
+
+#[test]
+fn kafka_source_and_transactional_sink_form_a_transactional_pair() {
+    let source = KafkaSource::new(KafkaSourceConfig::new("broker", "group", ["in"]));
+    let sink = KafkaSink::new(KafkaSinkConfig::new("broker", "out")).transactional("orders-1");
+    let _ = uppercase_pipeline(source, sink);
+}
+
+/// Requires a reachable development broker. It uses `KAFKA_BROKERS` when set,
+/// otherwise `localhost:9092`. Records are copied between unique topics in
+/// transactions, then the output and the group's committed offset are checked.
+#[tokio::test]
+#[ignore = "requires a Kafka broker; run with cargo test --features kafka -- --ignored"]
+async fn transactional_pipeline_commits_outputs_with_offsets() {
+    let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
+    let input = unique_name("beavers-kafka-tx-in");
+    let output = unique_name("beavers-kafka-tx-out");
+    let group = unique_name("beavers-kafka-tx-group");
+
+    let producer = KafkaSink::<Utf8, String>::new(KafkaSinkConfig::new(&brokers, &input));
+    for value in ["a", "b", "c"] {
+        let prepared = producer
+            .prepare(KafkaPublish::new(value.to_owned()))
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(20), producer.publish(&prepared))
+            .await
+            .expect("timed out publishing to Kafka")
+            .unwrap();
+    }
+    producer.close().await.unwrap();
+
+    let mut source_config = KafkaSourceConfig::new(&brokers, &group, [&input]);
+    source_config
+        .properties
+        .insert("auto.offset.reset".into(), "earliest".into());
+    let sink = KafkaSink::new(KafkaSinkConfig::new(&brokers, &output))
+        .transactional(unique_name("beavers-kafka-tx"));
+    let shutdown = CancellationToken::new();
+    let app = tokio::spawn(
+        App::new()
+            .subscription(uppercase_pipeline(KafkaSource::new(source_config), sink))
+            .run_until(shutdown.clone()),
+    );
+
+    let mut reader_config =
+        KafkaSourceConfig::new(&brokers, unique_name("beavers-reader"), [&output]);
+    reader_config
+        .properties
+        .insert("auto.offset.reset".into(), "earliest".into());
+    reader_config
+        .properties
+        .insert("isolation.level".into(), "read_committed".into());
+    let mut reader = KafkaSource::<Utf8, String>::new(reader_config);
+    let mut values = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    while values.len() < 3 {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        match tokio::time::timeout(remaining, reader.receive())
+            .await
+            .expect("timed out waiting for transactional output")
+        {
+            Ok(Receive::Message(message)) => {
+                values.push(message.decode().unwrap().value.unwrap());
+                message.ack().await.unwrap();
+            }
+            Ok(Receive::End) => panic!("Kafka reader ended"),
+            Err(ReceiveError::Retry(_)) => tokio::time::sleep(Duration::from_millis(100)).await,
+            Err(ReceiveError::Fatal(error)) => panic!("Kafka reader failed: {error:#}"),
+        }
+    }
+    values.sort();
+    assert_eq!(values, ["A", "B", "C"]);
+    reader.close().await.unwrap();
+    shutdown.cancel();
+    app.await.unwrap().unwrap();
+
+    let offsets = tokio::task::spawn_blocking(move || {
+        let consumer: BaseConsumer = ClientConfig::new()
+            .set("bootstrap.servers", &brokers)
+            .set("group.id", &group)
+            .create()
+            .unwrap();
+        let mut partitions = TopicPartitionList::new();
+        partitions.add_partition(&input, 0);
+        consumer
+            .committed_offsets(partitions, Duration::from_secs(20))
+            .unwrap()
+    })
+    .await
+    .unwrap();
+    // The broker auto-creates the input topic with one partition.
+    assert_eq!(offsets.elements()[0].offset(), Offset::Offset(3));
 }
 
 /// Requires a reachable development broker. It uses `KAFKA_BROKERS` when set,

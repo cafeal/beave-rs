@@ -53,17 +53,34 @@ when the registry is unavailable.
 
 ## Delivery semantics and transactions
 
-Kafka-to-Kafka transactions are the first exactly-once target:
+Kafka-to-Kafka transactions are described in the
+[runtime guide](runtime.md#transactions) and the
+[Kafka guide](adapters/kafka.md#transactions). Remaining work:
 
-```text
-consume → handler → begin transaction → produce output
-    → send consumed offsets to transaction → commit transaction
-```
+- Batch several deliveries into one Kafka transaction. Each delivery currently
+  commits its own transaction and one producer serializes them, so throughput
+  is bounded by commit latency. A batch must close on a size or time limit,
+  commit each partition's highest contiguous offset, and abort and retry every
+  delivery in it together.
+- A commit that times out after its retriable retries has an unknown outcome.
+  The transaction is then aborted or its producer replaced, and the retry can
+  duplicate outputs if the timed-out commit had in fact completed.
+- Pulsar transaction support, using the same `TransactionalSink` capability.
 
-Exactly-once support must be represented as a capability of a compatible
-source/sink pair. Unsupported combinations should fail at compile time where
-practical or during startup otherwise. Pulsar transaction support may be
-considered after the Kafka model is established.
+The ignored `transactional_pipeline_commits_outputs_with_offsets` test passes
+against a single-node Kafka 3.9 broker. Failure and rebalance paths have not
+been verified against a live broker. Verify with Kafka:
+
+- Outputs of an aborted transaction stay invisible to `read_committed`
+  consumers, and the retried delivery commits once.
+- A revoke waits for a commit in progress, and a delivery of the revoked
+  partition is aborted instead of committed. Blocking the rebalance callback
+  on a commit must not stall the consumer beyond `max.poll.interval.ms`.
+- Restarting an instance with the same transactional ID fences the old
+  producer, and replacing a producer after a fatal error recovers.
+- Offsets sent with the group metadata of a consumer that has rejoined the
+  group are accepted only for partitions it still owns, including under
+  cooperative rebalancing.
 
 Multiple sinks within one subscription remain deferred because partial publish
 success makes retry and acknowledgement behavior ambiguous. Any future design
@@ -141,7 +158,7 @@ message attributes) before implementation.
 | 1 | Adapter pause/resume backpressure and graceful rebalance handoff |
 | 2 | Cross-platform metadata mapping policy |
 | 3 | Observability refinements |
-| 4 | Kafka transactions and exactly-once processing |
+| 4 | Kafka transaction batching and Pulsar transactions |
 | 5 | NATS JetStream and AWS SQS adapters |
 | 6 | Schema Registry and additional codecs |
 
