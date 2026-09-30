@@ -20,7 +20,7 @@ App::new()
             .receive_retry(receive_retry)
             .publish_retry(publish_retry)
             .drain_timeout(Duration::from_secs(30))
-            .middleware(|_input, output| Ok(output))
+            .middleware(MapMetadata::new(|_input, output| Ok(output)))
             .dlq(dead_letter_sink),
     )
     .run()
@@ -69,10 +69,44 @@ emits several. A regular `Vec<T>` remains a single payload. With `Many`, outputs
 are published sequentially and the input is acknowledged only after all succeed.
 With no outputs, successful processing can proceed directly to ACK.
 
-The current middleware hook is `Fn(&Input, Output) -> Result<Output>`. It runs for
-each emitted value before preparation. Mapping errors stop processing regardless
-of their handler error classification. Decode and preparation failures also stop
-without ACK. Broker-specific metadata inheritance is not implemented.
+Decode and preparation failures stop without ACK.
+
+## Output middleware
+
+`Subscription::middleware` registers a `Middleware<Input, Output>`, which maps
+each emitted value using the decoded input that produced it. The source item and
+sink output types are checked at compile time, so a middleware written for one
+broker's record and publish types cannot be registered on a subscription whose
+source or sink uses different types. Wrap a function or closure in
+`MapMetadata::new` for an application-specific mapping, including conversions
+between different platforms:
+
+```rust,ignore
+Subscription::new(kafka_source, pulsar_sink, handler)
+    .middleware(MapMetadata::new(|input: &KafkaRecord<Order>, mut output: PulsarPublish<Order>| {
+        output.key = input.key.clone();
+        Ok(output)
+    }))
+```
+
+Middleware runs in registration order, once for every value in `Emit::One` or
+`Emit::Many`, and each invocation receives the same original input. All outputs
+are mapped and prepared before the first publication, so publish retries reuse
+the mapped output and never rerun a middleware. Handler outputs carry explicit
+publish fields; an inheriting middleware only fills fields that the output
+leaves unset.
+
+A mapping error never reruns the handler. `Reject` publishes the original input
+to the DLQ and then acknowledges it, publishing none of the delivery's outputs;
+without a DLQ, it stops without ACK. `Retry` and `Fatal` stop processing without
+ACK.
+
+Adapters provide same-platform inheritance middleware: `KafkaInherit` for Kafka
+to Kafka and `PulsarInherit` for Pulsar to Pulsar. They copy user-controlled
+metadata and never copy delivery facts such as offsets, partitions, message IDs,
+or broker timestamps. See the [Kafka](adapters/kafka.md#metadata-inheritance)
+and [Pulsar](adapters/pulsar.md#metadata-inheritance) guides. Without
+middleware, no received metadata is carried into outputs.
 
 See the [codec guide](codecs.md#lifecycle-and-failures) for decoding and encoding boundaries.
 
@@ -89,6 +123,8 @@ classifies them as Fatal; retry must be requested explicitly.
 | Handler `Fatal` | Stop without ACK |
 | Receive `Retry` | Back off and retry receive; reset the failure count after receiving a message |
 | Receive `Fatal` or exhausted retry | Stop receiving, drain outstanding work, return an error |
+| Mapping `Reject` | Publish the original typed input to the configured DLQ, then ACK; publish no outputs |
+| Mapping `Retry` or `Fatal` | Stop without ACK; never rerun the handler or mapping |
 | Publish failure | Retry the prepared output; never rerun handler, mapping, or encoding |
 | Exhausted publish or DLQ retry | Stop without ACK; do not route infrastructure failures to DLQ |
 | ACK failure | Return an error; do not claim successful completion |
@@ -123,10 +159,10 @@ implemented. Kafka maintains contiguous commits for completed offsets and
 handles assignment generations, but the runtime does not schedule work by
 partition and does not provide Kafka transactions or exactly-once processing.
 Pulsar uses individual acknowledgements and likewise provides no transactions or
-exactly-once processing. NATS JetStream, SQS, automatic metadata inheritance,
-partition-aware scheduling, and tracing / metrics integration are not
-implemented. The middleware is an output transformation hook, not yet a
-validated cross-broker metadata mapping API.
+exactly-once processing. NATS JetStream, SQS, partition-aware scheduling, and
+tracing / metrics integration are not implemented. Metadata inheritance is
+limited to same-platform middleware; cross-platform mappings are
+application-written `MapMetadata` functions.
 
 Inputs currently require `Clone + Send + Sync`. Stdin and stdout construct
 `Default` codecs internally and do not yet accept configured codec instances.

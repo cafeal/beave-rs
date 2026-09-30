@@ -49,30 +49,19 @@ work must never be treated as successful or acknowledged. Async handlers can
 also block an executor thread; whether handler futures need executor isolation
 remains a separate decision.
 
-## Metadata mapping and inheritance
+## Cross-platform metadata mapping
 
-Add typed subscription middleware for explicit metadata mapping. It should
-support same-platform inheritance and cross-platform conversions without a
-universal metadata structure.
+Typed output middleware and same-platform inheritance are described in the
+[runtime guide](runtime.md#output-middleware). Cross-platform mappings are
+currently application-written `MapMetadata` functions. Remaining decisions:
 
-```rust,ignore
-Subscription::new(kafka_source, sqs_sink, handler)
-    .middleware(MapMetadata::new(map_kafka_to_sqs))
-```
-
-The middleware design must establish:
-
-- compile-time versus startup validation of mapping compatibility;
-- precedence between explicit publish fields and inherited fields;
-- behavior for plain handler outputs and `Emit::Many`;
-- mapping error classification;
-- preparation before publication so retries reuse the mapped output;
+- whether adapters should provide reusable conversions between platforms, such
+  as Kafka headers to Pulsar properties or SQS message attributes, without a
+  universal metadata structure;
 - a clear policy when cross-platform value-only forwarding would discard
-  metadata.
-
-For Kafka-to-Kafka forwarding, the expected default is to inherit keys and
-headers, let the sink choose the partition and timestamp, and never inherit the
-source offset. Typed Kafka keys remain a possible future API refinement.
+  metadata, including whether such a subscription should warn or fail at
+  startup;
+- typed Kafka keys as a possible refinement of the byte-oriented key field.
 
 ## Serialization and codecs
 
@@ -177,8 +166,8 @@ lifecycle before implementation.
 
 | Priority | Scope |
 |---|---|
-| 1 | Metadata middleware and same-platform inheritance |
-| 2 | Partition-aware scheduling and Kafka rebalance cancellation |
+| 1 | Partition-aware scheduling and Kafka rebalance cancellation |
+| 2 | Cross-platform metadata mapping policy |
 | 3 | Error-policy and dead-letter refinements |
 | 4 | Observability and trace-context propagation |
 | 5 | Kafka transactions and exactly-once processing |
@@ -199,11 +188,10 @@ in the relevant durable documentation.
 3. Interaction between classified handler errors and ordinary Rust errors
    propagated with `?`.
 4. Compile-time versus startup validation of broker capabilities.
-5. Typed metadata middleware composition and mapping error classification.
-6. Shutdown deadlines and cancellation policy.
-7. Adapter and codec crate boundaries as optional dependencies grow.
-8. Kafka null values in handlers that request a plain value.
-9. Isolation of handler futures from communication and control execution.
+5. Shutdown deadlines and cancellation policy.
+6. Adapter and codec crate boundaries as optional dependencies grow.
+7. Kafka null values in handlers that request a plain value.
+8. Isolation of handler futures from communication and control execution.
 
 ## Core philosophy
 

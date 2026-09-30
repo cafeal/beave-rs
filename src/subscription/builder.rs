@@ -2,6 +2,7 @@
 use super::{config::SubscriptionConfig, processing};
 use crate::{
     handler::{Emit, Handler, Result},
+    middleware::Middleware,
     retry::RetryPolicy,
     sink::Sink,
     source::{Source, SourceItem},
@@ -10,7 +11,7 @@ use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 pub(super) type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 pub(super) type BoxHandler<I, O> = Arc<dyn Fn(I) -> BoxFuture<Result<Emit<O>>> + Send + Sync>;
-pub(super) type Mapper<I, O> = Arc<dyn Fn(&I, O) -> Result<O> + Send + Sync>;
+pub(super) type Mapper<I, O> = Arc<dyn Middleware<I, O>>;
 pub(super) type DeadLetter<I> =
     Arc<dyn Fn(I, RetryPolicy) -> BoxFuture<anyhow::Result<()>> + Send + Sync>;
 
@@ -109,12 +110,9 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         self
     }
 
-    /// Typed post-handler output mapping; executed once per emitted value, before publish retry.
-    /// Broker-specific metadata policies can build on this hook.
-    pub fn middleware<M>(mut self, map: M) -> Self
-    where
-        M: Fn(&SourceItem<S>, O) -> Result<O> + Send + Sync + 'static,
-    {
+    /// Typed post-handler output mapping, applied in registration order once per
+    /// emitted value, before any output is prepared or published.
+    pub fn middleware<M: Middleware<SourceItem<S>, O>>(mut self, map: M) -> Self {
         self.middleware.push(Arc::new(map));
         self
     }

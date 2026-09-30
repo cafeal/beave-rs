@@ -97,7 +97,12 @@ still outstanding.
 belong to their adapters. Codecs own serialization behavior. Broker-specific
 metadata must not become a universal configuration or message struct.
 
+Metadata mapping is typed subscription middleware rather than a shared
+structure: each adapter may provide same-platform inheritance for its own record
+and publish types, and other mappings are explicit application functions. See
+the [runtime guide](runtime.md#output-middleware).
+
 Future broker adapters implement these boundaries and can move into separate
-crates when SDK dependencies require it. Concrete metadata routing, transaction
-support, and ordering capabilities still require the work described in the
+crates when SDK dependencies require it. Transaction support and ordering
+capabilities still require the work described in the
 [design plan](plan.md).

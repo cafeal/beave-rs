@@ -70,6 +70,27 @@ prepared bytes and metadata into a fresh producer message, then waits for
 Pulsar's broker receipt. Retrying a prepared value does not rerun the codec.
 `close` closes the producer after in-flight publication has released it.
 
+## Metadata inheritance
+
+Register `PulsarInherit` on a Pulsar-to-Pulsar subscription to forward the
+received key, properties, and event time:
+
+```rust,ignore
+use beavers::adapters::pulsar::PulsarInherit;
+
+Subscription::new(pulsar_source, pulsar_sink, handler)
+    .middleware(PulsarInherit::new())
+```
+
+Explicit output fields take precedence. The key and event time are inherited
+only when the output leaves them `None`, and a received property is added only
+when the output does not already set that name. `without_key()`,
+`without_properties()`, and `without_event_time()` disable the corresponding
+field. The source topic, message ID, and publish time are never inherited, and
+no ordering key is derived from the input.
+
+## Delivery guarantees
+
 The adapter does not claim transactions or exactly-once processing. A source
 ACK and a sink publication are separate broker operations, so a process failure
 between them can produce a duplicate on redelivery.

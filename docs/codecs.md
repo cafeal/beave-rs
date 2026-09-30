@@ -166,6 +166,6 @@ formats leave framing to the adapter. See [Protobuf](codecs/protobuf.md) and
 Kafka applies its selected codec to a record value; keys and headers remain raw
 bytes in `KafkaRecord<T>`, and a value can be null. Pulsar applies its selected
 codec to a non-null byte payload while exposing key and properties as metadata.
-Neither adapter implicitly carries received metadata into outgoing records. Typed
-metadata mapping and automatic inheritance remain future work; see the
-[serialization plan](plan.md#serialization-and-codecs).
+Neither adapter implicitly carries received metadata into outgoing records.
+Metadata mapping is explicit output middleware; see the
+[runtime guide](runtime.md#output-middleware).

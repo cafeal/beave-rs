@@ -27,29 +27,30 @@ pub(super) async fn process<M: SourceMessage, O: Send + Sync + 'static, K: Sink<
                 tokio::time::sleep(hp.delay(attempts)).await;
             }
             Err(HandlerError::Reject(error)) => {
-                let dlq = dlq
-                    .as_ref()
-                    .ok_or_else(|| error.context("rejected input without DLQ"))?;
-                dlq(input.clone(), pp.clone()).await?;
-                return delivery.ack().await;
+                return dead_letter(delivery, input, dlq, pp, error.context("rejected input"))
+                    .await;
             }
             Err(HandlerError::Fatal(error)) => return Err(error.context("fatal handler error")),
         }
     };
     // Resolve every output before publishing any; mapping errors never rerun the handler.
-    let outputs = outputs
-        .into_iter()
-        .map(|output| {
-            middleware.iter().try_fold(output, |output, map| {
-                map(&input, output).map_err(|error| match error {
-                    HandlerError::Retry(e) | HandlerError::Reject(e) | HandlerError::Fatal(e) => {
-                        e.context("metadata mapping failed")
-                    }
-                })
-            })
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let outputs = outputs
+    let mut mapped = Vec::with_capacity(outputs.len());
+    for output in outputs {
+        match middleware
+            .iter()
+            .try_fold(output, |output, map| map.map(&input, output))
+        {
+            Ok(output) => mapped.push(output),
+            Err(HandlerError::Reject(error)) => {
+                let error = error.context("rejected metadata mapping");
+                return dead_letter(delivery, input, dlq, pp, error).await;
+            }
+            Err(HandlerError::Retry(error) | HandlerError::Fatal(error)) => {
+                return Err(error.context("metadata mapping failed"));
+            }
+        }
+    }
+    let outputs = mapped
         .into_iter()
         .map(|output| sink.prepare(output))
         .collect::<anyhow::Result<Vec<_>>>()
@@ -59,6 +60,20 @@ pub(super) async fn process<M: SourceMessage, O: Send + Sync + 'static, K: Sink<
     }
     delivery.ack().await
 }
+/// Publishes the original input to the DLQ before ACK. Without a DLQ, the
+/// rejection stops processing and the delivery remains unacknowledged.
+async fn dead_letter<M: SourceMessage>(
+    delivery: M,
+    input: M::Item,
+    dlq: Option<DeadLetter<M::Item>>,
+    policy: RetryPolicy,
+    error: anyhow::Error,
+) -> anyhow::Result<()> {
+    let dlq = dlq.ok_or_else(|| error.context("no DLQ configured"))?;
+    dlq(input, policy).await?;
+    delivery.ack().await
+}
+
 pub(super) async fn retry_publish<F, Fut>(
     policy: &RetryPolicy,
     mut publish: F,

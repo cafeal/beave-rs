@@ -1,5 +1,5 @@
 use super::fixtures::{Flaky, Waiting, fast};
-use beavers::{App, HandlerError, InMemorySink, IterSource, Subscription};
+use beavers::{App, Emit, HandlerError, InMemorySink, IterSource, MapMetadata, Subscription};
 use std::{
     sync::{
         Arc,
@@ -113,13 +113,63 @@ async fn mapping_failure_does_not_rerun_handler_or_publish() {
                     counter.fetch_add(1, Ordering::SeqCst);
                     async move { Ok(n) }
                 })
-                .middleware(|_, _| Err(HandlerError::Retry(anyhow::anyhow!("mapping failed"))))
+                .middleware(MapMetadata::new(|_, _| {
+                    Err(HandlerError::Retry(anyhow::anyhow!("mapping failed")))
+                }))
             )
             .run()
             .await
             .is_err()
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(sink.values().is_empty());
+    assert_eq!(acks.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn rejected_mapping_publishes_no_output_and_dead_letters_input() {
+    let source = IterSource::new([3]);
+    let acks = source.acknowledgements();
+    let sink = InMemorySink::default();
+    let dlq = InMemorySink::default();
+    App::new()
+        .subscription(
+            Subscription::new_emitting(source, sink.clone(), |n| async move {
+                Ok(Emit::Many(vec![n, n + 1]))
+            })
+            .middleware(MapMetadata::new(|_, n: i32| {
+                if n % 2 == 0 {
+                    Err(HandlerError::Reject(anyhow::anyhow!("unmappable")))
+                } else {
+                    Ok(n)
+                }
+            }))
+            .dlq(dlq.clone()),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert!(sink.values().is_empty());
+    assert_eq!(dlq.values(), vec![3]);
+    assert_eq!(acks.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn rejected_mapping_without_dlq_leaves_input_unacked() {
+    let source = IterSource::new([1]);
+    let acks = source.acknowledgements();
+    let sink = InMemorySink::default();
+    assert!(
+        App::new()
+            .subscription(
+                Subscription::new(source, sink.clone(), |n| async move { Ok(n) }).middleware(
+                    MapMetadata::new(|_, _| Err(HandlerError::Reject(anyhow::anyhow!("reject"))))
+                )
+            )
+            .run()
+            .await
+            .is_err()
+    );
     assert!(sink.values().is_empty());
     assert_eq!(acks.load(Ordering::SeqCst), 0);
 }

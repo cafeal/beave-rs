@@ -35,11 +35,34 @@ from a source carry `KafkaMetadata` with topic, partition, offset, and
 timestamp. `KafkaPublish` has no source metadata, so source location is never
 implicitly copied into producer routing.
 
-Input metadata is never inherited by a sink. The sink always publishes to its
+Input metadata is never inherited implicitly. The sink always publishes to its
 configured topic and lets Kafka choose a partition from the explicit key. It
 does not copy a source partition, offset, timestamp, or topic into output.
 `prepare` encodes the nullable value, key, and headers once; publication retries
 reuse that prepared value and wait for Kafka's producer delivery report.
+
+## Metadata inheritance
+
+Register `KafkaInherit` on a Kafka-to-Kafka subscription to forward the received
+key and headers:
+
+```rust,ignore
+use beavers::adapters::kafka::KafkaInherit;
+
+Subscription::new(kafka_source, kafka_sink, handler)
+    .middleware(KafkaInherit::new())
+```
+
+Explicit output fields take precedence. The received key is used only when the
+output key is `None`; because an unset key and an intentionally absent key are
+both `None`, use `KafkaInherit::new().without_key()` to publish keyless records.
+Received headers are placed before the output's own headers, except headers
+whose name the output already sets. `without_headers()` disables header
+inheritance. The source topic, partition, offset, and timestamp are never
+inherited: the sink chooses the topic, Kafka chooses the partition and
+timestamp, and the source offset is only used for the source's own commits.
+
+## Acknowledgements and ordering
 
 The source disables Kafka auto-commit and auto-offset-store. A successful ACK
 records a completed delivery and commits only the contiguous completed prefix
