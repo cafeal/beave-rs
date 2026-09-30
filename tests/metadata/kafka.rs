@@ -1,6 +1,6 @@
 use beavers::{
     App, Emit, InMemorySink, IterSource, Subscription,
-    adapters::kafka::{KafkaInherit, KafkaMetadata, KafkaPublish, KafkaRecord},
+    adapters::kafka::{KafkaInherit, KafkaMetadata, KafkaPublish, KafkaRecord, KafkaTombstones},
 };
 use std::sync::atomic::Ordering;
 
@@ -134,5 +134,69 @@ async fn value_handlers_reject_null_kafka_values() {
         .unwrap();
     assert!(sink.values().is_empty());
     assert_eq!(dlq.values(), vec![tombstone]);
+    assert_eq!(acks.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn tombstone_policies_run_before_the_value_handler() {
+    let mut tombstone = record();
+    tombstone.value = None;
+    let mut keyless = tombstone.clone();
+    keyless.key = None;
+    let source = IterSource::new([tombstone, record(), keyless.clone()]);
+    let acks = source.acknowledgements();
+    let sink = InMemorySink::default();
+    let dlq = InMemorySink::default();
+    App::new()
+        .subscription(
+            Subscription::forward(source, sink.clone(), |value: String| async move {
+                Ok(value.len())
+            })
+            .middleware(KafkaTombstones::propagate())
+            .dlq(dlq.clone()),
+        )
+        .run()
+        .await
+        .unwrap();
+    let headers = vec![header("trace", "abc"), header("kind", "new")];
+    assert_eq!(
+        sink.values(),
+        vec![
+            KafkaPublish {
+                key: Some(b"customer-7".to_vec()),
+                value: None,
+                headers: headers.clone(),
+            },
+            KafkaPublish {
+                key: Some(b"customer-7".to_vec()),
+                value: Some(5),
+                headers,
+            },
+        ]
+    );
+    assert_eq!(dlq.values(), vec![keyless]);
+    assert_eq!(acks.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
+async fn skipped_tombstones_are_acknowledged_without_output() {
+    let mut tombstone = record();
+    tombstone.value = None;
+    let source = IterSource::new([tombstone]);
+    let acks = source.acknowledgements();
+    let sink = InMemorySink::<KafkaPublish<String>>::default();
+    App::new()
+        .subscription(
+            Subscription::forward(
+                source,
+                sink.clone(),
+                |value: String| async move { Ok(value) },
+            )
+            .middleware(KafkaTombstones::skip()),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert!(sink.values().is_empty());
     assert_eq!(acks.load(Ordering::SeqCst), 1);
 }

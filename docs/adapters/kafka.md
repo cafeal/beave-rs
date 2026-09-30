@@ -63,9 +63,36 @@ inherited: the sink chooses the topic, Kafka chooses the partition and
 timestamp, and the source offset is only used for the source's own commits.
 
 `Subscription::forward` applies `KafkaInherit::new()` automatically for a
-value-only handler between a Kafka source and sink. It rejects records with a
-null value before the handler runs, so tombstones require a record handler. See
-the [runtime guide](../runtime.md#same-platform-forwarding).
+value-only handler between a Kafka source and sink. See the
+[runtime guide](../runtime.md#same-platform-forwarding).
+
+## Tombstones
+
+Kafka producers send a null value as a tombstone, typically to delete a key in
+a compacted topic or to follow a deleted row from change data capture. Whether
+a tombstone is expected depends on the topic. Register `KafkaTombstones` to
+decide its handling before the handler runs:
+
+```rust,ignore
+use beavers::adapters::kafka::KafkaTombstones;
+
+Subscription::forward(kafka_source, kafka_sink, handler)
+    .middleware(KafkaTombstones::propagate())
+```
+
+| Policy | Behavior for a null value |
+|---|---|
+| `reject()` | Route the record to the DLQ, or stop without ACK when none is configured |
+| `skip()` | Acknowledge without output |
+| `propagate()` | Publish a tombstone with the same key; reject a tombstone without a key |
+
+Records with a value always reach the handler. Propagated tombstones still pass
+through `KafkaInherit`, so inherited headers are added. Without
+`KafkaTombstones`, a value-only `forward` handler rejects null values, while a
+record handler registered with `Subscription::new` receives them as
+`KafkaRecord { value: None, .. }`. Propagating is appropriate only when the
+output topic shares the input key space; a handler that re-keys its output
+should handle tombstones itself.
 
 ## Acknowledgements and ordering
 

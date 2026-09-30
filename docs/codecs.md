@@ -168,4 +168,4 @@ bytes in `KafkaRecord<T>`, and a value can be null. Pulsar applies its selected
 codec to a non-null byte payload while exposing key and properties as metadata.
 Neither adapter implicitly carries received metadata into outgoing records.
 Metadata mapping is explicit output middleware; see the
-[runtime guide](runtime.md#output-middleware).
+[runtime guide](runtime.md#middleware).

@@ -52,7 +52,7 @@ remains a separate decision.
 ## Cross-platform metadata mapping
 
 Typed output middleware and same-platform inheritance are described in the
-[runtime guide](runtime.md#output-middleware). Cross-platform mappings are
+[runtime guide](runtime.md#middleware). Cross-platform mappings are
 currently application-written `MapMetadata` functions. Remaining decisions:
 
 - whether adapters should provide reusable conversions between platforms, such

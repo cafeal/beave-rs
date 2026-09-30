@@ -60,7 +60,7 @@ configuration and acknowledgement semantics.
 ## Per-message lifecycle
 
 ```text
-receive → decode → handler → map outputs → prepare all outputs → publish → ACK
+receive → decode → intercept or handler → map outputs → prepare all outputs → publish → ACK
 ```
 
 Use `Subscription::new_emitting` to register a handler returning
@@ -71,10 +71,12 @@ With no outputs, successful processing can proceed directly to ACK.
 
 Decode and preparation failures stop without ACK.
 
-## Output middleware
+## Middleware
 
-`Subscription::middleware` registers a `Middleware<Input, Output>`, which maps
-each emitted value using the decoded input that produced it. The source item and
+`Subscription::middleware` registers a `Middleware<Input, Output>`. Its `map`
+hook maps each emitted value using the decoded input that produced it, and its
+`intercept` hook can decide a delivery's outputs before the handler runs. Both
+hooks default to doing nothing. The source item and
 sink output types are checked at compile time, so a middleware written for one
 broker's record and publish types cannot be registered on a subscription whose
 source or sink uses different types. Wrap a function or closure in
@@ -96,7 +98,13 @@ the mapped output and never rerun a middleware. Handler outputs carry explicit
 publish fields; an inheriting middleware only fills fields that the output
 leaves unset.
 
-A mapping error never reruns the handler. `Reject` publishes the original input
+`intercept` runs once per delivery, before the handler, in registration order.
+The first middleware that returns `Some(emit)` replaces the handler for that
+delivery: `Emit::None` acknowledges it without output, and other values become
+its outputs, which still pass through every middleware's `map`. Handler retries
+never rerun `intercept`.
+
+A mapping or interception error never reruns the handler. `Reject` publishes the original input
 to the DLQ and then acknowledges it, publishing none of the delivery's outputs;
 without a DLQ, it stops without ACK. `Retry` and `Fatal` stop processing without
 ACK.
@@ -132,8 +140,9 @@ The pairing is checked at compile time through the `ValueRecord` and
 uses `KafkaInherit::new()` and Pulsar uses `PulsarInherit::new()`. A record
 whose value cannot be represented as a plain value, such as a Kafka null value,
 is rejected without invoking the handler: it goes to the DLQ when one is
-configured and otherwise stops without ACK. Use `Subscription::new` with a
-record handler to process such records or to customize inheritance.
+configured and otherwise stops without ACK. Register an intercepting
+middleware such as `KafkaTombstones` to choose another policy, or use
+`Subscription::new` with a record handler to customize inheritance.
 
 See the [codec guide](codecs.md#lifecycle-and-failures) for decoding and encoding boundaries.
 
@@ -151,6 +160,8 @@ classifies them as Fatal; retry must be requested explicitly.
 | Receive `Retry` | Back off and retry receive; reset the failure count after receiving a message |
 | Receive `Fatal` or exhausted retry | Stop receiving, drain outstanding work, return an error |
 | Value-only input unavailable (Kafka null) | Treated as handler `Reject` without invoking the handler |
+| Interception `Reject` | Publish the original typed input to the configured DLQ, then ACK; do not run the handler |
+| Interception `Retry` or `Fatal` | Stop without ACK |
 | Mapping `Reject` | Publish the original typed input to the configured DLQ, then ACK; publish no outputs |
 | Mapping `Retry` or `Fatal` | Stop without ACK; never rerun the handler or mapping |
 | Publish failure | Retry the prepared output; never rerun handler, mapping, or encoding |

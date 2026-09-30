@@ -15,22 +15,40 @@ pub(super) async fn process<M: SourceMessage, O: Send + Sync + 'static, K: Sink<
     let input = delivery
         .decode()
         .map_err(|error| error.context("decode failed"))?;
-    let mut attempts = 0;
-    let outputs = loop {
-        attempts += 1;
-        match handler(input.clone()).await {
-            Ok(values) => break values.values(),
-            Err(HandlerError::Retry(error)) => {
-                if attempts >= hp.max_attempts {
-                    return Err(error.context("handler retry exhausted"));
+    // The first middleware that intercepts the input replaces the handler for this delivery.
+    let intercepted = middleware
+        .iter()
+        .find_map(|middleware| middleware.intercept(&input).transpose());
+    let outputs = match intercepted {
+        Some(Ok(values)) => values.values(),
+        Some(Err(HandlerError::Reject(error))) => {
+            let error = error.context("rejected input interception");
+            return dead_letter(delivery, input, dlq, pp, error).await;
+        }
+        Some(Err(HandlerError::Retry(error) | HandlerError::Fatal(error))) => {
+            return Err(error.context("input interception failed"));
+        }
+        None => {
+            let mut attempts = 0;
+            loop {
+                attempts += 1;
+                match handler(input.clone()).await {
+                    Ok(values) => break values.values(),
+                    Err(HandlerError::Retry(error)) => {
+                        if attempts >= hp.max_attempts {
+                            return Err(error.context("handler retry exhausted"));
+                        }
+                        tokio::time::sleep(hp.delay(attempts)).await;
+                    }
+                    Err(HandlerError::Reject(error)) => {
+                        let error = error.context("rejected input");
+                        return dead_letter(delivery, input, dlq, pp, error).await;
+                    }
+                    Err(HandlerError::Fatal(error)) => {
+                        return Err(error.context("fatal handler error"));
+                    }
                 }
-                tokio::time::sleep(hp.delay(attempts)).await;
             }
-            Err(HandlerError::Reject(error)) => {
-                return dead_letter(delivery, input, dlq, pp, error.context("rejected input"))
-                    .await;
-            }
-            Err(HandlerError::Fatal(error)) => return Err(error.context("fatal handler error")),
         }
     };
     // Resolve every output before publishing any; mapping errors never rerun the handler.
