@@ -140,10 +140,12 @@ subscription
 ```
 
 Candidate metrics include received, processed, rejected, retried, publish
-failures, dead-letter outcomes, duration per stage, and in-flight work. Plan
-OpenTelemetry integration for standard monitoring backends. Trace-context
-propagation needs explicit mappings for Kafka headers, Pulsar properties, NATS
-headers, and SQS attributes.
+failures, error-policy outcomes per `FailureKind` (dead-lettered and discarded
+deliveries), duration per stage, and in-flight work. Discarded deliveries must
+always be counted and logged, because `FailureAction::Discard` otherwise leaves
+no trace. Plan OpenTelemetry integration for standard monitoring backends.
+Trace-context propagation needs explicit mappings for Kafka headers, Pulsar
+properties, NATS headers, and SQS attributes.
 
 ## Future adapters
 
