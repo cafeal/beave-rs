@@ -7,7 +7,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use magnetar::{
     PulsarClient, java_string_hash,
     proto::{TxnId, pb::KeyValue, pb::MessageMetadata, producer::OutgoingMessage},
-    runtime_tokio::Producer,
+    runtime_tokio::{Producer, SendFut},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -77,10 +77,16 @@ impl Partition {
         output: &PulsarPrepared,
         transaction: Option<TxnId>,
     ) -> anyhow::Result<()> {
+        self.enqueue(output, transaction).await?;
+        Ok(())
+    }
+
+    /// Queues `output` on the producer. The returned future resolves with the
+    /// broker receipt.
+    pub(super) fn enqueue(&self, output: &PulsarPrepared, transaction: Option<TxnId>) -> SendFut {
         let mut message = outgoing(output);
         message.txn_id = transaction;
-        self.producer.send(message).await?;
-        Ok(())
+        self.producer.send(message)
     }
 }
 

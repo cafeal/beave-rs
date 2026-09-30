@@ -1,9 +1,13 @@
 use super::{config::KafkaSinkConfig, record::KafkaPublish, transaction::KafkaTransactionalSink};
-use crate::{codec::Encoder, sink::Sink};
+use crate::{
+    codec::Encoder,
+    sink::{Completion, Sink},
+};
 use rdkafka::{
     ClientConfig,
+    error::{KafkaError, RDKafkaErrorCode},
     message::{Header, OwnedHeaders},
-    producer::{FutureProducer, FutureRecord, Producer},
+    producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer},
     util::Timeout,
 };
 use std::{
@@ -12,7 +16,9 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
+    time::Duration,
 };
+use tokio::sync::Semaphore;
 
 /// An encoded Kafka record. Preparing a value performs all codec work once.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,9 +31,12 @@ pub struct KafkaPrepared {
 struct State {
     producer: Mutex<Option<FutureProducer>>,
     closed: AtomicBool,
+    /// One permit per record awaiting its delivery report.
+    pending: Arc<Semaphore>,
 }
 
-/// Publishes records only after Kafka reports successful delivery.
+/// Queues records on the producer and completes each one when Kafka reports
+/// successful delivery.
 pub struct KafkaSink<C, T> {
     config: KafkaSinkConfig,
     codec: Arc<C>,
@@ -55,12 +64,15 @@ impl<C: Default, T> KafkaSink<C, T> {
 impl<C, T> KafkaSink<C, T> {
     pub fn with_codec(config: KafkaSinkConfig, codec: C) -> Self {
         Self {
-            config,
             codec: Arc::new(codec),
             state: Arc::new(State {
                 producer: Mutex::new(None),
                 closed: AtomicBool::new(false),
+                pending: Arc::new(Semaphore::new(
+                    config.max_pending.min(Semaphore::MAX_PERMITS),
+                )),
             }),
+            config,
             marker: PhantomData,
         }
     }
@@ -111,12 +123,25 @@ where
     }
 
     async fn publish(&self, output: &Self::Prepared) -> anyhow::Result<()> {
+        self.submit(output).await?.wait().await
+    }
+
+    /// Returns once the producer has queued the record. The completion
+    /// resolves on its delivery report.
+    async fn submit(&self, output: &Self::Prepared) -> anyhow::Result<Completion> {
         let producer = self.producer()?;
-        send(&producer, &self.config.topic, output).await
+        let permit = (self.state.pending.clone().acquire_owned().await)
+            .map_err(|_| anyhow::anyhow!("Kafka sink is closed"))?;
+        let delivery = enqueue(&producer, &self.config.topic, output).await?;
+        Ok(Completion::pending(async move {
+            let _permit = permit;
+            delivered(delivery).await
+        }))
     }
 
     async fn close(&self) -> anyhow::Result<()> {
         self.state.closed.store(true, Ordering::Release);
+        self.state.pending.close();
         let producer = self.state.producer.lock().unwrap().take();
         if let Some(producer) = producer {
             let timeout = self.config.close_timeout;
@@ -147,6 +172,15 @@ pub(super) async fn send(
     topic: &str,
     output: &KafkaPrepared,
 ) -> anyhow::Result<()> {
+    delivered(enqueue(producer, topic, output).await?).await
+}
+
+/// Queues one prepared record on the producer, waiting while its queue is full.
+async fn enqueue(
+    producer: &FutureProducer,
+    topic: &str,
+    output: &KafkaPrepared,
+) -> anyhow::Result<DeliveryFuture> {
     let mut headers = OwnedHeaders::new_with_capacity(output.headers.len());
     for (key, value) in &output.headers {
         headers = headers.insert(Header {
@@ -166,9 +200,25 @@ pub(super) async fn send(
         record = record.headers(headers);
     }
 
-    producer
-        .send(record, Timeout::Never)
+    loop {
+        match producer.send_result(record) {
+            Ok(delivery) => return Ok(delivery),
+            Err((KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull), returned)) => {
+                record = returned;
+                tokio::time::sleep(QUEUE_FULL_BACKOFF).await;
+            }
+            Err((error, _)) => return Err(error.into()),
+        }
+    }
+}
+
+/// How long to wait before retrying a record rejected by a full producer queue.
+const QUEUE_FULL_BACKOFF: Duration = Duration::from_millis(100);
+
+async fn delivered(delivery: DeliveryFuture) -> anyhow::Result<()> {
+    delivery
         .await
+        .map_err(|_| anyhow::anyhow!("Kafka producer closed before the delivery report"))?
         .map_err(|(error, _)| error)?;
     Ok(())
 }
