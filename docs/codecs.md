@@ -112,10 +112,12 @@ reuse cloned decoded input. The runtime prepares all emitted outputs before
 publishing any; publish retries reuse the same prepared representation and do
 not rerun encoding.
 
-Codec errors return through `anyhow::Result`. Currently, a decode or preparation
-failure stops processing without ACK; neither is automatically retried or sent
-to the DLQ. More detailed classification is future design work. An invalid JSON
-line is a decode failure, whereas a failed stdin read is a receive failure.
+Codec errors return through `anyhow::Result`. Neither decode nor preparation
+failures are retried, because the same bytes or value would fail again. By
+default both stop processing without ACK; the subscription's
+[error policy](runtime.md#error-policy) can instead dead-letter or discard them
+as `FailureKind::Decode` and `FailureKind::Encode`. An invalid JSON line is a
+decode failure, whereas a failed stdin read is a receive failure.
 
 ## Implementing a codec
 

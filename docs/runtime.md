@@ -20,9 +20,11 @@ App::new()
             .retry(handler_retry)
             .receive_retry(receive_retry)
             .publish_retry(publish_retry)
+            .dlq_retry(dead_letter_retry)
             .drain_timeout(Duration::from_secs(30))
             .middleware(MapMetadata::new(|_input, output| Ok(output)))
-            .dlq(dead_letter_sink),
+            .dlq(dead_letter_sink)
+            .error_policy(ErrorPolicy::dead_letter_all()),
     )
     .run()
     .await?;
@@ -39,12 +41,20 @@ Registration constructs the application. Processing starts in `run()`.
 | Retry attempts | 3 | Includes the first attempt |
 | Initial retry delay | 100 ms | Exponential backoff starting delay |
 | Maximum retry delay | 5 s | Backoff cap |
+| Retry jitter | `Jitter::None` | Randomization of each backoff delay |
+| Error policy | `ErrorPolicy::default()` | Dead-letter handler failures; stop on decode and encode failures |
 | Drain timeout | 30 s | Bound on draining; cleanup has a separate timeout of the same duration |
 
-Receive, handler, and publish retries have independent policies; DLQ
-publication currently uses the publish retry policy. Jitter is not implemented.
-Invalid zero concurrency, in-flight limits, or retry attempt counts fail
-validation before subscriptions start.
+Receive, handler, output publish, and dead-letter publish retries have
+independent policies. Invalid zero concurrency, in-flight limits, or retry
+attempt counts fail validation before subscriptions start, as does an error
+policy that dead-letters decode or encode failures without a dead-letter sink.
+
+Each `RetryPolicy` doubles its delay after every failed attempt, starting at
+`initial_delay` and capped at `max_delay`. `jitter` randomizes the capped
+delay: `Jitter::Full` waits a uniformly random duration up to it, and
+`Jitter::Equal` waits half of it plus a random share of the other half. Jitter
+spreads retries from many consumers that failed at the same moment.
 
 ## Ordering and backpressure
 
@@ -107,7 +117,7 @@ emits several. A regular `Vec<T>` remains a single payload. With `Many`, outputs
 are published sequentially and the input is acknowledged only after all succeed.
 With no outputs, successful processing can proceed directly to ACK.
 
-Decode and preparation failures stop without ACK.
+Decode and preparation failures follow the [error policy](#error-policy).
 
 ## Middleware
 
@@ -156,9 +166,9 @@ Subscription::new(kafka_source, pulsar_sink, handler)
     }))
 ```
 
-A middleware error never reruns the handler or the middleware. `Reject` publishes
-the input as decoded from the source to the DLQ and then acknowledges it,
-publishing none of the delivery's outputs; without a DLQ, it stops without ACK.
+A middleware error never reruns the handler or the middleware. `Reject` is a
+`Rejected` failure routed by the [error policy](#error-policy) with the input as
+decoded from the source, and none of the delivery's outputs are published.
 `Retry` and `Fatal` stop processing without ACK.
 
 Adapters provide same-platform inheritance middleware: `KafkaInherit` for Kafka
@@ -191,8 +201,8 @@ The pairing is checked at compile time through the `ValueRecord` and
 `SamePlatform` traits, which an adapter implements for its record type. Kafka
 uses `KafkaInherit::new()` and Pulsar uses `PulsarInherit::new()`. A record
 whose value cannot be represented as a plain value, such as a Kafka null value,
-is rejected without invoking the handler: it goes to the DLQ when one is
-configured and otherwise stops without ACK. Register `Tombstones` to choose
+is rejected without invoking the handler and routed by the error policy as a
+`Rejected` failure. Register `Tombstones` to choose
 another policy, or use `Subscription::new` with a record handler to customize
 inheritance.
 
@@ -213,7 +223,7 @@ Subscription::forward(kafka_source, kafka_sink, handler)
 
 | Policy | Behavior for a tombstone |
 |---|---|
-| `Tombstones::reject()` | Route the record to the DLQ, or stop without ACK when none is configured |
+| `Tombstones::reject()` | Route the record as a `Rejected` failure through the error policy |
 | `Tombstones::skip()` | Acknowledge without output |
 | `Tombstones::propagate()` | Publish a tombstone for the same key; reject a tombstone the sink cannot express |
 
@@ -232,26 +242,107 @@ See the [codec guide](codecs.md#lifecycle-and-failures) for decoding and encodin
 
 ## Errors and retries
 
-`beavers::Result<T>` uses `HandlerError`. Converting ordinary errors through `?`
-classifies them as Fatal; retry must be requested explicitly.
+`beavers::Result<T>` uses `HandlerError`. Ordinary errors propagated with `?`
+become `Reject`: the handler is not retried, and the input is dead-lettered by
+default. The runtime cannot tell a transient failure from a deterministic one,
+so the handler requests other outcomes at the call site with the `Classify`
+extension trait. `.reject()?` states the default explicitly, `.retry()?` reruns
+the handler under its retry policy and dead-letters the input once that is
+exhausted; `.fatal()?` stops the subscription:
 
-| Failure | Current behavior |
+```rust,ignore
+use beavers::{Classify, Result};
+
+async fn handle(order: Order) -> Result<Output> {
+    validate(&order).reject()?; // invalid input: dead-letter now (same as `?`)
+    let user = db.find_user(order.user_id).await.retry()?; // transient: retry, then dead-letter
+    Ok(build_output(order, user))
+}
+```
+
+### Error policy
+
+`ErrorPolicy` decides what happens to a delivery after one of four routable
+failures, identified by `FailureKind`:
+
+| `FailureKind` | Cause | Default action |
+|---|---|---|
+| `Decode` | `SourceMessage::decode` failed | `Stop` |
+| `Rejected` | The handler or a middleware returned `Reject`, including errors propagated with `?` | `DeadLetter` |
+| `RetryExhausted` | The handler returned `Retry` on its final permitted attempt | `DeadLetter` |
+| `Encode` | `Sink::prepare` failed for an emitted output | `Stop` |
+
+Each failure maps to one `FailureAction`:
+
+- `Stop` returns an error and leaves the delivery unacknowledged, so a durable
+  broker can redeliver it after restart.
+- `DeadLetter` publishes a `DeadLetter` envelope to the dead-letter sink and
+  then acknowledges the delivery.
+- `Discard` acknowledges the delivery without publishing anything. It is an
+  explicit choice to lose that delivery.
+
+Rejections and exhausted handler retries without a configured dead-letter sink
+stop without ACK: the handler could not process the input and nothing can
+receive it. `DeadLetter` for decode or encode failures requires a dead-letter
+sink and fails validation otherwise. `ErrorPolicy::dead_letter_all()` routes
+every kind to the dead-letter sink.
+
+Encoding happens for all emitted outputs before any publication, so an `Encode`
+failure never follows a partial publish; dead-lettering the input after it does
+not duplicate outputs.
+
+### Dead letters
+
+`Subscription::dlq(sink)` accepts a `Sink<DeadLetter<Input, Raw>>`, where `Raw`
+is the source message's undecoded form (`SourceRaw<S>`).
+`Subscription::dlq_with(sink, convert)` converts each envelope into the sink's
+own output type first, for example to forward the original payload to a broker
+topic with failure details as headers. Handlers never see dead letters.
+
+| Field | Meaning |
 |---|---|
-| Handler `Retry` | Retry the handler with cloned input; stop without ACK on exhaustion |
-| Handler `Reject` | Prepare and publish the original typed input to the configured DLQ, then ACK |
-| Reject without DLQ | Stop without ACK |
+| `subscription` | Name of the failing subscription |
+| `failure` | The `FailureKind` |
+| `error` | Error message including its context chain |
+| `attempts` | Handler attempts made; zero for decode failures |
+| `input` | Decoded handler input; `None` after a decode failure |
+| `raw` | The delivery as received, with its broker metadata |
+
+`SourceMessage::Raw` defines `raw` per source, so broker metadata keeps its
+native shape instead of passing through a universal structure:
+
+| Source | `Raw` |
+|---|---|
+| Kafka | `KafkaRecord<Vec<u8>>`: value bytes, key, headers, and delivery metadata |
+| Pulsar | `PulsarRecord<Vec<u8>>`: payload bytes, key, properties, event time, and delivery metadata |
+| Stdin | `Vec<u8>`: the received line |
+| `Delivery` (`IterSource`, `Channel`) | `()`: input is already typed |
+
+`DeadLetter` implements `Serialize` when its input and raw form do, so a JSON
+sink can publish it directly; this holds for Kafka and stdin sources. Pulsar
+message IDs are not serializable, so Pulsar dead letters go through `dlq_with`.
+
+Conversion and preparation run once. Publication then retries under the
+`dlq_retry` policy. A conversion, preparation, or exhausted publication failure
+stops without ACK; dead-letter failures are never routed again.
+
+### Other failures
+
+| Failure | Behavior |
+|---|---|
+| Handler `Retry` | Retry the handler with cloned input, then apply `RetryExhausted` routing |
 | Handler `Fatal` | Stop without ACK |
 | Receive `Retry` | Back off and retry receive; reset the failure count after receiving a message |
 | Receive `Fatal` or exhausted retry | Stop receiving, drain outstanding work, return an error |
-| Value-only input unavailable (tombstone) | Treated as handler `Reject` without invoking the handler |
-| Middleware `Reject` | Publish the decoded input to the configured DLQ, then ACK; publish no outputs |
+| Value-only input unavailable (tombstone) | `Rejected` routing without invoking the handler |
+| Middleware `Reject` | `Rejected` routing with the decoded input; publish no outputs |
 | Middleware `Retry` or `Fatal` | Stop without ACK; never rerun the handler or middleware |
-| Publish failure | Retry the prepared output; never rerun handler, mapping, or encoding |
-| Exhausted publish or DLQ retry | Stop without ACK; do not route infrastructure failures to DLQ |
+| Publish failure | Retry the prepared output; never rerun handler, middleware, or encoding |
+| Exhausted publish | Stop without ACK; infrastructure failures are never dead-lettered |
 | ACK failure | Return an error; do not claim successful completion |
 
-DLQ preparation runs once before its publish retries. The current DLQ carries
-typed input; a raw-input envelope with failure context is not implemented.
+Publication, dead-letter publication, and ACK results are never assumed. An
+interrupted or failed attempt is not treated as success.
 
 ## End of input and shutdown
 
@@ -288,7 +379,5 @@ cross-platform mappings are application-written `MapMetadata` functions.
 
 Inputs currently require `Clone + Send + Sync`. Stdin and stdout construct
 `Default` codecs internally and do not yet accept configured codec instances.
-Detailed decode/encode error classification and raw-input DLQ envelopes remain
-open design work. See
-[architecture](architecture.md) for extension contracts and the [roadmap](plan.md#implementation-order)
-for the intended sequence.
+See [architecture](architecture.md) for extension contracts and the
+[roadmap](plan.md#implementation-order) for the intended sequence.

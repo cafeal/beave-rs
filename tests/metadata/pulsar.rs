@@ -118,7 +118,7 @@ async fn tombstone_policies_apply_to_pulsar_null_values() {
                     Ok(value.len())
                 })
                 .middleware(policy)
-                .dlq(dlq.clone()),
+                .dlq_with(dlq.clone(), |dead_letter| Ok(dead_letter.input.unwrap())),
             )
             .run()
             .await

@@ -51,6 +51,10 @@ encoded, even when the encoding is empty; readers that treat empty payloads as
 tombstones, including topic compaction, will read such a value as a deletion.
 See [tombstones](../runtime.md#tombstones).
 
+The raw form of a `PulsarMessage` is a `PulsarRecord<Vec<u8>>` with the
+undecoded payload bytes, or `value: None` for a tombstone. Dead letters carry it, so the original payload, key,
+properties, event time, and delivery metadata survive even when decoding fails.
+
 The source owns a dedicated consumer task. `receive` only waits on a bounded
 delivery channel, so dropping a pending receive future does not consume a
 delivery. The task also owns acknowledgements and can process an ACK while the

@@ -71,7 +71,6 @@ Potential codec work includes:
 - Schema Registry integration for Avro;
 - writer-schema and reader-schema resolution;
 - configured-codec injection for local stdin and stdout adapters;
-- clearer decode and encode error classification;
 - evaluation of typed key codecs where a broker supports typed keys.
 
 Schema Registry support must keep wire framing separate from raw Avro datum
@@ -95,21 +94,6 @@ considered after the Kafka model is established.
 Multiple sinks within one subscription remain deferred because partial publish
 success makes retry and acknowledgement behavior ambiguous. Any future design
 must define atomicity or explicit partial-failure semantics.
-
-## Error policy and dead letters
-
-Refine the error model around:
-
-- final handler retry exhaustion;
-- decode and encode failures;
-- rejection when no dead-letter sink is configured;
-- dead-letter publication retries and exhaustion;
-- structured error context without forcing raw broker messages into ordinary
-  handlers;
-- jitter for retry backoff.
-
-An error policy must continue to preserve the publish-before-ACK rule and must
-never classify ambiguous completion as success.
 
 ## Concurrency and ordering
 
@@ -157,10 +141,12 @@ subscription
 ```
 
 Candidate metrics include received, processed, rejected, retried, publish
-failures, dead-letter outcomes, duration per stage, and in-flight work. Plan
-OpenTelemetry integration for standard monitoring backends. Trace-context
-propagation needs explicit mappings for Kafka headers, Pulsar properties, NATS
-headers, and SQS attributes.
+failures, error-policy outcomes per `FailureKind` (dead-lettered and discarded
+deliveries), duration per stage, and in-flight work. Discarded deliveries must
+always be counted and logged, because `FailureAction::Discard` otherwise leaves
+no trace. Plan OpenTelemetry integration for standard monitoring backends.
+Trace-context propagation needs explicit mappings for Kafka headers, Pulsar
+properties, NATS headers, and SQS attributes.
 
 ## Future adapters
 
@@ -181,12 +167,11 @@ lifecycle before implementation.
 |---|---|
 | 1 | Adapter pause/resume backpressure and graceful rebalance handoff |
 | 2 | Cross-platform metadata mapping policy |
-| 3 | Error-policy and dead-letter refinements |
-| 4 | Observability and trace-context propagation |
-| 5 | Kafka transactions and exactly-once processing |
-| 6 | Blocking-handler worker pool |
-| 7 | NATS JetStream and AWS SQS adapters |
-| 8 | Schema Registry and additional codecs |
+| 3 | Observability and trace-context propagation |
+| 4 | Kafka transactions and exactly-once processing |
+| 5 | Blocking-handler worker pool |
+| 6 | NATS JetStream and AWS SQS adapters |
+| 7 | Schema Registry and additional codecs |
 
 The order may change when a concrete application requires a later capability.
 When work begins, update this document with any newly resolved decisions. When
@@ -198,12 +183,10 @@ in the relevant durable documentation.
 1. Further refinement of source, message, and sink generics, lifetimes, and
    error types.
 2. Handler ergonomics for implicit versus explicit `Emit` registration.
-3. Interaction between classified handler errors and ordinary Rust errors
-   propagated with `?`.
-4. Compile-time versus startup validation of broker capabilities.
-5. Shutdown deadlines and cancellation policy.
-6. Adapter and codec crate boundaries as optional dependencies grow.
-7. Isolation of handler futures from communication and control execution.
+3. Compile-time versus startup validation of broker capabilities.
+4. Shutdown deadlines and cancellation policy.
+5. Adapter and codec crate boundaries as optional dependencies grow.
+6. Isolation of handler futures from communication and control execution.
 
 ## Core philosophy
 

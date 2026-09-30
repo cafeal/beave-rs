@@ -133,6 +133,7 @@ async fn receive_backoff_can_be_interrupted() {
                 max_attempts: 3,
                 initial_delay: Duration::from_secs(60),
                 max_delay: Duration::from_secs(60),
+                ..RetryPolicy::default()
             },
         ),
     );

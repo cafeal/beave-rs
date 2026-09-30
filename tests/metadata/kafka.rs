@@ -127,7 +127,7 @@ async fn value_handlers_reject_null_kafka_values() {
                 sink.clone(),
                 |value: String| async move { Ok(value) },
             )
-            .dlq(dlq.clone()),
+            .dlq_with(dlq.clone(), |dead_letter| Ok(dead_letter.input.unwrap())),
         )
         .run()
         .await
@@ -153,7 +153,7 @@ async fn tombstone_policies_run_before_the_value_handler() {
                 Ok(value.len())
             })
             .middleware(Tombstones::propagate())
-            .dlq(dlq.clone()),
+            .dlq_with(dlq.clone(), |dead_letter| Ok(dead_letter.input.unwrap())),
         )
         .run()
         .await

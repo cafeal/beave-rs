@@ -5,6 +5,9 @@ use std::future::Future;
 /// Decoded handler input associated with a source.
 pub type SourceItem<S> = <<S as Source>::Message as SourceMessage>::Item;
 
+/// Undecoded delivery form associated with a source, carried by dead letters.
+pub type SourceRaw<S> = <<S as Source>::Message as SourceMessage>::Raw;
+
 #[derive(Debug)]
 pub enum Receive<M> {
     Message(M),

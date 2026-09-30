@@ -7,6 +7,8 @@
 pub mod adapters;
 pub mod app;
 pub mod codec;
+pub mod dead_letter;
+pub mod error_policy;
 pub mod forward;
 pub mod handler;
 pub mod message;
@@ -27,13 +29,15 @@ pub use codec::Avro;
 #[cfg(feature = "protobuf")]
 pub use codec::Protobuf;
 pub use codec::{Decoder, Encoder, Json, RawBytes, Utf8};
+pub use dead_letter::DeadLetter;
+pub use error_policy::{ErrorPolicy, FailureAction, FailureKind};
 pub use forward::{SamePlatform, ValueRecord};
-pub use handler::{Emit, Handler, HandlerError, Result};
+pub use handler::{Classify, Emit, Handler, HandlerError, Result};
 pub use message::{Delivery, OrderingKey, SourceMessage};
 pub use middleware::{Flow, MapMetadata, Middleware};
-pub use retry::RetryPolicy;
+pub use retry::{Jitter, RetryPolicy};
 pub use shutdown::CancellationToken;
 pub use sink::Sink;
-pub use source::{Receive, ReceiveError, Source, SourceItem};
+pub use source::{Receive, ReceiveError, Source, SourceItem, SourceRaw};
 pub use subscription::{ProcessingOrder, Subscription, SubscriptionConfig};
 pub use tombstone::{PropagateTombstones, TombstonePublish, TombstoneRecord, Tombstones};

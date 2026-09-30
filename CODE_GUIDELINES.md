@@ -34,6 +34,9 @@ appropriate when they isolate a substantial state machine or lifecycle.
 - Represent a received broker record separately from a record prepared for
   publication. Received records may contain immutable delivery metadata;
   publish records contain only user-controlled output fields.
+- Define `SourceMessage::Raw` as the adapter's received record with the payload
+  left undecoded, such as `KafkaRecord<Vec<u8>>`, so dead letters keep broker
+  metadata even when decoding fails.
 - Make broker data models explicit in handler types. Do not silently translate
   keys, headers, properties, partitions, timestamps, or other metadata between
   platforms.

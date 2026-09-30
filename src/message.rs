@@ -48,6 +48,10 @@ pub trait SourceMessage: Send + 'static {
     /// Success means the adapter safely recorded completion. Broker commit ordering
     /// and assignment validity remain the adapter's responsibility.
     fn ack(self) -> impl Future<Output = anyhow::Result<()>> + Send;
+    /// Undecoded form of this delivery, copied into dead letters so failures keep the
+    /// original payload and broker metadata even when decoding failed.
+    type Raw: Send + Sync + 'static;
+    fn raw(&self) -> Self::Raw;
     /// The scope within which the source delivers in order. `None` means the
     /// delivery has no ordering relationship with other deliveries.
     fn ordering_key(&self) -> Option<OrderingKey> {
@@ -102,9 +106,12 @@ impl<T> Delivery<T> {
 
 impl<T: Clone + Send + Sync + 'static> SourceMessage for Delivery<T> {
     type Item = T;
+    /// Already typed local input has no separate undecoded form.
+    type Raw = ();
     fn decode(&self) -> anyhow::Result<T> {
         Ok(self.value.clone())
     }
+    fn raw(&self) {}
     async fn ack(self) -> anyhow::Result<()> {
         Delivery::ack(self).await
     }
