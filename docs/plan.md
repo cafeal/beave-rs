@@ -85,6 +85,10 @@ Kafka-to-Kafka and Pulsar-to-Pulsar transactions are described in the
 - A Pulsar commit whose response is lost has an unknown outcome as well. The
   sink reports it as a failure, and the retried delivery can duplicate outputs
   if the commit had completed.
+- A Pulsar transactional sink accepts only a source with the same service URL,
+  because the protocol reports no cluster identity. Comparing an identity read
+  from the brokers, such as the cluster name from the admin API, would also
+  accept different URLs of one cluster.
 
 The ignored `transactional_pipeline_commits_outputs_with_offsets` test passes
 against a single-node Kafka 3.9 broker. Failure and rebalance paths have not
@@ -100,6 +104,9 @@ been verified against a live broker. Verify with Kafka:
 - Offsets sent with the group metadata of a consumer that has rejoined the
   group are accepted only for partitions it still owns, including under
   cooperative rebalancing.
+- A sink on a different cluster is rejected by the cluster ID check. The
+  development environment runs one Kafka cluster, so no live test covers the
+  mismatch.
 
 The ignored Pulsar transaction tests pass against a Pulsar 4.0 standalone
 broker with `transactionCoordinatorEnabled=true`: outputs routed to a

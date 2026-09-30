@@ -231,12 +231,15 @@ impl Source for TransactionalSource {
 pub(crate) type Committed = (i32, Vec<i32>);
 
 /// Records each committed transaction as the delivery value and its outputs.
-/// Negative outputs fail to prepare; the first `failures` commits fail.
+/// Negative outputs fail to prepare; the first `failures` commits and the
+/// first `verify_failures` source checks fail.
 #[derive(Clone, Default)]
 pub(crate) struct Transactions {
     pub(crate) committed: Arc<Mutex<Vec<Committed>>>,
     pub(crate) attempts: Arc<AtomicUsize>,
     pub(crate) failures: usize,
+    pub(crate) verifications: Arc<AtomicUsize>,
+    pub(crate) verify_failures: usize,
 }
 
 impl Sink<i32> for Transactions {
@@ -253,6 +256,12 @@ impl Sink<i32> for Transactions {
 }
 
 impl TransactionalSink<Transactional, i32> for Transactions {
+    async fn verify_source(&self, _: &Transactional) -> anyhow::Result<()> {
+        let attempt = self.verifications.fetch_add(1, Ordering::SeqCst);
+        anyhow::ensure!(attempt >= self.verify_failures, "source on another cluster");
+        Ok(())
+    }
+
     async fn commit(&self, delivery: &Transactional, outputs: &[i32]) -> anyhow::Result<()> {
         let attempt = self.attempts.fetch_add(1, Ordering::SeqCst);
         anyhow::ensure!(attempt >= self.failures, "transaction aborted");

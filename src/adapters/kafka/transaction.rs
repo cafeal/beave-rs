@@ -16,7 +16,7 @@ use rdkafka::{
     consumer::Consumer,
     error::{KafkaError, KafkaResult},
     message::Message,
-    producer::{FutureProducer, Producer},
+    producer::{BaseProducer, FutureProducer, Producer},
     util::Timeout,
 };
 use std::{
@@ -121,6 +121,41 @@ impl<C, T> KafkaTransactionalSink<C, T> {
         })
         .await?
     }
+
+    /// Fails unless `consumer` reports the cluster ID of this sink's brokers,
+    /// because a transaction commits consumer offsets through the group
+    /// coordinator of the producer's cluster. The sink's cluster is read with a
+    /// separate non-transactional client, so a mismatch is reported before the
+    /// transactional producer initializes.
+    async fn verify_cluster(&self, consumer: Arc<KafkaConsumer>) -> anyhow::Result<()> {
+        let config = self.config.clone();
+        tokio::task::spawn_blocking(move || {
+            config.sink.validate()?;
+            let timeout = config.sink.transaction_timeout;
+            let mut client = ClientConfig::new();
+            for (key, value) in &config.sink.properties {
+                client.set(key, value);
+            }
+            let sink: BaseProducer = client
+                .set("bootstrap.servers", &config.sink.brokers)
+                .create()?;
+            let sink = sink
+                .client()
+                .fetch_cluster_id(timeout)
+                .context("Kafka sink brokers did not report their cluster ID")?;
+            let source = consumer
+                .client()
+                .fetch_cluster_id(timeout)
+                .context("Kafka source did not report its cluster ID")?;
+            anyhow::ensure!(
+                source == sink,
+                "Kafka source cluster {source} differs from sink cluster {sink}; \
+                 a transactional sink must connect to the source's cluster"
+            );
+            Ok(())
+        })
+        .await?
+    }
 }
 
 impl<C, T> Sink<KafkaPublish<T>> for KafkaTransactionalSink<C, T>
@@ -158,6 +193,10 @@ where
     D: Decoder<U> + Send + Sync + 'static,
     U: Clone + Send + Sync + 'static,
 {
+    async fn verify_source(&self, delivery: &KafkaMessage<D, U>) -> anyhow::Result<()> {
+        self.verify_cluster(delivery.consumer.clone()).await
+    }
+
     async fn commit(
         &self,
         delivery: &KafkaMessage<D, U>,

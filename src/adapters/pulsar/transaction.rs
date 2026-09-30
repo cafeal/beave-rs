@@ -106,6 +106,17 @@ where
     D: Decoder<U> + Send + Sync + 'static,
     U: Clone + Send + Sync + 'static,
 {
+    async fn verify_source(&self, delivery: &PulsarMessage<D, U>) -> anyhow::Result<()> {
+        let source = &*delivery.acknowledgement.service_url;
+        let sink = &self.connection.config().service_url;
+        anyhow::ensure!(
+            same_service(source, sink),
+            "Pulsar source service URL {source} differs from sink service URL {sink}; \
+             a transactional sink must use the source's service URL"
+        );
+        Ok(())
+    }
+
     async fn commit(
         &self,
         delivery: &PulsarMessage<D, U>,
@@ -114,6 +125,16 @@ where
         self.transact(outputs.to_vec(), Some(SourceAcknowledgement::new(delivery)))
             .await
     }
+}
+
+/// Whether two service URLs name the same Pulsar service. The Pulsar protocol
+/// does not report a cluster identity, and a transaction coordinator only
+/// commits acknowledgements on its own cluster, so a transactional sink must use
+/// its source's service URL. Case and a trailing slash are ignored.
+fn same_service(source: &str, sink: &str) -> bool {
+    source
+        .trim_end_matches('/')
+        .eq_ignore_ascii_case(sink.trim_end_matches('/'))
 }
 
 /// The individual acknowledgement a transaction commits for one delivery.
@@ -178,4 +199,25 @@ async fn run(
             .await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_service;
+
+    #[test]
+    fn service_urls_match_regardless_of_case_and_trailing_slash() {
+        assert!(same_service(
+            "pulsar://localhost:6650",
+            "PULSAR://LocalHost:6650/"
+        ));
+        assert!(!same_service(
+            "pulsar://localhost:6650",
+            "pulsar://localhost:6651"
+        ));
+        assert!(!same_service(
+            "pulsar://localhost:6650",
+            "pulsar+ssl://localhost:6650"
+        ));
+    }
 }

@@ -344,6 +344,39 @@ async fn failed_acknowledgement_aborts_the_transaction() -> anyhow::Result<()> {
     reader.close().await
 }
 
+/// Requires the development broker at `PULSAR_URL`. A transactional sink
+/// accepts a source only when both use the same service URL.
+#[tokio::test]
+#[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
+async fn transactional_sink_rejects_a_source_of_another_service() -> anyhow::Result<()> {
+    let input = unique_topic("beavers-pulsar-verify-in");
+    let mut source = exclusive_source(&input, &unique_name("beavers-pulsar-verify"));
+    assert!(
+        next_message(&mut source, Duration::from_millis(500))
+            .await?
+            .is_none()
+    );
+    publish_all(&input, &["a"]).await?;
+    let delivery = next_message(&mut source, Duration::from_secs(20))
+        .await?
+        .expect("timed out waiting for input");
+
+    let same = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(
+        format!("{}/", service_url()),
+        "out",
+    ))
+    .transactional();
+    same.verify_source(&delivery).await?;
+    let other = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(
+        "pulsar://other-cluster:6650",
+        "out",
+    ))
+    .transactional();
+    let error = other.verify_source(&delivery).await.unwrap_err();
+    assert!(error.to_string().contains("differs from sink service URL"));
+    source.close().await
+}
+
 /// Requires the development broker at `PULSAR_URL`.
 #[tokio::test]
 #[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]

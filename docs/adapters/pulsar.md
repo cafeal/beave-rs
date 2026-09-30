@@ -207,6 +207,14 @@ prepared outputs. The transaction coordinator also aborts a transaction that
 remains open longer than `transaction_timeout`. Each transaction runs in its
 own task, so a cancelled commit still finishes or aborts.
 
+The source and the sink must use the same Pulsar cluster, because the sink's
+transaction coordinator commits the acknowledgement. The Pulsar protocol does
+not report a cluster identity, so before the first delivery is processed the
+sink compares its `service_url` with the source's, ignoring case and a
+trailing slash, and a mismatch stops the subscription. Configure a
+transactional pipeline's source and sink with the same service URL, even when
+another URL would reach the same cluster.
+
 Pulsar allows many open transactions per producer, so deliveries of different
 ordering scopes commit concurrently. Pulsar has no transactional producer ID
 and no producer fencing: a second instance with the same subscription is simply

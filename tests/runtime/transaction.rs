@@ -3,7 +3,10 @@ use beavers::{
     App, Emit, ErrorPolicy, FailureAction, HandlerError, InMemorySink, ProcessingOrder,
     Subscription,
 };
-use std::sync::atomic::Ordering;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 #[tokio::test]
 async fn outputs_and_acknowledgement_commit_in_one_transaction() {
@@ -129,4 +132,59 @@ async fn transactional_subscriptions_require_per_key_ordering() {
         .await
         .unwrap_err();
     assert!(error.to_string().contains("ProcessingOrder::PerKey"));
+}
+
+#[tokio::test]
+async fn the_source_is_verified_once_before_processing() {
+    let sink = Transactions {
+        verify_failures: 2,
+        ..Transactions::default()
+    };
+    App::new()
+        .subscription(
+            Subscription::new(
+                "transactions",
+                TransactionalSource::new([1, 2]),
+                sink.clone(),
+                |n: i32| async move { Ok(n) },
+            )
+            .transactional()
+            .publish_retry(fast()),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(sink.verifications.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        *sink.committed.lock().unwrap(),
+        vec![(1, vec![1]), (2, vec![2])]
+    );
+}
+
+#[tokio::test]
+async fn an_incompatible_source_stops_the_subscription_before_processing() {
+    let source = TransactionalSource::new([1]);
+    let acks = source.acks.clone();
+    let handled = Arc::new(AtomicUsize::new(0));
+    let calls = handled.clone();
+    let sink = Transactions {
+        verify_failures: usize::MAX,
+        ..Transactions::default()
+    };
+    let error = App::new()
+        .subscription(
+            Subscription::new("transactions", source, sink.clone(), move |n: i32| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                async move { Ok(n) }
+            })
+            .transactional()
+            .publish_retry(fast()),
+        )
+        .run()
+        .await
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("source on another cluster"));
+    assert_eq!(handled.load(Ordering::SeqCst), 0);
+    assert_eq!(sink.attempts.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.load(Ordering::SeqCst), 0);
 }
