@@ -5,15 +5,14 @@ proposed APIs are documented in the [design plan](plan.md).
 
 ## Registration and configuration
 
-Use `App::subscribe(source, sink, handler)` for defaults, or register a configured
+Use `App::subscribe(name, source, sink, handler)` for defaults, or register a configured
 `Subscription`. The following sketch assumes application-specific components and
 retry policies have already been constructed:
 
 ```rust,ignore
 App::new()
     .subscription(
-        Subscription::new(source, sink, handler)
-            .name("orders")
+        Subscription::new("orders", source, sink, handler)
             .concurrency(16)
             .max_in_flight(64)
             .ordering(ProcessingOrder::PerKey)
@@ -29,6 +28,12 @@ App::new()
     .run()
     .await?;
 ```
+
+Every subscription has a required name, passed as the first argument of
+`Subscription::new`, `new_emitting`, `forward`, `forward_emitting`, and
+`App::subscribe`. The name appears in subscription errors, dead letters, spans,
+and metric labels, so it must be non-empty and unique within an `App`; an empty
+or duplicate name fails validation before any subscription starts.
 
 Registration constructs the application. Processing starts in `run()`.
 `SubscriptionConfig` can also be passed through `.config(...)`.
@@ -159,7 +164,7 @@ function or closure in `MapMetadata::new` to use it as a `post_handler`,
 including for conversions between different platforms:
 
 ```rust,ignore
-Subscription::new(kafka_source, pulsar_sink, handler)
+Subscription::new("orders", kafka_source, pulsar_sink, handler)
     .middleware(MapMetadata::new(|input: &KafkaRecord<Order>, mut output: PulsarPublish<Order>| {
         output.key = input.key.clone();
         Ok(output)
@@ -185,7 +190,7 @@ When the source and sink use the same platform's record and publish types,
 `Subscription::forward` accepts a handler that works only with values:
 
 ```rust,ignore
-Subscription::forward(kafka_source, kafka_sink, |order: Order| async move {
+Subscription::forward("orders", kafka_source, kafka_sink, |order: Order| async move {
     Ok(enrich(order))
 })
 ```
@@ -217,7 +222,7 @@ with `value: None`.
 Register `Tombstones` to decide their handling before the handler runs:
 
 ```rust,ignore
-Subscription::forward(kafka_source, kafka_sink, handler)
+Subscription::forward("orders", kafka_source, kafka_sink, handler)
     .middleware(Tombstones::propagate())
 ```
 
@@ -449,7 +454,7 @@ use beavers::TraceContext;
 opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
 // Install a tracing subscriber with a tracing-opentelemetry layer.
 
-Subscription::forward(kafka_source, kafka_sink, handler)
+Subscription::forward("orders", kafka_source, kafka_sink, handler)
     .middleware(TraceContext::new())
 ```
 

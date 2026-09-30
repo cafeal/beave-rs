@@ -35,6 +35,7 @@ async fn outputs_continue_the_received_trace() {
     App::new()
         .subscription(
             Subscription::new(
+                "propagating",
                 FieldSource::with_fields(&["5"], &[("traceparent", &traceparent)]),
                 sink.clone(),
                 |value: i32| async move {
@@ -44,7 +45,6 @@ async fn outputs_continue_the_received_trace() {
                     })
                 },
             )
-            .name("propagating")
             // Stands in for inheritance middleware that copies the received context.
             .middleware(MapMetadata::new(|_: &i32, mut output: Carried| {
                 output.set_propagation_field("traceparent", "stale".into());

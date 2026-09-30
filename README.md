@@ -23,7 +23,7 @@ async fn double(value: u64) -> Result<u64> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     App::new()
-        .subscribe(IterSource::new([1, 2, 3]), StdoutSink::<Json>::new(), double)
+        .subscribe("double", IterSource::new([1, 2, 3]), StdoutSink::<Json>::new(), double)
         .run()
         .await
 }

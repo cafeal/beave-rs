@@ -25,6 +25,7 @@ async fn failures_are_counted_by_kind_and_action() {
     App::new()
         .subscription(
             Subscription::new(
+                name,
                 FieldSource::text(&["1", "oops", "-2", "3"]),
                 sink.clone(),
                 |n: i32| async move {
@@ -34,7 +35,6 @@ async fn failures_are_counted_by_kind_and_action() {
                     Ok(n)
                 },
             )
-            .name(name)
             .dlq(dlq.clone())
             .error_policy(ErrorPolicy {
                 decode: FailureAction::Discard,
@@ -73,14 +73,12 @@ async fn dead_letter_action_without_sink_is_reported_as_stop() {
     install_metrics();
     let name = "stop-without-dlq";
     let result = App::new()
-        .subscription(
-            Subscription::new(
-                FieldSource::text(&["1"]),
-                InMemorySink::default(),
-                |_: i32| async move { Err::<i32, _>(HandlerError::Reject(anyhow::anyhow!("no"))) },
-            )
-            .name(name),
-        )
+        .subscription(Subscription::new(
+            name,
+            FieldSource::text(&["1"]),
+            InMemorySink::default(),
+            |_: i32| async move { Err::<i32, _>(HandlerError::Reject(anyhow::anyhow!("no"))) },
+        ))
         .run()
         .await;
     assert!(result.is_err());
@@ -128,6 +126,7 @@ async fn retries_and_stage_durations_are_recorded() {
     App::new()
         .subscription(
             Subscription::new(
+                name,
                 FieldSource::text(&["7"]),
                 FailTwice(AtomicUsize::new(0)),
                 move |n: i32| {
@@ -140,7 +139,6 @@ async fn retries_and_stage_durations_are_recorded() {
                     }
                 },
             )
-            .name(name)
             .retry(fast())
             .publish_retry(fast()),
         )

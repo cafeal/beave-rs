@@ -85,7 +85,13 @@ async fn custom_message_handler_and_prepared_output_work_through_public_contract
     };
     App::new()
         .subscription(
-            Subscription::new(source, sink, Double).publish_retry(RetryPolicy {
+            Subscription::new(
+                "custom_message_handler_and_prepared_output_work_through_public_contracts",
+                source,
+                sink,
+                Double,
+            )
+            .publish_retry(RetryPolicy {
                 max_attempts: 2,
                 initial_delay: Duration::ZERO,
                 max_delay: Duration::ZERO,
@@ -116,7 +122,12 @@ async fn decode_and_prepare_failures_do_not_publish_or_ack() {
         };
         assert!(
             App::new()
-                .subscribe(source, sink, Double)
+                .subscribe(
+                    "decode_and_prepare_failures_do_not_publish_or_ack",
+                    source,
+                    sink,
+                    Double
+                )
                 .run()
                 .await
                 .is_err()

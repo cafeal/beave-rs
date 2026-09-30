@@ -54,7 +54,7 @@ key and headers:
 ```rust,ignore
 use beavers::adapters::kafka::KafkaInherit;
 
-Subscription::new(kafka_source, kafka_sink, handler)
+Subscription::new("orders", kafka_source, kafka_sink, handler)
     .middleware(KafkaInherit::new())
 ```
 

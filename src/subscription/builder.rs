@@ -25,6 +25,7 @@ pub(super) type DeadLetterRoute<I, R> = Arc<
 >;
 
 pub struct Subscription<S: Source, K, O> {
+    pub(super) name: String,
     pub(super) source: S,
     pub(super) sink: K,
     pub(super) handler: BoxHandler<SourceItem<S>, O>,
@@ -35,24 +36,27 @@ pub struct Subscription<S: Source, K, O> {
 }
 
 impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
-    pub fn new<H>(source: S, sink: K, handler: H) -> Self
+    /// Registers a handler. `name` identifies the subscription in errors, dead letters,
+    /// spans, and metric labels; it must be non-empty and unique within an [`App`](crate::App).
+    pub fn new<H>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
     where
         H: Handler<SourceItem<S>, Output = O>,
     {
         let handler = Arc::new(handler);
-        Self::new_emitting(source, sink, move |input| {
+        Self::new_emitting(name, source, sink, move |input| {
             let handler = handler.clone();
             async move { handler.handle(input).await.map(Emit::One) }
         })
     }
 
     /// Explicitly opts into 0/1/N output; a plain Vec remains one payload.
-    pub fn new_emitting<H>(source: S, sink: K, handler: H) -> Self
+    pub fn new_emitting<H>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
     where
         H: Handler<SourceItem<S>, Output = Emit<O>>,
     {
         let handler = Arc::new(handler);
         Self {
+            name: name.into(),
             source,
             sink,
             handler: Arc::new(move |value| {
@@ -71,14 +75,14 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     /// The handler receives the record value and returns the output value. The
     /// platform's publish record is built from that value, and the platform's
     /// default metadata inheritance runs before any other middleware.
-    pub fn forward<H, U>(source: S, sink: K, handler: H) -> Self
+    pub fn forward<H, U>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
     where
         SourceItem<S>: SamePlatform<U, Publish = O>,
         H: Handler<<SourceItem<S> as ValueRecord>::Value, Output = U>,
         U: Send + Sync + 'static,
     {
         let handler = Arc::new(handler);
-        Self::forward_emitting(source, sink, move |value| {
+        Self::forward_emitting(name, source, sink, move |value| {
             let handler = handler.clone();
             async move { handler.handle(value).await.map(Emit::One) }
         })
@@ -86,14 +90,14 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
 
     /// Value-only counterpart of `new_emitting`; each emitted value inherits
     /// metadata from the same input record.
-    pub fn forward_emitting<H, U>(source: S, sink: K, handler: H) -> Self
+    pub fn forward_emitting<H, U>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
     where
         SourceItem<S>: SamePlatform<U, Publish = O>,
         H: Handler<<SourceItem<S> as ValueRecord>::Value, Output = Emit<U>>,
         U: Send + Sync + 'static,
     {
         let handler = Arc::new(handler);
-        Self::new_emitting(source, sink, move |record: SourceItem<S>| {
+        Self::new_emitting(name, source, sink, move |record: SourceItem<S>| {
             let handler = handler.clone();
             async move {
                 let values = handler.handle(record.value()?).await?.values();
@@ -106,11 +110,6 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             }
         })
         .middleware(<SourceItem<S> as SamePlatform<U>>::Inherit::default())
-    }
-
-    pub fn name(mut self, name: impl Into<String>) -> Self {
-        self.config.name = name.into();
-        self
     }
 
     pub fn concurrency(mut self, value: usize) -> Self {
@@ -207,7 +206,15 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         self
     }
 
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.name.trim().is_empty(),
+            "subscription name must not be empty"
+        );
         self.config.validate()?;
         self.config.error_policy.validate(self.dlq.is_some())
     }

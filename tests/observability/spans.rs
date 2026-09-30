@@ -7,14 +7,12 @@ async fn deliveries_are_traced_by_stage() {
     let capture = Capture::global();
     let sink = InMemorySink::default();
     App::new()
-        .subscription(
-            Subscription::new(
-                FieldSource::text(&["1"]),
-                sink.clone(),
-                |n: i32| async move { Ok(n) },
-            )
-            .name("traced"),
-        )
+        .subscription(Subscription::new(
+            "traced",
+            FieldSource::text(&["1"]),
+            sink.clone(),
+            |n: i32| async move { Ok(n) },
+        ))
         .run()
         .await
         .unwrap();
@@ -42,6 +40,7 @@ async fn discarded_and_dead_lettered_deliveries_are_logged() {
     App::new()
         .subscription(
             Subscription::new(
+                "logged",
                 FieldSource::text(&["oops", "-1"]),
                 InMemorySink::default(),
                 |n: i32| async move {
@@ -51,7 +50,6 @@ async fn discarded_and_dead_lettered_deliveries_are_logged() {
                     Ok(n)
                 },
             )
-            .name("logged")
             .dlq(InMemorySink::default())
             .error_policy(ErrorPolicy {
                 decode: FailureAction::Discard,
@@ -88,14 +86,12 @@ async fn discarded_and_dead_lettered_deliveries_are_logged() {
 async fn subscription_failure_is_logged() {
     let capture = Capture::global();
     let result = App::new()
-        .subscription(
-            Subscription::new(
-                FieldSource::text(&["oops"]),
-                InMemorySink::default(),
-                |n: i32| async move { Ok(n) },
-            )
-            .name("failing"),
-        )
+        .subscription(Subscription::new(
+            "failing",
+            FieldSource::text(&["oops"]),
+            InMemorySink::default(),
+            |n: i32| async move { Ok(n) },
+        ))
         .run()
         .await;
     assert!(result.is_err());

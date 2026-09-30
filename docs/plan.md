@@ -29,8 +29,8 @@ Add an explicit wrapper for synchronous handlers instead of overlapping blanket
 implementations that attempt to infer whether a function is synchronous:
 
 ```rust,ignore
-app.subscribe(source, sink, async_handler);
-app.subscribe(source, sink, blocking(sync_handler));
+app.subscribe("async", source, sink, async_handler);
+app.subscribe("sync", source, sink, blocking(sync_handler));
 ```
 
 The wrapper should implement the existing handler contract and submit work to a

@@ -116,7 +116,7 @@ received key, properties, and event time:
 ```rust,ignore
 use beavers::adapters::pulsar::PulsarInherit;
 
-Subscription::new(pulsar_source, pulsar_sink, handler)
+Subscription::new("orders", pulsar_source, pulsar_sink, handler)
     .middleware(PulsarInherit::new())
 ```
 

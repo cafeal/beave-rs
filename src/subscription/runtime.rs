@@ -22,21 +22,18 @@ type Jobs = JoinSet<anyhow::Result<Option<OrderingKey>>>;
 
 impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     pub(crate) async fn run(self, shutdown: CancellationToken) -> anyhow::Result<()> {
-        let span = info_span!("subscription", subscription = %self.config.name);
+        let span = info_span!("subscription", subscription = %self.name);
         self.execute(shutdown).instrument(span).await
     }
 
     async fn execute(mut self, shutdown: CancellationToken) -> anyhow::Result<()> {
         info!("subscription started");
-        let instruments = Instruments::new(
-            &self.config.name,
-            &self.config.error_policy,
-            self.dlq.is_some(),
-        );
+        let instruments =
+            Instruments::new(&self.name, &self.config.error_policy, self.dlq.is_some());
         let sink = Arc::new(self.sink);
         let worker = Worker {
             pipeline: Arc::new(Pipeline {
-                name: self.config.name.clone(),
+                name: self.name.clone(),
                 handler: self.handler,
                 middleware: self.middleware,
                 sink: sink.clone(),
@@ -152,7 +149,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             Some(failure) => {
                 shutdown.cancel();
                 error!(error = format!("{failure:#}"), "subscription failed");
-                Err(failure.context(self.config.name))
+                Err(failure.context(self.name))
             }
             None => {
                 info!("subscription stopped");
