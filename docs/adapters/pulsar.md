@@ -37,7 +37,11 @@ A message whose producer marked the value as null becomes
 such a message is a tombstone: topic compaction treats it as deleting that key.
 An empty payload without the null marker is still decoded by the codec. The
 `pulsar` 6.9 client keeps the null marker only for non-batched messages; a null
-value inside a producer batch arrives as an empty payload. `PulsarPublish<T>`
+value inside a producer batch arrives as an empty payload, because the client
+does not copy the per-message null marker when it splits a batch. Codecs that
+reject empty input then fail to decode it, and codecs such as `Utf8` or
+`RawBytes` pass it to the handler as an empty value. Disable producer batching
+on topics that carry tombstones. `PulsarPublish<T>`
 always carries a value because that client cannot publish null values, so
 tombstones can be skipped or rejected but not propagated to a Pulsar sink. See
 [tombstones](../runtime.md#tombstones).
