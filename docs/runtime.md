@@ -104,7 +104,7 @@ and can produce a duplicate.
 ## Adapters
 
 See the [adapter guide](adapters.md) for IterSource, StdinSource, InMemorySink,
-StdoutSink, and the bounded Channel adapter, including examples, EOF behavior,
+StdoutSink, and the Channel adapter that chains subscriptions, including examples, EOF behavior,
 ACK guarantees, and I/O limits. These components do not provide durable
 redelivery after process exit. Optional Kafka and Pulsar adapters provide
 broker-specific source and sink implementations; their documentation covers
@@ -113,7 +113,7 @@ configuration and acknowledgement semantics.
 ## Per-message lifecycle
 
 ```text
-receive → decode → pre_handler → handler → post_handler → prepare all outputs → publish → ACK
+receive → decode → pre_handler → handler → post_handler → prepare all outputs → submit → complete → ACK
 ```
 
 Use `Subscription::new_emitting` to register a handler returning
@@ -123,6 +123,18 @@ are published sequentially and the input is acknowledged only after all succeed.
 With no outputs, successful processing can proceed directly to ACK.
 
 Decode and preparation failures follow the [error policy](#error-policy).
+
+`Sink::submit` hands an output to the sink and returns a `Completion` once the
+sink has accepted it. Most sinks complete at submission. A sink whose
+acceptance precedes its acknowledgement boundary, such as a
+[channel](adapters/channel.md) drained by another subscription, returns a
+pending completion: the job ends and frees its concurrency slot, and the
+delivery is acknowledged after every completion succeeds. Deliveries waiting
+for completion do not count toward `max_in_flight`; the sink bounds them by
+making `submit` wait, as a channel does for capacity. They are abandoned
+without ACK when revoked and are drained on shutdown. A failed completion stops the
+subscription without acknowledging the delivery. Publish retries apply to
+submission only.
 
 ## Transactions
 
@@ -340,6 +352,11 @@ publishing, or ACK on the Tokio executor.
 | Running work | A synchronous call cannot be interrupted. After a drain timeout it runs to completion on its worker thread, which does not delay subscription shutdown |
 | Pool shutdown | Workers exit after their current job once every pool clone and every handler using it is dropped, which happens when their subscriptions finish |
 
+To give I/O-bound and CPU-bound steps of one pipeline their own concurrency,
+retries, and error policies, split them into subscriptions chained with the
+[channel adapter](adapters/channel.md): an async handler upstream and a blocking
+handler downstream, with the upstream delivery acknowledged after both finish.
+
 Handler retries submit a new job for every attempt. Queue capacity counts jobs
 waiting for a thread, not running ones; subscription `concurrency` still bounds
 the jobs each subscription submits.
@@ -460,7 +477,10 @@ application, which ultimately returns an error.
 
 SIGINT / SIGTERM or `App::run_until(CancellationToken)` stops new receives and
 starts draining running jobs. Deliveries still queued behind an ordering key are
-dropped without ACK. After `Receive::End`, queued deliveries still run. A drain
+dropped without ACK. After `Receive::End`, queued deliveries still run. A source whose
+`stops_on_shutdown` returns `false`, such as a `ChannelSource` created by `channel`,
+keeps receiving until its upstream subscriptions close it; see
+[channel shutdown](adapters/channel.md#shutdown). A drain
 timeout cancels unfinished tasks, then cleanup runs with its own deadline. In-progress publish or ACK can have an uncertain result if
 interrupted; a durable broker may redeliver and cause duplicates.
 
@@ -525,7 +545,7 @@ Every metric carries a `subscription` label with the subscription name.
 | `beavers_receive_errors_total` | counter | | Failed receive attempts |
 | `beavers_deliveries_revoked_total` | counter | | Deliveries abandoned after revocation |
 | `beavers_deliveries_in_flight` | gauge | | Received deliveries that have not finished |
-| `beavers_stage_duration_seconds` | histogram | `stage` | Duration of `decode`, `handler`, `encode`, `publish`, `dead_letter`, `ack`, and `commit` |
+| `beavers_stage_duration_seconds` | histogram | `stage` | Duration of `decode`, `handler`, `encode`, `publish`, `complete`, `dead_letter`, `ack`, and `commit` |
 
 `failure` is `decode`, `rejected`, `retry_exhausted`, or `encode`. `action` is
 `stop`, `dead_letter`, or `discard`; a `DeadLetter` action without a
@@ -533,6 +553,65 @@ dead-letter sink is reported as `stop`, which is what it does. A failure is
 counted when it is routed, before the action runs. `handler` durations are
 per attempt and exclude retry backoff; `publish` durations cover all outputs
 of a delivery, including backoff.
+
+### Exporting metrics to OpenTelemetry
+
+beavers does not bridge the `metrics` facade to OpenTelemetry metrics. An
+application that sends metrics through an OpenTelemetry Collector exposes them
+in the Prometheus format with
+[`metrics-exporter-prometheus`](https://docs.rs/metrics-exporter-prometheus)
+and lets the Collector scrape them.
+
+Install the exporter before `App::run`:
+
+```rust,ignore
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
+
+PrometheusBuilder::new()
+    .with_http_listener(([0, 0, 0, 0], 9000))
+    .set_buckets_for_metric(
+        Matcher::Full("beavers_stage_duration_seconds".to_owned()),
+        &[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
+    )?
+    .install()?;
+
+app.run().await?;
+```
+
+The listener serves `/metrics` over HTTP. Without configured buckets, the
+exporter writes histograms as Prometheus summaries, which arrive as
+OpenTelemetry summaries that many backends do not support; configure buckets for
+`beavers_stage_duration_seconds` and any histograms the application records
+itself.
+
+Scrape the endpoint with the Collector's Prometheus receiver, which is part of
+the `otelcol-contrib` distribution, and forward the metrics to any exporter:
+
+```yaml
+receivers:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: beavers
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["my-app:9000"]
+
+exporters:
+  otlp:
+    endpoint: my-backend:4317
+
+service:
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      exporters: [otlp]
+```
+
+Counters arrive as cumulative OpenTelemetry sums, the in-flight gauge as a
+gauge, and bucketed histograms as histograms. Labels become data-point
+attributes, and the receiver maps the scrape's `job` and `instance` to the
+`service.name` and `service.instance.id` resource attributes.
 
 ### Trace-context propagation
 

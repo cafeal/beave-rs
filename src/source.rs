@@ -25,6 +25,13 @@ pub trait Source: Send + 'static {
     fn receive(
         &mut self,
     ) -> impl Future<Output = Result<Receive<Self::Message>, ReceiveError>> + Send;
+    /// Whether application shutdown stops receiving from this source. A source fed by
+    /// another subscription of the same application returns `false`: it keeps
+    /// delivering until that subscription closes its sink, so work the upstream is
+    /// still draining can complete. A subscription failure stops it either way.
+    fn stops_on_shutdown(&self) -> bool {
+        true
+    }
     fn close(&mut self) -> impl Future<Output = anyhow::Result<()>> + Send {
         async { Ok(()) }
     }

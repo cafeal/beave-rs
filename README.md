@@ -7,7 +7,7 @@ Source → Subscription → Handler → Sink
 ```
 
 The current implementation includes local adapters, a bounded in-process
-channel, optional Kafka and Apache Pulsar adapters, typed codecs, bounded
+channel that chains subscriptions with end-to-end acknowledgement, optional Kafka and Apache Pulsar adapters, typed codecs, bounded
 concurrency, retries, and graceful shutdown. NATS JetStream and SQS remain on
 the roadmap.
 
@@ -38,6 +38,20 @@ printf '%s\n' '{"id":10}' '{"id":20}' | cargo run --example transform -- --stdin
 
 The example writes one JSON event per line, such as `{"order_id":10}`.
 
+Kafka and Pulsar examples run against local brokers started with Docker
+Compose, which also provides web consoles for both brokers:
+
+```sh
+docker compose up -d --wait
+cargo kafka-produce
+cargo kafka-process   # Ctrl-C to stop
+docker compose down
+```
+
+`cargo kafka-produce` and the other broker commands are Cargo aliases defined in
+`.cargo/config.toml`. See [local development brokers](docs/development.md) for
+every example, console, and alias.
+
 ## Documentation
 
 - [Documentation index](docs/README.md)
@@ -46,6 +60,7 @@ The example writes one JSON event per line, such as `{"order_id":10}`.
 - [Architecture and trait contracts](docs/architecture.md)
 - [Runtime behavior, configuration, and limitations](docs/runtime.md)
 - [Design plan and roadmap](docs/plan.md)
+- [Local development brokers](docs/development.md)
 
 The runtime emits `tracing` spans and `metrics` counters and histograms for
 every delivery stage. The optional `opentelemetry` feature propagates trace
@@ -69,6 +84,7 @@ cargo doc --all-features --no-deps
 
 GitHub Actions runs these checks on every pull
 request and on pushes to `main`. Live Kafka and Pulsar tests are ignored by
-default and are not run in CI.
+default; CI runs them against the Docker Compose brokers, and `cargo test-live`
+runs them locally while the brokers are up.
 
 **Let application code process events. Let beave.rs manage the flow.**
