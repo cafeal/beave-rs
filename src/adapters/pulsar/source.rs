@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     codec::Decoder,
-    message::SourceMessage,
+    message::{RawPayload, SourceMessage},
     source::{Receive, ReceiveError, Source},
 };
 use pulsar::{Consumer, Pulsar, TokioExecutor};
@@ -136,6 +136,10 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMe
             event_time: self.event_time,
             metadata: self.metadata.clone(),
         })
+    }
+
+    fn raw_payload(&self) -> Option<RawPayload> {
+        Some(RawPayload::Bytes(self.bytes.clone()))
     }
 
     async fn ack(self) -> anyhow::Result<()> {

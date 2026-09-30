@@ -1,5 +1,7 @@
 #[path = "runtime/concurrency.rs"]
 mod concurrency;
+#[path = "runtime/dead_letter.rs"]
+mod dead_letter;
 #[path = "runtime/failure.rs"]
 mod failure;
 #[path = "runtime/fixtures.rs"]

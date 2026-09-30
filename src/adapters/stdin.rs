@@ -1,4 +1,4 @@
-use crate::message::SourceMessage;
+use crate::message::{RawPayload, SourceMessage};
 use crate::{
     codec::Decoder,
     source::{Receive, ReceiveError, Source},
@@ -93,5 +93,8 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for StdinMes
     }
     async fn ack(self) -> anyhow::Result<()> {
         Ok(())
+    }
+    fn raw_payload(&self) -> Option<RawPayload> {
+        Some(RawPayload::Bytes(self.bytes.clone()))
     }
 }

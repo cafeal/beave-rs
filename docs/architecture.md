@@ -15,7 +15,9 @@ src/
 ├── message.rs             # SourceMessage and Delivery ownership
 ├── sink.rs                # Prepare, publish, and close contracts
 ├── handler.rs             # Handler, Emit, HandlerError, and Result
-├── retry.rs               # Retry policy
+├── error_policy.rs        # FailureKind, FailureAction, and ErrorPolicy
+├── dead_letter.rs         # DeadLetter envelope
+├── retry.rs               # Retry policy and jitter
 ├── shutdown.rs            # Cancellation and process signals
 ├── codec/
 │   ├── mod.rs             # Decoder and Encoder contracts
@@ -45,7 +47,7 @@ The scheduler and per-message processing implementation remain private.
 | Contract | Responsibility |
 |---|---|
 | `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure |
-| `SourceMessage` | Own a delivery, decode its input, and acknowledge completion |
+| `SourceMessage` | Own a delivery, decode its input, optionally expose its raw payload, and acknowledge completion |
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
 | `Decoder<T>` / `Encoder<T>` | Convert serialization formats without broker operations |
 | `Sink<T>` | Prepare an associated output representation, publish it, and close resources |
@@ -59,7 +61,8 @@ implementation for already typed local input.
 A message can retain raw bytes and broker-specific information until processing
 finishes. The runtime calls `decode` once and passes the decoded value to the
 handler. `decode` must not publish or acknowledge. Dropping a message must never
-acknowledge it.
+acknowledge it. `raw_payload` optionally returns the undecoded payload, which
+the runtime copies into dead letters only when a failure is routed there.
 
 ACK consumes the message. Its adapter owns safe broker completion behavior,
 including offset ordering and assignment validity where applicable. A custom

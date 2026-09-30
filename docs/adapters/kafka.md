@@ -35,6 +35,10 @@ from a source carry `KafkaMetadata` with topic, partition, offset, and
 timestamp. `KafkaPublish` has no source metadata, so source location is never
 implicitly copied into producer routing.
 
+`KafkaMessage::raw_payload` returns the received value bytes, or
+`RawPayload::Null` for a null payload, so a dead letter can carry the original
+value even when decoding fails.
+
 Input metadata is never inherited by a sink. The sink always publishes to its
 configured topic and lets Kafka choose a partition from the explicit key. It
 does not copy a source partition, offset, timestamp, or topic into output.

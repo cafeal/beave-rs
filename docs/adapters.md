@@ -118,11 +118,14 @@ For this example, feed one JSON number per line. For the repository's
 printf '%s\n' '{"id":10}' '{"id":20}' | cargo run --example transform -- --stdin
 ```
 
-Each `StdinMessage` owns its raw line. The runtime decodes it after receiving it,
-so a decode failure is distinct from a receive I/O failure. Blank lines and
-malformed JSON fail decoding; they are not skipped. A final nonempty line without
-a trailing newline is still processed. EOF produces End after buffered lines
-have been received. I/O or reader-thread startup failures are fatal receive errors.
+Each `StdinMessage` owns its raw line. The runtime decodes it after receiving
+it, so a decode failure is distinct from a receive I/O failure. Blank lines and
+malformed JSON fail decoding; they are not skipped. The raw line is available to
+dead letters through `raw_payload`, so the [error
+policy](runtime.md#error-policy) can route or discard undecodable lines. A final
+nonempty line without a trailing newline is still processed. EOF produces End
+after buffered lines have been received. I/O or reader-thread startup failures
+are fatal receive errors.
 
 The first receive starts a dedicated reader thread with a bounded channel. This
 bounds queued lines, not individual line size; there is no maximum line-length

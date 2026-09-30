@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     codec::Decoder,
-    message::SourceMessage,
+    message::{RawPayload, SourceMessage},
     source::{Receive, ReceiveError, Source},
 };
 use rdkafka::{
@@ -160,6 +160,13 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for KafkaMes
                 })
                 .unwrap_or_default(),
             metadata: self.metadata(),
+        })
+    }
+
+    fn raw_payload(&self) -> Option<RawPayload> {
+        Some(match self.raw.payload() {
+            Some(bytes) => RawPayload::Bytes(bytes.to_vec()),
+            None => RawPayload::Null,
         })
     }
 

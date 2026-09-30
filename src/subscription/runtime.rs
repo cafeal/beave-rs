@@ -1,5 +1,8 @@
 //! Receive scheduling, bounded concurrency, draining, and resource cleanup.
-use super::{builder::Subscription, processing::process};
+use super::{
+    builder::Subscription,
+    processing::{Pipeline, process},
+};
 use crate::{
     shutdown::CancellationToken,
     sink::Sink,
@@ -14,6 +17,17 @@ use tokio::{
 impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     pub(crate) async fn run(mut self, shutdown: CancellationToken) -> anyhow::Result<()> {
         let sink = Arc::new(self.sink);
+        let pipeline = Arc::new(Pipeline {
+            name: self.config.name.clone(),
+            handler: self.handler,
+            middleware: self.middleware,
+            sink: sink.clone(),
+            dlq: self.dlq,
+            handler_retry: self.config.handler_retry.clone(),
+            publish_retry: self.config.publish_retry.clone(),
+            dead_letter_retry: self.config.dead_letter_retry.clone(),
+            error_policy: self.config.error_policy.clone(),
+        });
         let mut jobs = JoinSet::new();
         let mut failure = None;
         let mut failures = 0;
@@ -32,10 +46,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                         Ok(Receive::Message(delivery)) => {
                             failures = 0;
                             next_receive = Instant::now();
-                            let handler = self.handler.clone(); let sink = sink.clone(); let dlq = self.dlq.clone();
-                            let middleware = self.middleware.clone();
-                            let hp = self.config.handler_retry.clone(); let pp = self.config.publish_retry.clone();
-                            jobs.spawn(async move { process(delivery, handler, sink, dlq, hp, pp, middleware).await });
+                            jobs.spawn(process(delivery, pipeline.clone()));
                         }
                         Err(ReceiveError::Retry(error)) => {
                             failures += 1;

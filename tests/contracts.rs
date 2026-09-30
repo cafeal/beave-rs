@@ -87,6 +87,7 @@ async fn custom_message_handler_and_prepared_output_work_through_public_contract
                 max_attempts: 2,
                 initial_delay: Duration::ZERO,
                 max_delay: Duration::ZERO,
+                ..RetryPolicy::default()
             }),
         )
         .run()

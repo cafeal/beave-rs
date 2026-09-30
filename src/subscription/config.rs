@@ -1,5 +1,5 @@
 //! Runtime policy belongs to the subscription, not the transport adapters.
-use crate::retry::RetryPolicy;
+use crate::{error_policy::ErrorPolicy, retry::RetryPolicy};
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
@@ -10,6 +10,8 @@ pub struct SubscriptionConfig {
     pub handler_retry: RetryPolicy,
     pub receive_retry: RetryPolicy,
     pub publish_retry: RetryPolicy,
+    pub dead_letter_retry: RetryPolicy,
+    pub error_policy: ErrorPolicy,
     pub drain_timeout: Duration,
 }
 impl Default for SubscriptionConfig {
@@ -21,6 +23,8 @@ impl Default for SubscriptionConfig {
             handler_retry: RetryPolicy::default(),
             receive_retry: RetryPolicy::default(),
             publish_retry: RetryPolicy::default(),
+            dead_letter_retry: RetryPolicy::default(),
+            error_policy: ErrorPolicy::default(),
             drain_timeout: Duration::from_secs(30),
         }
     }
@@ -34,6 +38,7 @@ impl SubscriptionConfig {
         self.handler_retry.validate()?;
         self.receive_retry.validate()?;
         self.publish_retry.validate()?;
+        self.dead_letter_retry.validate()?;
         Ok(())
     }
 }

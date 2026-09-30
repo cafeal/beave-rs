@@ -19,9 +19,11 @@ App::new()
             .retry(handler_retry)
             .receive_retry(receive_retry)
             .publish_retry(publish_retry)
+            .dlq_retry(dead_letter_retry)
             .drain_timeout(Duration::from_secs(30))
             .middleware(|_input, output| Ok(output))
-            .dlq(dead_letter_sink),
+            .dlq(dead_letter_sink)
+            .error_policy(ErrorPolicy::dead_letter_all()),
     )
     .run()
     .await?;
@@ -37,13 +39,22 @@ Registration constructs the application. Processing starts in `run()`.
 | Retry attempts | 3 | Includes the first attempt |
 | Initial retry delay | 100 ms | Exponential backoff starting delay |
 | Maximum retry delay | 5 s | Backoff cap |
+| Retry jitter | `Jitter::None` | Randomization of each backoff delay |
+| Error policy | `ErrorPolicy::default()` | Dead-letter rejections; stop on other routable failures |
 | Drain timeout | 30 s | Bound on draining; cleanup has a separate timeout of the same duration |
 
 The effective job limit is the smaller of concurrency and max_in_flight. The
-scheduler has no prefetch queue. Receive, handler, and publish retries have
-independent policies; DLQ publication currently uses the publish retry policy.
-Jitter is not implemented. Invalid zero concurrency, in-flight limits, or retry
-attempt counts fail validation before subscriptions start.
+scheduler has no prefetch queue. Receive, handler, output publish, and
+dead-letter publish retries have independent policies. Invalid zero
+concurrency, in-flight limits, or retry attempt counts fail validation before
+subscriptions start, as does an error policy that dead-letters decode, retry
+exhaustion, or encode failures without a dead-letter sink.
+
+Each `RetryPolicy` doubles its delay after every failed attempt, starting at
+`initial_delay` and capped at `max_delay`. `jitter` randomizes the capped
+delay: `Jitter::Full` waits a uniformly random duration up to it, and
+`Jitter::Equal` waits half of it plus a random share of the other half. Jitter
+spreads retries from many consumers that failed at the same moment.
 
 Concurrent jobs do not guarantee output ordering. Use concurrency 1 for sequential
 processing. Partition-aware scheduling is not implemented.
@@ -71,8 +82,9 @@ With no outputs, successful processing can proceed directly to ACK.
 
 The current middleware hook is `Fn(&Input, Output) -> Result<Output>`. It runs for
 each emitted value before preparation. Mapping errors stop processing regardless
-of their handler error classification. Decode and preparation failures also stop
-without ACK. Broker-specific metadata inheritance is not implemented.
+of their handler error classification. Decode and preparation failures follow the
+[error policy](#error-policy). Broker-specific metadata inheritance is not
+implemented.
 
 See the [codec guide](codecs.md#lifecycle-and-failures) for decoding and encoding boundaries.
 
@@ -81,20 +93,77 @@ See the [codec guide](codecs.md#lifecycle-and-failures) for decoding and encodin
 `beavers::Result<T>` uses `HandlerError`. Converting ordinary errors through `?`
 classifies them as Fatal; retry must be requested explicitly.
 
-| Failure | Current behavior |
+### Error policy
+
+`ErrorPolicy` decides what happens to a delivery after one of four routable
+failures, identified by `FailureKind`:
+
+| `FailureKind` | Cause | Default action |
+|---|---|---|
+| `Decode` | `SourceMessage::decode` failed | `Stop` |
+| `Rejected` | The handler returned `Reject` | `DeadLetter` |
+| `RetryExhausted` | The handler returned `Retry` on its final permitted attempt | `Stop` |
+| `Encode` | `Sink::prepare` failed for an emitted output | `Stop` |
+
+Each failure maps to one `FailureAction`:
+
+- `Stop` returns an error and leaves the delivery unacknowledged, so a durable
+  broker can redeliver it after restart.
+- `DeadLetter` publishes a `DeadLetter` envelope to the dead-letter sink and
+  then acknowledges the delivery.
+- `Discard` acknowledges the delivery without publishing anything. It is an
+  explicit choice to lose that delivery.
+
+A rejection without a configured dead-letter sink stops without ACK, because the
+handler asked for the input to leave the main flow and nothing can receive it.
+`DeadLetter` for any other failure kind requires a dead-letter sink and fails
+validation otherwise. `ErrorPolicy::dead_letter_all()` routes every kind to the
+dead-letter sink.
+
+Encoding happens for all emitted outputs before any publication, so an `Encode`
+failure never follows a partial publish; dead-lettering the input after it does
+not duplicate outputs.
+
+### Dead letters
+
+`Subscription::dlq(sink)` accepts a `Sink<DeadLetter<Input>>`.
+`Subscription::dlq_with(sink, convert)` converts each envelope into the sink's
+own output type first, for example to forward the original payload to a broker
+topic with failure details as headers. Handlers never see dead letters.
+
+| Field | Meaning |
 |---|---|
-| Handler `Retry` | Retry the handler with cloned input; stop without ACK on exhaustion |
-| Handler `Reject` | Prepare and publish the original typed input to the configured DLQ, then ACK |
-| Reject without DLQ | Stop without ACK |
+| `subscription` | Name of the failing subscription |
+| `failure` | The `FailureKind` |
+| `error` | Error message including its context chain |
+| `attempts` | Handler attempts made; zero for decode failures |
+| `input` | Decoded handler input; `None` after a decode failure |
+| `raw` | Received payload when the source retains it (`RawPayload::Bytes` or `Null`) |
+
+`DeadLetter` implements `Serialize` when its input does, so a JSON sink can
+publish it directly. Sources provide `raw` through
+`SourceMessage::raw_payload`; the Kafka, Pulsar, and stdin sources do, while
+already typed local sources such as `IterSource` and `Channel` do not.
+
+Conversion and preparation run once. Publication then retries under the
+`dlq_retry` policy. A conversion, preparation, or exhausted publication failure
+stops without ACK; dead-letter failures are never routed again.
+
+### Other failures
+
+| Failure | Behavior |
+|---|---|
+| Handler `Retry` | Retry the handler with cloned input, then apply `RetryExhausted` routing |
 | Handler `Fatal` | Stop without ACK |
+| Output mapping failure | Stop without ACK, regardless of the returned classification |
 | Receive `Retry` | Back off and retry receive; reset the failure count after receiving a message |
 | Receive `Fatal` or exhausted retry | Stop receiving, drain outstanding work, return an error |
 | Publish failure | Retry the prepared output; never rerun handler, mapping, or encoding |
-| Exhausted publish or DLQ retry | Stop without ACK; do not route infrastructure failures to DLQ |
+| Exhausted publish | Stop without ACK; infrastructure failures are never dead-lettered |
 | ACK failure | Return an error; do not claim successful completion |
 
-DLQ preparation runs once before its publish retries. The current DLQ carries
-typed input; a raw-input envelope with failure context is not implemented.
+Publication, dead-letter publication, and ACK results are never assumed. An
+interrupted or failed attempt is not treated as success.
 
 ## End of input and shutdown
 
@@ -130,7 +199,7 @@ validated cross-broker metadata mapping API.
 
 Inputs currently require `Clone + Send + Sync`. Stdin and stdout construct
 `Default` codecs internally and do not yet accept configured codec instances.
-Detailed decode/encode error classification and raw-input DLQ envelopes remain
-open design work. See
+A dead letter for a decode failure carries the raw payload but not broker
+metadata such as Kafka keys and headers or Pulsar properties. See
 [architecture](architecture.md) for extension contracts and the [roadmap](plan.md#implementation-order)
 for the intended sequence.
