@@ -504,6 +504,65 @@ counted when it is routed, before the action runs. `handler` durations are
 per attempt and exclude retry backoff; `publish` durations cover all outputs
 of a delivery, including backoff.
 
+### Exporting metrics to OpenTelemetry
+
+beavers does not bridge the `metrics` facade to OpenTelemetry metrics. An
+application that sends metrics through an OpenTelemetry Collector exposes them
+in the Prometheus format with
+[`metrics-exporter-prometheus`](https://docs.rs/metrics-exporter-prometheus)
+and lets the Collector scrape them.
+
+Install the exporter before `App::run`:
+
+```rust,ignore
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
+
+PrometheusBuilder::new()
+    .with_http_listener(([0, 0, 0, 0], 9000))
+    .set_buckets_for_metric(
+        Matcher::Full("beavers_stage_duration_seconds".to_owned()),
+        &[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
+    )?
+    .install()?;
+
+app.run().await?;
+```
+
+The listener serves `/metrics` over HTTP. Without configured buckets, the
+exporter writes histograms as Prometheus summaries, which arrive as
+OpenTelemetry summaries that many backends do not support; configure buckets for
+`beavers_stage_duration_seconds` and any histograms the application records
+itself.
+
+Scrape the endpoint with the Collector's Prometheus receiver, which is part of
+the `otelcol-contrib` distribution, and forward the metrics to any exporter:
+
+```yaml
+receivers:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: beavers
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["my-app:9000"]
+
+exporters:
+  otlp:
+    endpoint: my-backend:4317
+
+service:
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      exporters: [otlp]
+```
+
+Counters arrive as cumulative OpenTelemetry sums, the in-flight gauge as a
+gauge, and bucketed histograms as histograms. Labels become data-point
+attributes, and the receiver maps the scrape's `job` and `instance` to the
+`service.name` and `service.instance.id` resource attributes.
+
 ### Trace-context propagation
 
 `SourceMessage::propagation_fields` exposes text-map fields received with a

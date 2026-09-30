@@ -164,12 +164,11 @@ Spans, events, metrics, and trace-context propagation are described in the
   partition, and offset, which need an adapter-provided description of each
   delivery;
 - a producer span per published output instead of injecting the `message`
-  span's context into every output;
-- whether an application that uses OpenTelemetry metrics should get a built-in
-  bridge from the `metrics` facade.
+  span's context into every output.
 
-Trace-context propagation has not been verified against live brokers or an
-OpenTelemetry collector.
+Trace-context propagation and the
+[Prometheus export path](runtime.md#exporting-metrics-to-opentelemetry) have not
+been verified against live brokers or an OpenTelemetry Collector.
 
 ## Future adapters
 
