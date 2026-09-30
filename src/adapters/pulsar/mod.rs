@@ -13,3 +13,6 @@ pub use inherit::PulsarInherit;
 pub use record::{PulsarMetadata, PulsarPublish, PulsarRecord};
 pub use sink::{PulsarPrepared, PulsarSink};
 pub use source::{PulsarMessage, PulsarSource};
+
+/// Subscription type selected by [`PulsarSourceConfig::subscription_type`].
+pub use pulsar::SubType;

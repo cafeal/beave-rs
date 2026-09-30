@@ -59,3 +59,15 @@ optional = true
 metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
 opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "testing"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
+
+[[example]]
+name = "kafka_orders"
+required-features = ["kafka"]
+
+[[example]]
+name = "pulsar_orders"
+required-features = ["pulsar"]
+
+[[example]]
+name = "kafka_to_pulsar"
+required-features = ["kafka", "pulsar"]

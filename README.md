@@ -38,6 +38,17 @@ printf '%s\n' '{"id":10}' '{"id":20}' | cargo run --example transform -- --stdin
 
 The example writes one JSON event per line, such as `{"order_id":10}`.
 
+Kafka and Pulsar examples run against local brokers started with Docker
+Compose, which also provides web consoles for both brokers:
+
+```sh
+make up
+make kafka-produce kafka-process
+```
+
+See [local development brokers](docs/development.md) for every example and
+console.
+
 ## Documentation
 
 - [Documentation index](docs/README.md)
@@ -46,6 +57,7 @@ The example writes one JSON event per line, such as `{"order_id":10}`.
 - [Architecture and trait contracts](docs/architecture.md)
 - [Runtime behavior, configuration, and limitations](docs/runtime.md)
 - [Design plan and roadmap](docs/plan.md)
+- [Local development brokers](docs/development.md)
 
 The runtime emits `tracing` spans and `metrics` counters and histograms for
 every delivery stage. The optional `opentelemetry` feature propagates trace
@@ -70,6 +82,7 @@ cargo doc --all-features --no-deps
 Building with `--all-features` requires `protoc`, which the Pulsar client uses
 to generate its protocol types. GitHub Actions runs these checks on every pull
 request and on pushes to `main`. Live Kafka and Pulsar tests are ignored by
-default and are not run in CI.
+default and are not run in CI; run them against the local brokers with
+`make test-live`.
 
 **Let application code process events. Let beave.rs manage the flow.**

@@ -22,6 +22,10 @@ let mut source = PulsarSource::<Utf8, String>::new(PulsarSourceConfig::new(
 ));
 ```
 
+`subscription_type` defaults to `SubType::Shared`; `SubType` is re-exported
+from `beavers::adapters::pulsar`. A new subscription starts at the latest
+message.
+
 `PulsarAuthentication::token` supplies a JWT token, while the general
 `PulsarAuthentication` form accepts a Pulsar authentication method name and
 credential bytes. Leave `authentication` unset for an unauthenticated broker.
