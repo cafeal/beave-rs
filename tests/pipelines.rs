@@ -1,8 +1,9 @@
 //! End-to-end pipelines against the local brokers in `compose.yaml`.
 //!
-//! These tests are ignored by default. Start the brokers with `make up` and run
-//! them with `make test-live`. `KAFKA_BROKERS`, `PULSAR_URL`, and
-//! `PULSAR_ADMIN_ADDR` override the compose defaults.
+//! These tests are ignored by default. Start the brokers with
+//! `docker compose up -d --wait` and run them with `cargo test-live`.
+//! `KAFKA_BROKERS`, `PULSAR_URL`, and `PULSAR_ADMIN_ADDR` override the compose
+//! defaults.
 #![cfg(all(feature = "kafka", feature = "pulsar"))]
 
 use beavers::{
@@ -299,7 +300,7 @@ fn order_ids<T>(records: &[T], id: impl Fn(&T) -> u64) -> BTreeSet<u64> {
 }
 
 #[tokio::test]
-#[ignore = "requires the compose brokers; run with make test-live"]
+#[ignore = "requires the compose brokers; run with cargo test-live"]
 async fn kafka_pipeline_forwards_keys_and_commits_offsets() {
     let input = unique_name("beavers-orders");
     let output = unique_name("beavers-shipments");
@@ -344,7 +345,7 @@ async fn kafka_pipeline_forwards_keys_and_commits_offsets() {
 }
 
 #[tokio::test]
-#[ignore = "requires the compose brokers; run with make test-live"]
+#[ignore = "requires the compose brokers; run with cargo test-live"]
 async fn pulsar_pipeline_forwards_keys_and_acknowledges() {
     let input = pulsar_topic("beavers-orders");
     let output = pulsar_topic("beavers-shipments");
@@ -392,7 +393,7 @@ async fn pulsar_pipeline_forwards_keys_and_acknowledges() {
 }
 
 #[tokio::test]
-#[ignore = "requires the compose brokers; run with make test-live"]
+#[ignore = "requires the compose brokers; run with cargo test-live"]
 async fn kafka_to_pulsar_pipeline_maps_metadata_explicitly() {
     let input = unique_name("beavers-orders");
     let output = pulsar_topic("beavers-bridged-orders");

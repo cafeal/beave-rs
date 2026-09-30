@@ -29,8 +29,8 @@ unresolved design decisions.
    ```
 
 Live Kafka and Pulsar tests remain ignored by default. Start the local brokers
-with `make up` when Docker is available, run `make test-live`, and report
-separately whether they were executed. See
+with `docker compose up -d --wait` when Docker is available, run
+`cargo test-live`, and report separately whether they were executed. See
 [docs/development.md](docs/development.md).
 
 ## Repository constraints

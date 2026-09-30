@@ -42,12 +42,15 @@ Kafka and Pulsar examples run against local brokers started with Docker
 Compose, which also provides web consoles for both brokers:
 
 ```sh
-make up
-make kafka-produce kafka-process
+docker compose up -d --wait
+cargo kafka-produce
+cargo kafka-process   # Ctrl-C to stop
+docker compose down
 ```
 
-See [local development brokers](docs/development.md) for every example and
-console.
+`cargo kafka-produce` and the other broker commands are Cargo aliases defined in
+`.cargo/config.toml`. See [local development brokers](docs/development.md) for
+every example, console, and alias.
 
 ## Documentation
 
@@ -81,7 +84,7 @@ cargo doc --all-features --no-deps
 
 GitHub Actions runs these checks on every pull
 request and on pushes to `main`. Live Kafka and Pulsar tests are ignored by
-default; CI runs them against the Docker Compose brokers, and `make test-live`
-runs them locally.
+default; CI runs them against the Docker Compose brokers, and `cargo test-live`
+runs them locally while the brokers are up.
 
 **Let application code process events. Let beave.rs manage the flow.**
