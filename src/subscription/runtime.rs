@@ -1,41 +1,62 @@
-//! Receive scheduling, bounded concurrency, draining, and resource cleanup.
-use super::{builder::Subscription, processing::process};
+//! Receive scheduling, bounded concurrency, revocation, draining, and resource cleanup.
+use super::{
+    builder::{BoxHandler, DeadLetter, Mapper, Subscription},
+    processing::process,
+    scheduler::Scheduler,
+};
 use crate::{
+    message::{OrderingKey, SourceMessage},
+    retry::RetryPolicy,
     shutdown::CancellationToken,
     sink::Sink,
     source::{Receive, ReceiveError, Source},
 };
 use std::{result::Result as StdResult, sync::Arc};
 use tokio::{
-    task::JoinSet,
+    task::{JoinError, JoinSet},
     time::{Instant, sleep_until, timeout},
 };
+
+type Jobs = JoinSet<anyhow::Result<Option<OrderingKey>>>;
 
 impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     pub(crate) async fn run(mut self, shutdown: CancellationToken) -> anyhow::Result<()> {
         let sink = Arc::new(self.sink);
+        let worker = Worker {
+            handler: self.handler.clone(),
+            sink: sink.clone(),
+            dlq: self.dlq.clone(),
+            middleware: self.middleware.clone(),
+            handler_retry: self.config.handler_retry.clone(),
+            publish_retry: self.config.publish_retry.clone(),
+        };
+        let concurrency = self.config.concurrency;
+        let max_in_flight = self.config.max_in_flight;
+        let mut scheduler = Scheduler::new(self.config.ordering);
         let mut jobs = JoinSet::new();
         let mut failure = None;
         let mut failures = 0;
         let mut next_receive = Instant::now();
-        let limit = self.config.concurrency.min(self.config.max_in_flight);
+        let mut ended = false;
         loop {
+            worker.start_ready(&mut jobs, &mut scheduler, concurrency);
             tokio::select! {
                 biased;
                 _ = shutdown.cancelled() => break,
                 result = jobs.join_next(), if !jobs.is_empty() => {
-                    if let Err(error) = flatten(result.unwrap()) { failure = Some(error); shutdown.cancel(); break; }
+                    match flatten(result.unwrap()) {
+                        Ok(key) => scheduler.complete(key),
+                        Err(error) => { failure = Some(error); shutdown.cancel(); break; }
+                    }
                 }
-                received = async { sleep_until(next_receive).await; self.source.receive().await }, if jobs.len() < limit => {
+                received = async { sleep_until(next_receive).await; self.source.receive().await },
+                    if jobs.len() < concurrency && scheduler.outstanding() < max_in_flight => {
                     match received {
-                        Ok(Receive::End) => break,
+                        Ok(Receive::End) => { ended = true; break; }
                         Ok(Receive::Message(delivery)) => {
                             failures = 0;
                             next_receive = Instant::now();
-                            let handler = self.handler.clone(); let sink = sink.clone(); let dlq = self.dlq.clone();
-                            let middleware = self.middleware.clone();
-                            let hp = self.config.handler_retry.clone(); let pp = self.config.publish_retry.clone();
-                            jobs.spawn(async move { process(delivery, handler, sink, dlq, hp, pp, middleware).await });
+                            scheduler.push(delivery);
                         }
                         Err(ReceiveError::Retry(error)) => {
                             failures += 1;
@@ -47,13 +68,26 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                 }
             }
         }
+        // After End, received deliveries still run. On shutdown or failure,
+        // unstarted deliveries are dropped unacknowledged.
+        if !ended {
+            scheduler.discard_pending();
+        }
         let drained = timeout(self.config.drain_timeout, async {
-            while let Some(result) = jobs.join_next().await {
-                if let Err(error) = flatten(result) {
-                    if failure.is_none() {
-                        failure = Some(error);
+            loop {
+                if shutdown.is_cancelled() {
+                    scheduler.discard_pending();
+                }
+                worker.start_ready(&mut jobs, &mut scheduler, concurrency);
+                let Some(result) = jobs.join_next().await else {
+                    break;
+                };
+                match flatten(result) {
+                    Ok(key) => scheduler.complete(key),
+                    Err(error) => {
+                        failure.get_or_insert(error);
+                        shutdown.cancel();
                     }
-                    shutdown.cancel();
                 }
             }
         })
@@ -96,6 +130,57 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         }
     }
 }
-fn flatten(result: StdResult<anyhow::Result<()>, tokio::task::JoinError>) -> anyhow::Result<()> {
+
+/// Everything a job needs to process one delivery independently of the scheduler.
+struct Worker<I, O, K> {
+    handler: BoxHandler<I, O>,
+    sink: Arc<K>,
+    dlq: Option<DeadLetter<I>>,
+    middleware: Vec<Mapper<I, O>>,
+    handler_retry: RetryPolicy,
+    publish_retry: RetryPolicy,
+}
+
+impl<I: Clone + Send + Sync + 'static, O: Send + Sync + 'static, K: Sink<O>> Worker<I, O, K> {
+    fn start_ready<M: SourceMessage<Item = I>>(
+        &self,
+        jobs: &mut Jobs,
+        scheduler: &mut Scheduler<M>,
+        concurrency: usize,
+    ) {
+        while jobs.len() < concurrency {
+            let Some((key, delivery)) = scheduler.next_ready() else {
+                return;
+            };
+            let revocation = delivery.revocation();
+            let processing = process(
+                delivery,
+                self.handler.clone(),
+                self.sink.clone(),
+                self.dlq.clone(),
+                self.handler_retry.clone(),
+                self.publish_retry.clone(),
+                self.middleware.clone(),
+            );
+            jobs.spawn(async move {
+                let Some(revoked) = revocation else {
+                    return processing.await.map(|()| key);
+                };
+                // A revoked delivery belongs to another consumer now. Its outcome,
+                // including an ACK rejected because of the revocation, is not a failure.
+                tokio::select! {
+                    biased;
+                    _ = revoked.cancelled() => Ok(key),
+                    result = processing => match result {
+                        Err(_) if revoked.is_cancelled() => Ok(key),
+                        result => result.map(|()| key),
+                    },
+                }
+            });
+        }
+    }
+}
+
+fn flatten<T>(result: StdResult<anyhow::Result<T>, JoinError>) -> anyhow::Result<T> {
     result?
 }

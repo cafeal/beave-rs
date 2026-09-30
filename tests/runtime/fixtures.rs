@@ -1,4 +1,4 @@
-use beavers::{Delivery, Receive, ReceiveError, RetryPolicy, Sink, Source};
+use beavers::{Delivery, OrderingKey, Receive, ReceiveError, RetryPolicy, Sink, Source};
 use std::{
     collections::VecDeque,
     future::pending,
@@ -65,4 +65,41 @@ impl Source for ScriptedSource {
             Err(false) => Err(ReceiveError::Fatal(anyhow::anyhow!("fatal"))),
         }
     }
+}
+
+/// Yields prepared deliveries in order, then End.
+pub(crate) struct DeliverySource {
+    pub(crate) deliveries: VecDeque<Delivery<i32>>,
+    pub(crate) receives: Arc<AtomicUsize>,
+}
+
+impl DeliverySource {
+    pub(crate) fn new(deliveries: impl IntoIterator<Item = Delivery<i32>>) -> Self {
+        Self {
+            deliveries: deliveries.into_iter().collect(),
+            receives: Arc::default(),
+        }
+    }
+}
+
+impl Source for DeliverySource {
+    type Message = Delivery<i32>;
+
+    async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
+        self.receives.fetch_add(1, Ordering::SeqCst);
+        Ok(match self.deliveries.pop_front() {
+            Some(delivery) => Receive::Message(delivery),
+            None => Receive::End,
+        })
+    }
+}
+
+/// A delivery in partition `partition` of a test topic that counts its ACK.
+pub(crate) fn keyed(value: i32, partition: i64, acks: &Arc<AtomicUsize>) -> Delivery<i32> {
+    let acks = acks.clone();
+    Delivery::new(value, move || async move {
+        acks.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    })
+    .with_ordering_key(OrderingKey::new("events", partition))
 }
