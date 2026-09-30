@@ -37,6 +37,18 @@ currently application-written `MapMetadata` functions. Remaining decisions:
   startup;
 - typed Kafka keys as a possible refinement of the byte-oriented key field.
 
+## Middleware
+
+The asynchronous `pre_handler` and `post_handler` hooks are described in the
+[runtime guide](runtime.md#middleware). Remaining decisions:
+
+- whether a middleware `Retry` error should be retried with a policy of its
+  own, as handler errors are, instead of stopping the subscription without ACK
+  now that hooks can perform I/O;
+- whether `MapMetadata` should gain an asynchronous counterpart once closures
+  returning `Send` futures that borrow the input can be expressed on stable
+  Rust.
+
 ## Serialization and codecs
 
 Potential codec work includes:

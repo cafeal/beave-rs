@@ -48,8 +48,12 @@ impl Default for KafkaInherit {
     }
 }
 
-impl<I: 'static, O: 'static> Middleware<KafkaRecord<I>, KafkaPublish<O>> for KafkaInherit {
-    fn post_handler(
+impl<I, O> Middleware<KafkaRecord<I>, KafkaPublish<O>> for KafkaInherit
+where
+    I: Send + Sync + 'static,
+    O: Send + 'static,
+{
+    async fn post_handler(
         &self,
         input: &KafkaRecord<I>,
         mut output: KafkaPublish<O>,
