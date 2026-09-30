@@ -44,9 +44,10 @@ pub enum FailureAction {
 
 /// Failure routing for one subscription.
 ///
-/// Defaults preserve delivery: only handler rejections are dead-lettered, and a rejection
-/// without a configured dead-letter sink stops without ACK. Choosing `DeadLetter` for any other
-/// failure requires a dead-letter sink; the subscription fails validation otherwise.
+/// Defaults never lose a delivery: handler failures (rejection and retry exhaustion) are
+/// dead-lettered, and without a configured dead-letter sink they stop without ACK. Decode and
+/// encode failures stop by default; choosing `DeadLetter` for them requires a dead-letter sink,
+/// and the subscription fails validation otherwise.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ErrorPolicy {
     pub decode: FailureAction,
@@ -60,7 +61,7 @@ impl Default for ErrorPolicy {
         Self {
             decode: FailureAction::Stop,
             rejected: FailureAction::DeadLetter,
-            retry_exhausted: FailureAction::Stop,
+            retry_exhausted: FailureAction::DeadLetter,
             encode: FailureAction::Stop,
         }
     }
@@ -90,11 +91,7 @@ impl ErrorPolicy {
         if has_dead_letter_sink {
             return Ok(());
         }
-        for kind in [
-            FailureKind::Decode,
-            FailureKind::RetryExhausted,
-            FailureKind::Encode,
-        ] {
+        for kind in [FailureKind::Decode, FailureKind::Encode] {
             anyhow::ensure!(
                 self.action(kind) != FailureAction::DeadLetter,
                 "error policy dead-letters {kind:?} failures but no dead-letter sink is configured"

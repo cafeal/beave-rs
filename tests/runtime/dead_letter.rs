@@ -65,26 +65,26 @@ async fn discard_acknowledges_without_output() {
 }
 
 #[tokio::test]
-async fn retry_exhaustion_stops_by_default_and_can_be_dead_lettered() {
-    for dead_letter in [false, true] {
+async fn propagated_errors_are_retried_then_dead_lettered_by_default() {
+    for with_dlq in [true, false] {
         let calls = Arc::new(AtomicUsize::new(0));
         let counter = calls.clone();
         let (source, acks) = text_source(&["5"]);
         let dlq = InMemorySink::default();
         let mut subscription = Subscription::new(source, InMemorySink::default(), move |_: i32| {
             counter.fetch_add(1, Ordering::SeqCst);
-            async { Err::<i32, _>(HandlerError::Retry(anyhow::anyhow!("busy"))) }
+            async {
+                let value: i32 = "busy".parse()?;
+                Ok(value)
+            }
         })
         .retry(fast());
-        if dead_letter {
-            subscription = subscription.dlq(dlq.clone()).error_policy(ErrorPolicy {
-                retry_exhausted: FailureAction::DeadLetter,
-                ..ErrorPolicy::default()
-            });
+        if with_dlq {
+            subscription = subscription.dlq(dlq.clone());
         }
         let result = App::new().subscription(subscription).run().await;
         assert_eq!(calls.load(Ordering::SeqCst), 3);
-        if dead_letter {
+        if with_dlq {
             result.unwrap();
             let [letter]: [DeadLetter<i32, Vec<u8>>; 1] = dlq.values().try_into().unwrap();
             assert_eq!(letter.failure, FailureKind::RetryExhausted);
@@ -94,10 +94,35 @@ async fn retry_exhaustion_stops_by_default_and_can_be_dead_lettered() {
             assert_eq!(acks.load(Ordering::SeqCst), 1);
         } else {
             let error = format!("{:#}", result.unwrap_err());
+            assert!(error.contains("no dead-letter sink configured"), "{error}");
             assert!(error.contains("handler retry exhausted"), "{error}");
             assert_eq!(acks.load(Ordering::SeqCst), 0);
         }
     }
+}
+
+#[tokio::test]
+async fn retry_exhaustion_can_stop() {
+    let (source, acks) = text_source(&["5"]);
+    let dlq = InMemorySink::<DeadLetter<i32, Vec<u8>>>::default();
+    let error = App::new()
+        .subscription(
+            Subscription::new(source, InMemorySink::default(), |_: i32| async {
+                Err::<i32, _>(HandlerError::Retry(anyhow::anyhow!("busy")))
+            })
+            .retry(fast())
+            .dlq(dlq.clone())
+            .error_policy(ErrorPolicy {
+                retry_exhausted: FailureAction::Stop,
+                ..ErrorPolicy::default()
+            }),
+        )
+        .run()
+        .await
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("handler retry exhausted"));
+    assert!(dlq.values().is_empty());
+    assert_eq!(acks.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]

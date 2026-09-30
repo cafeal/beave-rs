@@ -25,9 +25,12 @@ pub enum HandlerError {
     Reject(anyhow::Error),
     Fatal(anyhow::Error),
 }
+/// Ordinary errors propagated with `?` are retryable. After the handler retry policy is
+/// exhausted they follow the subscription's error policy, which dead-letters them by default.
+/// Return `Reject` or `Fatal` explicitly for failures that retrying cannot fix.
 impl<E: Into<anyhow::Error>> From<E> for HandlerError {
     fn from(error: E) -> Self {
-        Self::Fatal(error.into())
+        Self::Retry(error.into())
     }
 }
 

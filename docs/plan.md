@@ -182,14 +182,12 @@ in the relevant durable documentation.
 1. Further refinement of source, message, and sink generics, lifetimes, and
    error types.
 2. Handler ergonomics for implicit versus explicit `Emit` registration.
-3. Interaction between classified handler errors and ordinary Rust errors
-   propagated with `?`.
-4. Compile-time versus startup validation of broker capabilities.
-5. Typed metadata middleware composition and mapping error classification.
-6. Shutdown deadlines and cancellation policy.
-7. Adapter and codec crate boundaries as optional dependencies grow.
-8. Kafka null values in handlers that request a plain value.
-9. Isolation of handler futures from communication and control execution.
+3. Compile-time versus startup validation of broker capabilities.
+4. Typed metadata middleware composition and mapping error classification.
+5. Shutdown deadlines and cancellation policy.
+6. Adapter and codec crate boundaries as optional dependencies grow.
+7. Kafka null values in handlers that request a plain value.
+8. Isolation of handler futures from communication and control execution.
 
 ## Core philosophy
 

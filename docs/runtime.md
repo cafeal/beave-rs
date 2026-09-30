@@ -40,15 +40,15 @@ Registration constructs the application. Processing starts in `run()`.
 | Initial retry delay | 100 ms | Exponential backoff starting delay |
 | Maximum retry delay | 5 s | Backoff cap |
 | Retry jitter | `Jitter::None` | Randomization of each backoff delay |
-| Error policy | `ErrorPolicy::default()` | Dead-letter rejections; stop on other routable failures |
+| Error policy | `ErrorPolicy::default()` | Dead-letter handler failures; stop on decode and encode failures |
 | Drain timeout | 30 s | Bound on draining; cleanup has a separate timeout of the same duration |
 
 The effective job limit is the smaller of concurrency and max_in_flight. The
 scheduler has no prefetch queue. Receive, handler, output publish, and
 dead-letter publish retries have independent policies. Invalid zero
 concurrency, in-flight limits, or retry attempt counts fail validation before
-subscriptions start, as does an error policy that dead-letters decode, retry
-exhaustion, or encode failures without a dead-letter sink.
+subscriptions start, as does an error policy that dead-letters decode or encode
+failures without a dead-letter sink.
 
 Each `RetryPolicy` doubles its delay after every failed attempt, starting at
 `initial_delay` and capped at `max_delay`. `jitter` randomizes the capped
@@ -90,8 +90,10 @@ See the [codec guide](codecs.md#lifecycle-and-failures) for decoding and encodin
 
 ## Errors and retries
 
-`beavers::Result<T>` uses `HandlerError`. Converting ordinary errors through `?`
-classifies them as Fatal; retry must be requested explicitly.
+`beavers::Result<T>` uses `HandlerError`. Ordinary errors propagated with `?`
+become `Retry`: the handler is retried under its retry policy and, once that is
+exhausted, the delivery is dead-lettered by default. Return `Reject` for input
+that retrying cannot fix, and `Fatal` to stop the subscription.
 
 ### Error policy
 
@@ -102,7 +104,7 @@ failures, identified by `FailureKind`:
 |---|---|---|
 | `Decode` | `SourceMessage::decode` failed | `Stop` |
 | `Rejected` | The handler returned `Reject` | `DeadLetter` |
-| `RetryExhausted` | The handler returned `Retry` on its final permitted attempt | `Stop` |
+| `RetryExhausted` | The handler returned `Retry` (including errors propagated with `?`) on its final permitted attempt | `DeadLetter` |
 | `Encode` | `Sink::prepare` failed for an emitted output | `Stop` |
 
 Each failure maps to one `FailureAction`:
@@ -114,11 +116,11 @@ Each failure maps to one `FailureAction`:
 - `Discard` acknowledges the delivery without publishing anything. It is an
   explicit choice to lose that delivery.
 
-A rejection without a configured dead-letter sink stops without ACK, because the
-handler asked for the input to leave the main flow and nothing can receive it.
-`DeadLetter` for any other failure kind requires a dead-letter sink and fails
-validation otherwise. `ErrorPolicy::dead_letter_all()` routes every kind to the
-dead-letter sink.
+Rejections and exhausted handler retries without a configured dead-letter sink
+stop without ACK: the handler could not process the input and nothing can
+receive it. `DeadLetter` for decode or encode failures requires a dead-letter
+sink and fails validation otherwise. `ErrorPolicy::dead_letter_all()` routes
+every kind to the dead-letter sink.
 
 Encoding happens for all emitted outputs before any publication, so an `Encode`
 failure never follows a partial publish; dead-lettering the input after it does
