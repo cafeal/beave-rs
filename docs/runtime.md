@@ -92,8 +92,22 @@ See the [codec guide](codecs.md#lifecycle-and-failures) for decoding and encodin
 
 `beavers::Result<T>` uses `HandlerError`. Ordinary errors propagated with `?`
 become `Retry`: the handler is retried under its retry policy and, once that is
-exhausted, the delivery is dead-lettered by default. Return `Reject` for input
-that retrying cannot fix, and `Fatal` to stop the subscription.
+exhausted, the delivery is dead-lettered by default.
+
+A propagated error cannot tell a transient failure from a deterministic one, so
+classify deterministic failures at the call site with the `Classify` extension
+trait. `.reject()?` dead-letters the input immediately without handler retries,
+and `.fatal()?` stops the subscription:
+
+```rust,ignore
+use beavers::{Classify, Result};
+
+async fn handle(order: Order) -> Result<Output> {
+    validate(&order).reject()?; // invalid input: dead-letter now
+    let user = db.find_user(order.user_id).await?; // transient: retry, then dead-letter
+    Ok(build_output(order, user))
+}
+```
 
 ### Error policy
 

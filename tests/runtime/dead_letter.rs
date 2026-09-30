@@ -1,7 +1,7 @@
 use super::fixtures::{Flaky, RejectNegative, TextSource, fast};
 use beavers::{
-    App, DeadLetter, Emit, ErrorPolicy, FailureAction, FailureKind, HandlerError, InMemorySink,
-    IterSource, RetryPolicy, Subscription,
+    App, Classify, DeadLetter, Emit, ErrorPolicy, FailureAction, FailureKind, HandlerError,
+    InMemorySink, IterSource, RetryPolicy, Subscription,
 };
 use std::sync::{
     Arc,
@@ -242,4 +242,58 @@ async fn dead_letter_serializes_failure_context() {
     assert_eq!(json["failure"], "decode");
     assert_eq!(json["input"], serde_json::Value::Null);
     assert_eq!(json["raw"], serde_json::json!([120]));
+}
+
+#[tokio::test]
+async fn rejected_errors_skip_handler_retries() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let (source, acks) = text_source(&["5"]);
+    let dlq = InMemorySink::default();
+    App::new()
+        .subscription(
+            Subscription::new(source, InMemorySink::default(), move |_: i32| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                async {
+                    let value: i32 = "invalid".parse().reject()?;
+                    Ok(value)
+                }
+            })
+            .retry(fast())
+            .dlq(dlq.clone()),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let [letter]: [DeadLetter<i32, Vec<u8>>; 1] = dlq.values().try_into().unwrap();
+    assert_eq!(letter.failure, FailureKind::Rejected);
+    assert_eq!(letter.attempts, 1);
+    assert_eq!(acks.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn fatal_errors_stop_without_retry_or_dead_letter() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let (source, acks) = text_source(&["5"]);
+    let dlq = InMemorySink::<DeadLetter<i32, Vec<u8>>>::default();
+    let result = App::new()
+        .subscription(
+            Subscription::new(source, InMemorySink::default(), move |_: i32| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                async {
+                    let value: i32 = "broken".parse().fatal()?;
+                    Ok(value)
+                }
+            })
+            .retry(fast())
+            .dlq(dlq.clone()),
+        )
+        .run()
+        .await;
+    assert!(result.is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(dlq.values().is_empty());
+    assert_eq!(acks.load(Ordering::SeqCst), 0);
 }

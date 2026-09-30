@@ -27,10 +27,38 @@ pub enum HandlerError {
 }
 /// Ordinary errors propagated with `?` are retryable. After the handler retry policy is
 /// exhausted they follow the subscription's error policy, which dead-letters them by default.
-/// Return `Reject` or `Fatal` explicitly for failures that retrying cannot fix.
+/// Classify deterministic failures with [`Classify`] instead.
 impl<E: Into<anyhow::Error>> From<E> for HandlerError {
     fn from(error: E) -> Self {
         Self::Retry(error.into())
+    }
+}
+
+/// Classifies an ordinary error at the call site, for failures that retrying cannot fix.
+///
+/// ```
+/// use beavers::{Classify, Result};
+///
+/// async fn handle(line: String) -> Result<u32> {
+///     // Invalid input goes to the dead-letter sink without handler retries.
+///     let amount: u32 = line.parse().reject()?;
+///     Ok(amount)
+/// }
+/// ```
+pub trait Classify<T> {
+    /// Classify the error as [`HandlerError::Reject`]: dead-letter the input without retrying.
+    fn reject(self) -> Result<T>;
+    /// Classify the error as [`HandlerError::Fatal`]: stop the subscription without ACK.
+    fn fatal(self) -> Result<T>;
+}
+
+impl<T, E: Into<anyhow::Error>> Classify<T> for StdResult<T, E> {
+    fn reject(self) -> Result<T> {
+        self.map_err(|error| HandlerError::Reject(error.into()))
+    }
+
+    fn fatal(self) -> Result<T> {
+        self.map_err(|error| HandlerError::Fatal(error.into()))
     }
 }
 

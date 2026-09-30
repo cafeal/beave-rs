@@ -28,7 +28,7 @@ pub use codec::Protobuf;
 pub use codec::{Decoder, Encoder, Json, RawBytes, Utf8};
 pub use dead_letter::DeadLetter;
 pub use error_policy::{ErrorPolicy, FailureAction, FailureKind};
-pub use handler::{Emit, Handler, HandlerError, Result};
+pub use handler::{Classify, Emit, Handler, HandlerError, Result};
 pub use message::{Delivery, SourceMessage};
 pub use retry::{Jitter, RetryPolicy};
 pub use shutdown::CancellationToken;
