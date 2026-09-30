@@ -2,7 +2,8 @@
 use crate::shutdown::CancellationToken;
 use std::{future::Future, pin::Pin, sync::Arc};
 
-/// Identifies a source-defined ordering scope, such as a Kafka topic partition.
+/// Identifies a source-defined ordering scope, such as a Kafka topic partition
+/// or a message key within a Pulsar topic partition.
 ///
 /// Deliveries with equal keys are processed sequentially under
 /// [`ProcessingOrder::PerKey`](crate::subscription::ProcessingOrder::PerKey).
@@ -10,20 +11,31 @@ use std::{future::Future, pin::Pin, sync::Arc};
 pub struct OrderingKey {
     scope: Arc<str>,
     index: i64,
+    key: Option<Arc<[u8]>>,
 }
 
 impl OrderingKey {
+    /// A whole partition-like scope, identified by a name and an index.
     pub fn new(scope: impl Into<Arc<str>>, index: i64) -> Self {
         Self {
             scope: scope.into(),
             index,
+            key: None,
         }
+    }
+    /// Narrows the scope to one message key within it.
+    pub fn with_key(mut self, key: impl Into<Arc<[u8]>>) -> Self {
+        self.key = Some(key.into());
+        self
     }
     pub fn scope(&self) -> &str {
         &self.scope
     }
     pub fn index(&self) -> i64 {
         self.index
+    }
+    pub fn key(&self) -> Option<&[u8]> {
+        self.key.as_deref()
     }
 }
 

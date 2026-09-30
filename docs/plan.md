@@ -131,15 +131,27 @@ Kafka partition whose queue reaches a per-key limit, so other partitions keep
 flowing. The design must define the per-key limit, resume timing, and the pause
 state across rebalances.
 
-Pulsar deliveries currently have no ordering key. Decide whether Failover and
-Exclusive subscriptions should order by topic partition and Key_Shared
-subscriptions by message key.
-
 ## Kafka rebalance behavior
 
 Revoked partitions currently abandon in-flight work immediately. Evaluate an
 optional graceful handoff that delays revoke completion for a bounded time so
 work in flight can finish and commit, reducing duplicates for the next owner.
+
+Partition scheduling and revocation are covered by unit and runtime tests but
+have not been verified against a live broker. Verify with Kafka:
+
+- `receive` skips records of partitions the adapter does not consider assigned.
+  This assumes rdkafka always runs `post_rebalance` with the assignment before
+  it returns the first record of a newly assigned partition. If that does not
+  hold, the source silently skips every record of that partition.
+- Eager and cooperative (`partition.assignment.strategy=cooperative-sticky`)
+  rebalances both cancel the revoked partitions' tokens and reassign cleanly.
+- After `assignment_lost`, all tokens are cancelled and the next assignment
+  resumes processing.
+- A revoked delivery's in-flight commit does not affect the next assignment.
+
+Verify with Pulsar that Failover and Key_Shared deliveries carry the partition
+index and ordering key expected by the adapter.
 
 ## Observability
 

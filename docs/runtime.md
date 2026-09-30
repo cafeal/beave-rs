@@ -49,8 +49,9 @@ validation before subscriptions start.
 ## Ordering and backpressure
 
 A source can give each delivery an `OrderingKey`, the scope in which the source
-delivers in order. The Kafka source uses the topic partition. Local adapters and
-Pulsar provide no key.
+delivers in order. The Kafka source uses the topic partition. The Pulsar source
+uses the topic partition or message key, depending on its subscription type.
+Local adapters provide no key.
 
 With the default `ProcessingOrder::PerKey`, the runtime runs at most one
 delivery per key at a time, in receive order. A delivery whose key is busy waits
@@ -160,8 +161,8 @@ Kafka and Pulsar adapters, broker record types, Protobuf, and Avro codecs are
 implemented. Kafka maintains contiguous commits for completed offsets, schedules
 work per partition, and abandons revoked work, but does not provide Kafka
 transactions or exactly-once processing. Pulsar uses individual
-acknowledgements and likewise provides no transactions or exactly-once
-processing. NATS JetStream, SQS, automatic metadata inheritance, adapter
+acknowledgements, schedules work by its subscription type's ordering scope, and
+likewise provides no transactions or exactly-once processing. NATS JetStream, SQS, automatic metadata inheritance, adapter
 pause/resume backpressure, and tracing / metrics integration are not
 implemented. The middleware is an output transformation hook, not yet a
 validated cross-broker metadata mapping API.
