@@ -1,5 +1,8 @@
 //! Subscription type and builder API.
-use super::{config::SubscriptionConfig, processing};
+use super::{
+    config::{ProcessingOrder, SubscriptionConfig},
+    processing,
+};
 use crate::{
     forward::{SamePlatform, ValueRecord},
     handler::{Emit, Handler, Result},
@@ -112,6 +115,11 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
 
     pub fn max_in_flight(mut self, value: usize) -> Self {
         self.config.max_in_flight = value;
+        self
+    }
+
+    pub fn ordering(mut self, order: ProcessingOrder) -> Self {
+        self.config.ordering = order;
         self
     }
 

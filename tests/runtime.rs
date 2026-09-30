@@ -6,5 +6,7 @@ mod failure;
 mod fixtures;
 #[path = "runtime/lifecycle.rs"]
 mod lifecycle;
+#[path = "runtime/ordering.rs"]
+mod ordering;
 #[path = "runtime/retry.rs"]
 mod retry;

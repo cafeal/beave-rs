@@ -83,13 +83,27 @@ for that topic partition. A completion after an earlier in-flight or unseen
 offset cannot advance the commit. Broker commit failures leave completed local
 progress in place, so a later acknowledgement can retry the same prefix.
 
-Each partition assignment has its own generation. A revoke invalidates only the
-affected partition's outstanding deliveries; acknowledgements from an old
-generation fail safely. The adapter does not claim exactly-once processing:
-producer publication and source offset commits are separate operations, so a
-failure between them can produce duplicates. Kafka preserves its normal
-per-partition log order, but concurrent handler completion may be out of order;
-the adapter only guarantees that its commits do not skip unfinished deliveries.
+Each delivery's ordering key is its topic partition. Under the default
+`ProcessingOrder::PerKey`, a subscription processes one record at a time per
+partition, in offset order, while different partitions run in parallel up to
+the subscription's `concurrency`. With `ProcessingOrder::Unordered`, records of
+one partition can complete out of order; the contiguous commit rule still
+prevents a commit from skipping unfinished records.
+
+Each partition assignment has its own generation and revocation token. When
+Kafka revokes a partition, or the adapter detects that its assignment was lost,
+the token is cancelled. The runtime abandons that partition's running and
+queued deliveries without ACK or subscription failure; handlers are not
+notified. Acknowledgements from an old generation are rejected, so they never
+commit into a newer assignment. Records of a partition that is not currently
+assigned, such as records fetched before a revoke, are skipped by `receive`.
+A publication that completed before the revoke is not undone, and the new owner
+reprocesses the record from the last committed offset.
+
+The adapter does not claim exactly-once processing: producer publication and
+source offset commits are separate operations, so a failure or rebalance
+between them can produce duplicates. The adapter does not delay a rebalance to
+let in-flight work finish.
 
 `StreamConsumer::recv` is cancellation-safe in rdkafka 0.39. Dropping a pending
 source receive does not consume a record. Dropping a received `KafkaMessage`

@@ -18,6 +18,7 @@ pub(super) struct RawDelivery {
     /// `None` when the producer marked the message value as null.
     pub payload: Option<Vec<u8>>,
     pub key: Option<Vec<u8>>,
+    pub ordering_key: Option<Vec<u8>>,
     pub properties: HashMap<String, String>,
     pub event_time: Option<u64>,
     pub metadata: PulsarMetadata,
@@ -110,6 +111,7 @@ fn raw_delivery(message: Message<Vec<u8>>) -> anyhow::Result<RawDelivery> {
         payload: (!message.metadata().null_value.unwrap_or(false))
             .then(|| message.payload.data.to_vec()),
         key: message.key_bytes()?,
+        ordering_key: message.metadata().ordering_key.clone(),
         properties,
         event_time: message.metadata().event_time,
         metadata,

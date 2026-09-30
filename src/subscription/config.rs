@@ -2,11 +2,27 @@
 use crate::retry::RetryPolicy;
 use std::time::Duration;
 
+/// How deliveries that share an [`OrderingKey`](crate::message::OrderingKey) are scheduled.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProcessingOrder {
+    /// Process deliveries with the same ordering key one at a time, in receive
+    /// order. Deliveries with different keys, or without a key, run in parallel.
+    #[default]
+    PerKey,
+    /// Ignore ordering keys. Deliveries from one ordering scope may complete out
+    /// of order; source adapters still acknowledge only safe progress.
+    Unordered,
+}
+
 #[derive(Clone, Debug)]
 pub struct SubscriptionConfig {
     pub name: String,
+    /// Maximum number of deliveries processed at the same time.
     pub concurrency: usize,
+    /// Maximum number of received deliveries that are unfinished, including
+    /// deliveries waiting behind an earlier delivery with the same ordering key.
     pub max_in_flight: usize,
+    pub ordering: ProcessingOrder,
     pub handler_retry: RetryPolicy,
     pub receive_retry: RetryPolicy,
     pub publish_retry: RetryPolicy,
@@ -18,6 +34,7 @@ impl Default for SubscriptionConfig {
             name: "subscription".into(),
             concurrency: 1,
             max_in_flight: 64,
+            ordering: ProcessingOrder::default(),
             handler_retry: RetryPolicy::default(),
             receive_retry: RetryPolicy::default(),
             publish_retry: RetryPolicy::default(),

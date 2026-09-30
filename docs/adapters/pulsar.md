@@ -62,6 +62,23 @@ stream errors are reported as `ReceiveError::Retry`, while connection,
 configuration, and malformed message metadata errors are `ReceiveError::Fatal`.
 Call `close` during shutdown to close the consumer task cleanly.
 
+Each delivery's ordering key follows the order Pulsar guarantees for the
+configured subscription type:
+
+| Subscription type | Ordering key |
+|---|---|
+| `Exclusive`, `Failover` | Topic partition |
+| `Key_Shared` | Ordering key, or the message key when no ordering key is set, within the topic partition |
+| `Shared` | None |
+
+Under the default `ProcessingOrder::PerKey`, deliveries with the same ordering
+key are processed one at a time in receive order. `Key_Shared` messages without
+a key and all `Shared` deliveries run in parallel up to the subscription's
+`concurrency`. The Pulsar client does not report consumer failover or key-range
+reassignment, so Pulsar deliveries have no revocation token. When the broker
+moves a subscription to another consumer, unacknowledged messages are
+redelivered there and can be processed twice.
+
 Configure a sink separately. `prepare` accepts a `PulsarPublish<T>`, encodes
 the typed value once, and returns a cloneable `PulsarPrepared` payload. Set the
 key, ordering key, event time, and user properties before preparation:

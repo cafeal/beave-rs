@@ -5,10 +5,10 @@ use super::{
 };
 use crate::{
     codec::Decoder,
-    message::SourceMessage,
+    message::{OrderingKey, SourceMessage},
     source::{Receive, ReceiveError, Source},
 };
-use pulsar::{Consumer, Pulsar, TokioExecutor};
+use pulsar::{Consumer, Pulsar, SubType, TokioExecutor};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
 
@@ -79,6 +79,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PulsarSource<C,
             .await
         {
             Some(Ok(raw)) => Ok(Receive::Message(PulsarMessage {
+                ordering_key: ordering_key(self.config.subscription_type, &raw),
                 payload: raw
                     .payload
                     .filter(|bytes| !(self.config.empty_payload_is_tombstone && bytes.is_empty())),
@@ -115,8 +116,31 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PulsarSource<C,
     }
 }
 
+/// The scope within which the broker delivers to one consumer in order.
+///
+/// Exclusive and Failover subscriptions deliver each topic partition in order.
+/// Key_Shared delivers each ordering key, or message key when no ordering key is
+/// set, in order. Shared subscriptions and keyless Key_Shared messages have no
+/// ordering scope.
+fn ordering_key(subscription_type: SubType, raw: &RawDelivery) -> Option<OrderingKey> {
+    let partition = OrderingKey::new(
+        raw.metadata.topic.as_str(),
+        i64::from(raw.metadata.message_id.partition.unwrap_or(-1)),
+    );
+    match subscription_type {
+        SubType::Exclusive | SubType::Failover => Some(partition),
+        SubType::KeyShared => raw
+            .ordering_key
+            .as_deref()
+            .or(raw.key.as_deref())
+            .map(|key| partition.with_key(key)),
+        SubType::Shared => None,
+    }
+}
+
 /// One delivery; dropping it leaves the broker message unacknowledged.
 pub struct PulsarMessage<C, T> {
+    ordering_key: Option<OrderingKey>,
     payload: Option<Vec<u8>>,
     key: Option<Vec<u8>>,
     properties: HashMap<String, String>,
@@ -158,5 +182,63 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMe
             .await
             .map_err(|_| anyhow::anyhow!("Pulsar consumer closed during acknowledgement"))??;
         Ok(())
+    }
+
+    fn ordering_key(&self) -> Option<OrderingKey> {
+        self.ordering_key.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::pulsar::PulsarMetadata;
+    use pulsar::message::proto::MessageIdData;
+
+    fn raw(key: Option<&[u8]>, ordering_key: Option<&[u8]>) -> RawDelivery {
+        RawDelivery {
+            payload: Some(vec![]),
+            key: key.map(<[u8]>::to_vec),
+            ordering_key: ordering_key.map(<[u8]>::to_vec),
+            properties: HashMap::new(),
+            event_time: None,
+            metadata: PulsarMetadata {
+                topic: "persistent://public/default/orders-partition-2".into(),
+                message_id: MessageIdData {
+                    partition: Some(2),
+                    ..Default::default()
+                },
+                publish_time: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn ordering_scope_follows_the_subscription_type() {
+        let partition = OrderingKey::new("persistent://public/default/orders-partition-2", 2);
+        let delivery = raw(Some(b"customer"), None);
+        assert_eq!(
+            ordering_key(SubType::Exclusive, &delivery),
+            Some(partition.clone())
+        );
+        assert_eq!(
+            ordering_key(SubType::Failover, &delivery),
+            Some(partition.clone())
+        );
+        assert_eq!(ordering_key(SubType::Shared, &delivery), None);
+        assert_eq!(
+            ordering_key(SubType::KeyShared, &delivery),
+            Some(partition.clone().with_key(b"customer".as_slice()))
+        );
+    }
+
+    #[test]
+    fn key_shared_prefers_the_ordering_key_and_ignores_keyless_messages() {
+        let partition = OrderingKey::new("persistent://public/default/orders-partition-2", 2);
+        assert_eq!(
+            ordering_key(SubType::KeyShared, &raw(Some(b"customer"), Some(b"order"))),
+            Some(partition.with_key(b"order".as_slice()))
+        );
+        assert_eq!(ordering_key(SubType::KeyShared, &raw(None, None)), None);
     }
 }

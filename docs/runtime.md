@@ -16,6 +16,7 @@ App::new()
             .name("orders")
             .concurrency(16)
             .max_in_flight(64)
+            .ordering(ProcessingOrder::PerKey)
             .retry(handler_retry)
             .receive_retry(receive_retry)
             .publish_retry(publish_retry)
@@ -33,20 +34,57 @@ Registration constructs the application. Processing starts in `run()`.
 | Setting | Default | Meaning |
 |---|---|---|
 | `concurrency` | 1 | Maximum concurrent message jobs |
-| `max_in_flight` | 64 | Additional bound on outstanding jobs |
+| `max_in_flight` | 64 | Maximum received but unfinished deliveries, including queued ones |
+| `ordering` | `PerKey` | Sequential processing within a source ordering key |
 | Retry attempts | 3 | Includes the first attempt |
 | Initial retry delay | 100 ms | Exponential backoff starting delay |
 | Maximum retry delay | 5 s | Backoff cap |
 | Drain timeout | 30 s | Bound on draining; cleanup has a separate timeout of the same duration |
 
-The effective job limit is the smaller of concurrency and max_in_flight. The
-scheduler has no prefetch queue. Receive, handler, and publish retries have
-independent policies; DLQ publication currently uses the publish retry policy.
-Jitter is not implemented. Invalid zero concurrency, in-flight limits, or retry
-attempt counts fail validation before subscriptions start.
+Receive, handler, and publish retries have independent policies; DLQ
+publication currently uses the publish retry policy. Jitter is not implemented.
+Invalid zero concurrency, in-flight limits, or retry attempt counts fail
+validation before subscriptions start.
 
-Concurrent jobs do not guarantee output ordering. Use concurrency 1 for sequential
-processing. Partition-aware scheduling is not implemented.
+## Ordering and backpressure
+
+A source can give each delivery an `OrderingKey`, the scope in which the source
+delivers in order. The Kafka source uses the topic partition. The Pulsar source
+uses the topic partition or message key, depending on its subscription type.
+Local adapters provide no key.
+
+With the default `ProcessingOrder::PerKey`, the runtime runs at most one
+delivery per key at a time, in receive order. A delivery whose key is busy waits
+in a queue behind it and starts when the earlier delivery finishes. Deliveries
+with other keys, and deliveries without a key, run in parallel up to
+`concurrency`. Their outputs have no ordering relationship with each other.
+
+`ProcessingOrder::Unordered` ignores keys, so deliveries from one partition can
+run and complete out of order. Sources remain responsible for safe
+acknowledgement; Kafka still commits only the contiguous completed prefix of
+each partition.
+
+The runtime receives only while a job slot is free and fewer than
+`max_in_flight` deliveries are unfinished. Queued deliveries count toward
+`max_in_flight`, so consumption stays bounded when a handler or sink is slow.
+Deliveries without a key never queue: each one starts as soon as it is
+received. A busy key can fill `max_in_flight` and stop receiving for all keys;
+adapter pause and resume integration is [planned](plan.md#concurrency-and-ordering).
+
+## Revocation
+
+A source can also give each delivery a revocation `CancellationToken`. The
+source cancels it when it stops owning the delivery, for example when Kafka
+revokes the partition. The runtime then drops the delivery's job at its next
+await point, whether it is decoding, in the handler, retrying, publishing, or
+acknowledging. The delivery is not acknowledged and its outcome is not a
+subscription failure, including an ACK that the source rejected because of the
+revocation. Queued deliveries of the same assignment are dropped the same way.
+
+Handlers do not observe revocation. Cancellation is cooperative, so work that
+never yields continues until it does. An output publication that was already
+accepted by the sink is not retracted; the new owner reprocesses the delivery
+and can produce a duplicate.
 
 ## Adapters
 
@@ -214,8 +252,9 @@ success after all subscriptions finish. A failure requests shutdown across the
 application, which ultimately returns an error.
 
 SIGINT / SIGTERM or `App::run_until(CancellationToken)` stops new receives and
-starts draining. A drain timeout cancels unfinished tasks, then cleanup runs with
-its own deadline. In-progress publish or ACK can have an uncertain result if
+starts draining running jobs. Deliveries still queued behind an ordering key are
+dropped without ACK. After `Receive::End`, queued deliveries still run. A drain
+timeout cancels unfinished tasks, then cleanup runs with its own deadline. In-progress publish or ACK can have an uncertain result if
 interrupted; a durable broker may redeliver and cause duplicates.
 
 Current handlers share the Tokio executor with runtime work. They must not block
@@ -226,14 +265,14 @@ interrupt arbitrary synchronous code. Dedicated blocking-handler execution is a
 ## Implementation limits
 
 Kafka and Pulsar adapters, broker record types, Protobuf, and Avro codecs are
-implemented. Kafka maintains contiguous commits for completed offsets and
-handles assignment generations, but the runtime does not schedule work by
-partition and does not provide Kafka transactions or exactly-once processing.
-Pulsar uses individual acknowledgements and likewise provides no transactions or
-exactly-once processing. NATS JetStream, SQS, partition-aware scheduling, and
-tracing / metrics integration are not implemented. Metadata inheritance is
-limited to same-platform middleware; cross-platform mappings are
-application-written `MapMetadata` functions.
+implemented. Kafka maintains contiguous commits for completed offsets, schedules
+work per partition, and abandons revoked work, but does not provide Kafka
+transactions or exactly-once processing. Pulsar uses individual
+acknowledgements, schedules work by its subscription type's ordering scope, and
+likewise provides no transactions or exactly-once processing. NATS JetStream,
+SQS, adapter pause/resume backpressure, and tracing / metrics integration are
+not implemented. Metadata inheritance is limited to same-platform middleware;
+cross-platform mappings are application-written `MapMetadata` functions.
 
 Inputs currently require `Clone + Send + Sync`. Stdin and stdout construct
 `Default` codecs internally and do not yet accept configured codec instances.
