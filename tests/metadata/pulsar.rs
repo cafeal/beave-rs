@@ -1,6 +1,8 @@
 use beavers::{
     App, InMemorySink, IterSource, PropagationCarrier, Subscription, Tombstones,
-    adapters::pulsar::{PulsarInherit, PulsarMetadata, PulsarPublish, PulsarRecord},
+    adapters::pulsar::{
+        PulsarInherit, PulsarMessageId, PulsarMetadata, PulsarPublish, PulsarRecord,
+    },
 };
 use std::sync::atomic::Ordering;
 
@@ -16,7 +18,12 @@ fn record() -> PulsarRecord<String> {
         event_time: Some(42),
         metadata: PulsarMetadata {
             topic: "persistent://public/default/orders".to_owned(),
-            message_id: Default::default(),
+            message_id: PulsarMessageId {
+                ledger_id: 7,
+                entry_id: 3,
+                partition: -1,
+                batch_index: -1,
+            },
             publish_time: 41,
         },
     }

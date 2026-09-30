@@ -18,17 +18,26 @@ default = []
 avro = ["dep:apache-avro"]
 protobuf = ["dep:prost"]
 kafka = ["dep:rdkafka"]
-pulsar = ["dep:pulsar", "dep:futures-util"]
+pulsar = ["dep:magnetar", "dep:base64", "dep:bytes", "dep:futures-util"]
 opentelemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 
 [dependencies.rdkafka]
 version = "0.39"
 optional = true
 
-[dependencies.pulsar]
-version = "6.9"
+[dependencies.magnetar]
+package = "magnetar-driver"
+version = "1.7"
 default-features = false
-features = ["tokio-runtime"]
+features = ["tokio", "crypto-ring"]
+optional = true
+
+[dependencies.base64]
+version = "0.22"
+optional = true
+
+[dependencies.bytes]
+version = "1"
 optional = true
 
 [dependencies.futures-util]
