@@ -26,7 +26,7 @@ let mut source = PulsarSource::<Utf8, String>::new(PulsarSourceConfig::new(
 
 `subscription_type` selects a `PulsarSubscriptionType` and defaults to
 `Shared`. `buffer_size` is the number of messages each partition's consumer
-prefetches.
+prefetches. A new subscription starts at the latest message.
 
 `PulsarAuthentication::token` supplies a JWT token, while the general
 `PulsarAuthentication` form accepts a Pulsar authentication method name and

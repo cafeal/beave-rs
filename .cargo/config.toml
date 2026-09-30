@@ -1,0 +1,9 @@
+# Shortcuts for the broker examples and live tests. Start the local brokers
+# first with `docker compose up -d --wait`; see docs/development.md.
+[alias]
+kafka-produce = "run --example kafka_orders --features kafka -- produce"
+kafka-process = "run --example kafka_orders --features kafka -- process"
+pulsar-produce = "run --example pulsar_orders --features pulsar -- produce"
+pulsar-process = "run --example pulsar_orders --features pulsar -- process"
+kafka-to-pulsar = "run --example kafka_to_pulsar --features kafka,pulsar"
+test-live = "test --features kafka,pulsar -- --ignored"
