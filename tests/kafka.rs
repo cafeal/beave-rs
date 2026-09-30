@@ -180,16 +180,31 @@ async fn transactional_pipeline_commits_outputs_with_offsets() {
             .set("group.id", &group)
             .create()
             .unwrap();
+        let metadata = consumer
+            .fetch_metadata(Some(&input), Duration::from_secs(20))
+            .unwrap();
         let mut partitions = TopicPartitionList::new();
-        partitions.add_partition(&input, 0);
+        for partition in metadata.topics()[0].partitions() {
+            partitions.add_partition(&input, partition.id());
+        }
         consumer
             .committed_offsets(partitions, Duration::from_secs(20))
             .unwrap()
     })
     .await
     .unwrap();
-    // The broker auto-creates the input topic with one partition.
-    assert_eq!(offsets.elements()[0].offset(), Offset::Offset(3));
+    // The auto-created input topic can have several partitions, so the
+    // committed offsets together must cover all three input records.
+    let committed: i64 = offsets
+        .elements()
+        .iter()
+        .map(|element| match element.offset() {
+            Offset::Offset(offset) => offset,
+            Offset::Invalid => 0,
+            other => panic!("unexpected committed offset {other:?}"),
+        })
+        .sum();
+    assert_eq!(committed, 3);
 }
 
 /// Requires a reachable development broker. It uses `KAFKA_BROKERS` when set,
