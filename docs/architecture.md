@@ -35,8 +35,7 @@ src/
 │   └── processing.rs      # Private per-message processing lifecycle
 └── adapters/
     ├── mod.rs
-    ├── channel.rs         # Typed queue without ACK propagation
-    ├── link.rs            # Chained subscriptions with deferred upstream ACK
+    ├── channel.rs         # Chained subscriptions with deferred upstream ACK
     ├── iter.rs
     ├── memory.rs
     ├── stdin.rs
