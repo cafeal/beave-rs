@@ -1,0 +1,11 @@
+//! HTTP source adapter: an HTTP/1.1 server whose requests become deliveries.
+
+mod config;
+mod metrics;
+mod record;
+mod server;
+mod source;
+
+pub use config::{HttpSourceConfig, ResponseTiming};
+pub use record::{HttpMetadata, HttpRecord};
+pub use source::{HttpMessage, HttpSource};

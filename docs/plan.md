@@ -126,6 +126,26 @@ Multiple sinks within one subscription remain deferred because partial publish
 success makes retry and acknowledgement behavior ambiguous. Any future design
 must define atomicity or explicit partial-failure semantics.
 
+## Failure defaults
+
+`ErrorPolicy::default()` stops the subscription without ACK on a decode or
+encode failure, and on a handler rejection or exhausted retry when no
+dead-letter sink is configured. For a durable broker source, one poison record
+then stops the application on every restart until it is handled. For a source
+fed by untrusted clients, such as the HTTP source, one bad request would stop
+the server; the HTTP source avoids this for decode failures by decoding before
+a request becomes a delivery, but handler rejections without a dead-letter sink
+still stop it. Remaining decisions:
+
+- whether the defaults stay uniform or each source declares its own, for
+  example through a capability trait, so a broker source keeps `Stop` while a
+  request-driven source defaults to discarding or rejecting the input;
+- whether a subscription without a dead-letter sink should warn or fail at
+  startup when its policy can stop on a single input;
+- the HTTP server's default limits: request and header-read timeouts, the
+  number of concurrent connections, and how many requests may wait for the
+  subscription before new ones are refused with `503`.
+
 ## Concurrency and ordering
 
 Per-key scheduling bounds consumption with `max_in_flight`, but one busy
@@ -243,6 +263,16 @@ Candidate adapters are:
 - AWS SQS source and sink;
 - local file input and output if concrete debugging use cases justify their
   framing and durability semantics.
+
+The HTTP source answers each request with a status only. Remaining decisions:
+
+- a request-reply mode that returns handler output in the response body, which
+  needs a sink bound to the originating request;
+- TLS and HTTP/2 in the adapter rather than at a reverse proxy;
+- routing paths of one listener to different subscriptions;
+- idempotency keys that let a retried request be recognized as a duplicate.
+
+Its server limits are listed under [failure defaults](#failure-defaults).
 
 Each broker adapter must define its native record and publish types, ACK model,
 redelivery behavior, ordering scope, cancellation behavior, connection

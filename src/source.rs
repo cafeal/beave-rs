@@ -32,6 +32,12 @@ pub trait Source: Send + 'static {
     fn stops_on_shutdown(&self) -> bool {
         true
     }
+    /// Called once when the subscription stops receiving before the source ended,
+    /// on shutdown or failure, before received deliveries drain. A source that
+    /// accepts input from clients stops accepting it here, so new input is refused
+    /// instead of waiting for a `receive` that will not come. Deliveries already
+    /// received still complete, and `close` follows after draining.
+    fn stop_receiving(&mut self) {}
     fn close(&mut self) -> impl Future<Output = anyhow::Result<()>> + Send {
         async { Ok(()) }
     }

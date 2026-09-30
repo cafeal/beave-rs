@@ -122,6 +122,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         // After End, received deliveries still run. On shutdown or failure,
         // unstarted deliveries are dropped unacknowledged.
         if !ended {
+            self.source.stop_receiving();
             scheduler.discard_pending();
         }
         let drained = timeout(self.config.drain_timeout, async {
