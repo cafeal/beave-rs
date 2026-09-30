@@ -1,7 +1,7 @@
 use super::{
     config::{HttpSourceConfig, ResponseTiming},
     record::HttpRecord,
-    server::{Pending, serve},
+    server::{Intake, Pending, serve},
 };
 use crate::{
     codec::Decoder,
@@ -11,20 +11,20 @@ use crate::{
 };
 use hyper::StatusCode;
 use std::{
-    marker::PhantomData,
     mem,
     net::{self, SocketAddr},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
 };
-use tokio::{net::TcpListener, sync::mpsc, task::JoinHandle};
+use tokio::{
+    net::TcpListener,
+    sync::{mpsc, oneshot},
+    task::JoinHandle,
+};
 
-enum State {
+enum State<T> {
     Bound(net::TcpListener),
     Serving {
-        requests: mpsc::Receiver<Pending>,
+        requests: mpsc::Receiver<Pending<T>>,
         server: JoinHandle<()>,
     },
     Closed,
@@ -34,7 +34,9 @@ enum State {
 ///
 /// The listener is bound on construction, so address errors surface immediately
 /// and [`local_addr`](Self::local_addr) is known before the subscription runs.
-/// The server starts on the first receive. With [`ResponseTiming::Ack`], each
+/// The server starts on the first receive and decodes each body before it
+/// becomes a delivery; a body that fails to decode is answered with
+/// `400 Bad Request` and the codec error. With [`ResponseTiming::Ack`], each
 /// request is answered only when its delivery completes: `200 OK` on
 /// ACK, and `503 Service Unavailable` when the delivery is dropped without ACK.
 /// With [`ResponseTiming::Receive`], it is answered `202 Accepted` on receive.
@@ -42,9 +44,8 @@ pub struct HttpSource<C, T> {
     config: HttpSourceConfig,
     codec: Arc<C>,
     local_addr: SocketAddr,
-    state: State,
+    state: State<T>,
     shutdown: CancellationToken,
-    marker: PhantomData<T>,
 }
 
 impl<C: Default, T> HttpSource<C, T> {
@@ -64,7 +65,6 @@ impl<C, T> HttpSource<C, T> {
             codec: Arc::new(codec),
             state: State::Bound(listener),
             shutdown: CancellationToken::new(),
-            marker: PhantomData,
         })
     }
 
@@ -72,7 +72,13 @@ impl<C, T> HttpSource<C, T> {
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
     }
+}
 
+impl<C, T> HttpSource<C, T>
+where
+    C: Decoder<T>,
+    T: Send + 'static,
+{
     fn start(&mut self) -> Result<(), ReceiveError> {
         let state = mem::replace(&mut self.state, State::Closed);
         let State::Bound(listener) = state else {
@@ -82,12 +88,12 @@ impl<C, T> HttpSource<C, T> {
         let listener =
             TcpListener::from_std(listener).map_err(|error| ReceiveError::Fatal(error.into()))?;
         let (sender, requests) = mpsc::channel(1);
-        let server = tokio::spawn(serve(
-            listener,
-            sender,
-            self.config.max_body_bytes,
-            self.shutdown.clone(),
-        ));
+        let intake = Intake {
+            requests: sender,
+            codec: self.codec.clone(),
+            max_body_bytes: self.config.max_body_bytes,
+        };
+        let server = tokio::spawn(serve(listener, intake, self.shutdown.clone()));
         self.state = State::Serving { requests, server };
         Ok(())
     }
@@ -98,7 +104,7 @@ where
     C: Decoder<T>,
     T: Clone + Send + Sync + 'static,
 {
-    type Message = HttpMessage<C, T>;
+    type Message = HttpMessage<T>;
 
     async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
         self.start()?;
@@ -106,8 +112,9 @@ where
             return Ok(Receive::End);
         };
         Ok(match requests.recv().await {
-            Some(Pending { record, respond }) => Receive::Message(HttpMessage {
-                record,
+            Some(Pending { raw, body, respond }) => Receive::Message(HttpMessage {
+                raw,
+                body,
                 respond: match self.config.response {
                     ResponseTiming::Ack => Some(respond),
                     ResponseTiming::Receive => {
@@ -115,9 +122,6 @@ where
                         None
                     }
                 },
-                codec: self.codec.clone(),
-                decode_failed: AtomicBool::new(false),
-                marker: PhantomData,
             }),
             None => Receive::End,
         })
@@ -141,64 +145,47 @@ impl<C, T> Drop for HttpSource<C, T> {
     }
 }
 
-/// One request waiting for its response until the delivery is acknowledged
-/// or dropped.
-pub struct HttpMessage<C, T> {
-    record: HttpRecord<Vec<u8>>,
+/// One decoded request waiting for its response until the delivery is
+/// acknowledged or dropped.
+pub struct HttpMessage<T> {
+    raw: HttpRecord<Vec<u8>>,
+    body: T,
     /// `None` once the request was answered on receive.
-    respond: Option<tokio::sync::oneshot::Sender<StatusCode>>,
-    codec: Arc<C>,
-    decode_failed: AtomicBool,
-    marker: PhantomData<T>,
+    respond: Option<oneshot::Sender<StatusCode>>,
 }
 
-impl<C, T> SourceMessage for HttpMessage<C, T>
-where
-    C: Decoder<T>,
-    T: Clone + Send + Sync + 'static,
-{
+impl<T: Clone + Send + Sync + 'static> SourceMessage for HttpMessage<T> {
     type Item = HttpRecord<T>;
     /// The request with its undecoded body.
     type Raw = HttpRecord<Vec<u8>>;
 
+    /// The body was decoded when the request arrived, so this never fails.
     fn decode(&self) -> anyhow::Result<HttpRecord<T>> {
-        let body = self
-            .codec
-            .decode(&self.record.body)
-            .inspect_err(|_| self.decode_failed.store(true, Ordering::Relaxed))?;
         Ok(HttpRecord {
-            path: self.record.path.clone(),
-            query: self.record.query.clone(),
-            headers: self.record.headers.clone(),
-            body,
-            metadata: self.record.metadata.clone(),
+            path: self.raw.path.clone(),
+            query: self.raw.query.clone(),
+            headers: self.raw.headers.clone(),
+            body: self.body.clone(),
+            metadata: self.raw.metadata.clone(),
         })
     }
 
-    /// With [`ResponseTiming::Ack`], answers `200 OK`, or
-    /// `400 Bad Request` when the body failed to decode and the error policy
-    /// discarded or dead-lettered it. A client that disconnected before the
-    /// response still counts as acknowledged.
+    /// With [`ResponseTiming::Ack`], answers `200 OK`. A client that
+    /// disconnected before the response still counts as acknowledged.
     async fn ack(self) -> anyhow::Result<()> {
-        let Some(respond) = self.respond else {
-            return Ok(());
-        };
-        let status = if self.decode_failed.load(Ordering::Relaxed) {
-            StatusCode::BAD_REQUEST
-        } else {
-            StatusCode::OK
-        };
-        let _ = respond.send(status);
+        if let Some(respond) = self.respond {
+            let _ = respond.send(StatusCode::OK);
+        }
         Ok(())
     }
 
     fn raw(&self) -> HttpRecord<Vec<u8>> {
-        self.record.clone()
+        self.raw.clone()
     }
 
     /// Request headers with UTF-8 values, such as `traceparent`.
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
-        self.record
+        self.raw
             .headers
             .iter()
             .filter_map(|(name, value)| Some((name.as_str(), std::str::from_utf8(value).ok()?)))

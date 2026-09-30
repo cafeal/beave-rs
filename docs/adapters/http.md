@@ -12,7 +12,7 @@ beavers = { version = "0.1", features = ["http"] }
 
 ```rust,no_run
 use beavers::{
-    App, ErrorPolicy, FailureAction, Json, Result, StdoutSink, Subscription,
+    App, Json, Result, StdoutSink,
     adapters::http::{HttpRecord, HttpSource, HttpSourceConfig},
 };
 use serde::{Deserialize, Serialize};
@@ -32,13 +32,7 @@ async fn main() -> anyhow::Result<()> {
         "0.0.0.0:8080".parse()?,
     ))?;
     App::new()
-        .subscription(
-            Subscription::new("orders", source, StdoutSink::<Json>::new(), accept)
-                .error_policy(ErrorPolicy {
-                    decode: FailureAction::Discard,
-                    ..ErrorPolicy::default()
-                }),
-        )
+        .subscribe("orders", source, StdoutSink::<Json>::new(), accept)
         .run()
         .await
 }
@@ -84,17 +78,27 @@ undecoded body. Header values that are valid UTF-8, including `traceparent`,
 are the delivery's propagation fields, so with the `opentelemetry` feature the
 delivery span continues the client's trace.
 
+## Decoding
+
+The server decodes each body with the source codec as soon as the request is
+read, before the request becomes a delivery. A body that fails to decode is
+answered with `400 Bad Request` and the codec error as a plain-text body. It
+never reaches the subscription, so the [error policy](../runtime.md#error-policy)
+and dead-letter sink do not see it, and one malformed request cannot stop the
+subscription. `SourceMessage::decode` of an HTTP delivery therefore always
+succeeds.
+
 ## Responses and delivery
 
-With the default `ResponseTiming::Ack`, the server answers each request once
-its delivery has an outcome:
+With the default `ResponseTiming::Ack`, the server answers each decoded request
+once its delivery has an outcome:
 
 | Outcome | Status |
 |---|---|
 | ACK after processing, dead-lettering, or discarding | `200 OK` |
-| ACK after a decode failure was discarded or dead-lettered | `400 Bad Request` |
 | Delivery dropped without ACK: subscription failure, shutdown, or drain timeout | `503 Service Unavailable` |
 | Request not yet received when the source closes | `503 Service Unavailable` |
+| Body that fails to decode | `400 Bad Request` with the codec error |
 | Method other than `POST` | `405 Method Not Allowed` |
 | Body larger than `max_body_bytes` | `413 Payload Too Large` |
 | Body not readable, such as an aborted upload | `400 Bad Request` |
@@ -108,26 +112,22 @@ request whose response was lost, so outputs should tolerate duplicates.
 A client that disconnects while its request is processed does not cancel the
 delivery. The delivery is acknowledged normally and the response is dropped.
 
-With the default [error policy](../runtime.md#error-policy), one undecodable
-body stops the subscription and the server. Because HTTP input is not trusted,
-set `decode` to `FailureAction::Discard`, or to `FailureAction::DeadLetter` with
-a dead-letter sink, so malformed requests are answered with `400` and the
-server keeps running. Handler rejections are dead-lettered by default and then
-answered with `200`; without a dead-letter sink they stop the subscription.
+Handler rejections are dead-lettered by default and then answered with `200`;
+without a dead-letter sink they stop the subscription, and the server with it.
 
 ## Response timing
 
 `ResponseTiming::Receive` answers `202 Accepted` as soon as the subscription
-receives the request, before decoding and processing. Clients get a response
+receives the decoded request, before processing. Clients get a response
 without waiting for the pipeline, but a success status no longer means the
 request was processed:
 
 - A request is lost if the process stops before its delivery completes.
-- Decode failures, handler failures, and publish failures are not reported to
-  the client, so configure the error policy and a dead-letter sink to keep them.
+- Handler and publish failures are not reported to the client, so configure the
+  error policy and a dead-letter sink to keep them.
 - Requests not yet received when the source closes are still answered with
-  `503`, and invalid requests still receive `405`, `413`, or `400` before they
-  become deliveries.
+  `503`, and invalid or undecodable requests still receive `405`, `413`, or
+  `400` before they become deliveries.
 
 Use it when the producer cannot wait for processing and occasional loss on a
 crash is acceptable. Keep the default when every accepted request must be

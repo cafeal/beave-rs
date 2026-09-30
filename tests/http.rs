@@ -1,8 +1,8 @@
 #![cfg(feature = "http")]
 
 use beavers::{
-    App, CancellationToken, DeadLetter, ErrorPolicy, FailureAction, FailureKind, HandlerError,
-    InMemorySink, Json, Receive, Source, SourceMessage, Subscription, Utf8,
+    App, CancellationToken, DeadLetter, FailureKind, HandlerError, InMemorySink, Json, Receive,
+    Source, SourceMessage, Subscription, Utf8,
     adapters::http::{HttpRecord, HttpSource, HttpSourceConfig, ResponseTiming},
 };
 use serde::Deserialize;
@@ -129,27 +129,23 @@ async fn delivery_dropped_without_ack_is_answered_with_service_unavailable() {
 }
 
 #[tokio::test]
-async fn discarded_decode_failure_is_answered_with_bad_request() {
+async fn undecodable_body_is_answered_with_bad_request_without_a_delivery() {
     let source = HttpSource::<Json, Order>::new(config()).unwrap();
     let addr = source.local_addr();
     let sink = InMemorySink::default();
     let shutdown = CancellationToken::new();
     let app = run(
-        App::new().subscription(
-            Subscription::new(
-                "discarded_decode_failure_is_answered_with_bad_request",
-                source,
-                sink.clone(),
-                |record: HttpRecord<Order>| async move { Ok(record.body.id) },
-            )
-            .error_policy(ErrorPolicy {
-                decode: FailureAction::Discard,
-                ..ErrorPolicy::default()
-            }),
+        App::new().subscribe(
+            "undecodable_body_is_answered_with_bad_request_without_a_delivery",
+            source,
+            sink.clone(),
+            |record: HttpRecord<Order>| async move { Ok(record.body.id) },
         ),
         &shutdown,
     );
 
+    // The default error policy would stop on a decode failure; the request
+    // never reaches it.
     assert_eq!(post(addr, b"not json").await, 400);
     assert_eq!(post(addr, br#"{"id":1}"#).await, 200);
     assert_eq!(sink.values(), vec![1]);
@@ -278,12 +274,13 @@ async fn receive_timing_answers_accepted_before_processing() {
     assert_eq!(accepted.await.unwrap(), 202);
     drop(message);
 
-    let undecodable = tokio::spawn(post(addr, b"not json"));
+    assert_eq!(post(addr, b"not json").await, 400);
+    let next = tokio::spawn(post(addr, br#"{"id":2}"#));
     let Receive::Message(message) = source.receive().await.unwrap() else {
         panic!("expected a delivery");
     };
-    assert!(message.decode().is_err());
-    assert_eq!(undecodable.await.unwrap(), 202);
+    assert_eq!(message.decode().unwrap().body, Order { id: 2 });
+    assert_eq!(next.await.unwrap(), 202);
     message.ack().await.unwrap();
     source.close().await.unwrap();
 }
