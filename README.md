@@ -48,9 +48,9 @@ The example writes one JSON event per line, such as `{"order_id":10}`.
 - [Design plan and roadmap](docs/plan.md)
 
 Kafka and Pulsar are optional Cargo features. See the [adapter guide](docs/adapters.md)
-for feature flags and delivery semantics. Synchronous handlers through
-`blocking(sync_handler)` are a recorded design choice, not an implemented API.
-See the [execution model](docs/plan.md#handler-execution-model).
+for feature flags and delivery semantics. Synchronous handlers run on a bounded
+worker pool through `blocking(sync_handler)`; see
+[blocking handlers](docs/runtime.md#blocking-handlers).
 
 ## Development
 

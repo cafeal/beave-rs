@@ -23,32 +23,6 @@ according to the actual source and sink capabilities.
 The project does not aim to provide stateful stream processing, windows, joins,
 watermarks, state stores, distributed scheduling, SQL, or general DAG execution.
 
-## Handler execution model
-
-Add an explicit wrapper for synchronous handlers instead of overlapping blanket
-implementations that attempt to infer whether a function is synchronous:
-
-```rust,ignore
-app.subscribe(source, sink, async_handler);
-app.subscribe(source, sink, blocking(sync_handler));
-```
-
-The wrapper should implement the existing handler contract and submit work to a
-dedicated, bounded worker pool. The design must define:
-
-- pool ownership at the application or subscription level;
-- worker and queue limits;
-- startup and shutdown behavior;
-- panic handling;
-- cancellation of queued jobs;
-- treatment of results produced after the waiting future is cancelled;
-- shutdown deadlines for work already running.
-
-Cancelling an async waiter cannot forcibly stop synchronous code. Unfinished
-work must never be treated as successful or acknowledged. Async handlers can
-also block an executor thread; whether handler futures need executor isolation
-remains a separate decision.
-
 ## Cross-platform metadata mapping
 
 Typed output middleware and same-platform inheritance are described in the
@@ -173,9 +147,8 @@ lifecycle before implementation.
 | 2 | Cross-platform metadata mapping policy |
 | 3 | Observability and trace-context propagation |
 | 4 | Kafka transactions and exactly-once processing |
-| 5 | Blocking-handler worker pool |
-| 6 | NATS JetStream and AWS SQS adapters |
-| 7 | Schema Registry and additional codecs |
+| 5 | NATS JetStream and AWS SQS adapters |
+| 6 | Schema Registry and additional codecs |
 
 The order may change when a concrete application requires a later capability.
 When work begins, update this document with any newly resolved decisions. When
@@ -190,7 +163,8 @@ in the relevant durable documentation.
 3. Compile-time versus startup validation of broker capabilities.
 4. Shutdown deadlines and cancellation policy.
 5. Adapter and codec crate boundaries as optional dependencies grow.
-6. Isolation of handler futures from communication and control execution.
+6. Isolation of async handler futures, which can block an executor thread, from
+   communication and control execution.
 
 ## Core philosophy
 

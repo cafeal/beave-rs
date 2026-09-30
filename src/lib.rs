@@ -6,6 +6,7 @@
 
 pub mod adapters;
 pub mod app;
+pub mod blocking;
 pub mod codec;
 pub mod dead_letter;
 pub mod error_policy;
@@ -24,6 +25,7 @@ pub use adapters::{
     ChannelSink, ChannelSource, InMemorySink, IterSource, StdinSource, StdoutSink, channel,
 };
 pub use app::App;
+pub use blocking::{Blocking, BlockingPool, blocking};
 #[cfg(feature = "avro")]
 pub use codec::Avro;
 #[cfg(feature = "protobuf")]

@@ -240,6 +240,38 @@ record handler registered with `Subscription::new` receives them.
 
 See the [codec guide](codecs.md#lifecycle-and-failures) for decoding and encoding boundaries.
 
+## Blocking handlers
+
+Wrap a synchronous function with `blocking` to register it wherever an async
+handler is accepted, including `new_emitting` and `forward`:
+
+```rust,ignore
+fn score(order: Order) -> beavers::Result<Score> {
+    Ok(model.predict(&order))
+}
+
+App::new().subscribe(source, sink, blocking(score));
+```
+
+Each call runs on a thread of a `BlockingPool`, a fixed set of worker threads
+with a bounded job queue, so the handler can block without stalling receiving,
+publishing, or ACK on the Tokio executor.
+
+| Topic | Behavior |
+|---|---|
+| Ownership | `blocking(f)` gives the handler its own pool; `pool.blocking(f)` shares a cloned `BlockingPool` between handlers and subscriptions |
+| Limits | `BlockingPool::default()` has one worker per available CPU and a queue of the same size; `BlockingPool::new(workers)` and `with_queue_capacity(workers, capacity)` reject zero |
+| Startup | Worker threads start on the first job, not at registration; a thread that fails to start is a `Fatal` handler error |
+| Backpressure | A job waits asynchronously for queue space when every worker is busy and the queue is full |
+| Panics | A panic becomes `HandlerError::Fatal`: the delivery is not acknowledged and the subscription stops; the worker thread keeps serving other jobs |
+| Cancelled waiters | When revocation, shutdown, or a drain timeout drops the waiting future, a queued job is skipped and a running job's result is discarded; the delivery is never acknowledged |
+| Running work | A synchronous call cannot be interrupted. After a drain timeout it runs to completion on its worker thread, which does not delay subscription shutdown |
+| Pool shutdown | Workers exit after their current job once every pool clone and every handler using it is dropped, which happens when their subscriptions finish |
+
+Handler retries submit a new job for every attempt. Queue capacity counts jobs
+waiting for a thread, not running ones; subscription `concurrency` still bounds
+the jobs each subscription submits.
+
 ## Errors and retries
 
 `beavers::Result<T>` uses `HandlerError`. Ordinary errors propagated with `?`
@@ -360,10 +392,10 @@ dropped without ACK. After `Receive::End`, queued deliveries still run. A drain
 timeout cancels unfinished tasks, then cleanup runs with its own deadline. In-progress publish or ACK can have an uncertain result if
 interrupted; a durable broker may redeliver and cause duplicates.
 
-Current handlers share the Tokio executor with runtime work. They must not block
-worker threads. Cancellation and timeouts are cooperative and cannot forcibly
-interrupt arbitrary synchronous code. Dedicated blocking-handler execution is a
-[future addition](plan.md#handler-execution-model).
+Async handlers share the Tokio executor with runtime work. They must not block
+worker threads; use [blocking handlers](#blocking-handlers) for synchronous work.
+Cancellation and timeouts are cooperative and cannot forcibly interrupt
+arbitrary synchronous code.
 
 ## Implementation limits
 
@@ -374,7 +406,8 @@ Kafka transactions or exactly-once processing. Pulsar uses individual
 acknowledgements, schedules work by its subscription type's ordering scope, and
 likewise provides no transactions or exactly-once processing. NATS JetStream,
 SQS, adapter pause/resume backpressure, and tracing / metrics integration are
-not implemented. Metadata inheritance is limited to same-platform middleware;
+not implemented. Async handler futures run on the shared Tokio executor without
+isolation. Metadata inheritance is limited to same-platform middleware;
 cross-platform mappings are application-written `MapMetadata` functions.
 
 Inputs currently require `Clone + Send + Sync`. Stdin and stdout construct
