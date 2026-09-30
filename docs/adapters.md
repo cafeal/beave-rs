@@ -12,7 +12,7 @@ types are also re-exported at the crate root.
 | `StdinSource<C, T>` | Line-delimited input | Files, pipes, interactive input |
 | `InMemorySink<T>` | Typed output collection | Assertions and local inspection |
 | `StdoutSink<C>` | Line-delimited output | JSON output, files, pipes |
-| `ChannelSource<T>` / `ChannelSink<T>` | Bounded typed queue | In-process pipelines |
+| `ChannelSource<T>` / `ChannelSink<T>` | Chained subscriptions and application ends | Pipeline stages whose upstream ACK waits for the downstream stage; in-process workers fed and read by application code |
 | `KafkaSource<C, T>` / `KafkaSink<C, T>` | Kafka records and publishes | Durable broker pipelines (`kafka` feature) |
 | `KafkaTransactionalSink<C, T>` | Kafka publishes in producer transactions | Exactly-once Kafka-to-Kafka pipelines (`kafka` feature) |
 | `PulsarSource<C, T>` / `PulsarSink<C, T>` | Pulsar records and publishes | Durable broker pipelines (`pulsar` feature) |

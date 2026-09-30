@@ -1,7 +1,7 @@
 //! One delivery: decode, middleware, handler retries, publishing, failure routing, then ACK.
 use super::{
     builder::{BoxHandler, DeadLetterRoute, Mapper},
-    completion::{Complete, Completion},
+    completion::{BoxFuture, Complete, Completion, acknowledge as ack_delivery},
     instruments::{Instruments, Stage},
 };
 use crate::{
@@ -30,6 +30,9 @@ pub(super) struct Pipeline<M: SourceMessage, O> {
     pub(super) instruments: Instruments,
 }
 
+/// Waits for submitted outputs to complete, then acknowledges the delivery.
+pub(super) type PendingAck = BoxFuture<'static, anyhow::Result<()>>;
+
 /// A routable failure; `input` is absent only when decoding failed.
 struct Failure<I> {
     kind: FailureKind,
@@ -48,7 +51,12 @@ struct Outputs<I, O> {
     attempts: usize,
 }
 
-pub(super) async fn process<M, O>(delivery: M, pipeline: Arc<Pipeline<M, O>>) -> anyhow::Result<()>
+/// Processes one delivery. Returns the acknowledgement still waiting for submitted
+/// outputs to complete, if any; otherwise the delivery was already settled.
+pub(super) async fn process<M, O>(
+    delivery: M,
+    pipeline: Arc<Pipeline<M, O>>,
+) -> anyhow::Result<Option<PendingAck>>
 where
     M: SourceMessage,
     O: Send + Sync + 'static,
@@ -72,7 +80,10 @@ where
                 )
                 .await?
             {
-                Completion::Done => return Ok(()),
+                Completion::Done => return Ok(None),
+                Completion::Pending(delivery, completions) => {
+                    return Ok(Some(await_completions(delivery, completions, pipeline)));
+                }
                 Completion::Encode(delivery, error) => {
                     let failure = Failure {
                         kind: FailureKind::Encode,
@@ -80,7 +91,7 @@ where
                         attempts,
                         input: Some(input),
                     };
-                    return route(delivery, &pipeline, failure).await;
+                    return route(delivery, &pipeline, failure).await.map(|()| None);
                 }
             },
             Err(failure) => failure,
@@ -92,7 +103,34 @@ where
             input: None,
         },
     };
-    route(delivery, &pipeline, failure).await
+    route(delivery, &pipeline, failure).await.map(|()| None)
+}
+
+/// The job ends before this runs and frees its slot; the acknowledgement follows
+/// completion of every submitted output.
+fn await_completions<M, O>(
+    delivery: M,
+    completions: Vec<crate::sink::Completion>,
+    pipeline: Arc<Pipeline<M, O>>,
+) -> PendingAck
+where
+    M: SourceMessage,
+    O: Send + Sync + 'static,
+{
+    Box::pin(async move {
+        let started = Instant::now();
+        async {
+            for completion in completions {
+                completion.wait().await?;
+            }
+            anyhow::Ok(())
+        }
+        .instrument(info_span!("complete"))
+        .await
+        .map_err(|error| error.context("output completion failed"))?;
+        pipeline.instruments.record(Stage::Complete, started);
+        ack_delivery(delivery, &pipeline.instruments).await
+    })
 }
 
 /// Acknowledges a delivery without output through the completion stage, so a
@@ -113,6 +151,8 @@ where
         .await?
     {
         Completion::Done => Ok(()),
+        // Without outputs nothing is submitted, so nothing can be pending.
+        Completion::Pending(delivery, _) => ack_delivery(delivery, &pipeline.instruments).await,
         Completion::Encode(_, error) => Err(error),
     }
 }
@@ -287,14 +327,14 @@ where
     }
 }
 
-pub(super) async fn retry_publish<F, Fut>(
+pub(super) async fn retry_publish<T, F, Fut>(
     policy: &RetryPolicy,
     failures: &Counter,
     mut publish: F,
-) -> anyhow::Result<()>
+) -> anyhow::Result<T>
 where
     F: FnMut() -> Fut,
-    Fut: Future<Output = anyhow::Result<()>>,
+    Fut: Future<Output = anyhow::Result<T>>,
 {
     let mut attempt = 1;
     loop {
@@ -303,7 +343,7 @@ where
             failures.increment(1);
         }
         match result {
-            Ok(()) => return Ok(()),
+            Ok(value) => return Ok(value),
             Err(error) if attempt >= policy.max_attempts => {
                 return Err(error.context("publish retry exhausted"));
             }

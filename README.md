@@ -7,7 +7,7 @@ Source → Subscription → Handler → Sink
 ```
 
 The current implementation includes local adapters, a bounded in-process
-channel, optional Kafka and Apache Pulsar adapters, typed codecs, bounded
+channel that chains subscriptions with end-to-end acknowledgement, optional Kafka and Apache Pulsar adapters, typed codecs, bounded
 concurrency, retries, and graceful shutdown. NATS JetStream and SQS remain on
 the roadmap.
 
