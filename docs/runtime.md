@@ -464,9 +464,9 @@ as children of the processing step. Middleware runs in registration order, and
 ## Implementation limits
 
 Kafka and Pulsar adapters, broker record types, Protobuf, and Avro codecs are
-implemented. Kafka maintains contiguous commits for completed offsets, schedules
-work per partition, and abandons revoked work, but does not provide Kafka
-transactions or exactly-once processing. Pulsar uses individual
+implemented. Kafka commits up to the first unfinished offset per partition,
+schedules work per partition, and abandons revoked work, but does not provide
+Kafka transactions or exactly-once processing. Pulsar uses individual
 acknowledgements, schedules work by its subscription type's ordering scope, and
 likewise provides no transactions or exactly-once processing. NATS JetStream,
 SQS and adapter pause/resume backpressure are not implemented. Metadata inheritance is limited to same-platform middleware;

@@ -21,6 +21,8 @@ struct PartitionProgress {
     generation: u64,
     revoked: CancellationToken,
     next: Option<i64>,
+    /// Registered offsets at or after `next`, mapped to whether their delivery
+    /// completed. Offsets absent between registered ones were never delivered.
     received: BTreeMap<i64, bool>,
 }
 
@@ -99,10 +101,22 @@ impl Progress {
             .get_mut(&offset)
             .ok_or_else(|| anyhow::anyhow!("Kafka offset was never registered"))?;
         *done = true;
-        let mut candidate = next;
-        while let Some(true) = partition.received.get(&candidate) {
-            candidate += 1;
-        }
+        // Kafka delivers a partition's records in offset order, so an offset
+        // between two registered offsets was never delivered (for example, it
+        // was compacted away or is a transaction marker). The commit position
+        // is the first unfinished registered offset, or the offset after the
+        // last registered one when all are finished.
+        let candidate = partition
+            .received
+            .iter()
+            .find_map(|(offset, done)| (!done).then_some(*offset))
+            .or_else(|| {
+                partition
+                    .received
+                    .last_key_value()
+                    .map(|(offset, _)| offset + 1)
+            })
+            .unwrap_or(next);
         Ok((candidate > next).then_some(candidate))
     }
 
@@ -168,19 +182,37 @@ mod tests {
     }
 
     #[test]
-    fn completion_commits_only_the_contiguous_registered_prefix() {
+    fn completion_commits_up_to_the_first_unfinished_registered_offset() {
         let key = key();
         let mut progress = assigned([key.clone()]);
         let generation = register(&mut progress, &key, 7);
+        register(&mut progress, &key, 8);
         register(&mut progress, &key, 9);
 
         assert_eq!(progress.complete(generation, &key, 9).unwrap(), None);
         assert_eq!(progress.complete(generation, &key, 7).unwrap(), Some(8));
         progress.committed(generation, &key, 8);
-        assert_eq!(progress.complete(generation, &key, 9).unwrap(), None);
-
-        register(&mut progress, &key, 8);
         assert_eq!(progress.complete(generation, &key, 8).unwrap(), Some(10));
+    }
+
+    #[test]
+    fn offset_gaps_do_not_stall_commits() {
+        // Compacted topics and transaction markers leave offsets that are
+        // never delivered.
+        let key = key();
+        let mut progress = assigned([key.clone()]);
+        let generation = register(&mut progress, &key, 7);
+        register(&mut progress, &key, 9);
+        register(&mut progress, &key, 12);
+
+        assert_eq!(progress.complete(generation, &key, 7).unwrap(), Some(9));
+        progress.committed(generation, &key, 9);
+        assert_eq!(progress.complete(generation, &key, 12).unwrap(), None);
+        assert_eq!(progress.complete(generation, &key, 9).unwrap(), Some(13));
+        progress.committed(generation, &key, 13);
+
+        register(&mut progress, &key, 20);
+        assert_eq!(progress.complete(generation, &key, 20).unwrap(), Some(21));
     }
 
     #[test]
