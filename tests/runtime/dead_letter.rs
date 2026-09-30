@@ -65,7 +65,7 @@ async fn discard_acknowledges_without_output() {
 }
 
 #[tokio::test]
-async fn propagated_errors_are_retried_then_dead_lettered_by_default() {
+async fn propagated_errors_are_dead_lettered_without_retry_by_default() {
     for with_dlq in [true, false] {
         let calls = Arc::new(AtomicUsize::new(0));
         let counter = calls.clone();
@@ -74,7 +74,7 @@ async fn propagated_errors_are_retried_then_dead_lettered_by_default() {
         let mut subscription = Subscription::new(source, InMemorySink::default(), move |_: i32| {
             counter.fetch_add(1, Ordering::SeqCst);
             async {
-                let value: i32 = "busy".parse()?;
+                let value: i32 = "invalid".parse()?;
                 Ok(value)
             }
         })
@@ -83,19 +83,19 @@ async fn propagated_errors_are_retried_then_dead_lettered_by_default() {
             subscription = subscription.dlq(dlq.clone());
         }
         let result = App::new().subscription(subscription).run().await;
-        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
         if with_dlq {
             result.unwrap();
             let [letter]: [DeadLetter<i32, Vec<u8>>; 1] = dlq.values().try_into().unwrap();
-            assert_eq!(letter.failure, FailureKind::RetryExhausted);
-            assert_eq!(letter.attempts, 3);
+            assert_eq!(letter.failure, FailureKind::Rejected);
+            assert_eq!(letter.attempts, 1);
             assert_eq!(letter.input, Some(5));
             assert_eq!(letter.raw, b"5");
             assert_eq!(acks.load(Ordering::SeqCst), 1);
         } else {
             let error = format!("{:#}", result.unwrap_err());
             assert!(error.contains("no dead-letter sink configured"), "{error}");
-            assert!(error.contains("handler retry exhausted"), "{error}");
+            assert!(error.contains("handler rejected input"), "{error}");
             assert_eq!(acks.load(Ordering::SeqCst), 0);
         }
     }
@@ -245,7 +245,7 @@ async fn dead_letter_serializes_failure_context() {
 }
 
 #[tokio::test]
-async fn rejected_errors_skip_handler_retries() {
+async fn retry_classified_errors_are_retried_then_dead_lettered() {
     let calls = Arc::new(AtomicUsize::new(0));
     let counter = calls.clone();
     let (source, acks) = text_source(&["5"]);
@@ -255,7 +255,7 @@ async fn rejected_errors_skip_handler_retries() {
             Subscription::new(source, InMemorySink::default(), move |_: i32| {
                 counter.fetch_add(1, Ordering::SeqCst);
                 async {
-                    let value: i32 = "invalid".parse().reject()?;
+                    let value: i32 = "busy".parse().retry()?;
                     Ok(value)
                 }
             })
@@ -265,10 +265,10 @@ async fn rejected_errors_skip_handler_retries() {
         .run()
         .await
         .unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
     let [letter]: [DeadLetter<i32, Vec<u8>>; 1] = dlq.values().try_into().unwrap();
-    assert_eq!(letter.failure, FailureKind::Rejected);
-    assert_eq!(letter.attempts, 1);
+    assert_eq!(letter.failure, FailureKind::RetryExhausted);
+    assert_eq!(letter.attempts, 3);
     assert_eq!(acks.load(Ordering::SeqCst), 1);
 }
 
@@ -296,4 +296,25 @@ async fn fatal_errors_stop_without_retry_or_dead_letter() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(dlq.values().is_empty());
     assert_eq!(acks.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn reject_classified_errors_match_propagated_errors() {
+    let (source, acks) = text_source(&["5"]);
+    let dlq = InMemorySink::default();
+    App::new()
+        .subscription(
+            Subscription::new(source, InMemorySink::default(), |_: i32| async {
+                let value: i32 = "invalid".parse().reject()?;
+                Ok(value)
+            })
+            .dlq(dlq.clone()),
+        )
+        .run()
+        .await
+        .unwrap();
+    let [letter]: [DeadLetter<i32, Vec<u8>>; 1] = dlq.values().try_into().unwrap();
+    assert_eq!(letter.failure, FailureKind::Rejected);
+    assert_eq!(letter.attempts, 1);
+    assert_eq!(acks.load(Ordering::SeqCst), 1);
 }

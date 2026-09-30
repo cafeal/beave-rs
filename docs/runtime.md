@@ -91,20 +91,19 @@ See the [codec guide](codecs.md#lifecycle-and-failures) for decoding and encodin
 ## Errors and retries
 
 `beavers::Result<T>` uses `HandlerError`. Ordinary errors propagated with `?`
-become `Retry`: the handler is retried under its retry policy and, once that is
-exhausted, the delivery is dead-lettered by default.
-
-A propagated error cannot tell a transient failure from a deterministic one, so
-classify deterministic failures at the call site with the `Classify` extension
-trait. `.reject()?` dead-letters the input immediately without handler retries,
-and `.fatal()?` stops the subscription:
+become `Reject`: the handler is not retried, and the input is dead-lettered by
+default. The runtime cannot tell a transient failure from a deterministic one,
+so the handler requests other outcomes at the call site with the `Classify`
+extension trait. `.reject()?` states the default explicitly, `.retry()?` reruns
+the handler under its retry policy and dead-letters the input once that is
+exhausted; `.fatal()?` stops the subscription:
 
 ```rust,ignore
 use beavers::{Classify, Result};
 
 async fn handle(order: Order) -> Result<Output> {
-    validate(&order).reject()?; // invalid input: dead-letter now
-    let user = db.find_user(order.user_id).await?; // transient: retry, then dead-letter
+    validate(&order).reject()?; // invalid input: dead-letter now (same as `?`)
+    let user = db.find_user(order.user_id).await.retry()?; // transient: retry, then dead-letter
     Ok(build_output(order, user))
 }
 ```
@@ -117,8 +116,8 @@ failures, identified by `FailureKind`:
 | `FailureKind` | Cause | Default action |
 |---|---|---|
 | `Decode` | `SourceMessage::decode` failed | `Stop` |
-| `Rejected` | The handler returned `Reject` | `DeadLetter` |
-| `RetryExhausted` | The handler returned `Retry` (including errors propagated with `?`) on its final permitted attempt | `DeadLetter` |
+| `Rejected` | The handler returned `Reject`, including errors propagated with `?` | `DeadLetter` |
+| `RetryExhausted` | The handler returned `Retry` on its final permitted attempt | `DeadLetter` |
 | `Encode` | `Sink::prepare` failed for an emitted output | `Stop` |
 
 Each failure maps to one `FailureAction`:
