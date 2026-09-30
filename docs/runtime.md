@@ -399,8 +399,8 @@ application, which ultimately returns an error.
 SIGINT / SIGTERM or `App::run_until(CancellationToken)` stops new receives and
 starts draining running jobs. Deliveries still queued behind an ordering key are
 dropped without ACK. After `Receive::End`, queued deliveries still run. A source whose
-`stops_on_shutdown` returns `false`, such as a `ChannelSource`, keeps receiving
-until its upstream subscriptions close it; see
+`stops_on_shutdown` returns `false`, such as a `ChannelSource` created by `channel`,
+keeps receiving until its upstream subscriptions close it; see
 [channel shutdown](adapters/channel.md#shutdown). A drain
 timeout cancels unfinished tasks, then cleanup runs with its own deadline. In-progress publish or ACK can have an uncertain result if
 interrupted; a durable broker may redeliver and cause duplicates.

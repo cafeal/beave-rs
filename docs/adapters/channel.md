@@ -26,9 +26,10 @@ a `ChannelSource<T>` for the downstream one. Values are typed and are not
 encoded. A capacity of zero panics, following `tokio::sync::mpsc::channel`.
 Channels can be chained to build pipelines of more than two stages.
 
-Application code can also feed a channel by calling `Sink::publish` on a
-`ChannelSink` directly. The call returns once the downstream subscription has
-finished the value.
+Application code can also call `Sink::publish` on a `ChannelSink` created by
+`channel` directly. The call returns once the downstream subscription has
+finished the value. To use subscriptions as an in-process worker framework
+instead, use the [application ends](#application-ends).
 
 ## Delivery and completion
 
@@ -90,3 +91,47 @@ clone also has its own close state: closing one rejects later publications
 from that clone without affecting the others, and the downstream source ends
 after all of them are closed or dropped. Closing either end more than once is
 safe. Closing the source rejects later publications from every clone.
+
+## Application ends
+
+`ChannelSource::bounded(capacity)` returns a `ChannelSender<T>` and a source, and
+`ChannelSink::bounded(capacity)` returns a sink and a `ChannelReceiver<T>`. They
+let application code send values to a subscription and receive its outputs,
+without an external broker:
+
+```rust
+use beavers::{App, CancellationToken, ChannelSink, ChannelSource};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let (sender, input) = ChannelSource::bounded(16);
+    let (output, mut results) = ChannelSink::bounded(16);
+    let worker = tokio::spawn(
+        App::new()
+            .subscribe("double", input, output, |n: i32| async move { Ok(n * 2) })
+            .run_until(CancellationToken::new()),
+    );
+
+    sender.send(21).await?;
+    assert_eq!(results.recv().await, Some(42));
+    drop(sender);
+    worker.await??;
+    Ok(())
+}
+```
+
+| End | Completes when | Shutdown |
+|---|---|---|
+| `ChannelSender::send` | The value is enqueued | The source stops receiving; buffered values are dropped |
+| `ChannelSender::send_and_wait` | The subscription acknowledges the value | A value the subscription did not finish returns an error |
+| `ChannelSink::bounded` publication | The value is enqueued for the `ChannelReceiver` | Values already enqueued stay available to `recv` |
+
+A subscription publishing to a `ChannelSink::bounded` sink acknowledges its
+input as soon as the output is enqueued, so upstream work can run ahead by the
+channel capacity and then waits for `recv`. A value still buffered for the
+receiver is lost if the process stops. `ChannelReceiver::recv` returns `None`
+after every sink clone is closed or dropped and the buffer is empty.
+
+A source created by `ChannelSource::bounded` stops receiving on application
+shutdown like other sources, and ends once every `ChannelSender` clone is
+dropped. All waits for capacity can be cancelled without enqueueing the value.

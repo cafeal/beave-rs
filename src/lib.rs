@@ -25,7 +25,8 @@ pub mod telemetry;
 pub mod tombstone;
 
 pub use adapters::{
-    ChannelSink, ChannelSource, InMemorySink, IterSource, StdinSource, StdoutSink, channel,
+    ChannelReceiver, ChannelSender, ChannelSink, ChannelSource, InMemorySink, IterSource,
+    StdinSource, StdoutSink, channel,
 };
 pub use app::App;
 pub use blocking::{Blocking, BlockingPool, blocking};

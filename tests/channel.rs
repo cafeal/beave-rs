@@ -1,6 +1,6 @@
 use beavers::{
-    App, CancellationToken, Delivery, HandlerError, InMemorySink, IterSource, Receive,
-    ReceiveError, Sink, Source, SourceMessage, blocking, channel,
+    App, CancellationToken, ChannelSink, ChannelSource, Delivery, HandlerError, InMemorySink,
+    IterSource, Receive, ReceiveError, Sink, Source, SourceMessage, blocking, channel,
 };
 use std::{
     collections::VecDeque,
@@ -337,4 +337,61 @@ async fn closing_one_clone_keeps_the_others_open() {
     }
     drop(clone);
     assert!(matches!(source.receive().await.unwrap(), Receive::End));
+}
+
+#[tokio::test]
+async fn application_ends_run_an_in_process_worker() {
+    let (sender, input) = ChannelSource::bounded(4);
+    let (output, mut results) = ChannelSink::bounded(4);
+    let shutdown = CancellationToken::new();
+    let run = tokio::spawn(
+        App::new()
+            .subscribe("double", input, output, |n: i32| async move { Ok(n * 2) })
+            .run_until(shutdown.clone()),
+    );
+    sender.send(1).await.unwrap();
+    sender.send_and_wait(2).await.unwrap();
+    assert_eq!(results.recv().await, Some(2));
+    assert_eq!(results.recv().await, Some(4));
+    drop(sender);
+    run.await.unwrap().unwrap();
+    assert_eq!(results.recv().await, None);
+}
+
+#[tokio::test]
+async fn application_receiver_completes_publication_at_enqueue() {
+    let (sink, mut results) = ChannelSink::bounded(1);
+    sink.publish(&1).await.unwrap();
+    {
+        let publish = sink.publish(&2);
+        tokio::pin!(publish);
+        assert_pending(publish.as_mut()).await;
+    }
+    assert_eq!(results.recv().await, Some(1));
+    sink.close().await.unwrap();
+    assert!(sink.publish(&3).await.is_err());
+    assert_eq!(results.recv().await, None);
+
+    let (sink, mut results) = ChannelSink::<i32>::bounded(1);
+    results.close();
+    assert!(sink.publish(&1).await.is_err());
+}
+
+#[tokio::test]
+async fn application_fed_source_stops_on_shutdown() {
+    let (sender, input) = ChannelSource::<i32>::bounded(1);
+    let shutdown = CancellationToken::new();
+    let run = tokio::spawn(
+        App::new()
+            .subscribe(
+                "idle",
+                input,
+                InMemorySink::default(),
+                |n: i32| async move { Ok(n) },
+            )
+            .run_until(shutdown.clone()),
+    );
+    shutdown.cancel();
+    run.await.unwrap().unwrap();
+    drop(sender);
 }

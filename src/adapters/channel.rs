@@ -63,37 +63,112 @@ impl Drop for AbandonOnDrop {
 
 /// Connect subscriptions so each upstream delivery is acknowledged only after the
 /// downstream subscription finishes the value. Panics if capacity is zero.
+///
+/// Use [`ChannelSource::bounded`] or [`ChannelSink::bounded`] when application code
+/// sends to or receives from a subscription instead.
 pub fn channel<T>(capacity: usize) -> (ChannelSink<T>, ChannelSource<T>) {
     let (sender, receiver) = mpsc::channel(capacity);
     (
-        ChannelSink {
-            sender: Mutex::new(Some(sender)),
+        ChannelSink::with_route(Route::Subscription(sender)),
+        ChannelSource {
+            receiver,
+            stops_on_shutdown: false,
         },
-        ChannelSource { receiver },
     )
 }
 
-/// Upstream end of a [`channel`]. Publication succeeds once the downstream subscription
-/// has acknowledged the value: its outputs were published, or its error policy
-/// dead-lettered or discarded it. Application code can feed the channel by calling
-/// [`Sink::publish`] directly.
+/// Enqueues a value for a downstream subscription and, when `wait` is set, waits
+/// until that subscription acknowledges it.
+async fn hand_off<T>(sender: &mpsc::Sender<Queued<T>>, value: T, wait: bool) -> anyhow::Result<()> {
+    // Reserve first: cancellation while waiting for capacity never enqueues a value.
+    let permit = sender
+        .reserve()
+        .await
+        .map_err(|_| anyhow::anyhow!("channel downstream subscription has stopped"))?;
+    let (done, completed) = oneshot::channel();
+    let abandoned = CancellationToken::new();
+    if !wait {
+        permit.send(Queued {
+            value,
+            done,
+            abandoned,
+        });
+        return Ok(());
+    }
+    let guard = AbandonOnDrop(Some(abandoned.clone()));
+    permit.send(Queued {
+        value,
+        done,
+        abandoned,
+    });
+    let result = completed.await;
+    guard.disarm();
+    result.map_err(|_| {
+        anyhow::anyhow!("channel downstream subscription stopped before acknowledging the value")
+    })
+}
+
+/// Where a [`ChannelSink`] delivers its values.
+enum Route<T> {
+    /// A downstream subscription whose ACK completes the publication.
+    Subscription(mpsc::Sender<Queued<T>>),
+    /// Application code; enqueueing completes the publication.
+    Application(mpsc::Sender<T>),
+}
+
+impl<T> Clone for Route<T> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Subscription(sender) => Self::Subscription(sender.clone()),
+            Self::Application(sender) => Self::Application(sender.clone()),
+        }
+    }
+}
+
+/// Upstream end of a channel, used as a subscription's sink.
+///
+/// Created by [`channel`], publication succeeds once the downstream subscription has
+/// acknowledged the value: its outputs were published, or its error policy
+/// dead-lettered or discarded it. Created by [`ChannelSink::bounded`], publication
+/// succeeds once the value is enqueued for a [`ChannelReceiver`]; a value still
+/// buffered there is lost if the process stops.
 ///
 /// Each clone is an independent sender with its own close state, so several
-/// subscriptions can feed one downstream subscription. The downstream source ends once
-/// every clone has been closed or dropped.
+/// subscriptions can feed one channel. The receiving end ends once every clone has
+/// been closed or dropped.
 pub struct ChannelSink<T> {
-    sender: Mutex<Option<mpsc::Sender<Queued<T>>>>,
+    route: Mutex<Option<Route<T>>>,
+}
+
+impl<T> ChannelSink<T> {
+    /// A sink whose values application code receives from the returned
+    /// [`ChannelReceiver`]. Panics if capacity is zero.
+    pub fn bounded(capacity: usize) -> (Self, ChannelReceiver<T>) {
+        let (sender, receiver) = mpsc::channel(capacity);
+        (
+            Self::with_route(Route::Application(sender)),
+            ChannelReceiver { receiver },
+        )
+    }
+
+    fn with_route(route: Route<T>) -> Self {
+        Self {
+            route: Mutex::new(Some(route)),
+        }
+    }
+
+    fn route(&self) -> Option<Route<T>> {
+        self.route
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
 }
 
 impl<T> Clone for ChannelSink<T> {
     fn clone(&self) -> Self {
         Self {
-            sender: Mutex::new(
-                self.sender
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .clone(),
-            ),
+            route: Mutex::new(self.route()),
         }
     }
 }
@@ -106,38 +181,25 @@ impl<T: Clone + Send + Sync + 'static> Sink<T> for ChannelSink<T> {
     }
 
     async fn publish(&self, output: &T) -> anyhow::Result<()> {
-        let sender = self
-            .sender
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("channel sink is closed"))?;
-        // Reserve first: cancellation while waiting for capacity never enqueues a value.
-        let permit = sender
-            .reserve()
-            .await
-            .map_err(|_| anyhow::anyhow!("channel downstream subscription has stopped"))?;
-        let (done, completed) = oneshot::channel();
-        let abandoned = CancellationToken::new();
-        let guard = AbandonOnDrop(Some(abandoned.clone()));
-        permit.send(Queued {
-            value: output.clone(),
-            done,
-            abandoned,
-        });
-        let result = completed.await;
-        guard.disarm();
-        result.map_err(|_| {
-            anyhow::anyhow!(
-                "channel downstream subscription stopped before acknowledging the value"
-            )
-        })
+        match self.route() {
+            None => anyhow::bail!("channel sink is closed"),
+            Some(Route::Subscription(sender)) => hand_off(&sender, output.clone(), true).await,
+            Some(Route::Application(sender)) => {
+                // Reserve first: cancellation while waiting for capacity never enqueues a value.
+                let permit = sender
+                    .reserve()
+                    .await
+                    .map_err(|_| anyhow::anyhow!("channel receiver is closed"))?;
+                permit.send(output.clone());
+                Ok(())
+            }
+        }
     }
 
-    /// Rejects later publications from this clone. The downstream source ends after
-    /// every clone is closed or dropped and the values already sent have been received.
+    /// Rejects later publications from this clone. The receiving end ends after every
+    /// clone is closed or dropped and the values already sent have been received.
     async fn close(&self) -> anyhow::Result<()> {
-        self.sender
+        self.route
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take();
@@ -145,14 +207,81 @@ impl<T: Clone + Send + Sync + 'static> Sink<T> for ChannelSink<T> {
     }
 }
 
-/// Downstream end of a [`channel`].
+/// Application-side receiving end of [`ChannelSink::bounded`].
+pub struct ChannelReceiver<T> {
+    receiver: mpsc::Receiver<T>,
+}
+
+impl<T> ChannelReceiver<T> {
+    /// The next value, or `None` once every sink clone is closed or dropped and the
+    /// buffer is empty. Cancellation-safe.
+    pub async fn recv(&mut self) -> Option<T> {
+        self.receiver.recv().await
+    }
+
+    /// Reject new values; buffered values remain available to `recv`.
+    pub fn close(&mut self) {
+        self.receiver.close();
+    }
+}
+
+/// Application-side sending end of [`ChannelSource::bounded`]. Clones feed the same
+/// source, which ends once every clone is dropped.
+pub struct ChannelSender<T> {
+    sender: mpsc::Sender<Queued<T>>,
+}
+
+impl<T> Clone for ChannelSender<T> {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+        }
+    }
+}
+
+impl<T> ChannelSender<T> {
+    /// Enqueue a value, waiting for capacity. Returns once the value is buffered.
+    /// Cancellation while waiting for capacity never enqueues it.
+    pub async fn send(&self, value: T) -> anyhow::Result<()> {
+        hand_off(&self.sender, value, false).await
+    }
+
+    /// Enqueue a value and wait until the subscription acknowledges it: its outputs
+    /// were published, or its error policy dead-lettered or discarded it. Dropping the
+    /// returned future after the value was enqueued abandons the delivery.
+    pub async fn send_and_wait(&self, value: T) -> anyhow::Result<()> {
+        hand_off(&self.sender, value, true).await
+    }
+}
+
+/// Downstream end of a channel, used as a subscription's source.
 ///
-/// Application shutdown does not stop this source: it keeps receiving until every
-/// upstream sink clone is closed or dropped, so values the upstream subscription is still
-/// draining can complete. Each delivery is revoked when the upstream publication is
-/// abandoned, for example after an upstream revocation or drain timeout.
+/// Created by [`channel`], application shutdown does not stop this source: it keeps
+/// receiving until every upstream sink clone is closed or dropped, so values the
+/// upstream subscription is still draining can complete. Each delivery is revoked
+/// when the upstream publication is abandoned, for example after an upstream
+/// revocation or drain timeout.
+///
+/// Created by [`ChannelSource::bounded`], it is fed by a [`ChannelSender`] and stops
+/// receiving on application shutdown like other sources.
 pub struct ChannelSource<T> {
     receiver: mpsc::Receiver<Queued<T>>,
+    stops_on_shutdown: bool,
+}
+
+impl<T> ChannelSource<T> {
+    /// A source that application code feeds through the returned [`ChannelSender`].
+    /// Panics if capacity is zero.
+    pub fn bounded(capacity: usize) -> (ChannelSender<T>, Self) {
+        let (sender, receiver) = mpsc::channel(capacity);
+        (
+            ChannelSender { sender },
+            Self {
+                receiver,
+                stops_on_shutdown: true,
+            },
+        )
+    }
 }
 
 impl<T: Clone + Send + Sync + 'static> Source for ChannelSource<T> {
@@ -173,7 +302,8 @@ impl<T: Clone + Send + Sync + 'static> Source for ChannelSource<T> {
                 abandoned,
             } = queued;
             let delivery = Delivery::new(value, move || async move {
-                // An upstream that is no longer waiting has abandoned its delivery.
+                // A sender that is not waiting has either abandoned the value or
+                // completed at enqueue.
                 let _ = done.send(());
                 Ok(())
             });
@@ -182,7 +312,7 @@ impl<T: Clone + Send + Sync + 'static> Source for ChannelSource<T> {
     }
 
     fn stops_on_shutdown(&self) -> bool {
-        false
+        self.stops_on_shutdown
     }
 
     /// Reject new values; buffered values remain available until the source is dropped.
