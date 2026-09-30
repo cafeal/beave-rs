@@ -97,7 +97,7 @@ once its delivery has an outcome:
 |---|---|
 | ACK after processing, dead-lettering, or discarding | `200 OK` |
 | Delivery dropped without ACK: subscription failure, shutdown, or drain timeout | `503 Service Unavailable` |
-| Request not yet received when the source closes | `503 Service Unavailable` |
+| Request not yet received when the subscription stops receiving | `503 Service Unavailable` |
 | Body that fails to decode | `400 Bad Request` with the codec error |
 | Method other than `POST` | `405 Method Not Allowed` |
 | Body larger than `max_body_bytes` | `413 Payload Too Large` |
@@ -125,9 +125,9 @@ request was processed:
 - A request is lost if the process stops before its delivery completes.
 - Handler and publish failures are not reported to the client, so configure the
   error policy and a dead-letter sink to keep them.
-- Requests not yet received when the source closes are still answered with
-  `503`, and invalid or undecodable requests still receive `405`, `413`, or
-  `400` before they become deliveries.
+- Requests not yet received when the subscription stops receiving are still
+  answered with `503`, and invalid or undecodable requests still receive `405`,
+  `413`, or `400` before they become deliveries.
 
 Use it when the producer cannot wait for processing and occasional loss on a
 crash is acceptable. Keep the default when every accepted request must be
@@ -143,11 +143,34 @@ order.
 
 ## Closing
 
-`close` stops accepting connections, answers queued requests that were not
-received with `503`, and waits until open connections have answered their
-current request. Idle keep-alive connections are closed. The subscription
-runtime closes the source after draining, within its drain timeout. Dropping
-the source also stops the listener.
+When the subscription stops receiving, on application shutdown or a failure,
+the runtime calls `stop_receiving` before draining. The source then stops
+accepting connections, closes idle keep-alive connections, and answers queued
+requests that were not received with `503`. New connections are refused while
+received requests drain; their connections stay open until each delivery
+completes and its response is sent.
+
+`close` runs after draining, within the drain timeout. It does the same and
+then waits until open connections have answered their current request.
+Dropping the source also stops the listener.
+
+## Metrics
+
+The server records these metrics through the `metrics` facade, alongside the
+[subscription metrics](../runtime.md#observability). Each carries a `listener`
+label with the bound address.
+
+| Metric | Type | Extra labels | Meaning |
+|---|---|---|---|
+| `beavers_http_requests_total` | counter | `status` | Answered requests by response status |
+| `beavers_http_request_duration_seconds` | histogram | `status` | Time from receiving the request head to the response |
+| `beavers_http_requests_in_flight` | gauge | | Requests being read, decoded, or awaiting their delivery |
+| `beavers_http_connections_open` | gauge | | Open client connections |
+| `beavers_http_request_body_bytes` | histogram | | Size of bodies read within `max_body_bytes` |
+
+A request whose client disconnects before the response is not counted in
+`beavers_http_requests_total`. Decode failures appear as `status="400"` and
+never reach the subscription's `beavers_delivery_failures_total`.
 
 ## Limitations
 

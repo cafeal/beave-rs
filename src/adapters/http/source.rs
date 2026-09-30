@@ -1,5 +1,6 @@
 use super::{
     config::{HttpSourceConfig, ResponseTiming},
+    metrics::ServerMetrics,
     record::HttpRecord,
     server::{Intake, Pending, serve},
 };
@@ -92,6 +93,7 @@ where
             requests: sender,
             codec: self.codec.clone(),
             max_body_bytes: self.config.max_body_bytes,
+            metrics: Arc::new(ServerMetrics::new(self.local_addr)),
         };
         let server = tokio::spawn(serve(listener, intake, self.shutdown.clone()));
         self.state = State::Serving { requests, server };
@@ -127,8 +129,19 @@ where
         })
     }
 
-    /// Stops accepting connections and answers requests not yet received with
-    /// `503`, then waits until open connections finish their current request.
+    /// Stops accepting connections, closes idle ones, and answers requests not
+    /// yet received with `503`. Requests already received keep their
+    /// connections until their deliveries complete.
+    fn stop_receiving(&mut self) {
+        self.shutdown.cancel();
+        if let State::Serving { requests, .. } = &mut self.state {
+            requests.close();
+            while requests.try_recv().is_ok() {}
+        }
+    }
+
+    /// Stops receiving as [`stop_receiving`](Source::stop_receiving) does, then
+    /// waits until open connections finish their current request.
     async fn close(&mut self) -> anyhow::Result<()> {
         self.shutdown.cancel();
         if let State::Serving { requests, server } = mem::replace(&mut self.state, State::Closed) {

@@ -5,11 +5,20 @@ use beavers::{
     Source, SourceMessage, Subscription, Utf8,
     adapters::http::{HttpRecord, HttpSource, HttpSourceConfig, ResponseTiming},
 };
+use metrics_util::{
+    CompositeKey,
+    debugging::{DebugValue, DebuggingRecorder, Snapshotter},
+};
 use serde::Deserialize;
-use std::{net::SocketAddr, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
+    sync::Notify,
     task::JoinHandle,
 };
 
@@ -283,4 +292,120 @@ async fn receive_timing_answers_accepted_before_processing() {
     assert_eq!(next.await.unwrap(), 202);
     message.ack().await.unwrap();
     source.close().await.unwrap();
+}
+
+fn snapshotter() -> &'static Snapshotter {
+    static SNAPSHOTTER: OnceLock<Snapshotter> = OnceLock::new();
+    SNAPSHOTTER.get_or_init(|| {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        recorder.install().unwrap();
+        snapshotter
+    })
+}
+
+fn labels(key: &CompositeKey) -> Vec<(String, String)> {
+    key.key()
+        .labels()
+        .map(|label| (label.key().to_owned(), label.value().to_owned()))
+        .collect()
+}
+
+#[tokio::test]
+async fn server_metrics_count_requests_by_status() {
+    let snapshotter = snapshotter();
+    let mut source = HttpSource::<Json, Order>::new(config()).unwrap();
+    let addr = source.local_addr();
+    let listener = addr.to_string();
+    let client = tokio::spawn(async move {
+        (
+            request(addr, "GET", "/", &[], b"").await,
+            post(addr, b"not json").await,
+            post(addr, br#"{"id":1}"#).await,
+        )
+    });
+    let Receive::Message(message) = source.receive().await.unwrap() else {
+        panic!("expected a delivery");
+    };
+    message.ack().await.unwrap();
+    assert_eq!(client.await.unwrap(), (405, 400, 200));
+    source.close().await.unwrap();
+
+    let mut requests = Vec::new();
+    let mut durations = 0;
+    let mut bodies = Vec::new();
+    for (key, _, _, value) in snapshotter.snapshot().into_vec() {
+        let labels = labels(&key);
+        if !labels.contains(&("listener".to_owned(), listener.clone())) {
+            continue;
+        }
+        let status = labels
+            .iter()
+            .find(|(name, _)| name == "status")
+            .map(|(_, value)| value.clone());
+        match (key.key().name(), value) {
+            ("beavers_http_requests_total", DebugValue::Counter(count)) => {
+                requests.push((status.unwrap(), count));
+            }
+            ("beavers_http_request_duration_seconds", DebugValue::Histogram(samples)) => {
+                durations += samples.len();
+            }
+            ("beavers_http_request_body_bytes", DebugValue::Histogram(samples)) => {
+                bodies.extend(samples.into_iter().map(|sample| sample.into_inner()));
+            }
+            _ => {}
+        }
+    }
+    requests.sort();
+    assert_eq!(
+        requests,
+        vec![
+            ("200".to_owned(), 1),
+            ("400".to_owned(), 1),
+            ("405".to_owned(), 1)
+        ]
+    );
+    assert_eq!(durations, 3);
+    bodies.sort_by(f64::total_cmp);
+    assert_eq!(bodies, vec![8.0, 8.0]);
+}
+
+#[tokio::test]
+async fn shutdown_stops_accepting_while_received_requests_complete() {
+    let source = HttpSource::<Utf8, String>::new(config()).unwrap();
+    let addr = source.local_addr();
+    let started = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let shutdown = CancellationToken::new();
+    let app = run(
+        App::new().subscribe(
+            "shutdown_stops_accepting_while_received_requests_complete",
+            source,
+            InMemorySink::default(),
+            {
+                let started = started.clone();
+                let release = release.clone();
+                move |record: HttpRecord<String>| {
+                    let started = started.clone();
+                    let release = release.clone();
+                    async move {
+                        started.notify_one();
+                        release.notified().await;
+                        Ok(record.body)
+                    }
+                }
+            },
+        ),
+        &shutdown,
+    );
+    let in_progress = tokio::spawn(post(addr, b"first"));
+    started.notified().await;
+
+    shutdown.cancel();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(TcpStream::connect(addr).await.is_err());
+
+    release.notify_one();
+    assert_eq!(in_progress.await.unwrap(), 200);
+    app.await.unwrap().unwrap();
 }

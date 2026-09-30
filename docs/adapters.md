@@ -184,6 +184,9 @@ Keep these contracts explicit:
 - A source whose deliveries can move to another consumer returns a revocation
   `CancellationToken` from `SourceMessage::revocation` and cancels it when the
   delivery is no longer owned.
+- A source that accepts input from clients, such as a server, stops accepting
+  it in `Source::stop_receiving`, which the runtime calls when it stops
+  receiving on shutdown or failure, before draining.
 
 `Delivery::with_ordering_key` and `Delivery::with_revocation` provide both for
 custom sources built on `Delivery<T>`.

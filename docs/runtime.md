@@ -487,7 +487,10 @@ starts draining running jobs. Deliveries still queued behind an ordering key are
 dropped without ACK. After `Receive::End`, queued deliveries still run. A source whose
 `stops_on_shutdown` returns `false`, such as a `ChannelSource` created by `channel`,
 keeps receiving until its upstream subscriptions close it; see
-[channel shutdown](adapters/channel.md#shutdown). A drain
+[channel shutdown](adapters/channel.md#shutdown). When a subscription stops
+receiving before its source ended, the runtime calls `Source::stop_receiving`
+before draining, so a source such as the [HTTP source](adapters/http.md#closing)
+refuses new input instead of queuing it. A drain
 timeout cancels unfinished tasks, then cleanup runs with its own deadline. In-progress publish or ACK can have an uncertain result if
 interrupted; a durable broker may redeliver and cause duplicates.
 
