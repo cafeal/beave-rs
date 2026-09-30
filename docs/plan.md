@@ -124,21 +124,22 @@ never classify ambiguous completion as success.
 
 ## Concurrency and ordering
 
-Add partition-aware scheduling for brokers with partition ordering. Kafka should
-process sequentially within a partition by default while allowing parallel work
-across partitions. An explicit unordered mode may allow multiple in-flight
-messages from one partition while offset commits continue to advance only over
-contiguous completed deliveries.
+Per-key scheduling bounds consumption with `max_in_flight`, but one busy
+partition can fill that bound and stop receiving for every partition. Coordinate
+runtime backpressure with adapter pause/resume capabilities, such as pausing a
+Kafka partition whose queue reaches a per-key limit, so other partitions keep
+flowing. The design must define the per-key limit, resume timing, and the pause
+state across rebalances.
 
-The design must coordinate runtime backpressure with adapter pause/resume
-capabilities and avoid unbounded consumption when a handler or sink is slow.
+Pulsar deliveries currently have no ordering key. Decide whether Failover and
+Exclusive subscriptions should order by topic partition and Key_Shared
+subscriptions by message key.
 
 ## Kafka rebalance behavior
 
-Define the cancellation strategy for work in flight when Kafka revokes a
-partition. The adapter and runtime must coordinate ownership changes, handler
-cancellation, publication already in progress, and safe commits without leaking
-rebalance details into ordinary handler APIs.
+Revoked partitions currently abandon in-flight work immediately. Evaluate an
+optional graceful handoff that delays revoke completion for a bounded time so
+work in flight can finish and commit, reducing duplicates for the next owner.
 
 ## Observability
 
@@ -178,7 +179,7 @@ lifecycle before implementation.
 | Priority | Scope |
 |---|---|
 | 1 | Metadata middleware and same-platform inheritance |
-| 2 | Partition-aware scheduling and Kafka rebalance cancellation |
+| 2 | Adapter pause/resume backpressure and graceful rebalance handoff |
 | 3 | Error-policy and dead-letter refinements |
 | 4 | Observability and trace-context propagation |
 | 5 | Kafka transactions and exactly-once processing |

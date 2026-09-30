@@ -1,3 +1,4 @@
+use crate::shutdown::CancellationToken;
 use rdkafka::{
     ClientContext,
     consumer::{BaseConsumer, ConsumerContext, Rebalance, StreamConsumer},
@@ -18,6 +19,7 @@ pub(super) struct Progress {
 
 struct PartitionProgress {
     generation: u64,
+    revoked: CancellationToken,
     next: Option<i64>,
     received: BTreeMap<i64, bool>,
 }
@@ -29,6 +31,7 @@ impl Progress {
             *generation = generation.wrapping_add(1);
             PartitionProgress {
                 generation: *generation,
+                revoked: CancellationToken::new(),
                 next: None,
                 received: BTreeMap::new(),
             }
@@ -36,7 +39,9 @@ impl Progress {
     }
 
     fn revoke(&mut self, key: &Partition) {
-        self.active.remove(key);
+        if let Some(partition) = self.active.remove(key) {
+            partition.revoked.cancel();
+        }
         let generation = self.generations.entry(key.clone()).or_default();
         *generation = generation.wrapping_add(1);
     }
@@ -48,9 +53,14 @@ impl Progress {
         }
     }
 
-    pub(super) fn register(&mut self, key: Partition, offset: i64) -> u64 {
-        self.activate(key.clone());
-        let partition = self.active.get_mut(&key).expect("activated partition");
+    /// Registers a received offset for the current assignment. Records from a
+    /// partition that is not assigned are stale and return `None`.
+    pub(super) fn register(
+        &mut self,
+        key: &Partition,
+        offset: i64,
+    ) -> Option<(u64, CancellationToken)> {
+        let partition = self.active.get_mut(key)?;
         match partition.next {
             Some(next) if offset < next => {}
             Some(_) => {
@@ -61,7 +71,7 @@ impl Progress {
                 partition.received.entry(offset).or_insert(false);
             }
         }
-        partition.generation
+        Some((partition.generation, partition.revoked.clone()))
     }
 
     pub(super) fn complete(
@@ -142,27 +152,42 @@ mod tests {
         ("orders".to_owned(), 0)
     }
 
+    fn assigned(keys: impl IntoIterator<Item = Partition>) -> Progress {
+        let mut progress = Progress::default();
+        for key in keys {
+            progress.activate(key);
+        }
+        progress
+    }
+
+    fn register(progress: &mut Progress, key: &Partition, offset: i64) -> u64 {
+        progress
+            .register(key, offset)
+            .expect("assigned partition")
+            .0
+    }
+
     #[test]
     fn completion_commits_only_the_contiguous_registered_prefix() {
-        let mut progress = Progress::default();
         let key = key();
-        let generation = progress.register(key.clone(), 7);
-        progress.register(key.clone(), 9);
+        let mut progress = assigned([key.clone()]);
+        let generation = register(&mut progress, &key, 7);
+        register(&mut progress, &key, 9);
 
         assert_eq!(progress.complete(generation, &key, 9).unwrap(), None);
         assert_eq!(progress.complete(generation, &key, 7).unwrap(), Some(8));
         progress.committed(generation, &key, 8);
         assert_eq!(progress.complete(generation, &key, 9).unwrap(), None);
 
-        progress.register(key.clone(), 8);
+        register(&mut progress, &key, 8);
         assert_eq!(progress.complete(generation, &key, 8).unwrap(), Some(10));
     }
 
     #[test]
     fn failed_commit_keeps_completed_prefix_for_a_later_retry() {
-        let mut progress = Progress::default();
         let key = key();
-        let generation = progress.register(key.clone(), 3);
+        let mut progress = assigned([key.clone()]);
+        let generation = register(&mut progress, &key, 3);
         assert_eq!(progress.complete(generation, &key, 3).unwrap(), Some(4));
         assert_eq!(progress.complete(generation, &key, 3).unwrap(), Some(4));
         progress.committed(generation, &key, 4);
@@ -171,14 +196,15 @@ mod tests {
 
     #[test]
     fn rebalance_generation_is_scoped_to_the_revoked_partition() {
-        let mut progress = Progress::default();
         let first = key();
         let second = ("orders".to_owned(), 1);
-        let first_generation = progress.register(first.clone(), 0);
-        let second_generation = progress.register(second.clone(), 0);
+        let mut progress = assigned([first.clone(), second.clone()]);
+        let first_generation = register(&mut progress, &first, 0);
+        let second_generation = register(&mut progress, &second, 0);
 
         progress.revoke(&first);
-        let reassigned_generation = progress.register(first.clone(), 0);
+        progress.activate(first.clone());
+        let reassigned_generation = register(&mut progress, &first, 0);
         assert_ne!(first_generation, reassigned_generation);
         assert!(progress.complete(first_generation, &first, 0).is_err());
         assert_eq!(
@@ -188,10 +214,43 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_delivery_is_safe_after_commit_but_unknown_offsets_are_not() {
-        let mut progress = Progress::default();
+    fn revocation_cancels_only_the_revoked_assignment() {
+        let first = key();
+        let second = ("orders".to_owned(), 1);
+        let mut progress = assigned([first.clone(), second.clone()]);
+        let (_, first_token) = progress.register(&first, 0).unwrap();
+        let (_, second_token) = progress.register(&second, 0).unwrap();
+
+        progress.revoke(&first);
+        assert!(first_token.is_cancelled());
+        assert!(!second_token.is_cancelled());
+
+        progress.activate(first.clone());
+        let (_, reassigned_token) = progress.register(&first, 0).unwrap();
+        assert!(!reassigned_token.is_cancelled());
+
+        progress.revoke_all();
+        assert!(second_token.is_cancelled());
+        assert!(reassigned_token.is_cancelled());
+    }
+
+    #[test]
+    fn records_for_unassigned_partitions_are_not_registered() {
         let key = key();
-        let generation = progress.register(key.clone(), 5);
+        let mut progress = Progress::default();
+        assert!(progress.register(&key, 0).is_none());
+
+        progress.activate(key.clone());
+        assert!(progress.register(&key, 0).is_some());
+        progress.revoke(&key);
+        assert!(progress.register(&key, 1).is_none());
+    }
+
+    #[test]
+    fn duplicate_delivery_is_safe_after_commit_but_unknown_offsets_are_not() {
+        let key = key();
+        let mut progress = assigned([key.clone()]);
+        let generation = register(&mut progress, &key, 5);
         assert_eq!(progress.complete(generation, &key, 5).unwrap(), Some(6));
         progress.committed(generation, &key, 6);
         assert_eq!(progress.complete(generation, &key, 5).unwrap(), None);
