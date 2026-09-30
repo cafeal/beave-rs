@@ -54,6 +54,10 @@ pub struct KafkaSinkConfig {
     pub properties: HashMap<String, String>,
     /// Maximum time `close` waits for queued delivery reports.
     pub close_timeout: Duration,
+    /// Maximum time each blocking operation of a
+    /// [`transactional`](super::KafkaSink::transactional) sink waits:
+    /// initialization, sending consumer offsets, commit, and abort.
+    pub transaction_timeout: Duration,
 }
 
 impl KafkaSinkConfig {
@@ -63,6 +67,7 @@ impl KafkaSinkConfig {
             topic: topic.into(),
             properties: HashMap::new(),
             close_timeout: Duration::from_secs(30),
+            transaction_timeout: Duration::from_secs(60),
         }
     }
 
@@ -72,9 +77,15 @@ impl KafkaSinkConfig {
             "Kafka brokers are required"
         );
         anyhow::ensure!(!self.topic.trim().is_empty(), "Kafka topic is required");
+        anyhow::ensure!(
+            !self.properties.contains_key(TRANSACTIONAL_ID),
+            "set the Kafka transactional ID with KafkaSink::transactional"
+        );
         validate_properties(&self.properties)
     }
 }
+
+const TRANSACTIONAL_ID: &str = "transactional.id";
 
 fn validate_properties(properties: &HashMap<String, String>) -> anyhow::Result<()> {
     for (key, value) in properties {

@@ -1,3 +1,5 @@
+#[path = "runtime/blocking.rs"]
+mod blocking;
 #[path = "runtime/concurrency.rs"]
 mod concurrency;
 #[path = "runtime/dead_letter.rs"]
@@ -12,3 +14,5 @@ mod lifecycle;
 mod ordering;
 #[path = "runtime/retry.rs"]
 mod retry;
+#[path = "runtime/transaction.rs"]
+mod transaction;

@@ -23,32 +23,6 @@ according to the actual source and sink capabilities.
 The project does not aim to provide stateful stream processing, windows, joins,
 watermarks, state stores, distributed scheduling, SQL, or general DAG execution.
 
-## Handler execution model
-
-Add an explicit wrapper for synchronous handlers instead of overlapping blanket
-implementations that attempt to infer whether a function is synchronous:
-
-```rust,ignore
-app.subscribe("async", source, sink, async_handler);
-app.subscribe("sync", source, sink, blocking(sync_handler));
-```
-
-The wrapper should implement the existing handler contract and submit work to a
-dedicated, bounded worker pool. The design must define:
-
-- pool ownership at the application or subscription level;
-- worker and queue limits;
-- startup and shutdown behavior;
-- panic handling;
-- cancellation of queued jobs;
-- treatment of results produced after the waiting future is cancelled;
-- shutdown deadlines for work already running.
-
-Cancelling an async waiter cannot forcibly stop synchronous code. Unfinished
-work must never be treated as successful or acknowledged. Async handlers can
-also block an executor thread; whether handler futures need executor isolation
-remains a separate decision.
-
 ## Cross-platform metadata mapping
 
 Typed output middleware and same-platform inheritance are described in the
@@ -79,17 +53,34 @@ when the registry is unavailable.
 
 ## Delivery semantics and transactions
 
-Kafka-to-Kafka transactions are the first exactly-once target:
+Kafka-to-Kafka transactions are described in the
+[runtime guide](runtime.md#transactions) and the
+[Kafka guide](adapters/kafka.md#transactions). Remaining work:
 
-```text
-consume → handler → begin transaction → produce output
-    → send consumed offsets to transaction → commit transaction
-```
+- Batch several deliveries into one Kafka transaction. Each delivery currently
+  commits its own transaction and one producer serializes them, so throughput
+  is bounded by commit latency. A batch must close on a size or time limit,
+  commit each partition's highest contiguous offset, and abort and retry every
+  delivery in it together.
+- A commit that times out after its retriable retries has an unknown outcome.
+  The transaction is then aborted or its producer replaced, and the retry can
+  duplicate outputs if the timed-out commit had in fact completed.
+- Pulsar transaction support, using the same `TransactionalSink` capability.
 
-Exactly-once support must be represented as a capability of a compatible
-source/sink pair. Unsupported combinations should fail at compile time where
-practical or during startup otherwise. Pulsar transaction support may be
-considered after the Kafka model is established.
+The ignored `transactional_pipeline_commits_outputs_with_offsets` test passes
+against a single-node Kafka 3.9 broker. Failure and rebalance paths have not
+been verified against a live broker. Verify with Kafka:
+
+- Outputs of an aborted transaction stay invisible to `read_committed`
+  consumers, and the retried delivery commits once.
+- A revoke waits for a commit in progress, and a delivery of the revoked
+  partition is aborted instead of committed. Blocking the rebalance callback
+  on a commit must not stall the consumer beyond `max.poll.interval.ms`.
+- Restarting an instance with the same transactional ID fences the old
+  producer, and replacing a producer after a fatal error recovers.
+- Offsets sent with the group metadata of a consumer that has rejoined the
+  group are accepted only for partitions it still owns, including under
+  cooperative rebalancing.
 
 Multiple sinks within one subscription remain deferred because partial publish
 success makes retry and acknowledgement behavior ambiguous. Any future design
@@ -167,10 +158,9 @@ message attributes) before implementation.
 | 1 | Adapter pause/resume backpressure and graceful rebalance handoff |
 | 2 | Cross-platform metadata mapping policy |
 | 3 | Observability refinements |
-| 4 | Kafka transactions and exactly-once processing |
-| 5 | Blocking-handler worker pool |
-| 6 | NATS JetStream and AWS SQS adapters |
-| 7 | Schema Registry and additional codecs |
+| 4 | Kafka transaction batching and Pulsar transactions |
+| 5 | NATS JetStream and AWS SQS adapters |
+| 6 | Schema Registry and additional codecs |
 
 The order may change when a concrete application requires a later capability.
 When work begins, update this document with any newly resolved decisions. When
@@ -185,7 +175,8 @@ in the relevant durable documentation.
 3. Compile-time versus startup validation of broker capabilities.
 4. Shutdown deadlines and cancellation policy.
 5. Adapter and codec crate boundaries as optional dependencies grow.
-6. Isolation of handler futures from communication and control execution.
+6. Isolation of async handler futures, which can block an executor thread, from
+   communication and control execution.
 
 ## Core philosophy
 

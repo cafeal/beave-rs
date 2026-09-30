@@ -120,6 +120,13 @@ impl Progress {
         Ok((candidate > next).then_some(candidate))
     }
 
+    /// Whether `generation` is the current assignment of the partition.
+    pub(super) fn is_current(&self, generation: u64, key: &Partition) -> bool {
+        self.active
+            .get(key)
+            .is_some_and(|partition| partition.generation == generation)
+    }
+
     pub(super) fn committed(&mut self, generation: u64, key: &Partition, next: i64) {
         let Some(partition) = self.active.get_mut(key) else {
             return;
@@ -134,14 +141,23 @@ impl Progress {
     }
 }
 
-pub(super) struct Context(pub(super) Arc<Mutex<Progress>>);
+/// Held while a producer transaction checks the assignment and commits
+/// offsets, so a revoke waits for that commit and a commit never starts for a
+/// revoked assignment.
+pub(super) type TransactionGate = Arc<Mutex<()>>;
+
+pub(super) struct Context {
+    pub(super) progress: Arc<Mutex<Progress>>,
+    pub(super) transactions: TransactionGate,
+}
 
 impl ClientContext for Context {}
 
 impl ConsumerContext for Context {
     fn pre_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
         if let Rebalance::Revoke(partitions) = rebalance {
-            let mut progress = self.0.lock().unwrap();
+            let _transactions = self.transactions.lock().unwrap();
+            let mut progress = self.progress.lock().unwrap();
             for partition in partitions.elements() {
                 progress.revoke(&(partition.topic().to_owned(), partition.partition()));
             }
@@ -150,7 +166,7 @@ impl ConsumerContext for Context {
 
     fn post_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
         if let Rebalance::Assign(partitions) = rebalance {
-            let mut progress = self.0.lock().unwrap();
+            let mut progress = self.progress.lock().unwrap();
             for partition in partitions.elements() {
                 progress.activate((partition.topic().to_owned(), partition.partition()));
             }
@@ -264,6 +280,22 @@ mod tests {
         progress.revoke_all();
         assert!(second_token.is_cancelled());
         assert!(reassigned_token.is_cancelled());
+    }
+
+    #[test]
+    fn only_the_current_generation_of_an_assigned_partition_is_current() {
+        let key = key();
+        let mut progress = assigned([key.clone()]);
+        let generation = register(&mut progress, &key, 0);
+        assert!(progress.is_current(generation, &key));
+        assert!(!progress.is_current(generation, &("orders".to_owned(), 1)));
+
+        progress.revoke(&key);
+        assert!(!progress.is_current(generation, &key));
+        progress.activate(key.clone());
+        assert!(!progress.is_current(generation, &key));
+        let reassigned = register(&mut progress, &key, 0);
+        assert!(progress.is_current(reassigned, &key));
     }
 
     #[test]

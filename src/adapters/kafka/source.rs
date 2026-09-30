@@ -1,6 +1,6 @@
 use super::{
     config::KafkaSourceConfig,
-    progress::{Context, KafkaConsumer, Progress},
+    progress::{Context, KafkaConsumer, Progress, TransactionGate},
     record::{KafkaMetadata, KafkaRecord},
 };
 use crate::{
@@ -29,6 +29,7 @@ pub struct KafkaSource<C, T> {
     /// Serializes acknowledgement commits, while the progress mutex remains
     /// unlocked during librdkafka's blocking synchronous commit.
     commit_gate: Arc<tokio::sync::Mutex<()>>,
+    transactions: TransactionGate,
     closed: bool,
     marker: PhantomData<T>,
 }
@@ -47,6 +48,7 @@ impl<C, T> KafkaSource<C, T> {
             consumer: None,
             progress: Arc::default(),
             commit_gate: Arc::default(),
+            transactions: Arc::default(),
             closed: false,
             marker: PhantomData,
         }
@@ -64,7 +66,10 @@ impl<C, T> KafkaSource<C, T> {
             .set("group.id", &self.config.group_id)
             .set("enable.auto.commit", "false")
             .set("enable.auto.offset.store", "false");
-        let consumer: KafkaConsumer = config.create_with_context(Context(self.progress.clone()))?;
+        let consumer: KafkaConsumer = config.create_with_context(Context {
+            progress: self.progress.clone(),
+            transactions: self.transactions.clone(),
+        })?;
         consumer.subscribe(
             &self
                 .config
@@ -110,6 +115,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for KafkaSource<C, 
                 consumer: consumer.clone(),
                 progress: self.progress.clone(),
                 commit_gate: self.commit_gate.clone(),
+                transactions: self.transactions.clone(),
                 generation,
                 revoked,
                 marker: PhantomData,
@@ -119,7 +125,10 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for KafkaSource<C, 
 
     async fn close(&mut self) -> anyhow::Result<()> {
         self.closed = true;
-        self.progress.lock().unwrap().revoke_all();
+        {
+            let _transactions = self.transactions.lock().unwrap();
+            self.progress.lock().unwrap().revoke_all();
+        }
         if let Some(consumer) = self.consumer.take() {
             consumer.unsubscribe();
         }
@@ -129,12 +138,13 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for KafkaSource<C, 
 
 /// One Kafka delivery. Dropping it leaves its Kafka offset uncommitted.
 pub struct KafkaMessage<C, T> {
-    raw: OwnedMessage,
+    pub(super) raw: OwnedMessage,
     codec: Arc<C>,
-    consumer: Arc<KafkaConsumer>,
-    progress: Arc<Mutex<Progress>>,
+    pub(super) consumer: Arc<KafkaConsumer>,
+    pub(super) progress: Arc<Mutex<Progress>>,
     commit_gate: Arc<tokio::sync::Mutex<()>>,
-    generation: u64,
+    pub(super) transactions: TransactionGate,
+    pub(super) generation: u64,
     revoked: CancellationToken,
     marker: PhantomData<T>,
 }

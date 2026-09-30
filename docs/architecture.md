@@ -15,6 +15,7 @@ src/
 ├── message.rs             # SourceMessage and Delivery ownership
 ├── sink.rs                # Prepare, publish, and close contracts
 ├── handler.rs             # Handler, Emit, HandlerError, and Result
+├── blocking.rs            # Synchronous handlers on a bounded worker pool
 ├── error_policy.rs        # FailureKind, FailureAction, and ErrorPolicy
 ├── dead_letter.rs         # DeadLetter envelope
 ├── retry.rs               # Retry policy and jitter
@@ -84,10 +85,9 @@ lose a delivery.
 normalizes results into `Emit` internally. Retry and middleware currently require
 inputs to implement `Clone + Send + Sync`.
 
-The future-returning contract can later accommodate a `blocking(...)` wrapper
-that submits synchronous work to a worker pool and asynchronously waits for its
-result. This does not require changing Source or Sink to synchronous APIs. The
-wrapper and pool are [planned, not implemented](plan.md#handler-execution-model).
+`blocking(...)` wraps a synchronous function in a `Handler` that submits each
+call to a `BlockingPool` and asynchronously waits for its result, so Source and
+Sink stay asynchronous. See [blocking handlers](runtime.md#blocking-handlers).
 
 See the [codec guide](codecs.md) for serialization implementations and payload bounds.
 
@@ -103,6 +103,14 @@ or encoder. A successful `publish` means the sink's acknowledgement boundary has
 been reached. It must not report success while required output confirmation is
 still outstanding.
 
+A sink can also implement `TransactionalSink<M, T>` for a source message type
+`M` whose acknowledgement can join the sink's transactions. Its `commit`
+publishes a delivery's prepared outputs and acknowledges the delivery
+atomically, and must finish or abort the transaction even when its future is
+dropped. `Subscription::transactional()` requires this implementation, so an
+unsupported source and sink pair is rejected at compile time. See the
+[runtime guide](runtime.md#transactions).
+
 ### Configuration ownership
 
 `SubscriptionConfig` holds processing policy. Source and Sink connection settings
@@ -115,6 +123,6 @@ and publish types, and other mappings are explicit application functions. See
 the [runtime guide](runtime.md#middleware).
 
 Future broker adapters implement these boundaries and can move into separate
-crates when SDK dependencies require it. Transaction support and ordering
-capabilities still require the work described in the
+crates when SDK dependencies require it. Further transaction support and
+ordering capabilities still require the work described in the
 [design plan](plan.md).

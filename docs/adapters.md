@@ -14,6 +14,7 @@ types are also re-exported at the crate root.
 | `StdoutSink<C>` | Line-delimited output | JSON output, files, pipes |
 | `ChannelSource<T>` / `ChannelSink<T>` | Bounded typed queue | In-process pipelines |
 | `KafkaSource<C, T>` / `KafkaSink<C, T>` | Kafka records and publishes | Durable broker pipelines (`kafka` feature) |
+| `KafkaTransactionalSink<C, T>` | Kafka publishes in producer transactions | Exactly-once Kafka-to-Kafka pipelines (`kafka` feature) |
 | `PulsarSource<C, T>` / `PulsarSink<C, T>` | Pulsar records and publishes | Durable broker pipelines (`pulsar` feature) |
 
 NATS JetStream and SQS are [planned](plan.md#implementation-order). Local and
@@ -131,7 +132,7 @@ are fatal receive errors.
 The first receive starts a dedicated reader thread with a bounded channel. This
 bounds queued lines, not individual line size; there is no maximum line-length
 setting. Reading from a custom iterator or stdin is not a substitute for the
-[planned blocking-handler pool](plan.md#handler-execution-model).
+[blocking-handler pool](runtime.md#blocking-handlers).
 
 Closing the source closes its channel. An in-progress OS read may remain blocked,
 but the detached reader does not prevent Tokio runtime shutdown. Use only one

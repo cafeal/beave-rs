@@ -6,6 +6,7 @@
 
 pub mod adapters;
 pub mod app;
+pub mod blocking;
 pub mod codec;
 pub mod dead_letter;
 pub mod error_policy;
@@ -22,11 +23,13 @@ pub mod subscription;
 #[cfg(feature = "opentelemetry")]
 pub mod telemetry;
 pub mod tombstone;
+pub mod transaction;
 
 pub use adapters::{
     ChannelSink, ChannelSource, InMemorySink, IterSource, StdinSource, StdoutSink, channel,
 };
 pub use app::App;
+pub use blocking::{Blocking, BlockingPool, blocking};
 #[cfg(feature = "avro")]
 pub use codec::Avro;
 #[cfg(feature = "protobuf")]
@@ -47,3 +50,4 @@ pub use subscription::{ProcessingOrder, Subscription, SubscriptionConfig};
 #[cfg(feature = "opentelemetry")]
 pub use telemetry::TraceContext;
 pub use tombstone::{PropagateTombstones, TombstonePublish, TombstoneRecord, Tombstones};
+pub use transaction::TransactionalSink;
