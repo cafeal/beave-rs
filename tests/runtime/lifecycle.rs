@@ -7,7 +7,12 @@ async fn finite_input_publishes_then_acks() {
     let acks = source.acknowledgements();
     let sink = InMemorySink::default();
     App::new()
-        .subscribe(source, sink.clone(), |n| async move { Ok(n * 2) })
+        .subscribe(
+            "finite_input_publishes_then_acks",
+            source,
+            sink.clone(),
+            |n| async move { Ok(n * 2) },
+        )
         .run()
         .await
         .unwrap();
@@ -20,6 +25,7 @@ async fn explicit_many_and_none_and_plain_vec() {
     let sink = InMemorySink::default();
     App::new()
         .subscription(Subscription::new_emitting(
+            "explicit_many_and_none_and_plain_vec",
             IterSource::new([0, 1]),
             sink.clone(),
             |n| async move {
@@ -37,9 +43,12 @@ async fn explicit_many_and_none_and_plain_vec() {
 
     let sink = InMemorySink::default();
     App::new()
-        .subscribe(IterSource::new([1]), sink.clone(), |n| async move {
-            Ok(vec![n, n])
-        })
+        .subscribe(
+            "explicit_many_and_none_and_plain_vec",
+            IterSource::new([1]),
+            sink.clone(),
+            |n| async move { Ok(vec![n, n]) },
+        )
         .run()
         .await
         .unwrap();
@@ -53,12 +62,55 @@ async fn invalid_config_fails_before_processing() {
     assert!(
         App::new()
             .subscription(
-                Subscription::new(source, InMemorySink::default(), |n| async move { Ok(n) })
-                    .concurrency(0)
+                Subscription::new(
+                    "invalid_config_fails_before_processing",
+                    source,
+                    InMemorySink::default(),
+                    |n| async move { Ok(n) }
+                )
+                .concurrency(0)
             )
             .run()
             .await
             .is_err()
+    );
+    assert_eq!(acks.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn subscription_names_must_be_unique_and_non_empty() {
+    let source = IterSource::new([1]);
+    let acks = source.acknowledgements();
+    let error = App::new()
+        .subscribe(
+            "orders",
+            source,
+            InMemorySink::default(),
+            |n: i32| async move { Ok(n) },
+        )
+        .subscribe(
+            "orders",
+            IterSource::new([2]),
+            InMemorySink::default(),
+            |n: i32| async move { Ok(n) },
+        )
+        .subscribe(
+            " ",
+            IterSource::new([3]),
+            InMemorySink::default(),
+            |n: i32| async move { Ok(n) },
+        )
+        .run()
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("duplicate subscription name \"orders\""),
+        "{error}"
+    );
+    assert!(
+        error.contains("subscription name must not be empty"),
+        "{error}"
     );
     assert_eq!(acks.load(Ordering::SeqCst), 0);
 }

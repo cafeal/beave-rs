@@ -15,10 +15,15 @@ async fn shutdown_aborts_timed_out_processing_without_ack() {
     let source = IterSource::new([1]);
     let acks = source.acknowledgements();
     let app = App::new().subscription(
-        Subscription::new(source, InMemorySink::<i32>::default(), move |_| {
-            stop.cancel();
-            async { pending::<Result<i32>>().await }
-        })
+        Subscription::new(
+            "shutdown_aborts_timed_out_processing_without_ack",
+            source,
+            InMemorySink::<i32>::default(),
+            move |_| {
+                stop.cancel();
+                async { pending::<Result<i32>>().await }
+            },
+        )
         .drain_timeout(Duration::from_millis(10)),
     );
     assert!(app.run_until(token).await.is_err());
@@ -34,15 +39,20 @@ async fn backpressure_limits_receiving_and_allows_parallel_work() {
     let gate = Arc::new(tokio::sync::Semaphore::new(0));
     let handler_gate = gate.clone();
     let app = App::new().subscription(
-        Subscription::new(source, InMemorySink::default(), move |n| {
-            let gate = handler_gate.clone();
-            let count = count.clone();
-            async move {
-                count.fetch_add(1, Ordering::SeqCst);
-                gate.acquire().await.unwrap().forget();
-                Ok(n)
-            }
-        })
+        Subscription::new(
+            "backpressure_limits_receiving_and_allows_parallel_work",
+            source,
+            InMemorySink::default(),
+            move |n| {
+                let gate = handler_gate.clone();
+                let count = count.clone();
+                async move {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    gate.acquire().await.unwrap().forget();
+                    Ok(n)
+                }
+            },
+        )
         .concurrency(4)
         .max_in_flight(2),
     );

@@ -63,6 +63,13 @@ pub trait SourceMessage: Send + 'static {
     fn revocation(&self) -> Option<CancellationToken> {
         None
     }
+    /// Text-map fields received with this delivery that can carry trace context,
+    /// such as a W3C `traceparent` Kafka header or Pulsar property. With the
+    /// `opentelemetry` feature, the runtime extracts the delivery span's remote
+    /// parent from them. Sources without such metadata return nothing.
+    fn propagation_fields(&self) -> Vec<(&str, &str)> {
+        Vec::new()
+    }
 }
 
 type AckFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;

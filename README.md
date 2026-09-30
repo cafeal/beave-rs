@@ -23,7 +23,7 @@ async fn double(value: u64) -> Result<u64> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     App::new()
-        .subscribe(IterSource::new([1, 2, 3]), StdoutSink::<Json>::new(), double)
+        .subscribe("double", IterSource::new([1, 2, 3]), StdoutSink::<Json>::new(), double)
         .run()
         .await
 }
@@ -46,6 +46,11 @@ The example writes one JSON event per line, such as `{"order_id":10}`.
 - [Architecture and trait contracts](docs/architecture.md)
 - [Runtime behavior, configuration, and limitations](docs/runtime.md)
 - [Design plan and roadmap](docs/plan.md)
+
+The runtime emits `tracing` spans and `metrics` counters and histograms for
+every delivery stage. The optional `opentelemetry` feature propagates trace
+context through Kafka headers and Pulsar properties. See
+[observability](docs/runtime.md#observability).
 
 Kafka and Pulsar are optional Cargo features. See the [adapter guide](docs/adapters.md)
 for feature flags and delivery semantics. Synchronous handlers through

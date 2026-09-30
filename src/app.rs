@@ -6,7 +6,7 @@ use crate::{
     source::{Source, SourceItem},
     subscription::Subscription,
 };
-use std::{future::Future, pin::Pin};
+use std::{collections::HashSet, future::Future, pin::Pin};
 use tokio::task::JoinSet;
 
 type Runner = Box<
@@ -16,20 +16,27 @@ type Runner = Box<
 #[derive(Default)]
 pub struct App {
     subscriptions: Vec<Runner>,
+    names: HashSet<String>,
     validation: Vec<String>,
 }
 impl App {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn subscribe<S, K, H, O>(self, source: S, sink: K, handler: H) -> Self
+    pub fn subscribe<S, K, H, O>(
+        self,
+        name: impl Into<String>,
+        source: S,
+        sink: K,
+        handler: H,
+    ) -> Self
     where
         S: Source,
         K: Sink<O>,
         H: Handler<SourceItem<S>, Output = O>,
         O: Send + Sync + 'static,
     {
-        self.subscription(Subscription::new(source, sink, handler))
+        self.subscription(Subscription::new(name, source, sink, handler))
     }
     pub fn subscription<S, K, O>(mut self, subscription: Subscription<S, K, O>) -> Self
     where
@@ -39,6 +46,13 @@ impl App {
     {
         if let Err(error) = subscription.validate() {
             self.validation.push(error.to_string());
+        }
+        // Names label logs, spans, and metrics, so two subscriptions must not share one.
+        if !self.names.insert(subscription.name().to_owned()) {
+            self.validation.push(format!(
+                "duplicate subscription name {:?}",
+                subscription.name()
+            ));
         }
         self.subscriptions
             .push(Box::new(|token| Box::pin(subscription.run(token))));

@@ -113,10 +113,14 @@ async fn connected_subscriptions_drain_and_finish() {
     let (sink, source) = channel(1);
     let output = InMemorySink::default();
     App::new()
-        .subscribe(IterSource::new([1, 2, 3]), sink, |value: i32| async move {
-            Ok(value * 2)
-        })
         .subscribe(
+            "double",
+            IterSource::new([1, 2, 3]),
+            sink,
+            |value: i32| async move { Ok(value * 2) },
+        )
+        .subscribe(
+            "increment",
             source,
             output.clone(),
             |value: i32| async move { Ok(value + 1) },

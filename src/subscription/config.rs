@@ -16,7 +16,6 @@ pub enum ProcessingOrder {
 
 #[derive(Clone, Debug)]
 pub struct SubscriptionConfig {
-    pub name: String,
     /// Maximum number of deliveries processed at the same time.
     pub concurrency: usize,
     /// Maximum number of received deliveries that are unfinished, including
@@ -33,7 +32,6 @@ pub struct SubscriptionConfig {
 impl Default for SubscriptionConfig {
     fn default() -> Self {
         Self {
-            name: "subscription".into(),
             concurrency: 1,
             max_in_flight: 64,
             ordering: ProcessingOrder::default(),

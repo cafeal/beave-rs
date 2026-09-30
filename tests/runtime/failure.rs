@@ -18,10 +18,12 @@ async fn reject_goes_to_dlq_before_ack() {
     let dlq = InMemorySink::default();
     App::new()
         .subscription(
-            Subscription::new(source, InMemorySink::<i32>::default(), |_| async {
-                Err(HandlerError::Reject(anyhow::anyhow!("invalid")))
-            })
-            .name("orders")
+            Subscription::new(
+                "orders",
+                source,
+                InMemorySink::<i32>::default(),
+                |_| async { Err(HandlerError::Reject(anyhow::anyhow!("invalid"))) },
+            )
             .dlq(dlq.clone()),
         )
         .run()
@@ -44,6 +46,7 @@ async fn rejects_without_dlq_and_fatal_leave_input_unacked() {
         assert!(
             App::new()
                 .subscribe(
+                    "rejects_without_dlq_and_fatal_leave_input_unacked",
                     source,
                     InMemorySink::<i32>::default(),
                     move |_| async move {
@@ -66,11 +69,13 @@ async fn rejects_without_dlq_and_fatal_leave_input_unacked() {
 async fn fatal_stops_other_subscription_waiting_for_input() {
     let app = App::new()
         .subscribe(
+            "waiting",
             Waiting,
             InMemorySink::<i32>::default(),
             |n| async move { Ok(n) },
         )
         .subscribe(
+            "failing",
             IterSource::new([1]),
             InMemorySink::<i32>::default(),
             |_| async { Err(HandlerError::Fatal(anyhow::anyhow!("stop"))) },
@@ -95,9 +100,12 @@ async fn failed_dlq_does_not_ack() {
     assert!(
         App::new()
             .subscription(
-                Subscription::new(source, InMemorySink::<i32>::default(), |_| async {
-                    Err(HandlerError::Reject(anyhow::anyhow!("reject")))
-                })
+                Subscription::new(
+                    "failed_dlq_does_not_ack",
+                    source,
+                    InMemorySink::<i32>::default(),
+                    |_| async { Err(HandlerError::Reject(anyhow::anyhow!("reject"))) }
+                )
                 .dlq_with(dlq, |dead_letter| Ok(dead_letter.input.unwrap()))
                 .dlq_retry(fast())
             )
@@ -118,10 +126,15 @@ async fn mapping_failure_does_not_rerun_handler_or_publish() {
     assert!(
         App::new()
             .subscription(
-                Subscription::new(source, sink.clone(), move |n| {
-                    counter.fetch_add(1, Ordering::SeqCst);
-                    async move { Ok(n) }
-                })
+                Subscription::new(
+                    "mapping_failure_does_not_rerun_handler_or_publish",
+                    source,
+                    sink.clone(),
+                    move |n| {
+                        counter.fetch_add(1, Ordering::SeqCst);
+                        async move { Ok(n) }
+                    }
+                )
                 .middleware(MapMetadata::new(|_, _| {
                     Err(HandlerError::Retry(anyhow::anyhow!("mapping failed")))
                 }))
@@ -143,9 +156,12 @@ async fn rejected_mapping_publishes_no_output_and_dead_letters_input() {
     let dlq = InMemorySink::default();
     App::new()
         .subscription(
-            Subscription::new_emitting(source, sink.clone(), |n| async move {
-                Ok(Emit::Many(vec![n, n + 1]))
-            })
+            Subscription::new_emitting(
+                "rejected_mapping_publishes_no_output_and_dead_letters_input",
+                source,
+                sink.clone(),
+                |n| async move { Ok(Emit::Many(vec![n, n + 1])) },
+            )
             .middleware(MapMetadata::new(|_, n: i32| {
                 if n % 2 == 0 {
                     Err(HandlerError::Reject(anyhow::anyhow!("unmappable")))
@@ -173,9 +189,15 @@ async fn rejected_mapping_without_dlq_leaves_input_unacked() {
     assert!(
         App::new()
             .subscription(
-                Subscription::new(source, sink.clone(), |n| async move { Ok(n) }).middleware(
-                    MapMetadata::new(|_, _| Err(HandlerError::Reject(anyhow::anyhow!("reject"))))
+                Subscription::new(
+                    "rejected_mapping_without_dlq_leaves_input_unacked",
+                    source,
+                    sink.clone(),
+                    |n| async move { Ok(n) }
                 )
+                .middleware(MapMetadata::new(|_, _| Err(HandlerError::Reject(
+                    anyhow::anyhow!("reject")
+                ))))
             )
             .run()
             .await

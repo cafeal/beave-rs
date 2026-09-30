@@ -1,5 +1,8 @@
 //! One delivery: decode, middleware, handler retries, publishing, failure routing, then ACK.
-use super::builder::{BoxHandler, DeadLetterRoute, Mapper};
+use super::{
+    builder::{BoxHandler, DeadLetterRoute, Mapper},
+    instruments::{Instruments, Stage},
+};
 use crate::{
     dead_letter::DeadLetter,
     error_policy::{ErrorPolicy, FailureAction, FailureKind},
@@ -9,7 +12,9 @@ use crate::{
     retry::RetryPolicy,
     sink::Sink,
 };
-use std::{future::Future, sync::Arc};
+use metrics::Counter;
+use std::{future::Future, sync::Arc, time::Instant};
+use tracing::{Instrument, debug, info_span, warn};
 
 /// Everything a job needs, shared by all jobs of one subscription run.
 pub(super) struct Pipeline<I, R, O, K> {
@@ -22,6 +27,7 @@ pub(super) struct Pipeline<I, R, O, K> {
     pub(super) publish_retry: RetryPolicy,
     pub(super) dead_letter_retry: RetryPolicy,
     pub(super) error_policy: ErrorPolicy,
+    pub(super) instruments: Instruments,
 }
 
 /// A routable failure; `input` is absent only when decoding failed.
@@ -41,7 +47,10 @@ where
     O: Send + Sync + 'static,
     K: Sink<O>,
 {
-    let outcome = match delivery.decode() {
+    let started = Instant::now();
+    let decoded = info_span!("decode").in_scope(|| delivery.decode());
+    pipeline.instruments.record(Stage::Decode, started);
+    let outcome = match decoded {
         Ok(input) => handle(input, &pipeline).await?,
         Err(error) => Some(Failure {
             kind: FailureKind::Decode,
@@ -51,9 +60,20 @@ where
         }),
     };
     match outcome {
-        None => delivery.ack().await,
+        None => acknowledge(delivery, &pipeline.instruments).await,
         Some(failure) => route(delivery, &pipeline, failure).await,
     }
+}
+
+async fn acknowledge<M: SourceMessage>(
+    delivery: M,
+    instruments: &Instruments,
+) -> anyhow::Result<()> {
+    let started = Instant::now();
+    delivery.ack().instrument(info_span!("ack")).await?;
+    instruments.record(Stage::Ack, started);
+    instruments.acknowledged.increment(1);
+    Ok(())
 }
 
 /// Returns `Ok(None)` when every output was published and the delivery may be acknowledged.
@@ -94,12 +114,23 @@ where
     let mut attempts = 0;
     let outputs = loop {
         attempts += 1;
-        let (kind, error) = match (pipeline.handler)(handler_input.clone()).await {
+        let started = Instant::now();
+        let result = (pipeline.handler)(handler_input.clone())
+            .instrument(info_span!("handler", attempt = attempts))
+            .await;
+        pipeline.instruments.record(Stage::Handler, started);
+        let (kind, error) = match result {
             Ok(values) => break values.values(),
             Err(HandlerError::Retry(error)) if attempts >= policy.max_attempts => {
                 (FailureKind::RetryExhausted, error)
             }
-            Err(HandlerError::Retry(_)) => {
+            Err(HandlerError::Retry(error)) => {
+                pipeline.instruments.handler_retries.increment(1);
+                debug!(
+                    attempt = attempts,
+                    error = format!("{error:#}"),
+                    "retrying handler"
+                );
                 tokio::time::sleep(policy.delay(attempts)).await;
                 continue;
             }
@@ -151,13 +182,16 @@ where
             }
         }
     }
-    let outputs = mapped;
     // Preparing all outputs first means an encode failure never follows a partial publish.
-    let outputs = match outputs
-        .into_iter()
-        .map(|output| pipeline.sink.prepare(output))
-        .collect::<anyhow::Result<Vec<_>>>()
-    {
+    let started = Instant::now();
+    let prepared = info_span!("encode").in_scope(|| {
+        mapped
+            .into_iter()
+            .map(|output| pipeline.sink.prepare(output))
+            .collect::<anyhow::Result<Vec<_>>>()
+    });
+    pipeline.instruments.record(Stage::Encode, started);
+    let outputs = match prepared {
         Ok(outputs) => outputs,
         Err(error) => {
             return Ok(Some(Failure {
@@ -168,9 +202,20 @@ where
             }));
         }
     };
-    for output in outputs {
-        retry_publish(&pipeline.publish_retry, || pipeline.sink.publish(&output)).await?;
+    let started = Instant::now();
+    let failures = &pipeline.instruments.publish_failures;
+    async {
+        for output in &outputs {
+            retry_publish(&pipeline.publish_retry, failures, || {
+                pipeline.sink.publish(output)
+            })
+            .await?;
+        }
+        anyhow::Ok(())
     }
+    .instrument(info_span!("publish", outputs = outputs.len()))
+    .await?;
+    pipeline.instruments.record(Stage::Publish, started);
     Ok(None)
 }
 
@@ -188,9 +233,19 @@ where
         attempts,
         input,
     } = failure;
+    let instruments = &pipeline.instruments;
+    instruments.failure(kind).increment(1);
     match pipeline.error_policy.action(kind) {
         FailureAction::Stop => Err(error.context(kind)),
-        FailureAction::Discard => delivery.ack().await,
+        FailureAction::Discard => {
+            warn!(
+                failure = %kind,
+                attempts,
+                error = format!("{error:#}"),
+                "discarding delivery"
+            );
+            acknowledge(delivery, instruments).await
+        }
         FailureAction::DeadLetter => {
             let Some(dlq) = &pipeline.dlq else {
                 return Err(error
@@ -205,16 +260,30 @@ where
                 input,
                 delivery.raw(),
             );
-            dlq(dead_letter, pipeline.dead_letter_retry.clone())
-                .await
-                .map_err(|dlq_error| dlq_error.context(format!("{kind}: {error:#}")))?;
-            delivery.ack().await
+            let started = Instant::now();
+            dlq(
+                dead_letter,
+                pipeline.dead_letter_retry.clone(),
+                instruments.dead_letter_publish_failures.clone(),
+            )
+            .instrument(info_span!("dead_letter"))
+            .await
+            .map_err(|dlq_error| dlq_error.context(format!("{kind}: {error:#}")))?;
+            instruments.record(Stage::DeadLetter, started);
+            warn!(
+                failure = %kind,
+                attempts,
+                error = format!("{error:#}"),
+                "dead-lettered delivery"
+            );
+            acknowledge(delivery, instruments).await
         }
     }
 }
 
 pub(super) async fn retry_publish<F, Fut>(
     policy: &RetryPolicy,
+    failures: &Counter,
     mut publish: F,
 ) -> anyhow::Result<()>
 where
@@ -223,12 +292,17 @@ where
 {
     let mut attempt = 1;
     loop {
-        match publish().await {
+        let result = publish().await;
+        if result.is_err() {
+            failures.increment(1);
+        }
+        match result {
             Ok(()) => return Ok(()),
             Err(error) if attempt >= policy.max_attempts => {
                 return Err(error.context("publish retry exhausted"));
             }
-            Err(_) => {
+            Err(error) => {
+                debug!(attempt, error = format!("{error:#}"), "retrying publish");
                 tokio::time::sleep(policy.delay(attempt)).await;
                 attempt += 1;
             }

@@ -15,10 +15,10 @@ async fn main() -> anyhow::Result<()> {
     let output = InMemorySink::default();
 
     App::new()
-        .subscribe(IterSource::new([1, 2, 3]), sink, |value: i32| async move {
+        .subscribe("double", IterSource::new([1, 2, 3]), sink, |value: i32| async move {
             Ok(value * 2)
         })
-        .subscribe(source, output.clone(), |value: i32| async move {
+        .subscribe("increment", source, output.clone(), |value: i32| async move {
             Ok(value + 1)
         })
         .run()

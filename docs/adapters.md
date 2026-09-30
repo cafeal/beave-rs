@@ -70,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
     let sink = InMemorySink::default();
 
     App::new()
-        .subscribe(source, sink.clone(), double)
+        .subscribe("double", source, sink.clone(), double)
         .run()
         .await?;
 
@@ -102,6 +102,7 @@ async fn double(value: u64) -> Result<u64> {
 async fn main() -> anyhow::Result<()> {
     App::new()
         .subscribe(
+            "double",
             StdinSource::<Json, _>::new(),
             StdoutSink::<Json>::new(),
             double,
