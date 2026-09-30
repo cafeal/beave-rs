@@ -5,7 +5,8 @@ use super::{
 };
 use crate::{
     codec::Decoder,
-    message::SourceMessage,
+    message::{OrderingKey, SourceMessage},
+    shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
 };
 use rdkafka::{
@@ -88,23 +89,32 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for KafkaSource<C, 
             self.connect().map_err(ReceiveError::Fatal)?;
         }
         let consumer = self.consumer.as_ref().expect("connected consumer");
-        // rdkafka 0.39 documents StreamConsumer::recv as cancellation-safe.
-        let raw = consumer
-            .recv()
-            .await
-            .map_err(|error| ReceiveError::Retry(error.into()))?
-            .detach();
-        let key = (raw.topic().to_owned(), raw.partition());
-        let generation = self.progress.lock().unwrap().register(key, raw.offset());
-        Ok(Receive::Message(KafkaMessage {
-            raw,
-            codec: self.codec.clone(),
-            consumer: consumer.clone(),
-            progress: self.progress.clone(),
-            commit_gate: self.commit_gate.clone(),
-            generation,
-            marker: PhantomData,
-        }))
+        loop {
+            // rdkafka 0.39 documents StreamConsumer::recv as cancellation-safe.
+            let raw = consumer
+                .recv()
+                .await
+                .map_err(|error| ReceiveError::Retry(error.into()))?
+                .detach();
+            let key = (raw.topic().to_owned(), raw.partition());
+            // A record fetched before its partition was revoked belongs to the
+            // next owner; skip it without processing or committing.
+            let Some((generation, revoked)) =
+                self.progress.lock().unwrap().register(&key, raw.offset())
+            else {
+                continue;
+            };
+            return Ok(Receive::Message(KafkaMessage {
+                raw,
+                codec: self.codec.clone(),
+                consumer: consumer.clone(),
+                progress: self.progress.clone(),
+                commit_gate: self.commit_gate.clone(),
+                generation,
+                revoked,
+                marker: PhantomData,
+            }));
+        }
     }
 
     async fn close(&mut self) -> anyhow::Result<()> {
@@ -125,6 +135,7 @@ pub struct KafkaMessage<C, T> {
     progress: Arc<Mutex<Progress>>,
     commit_gate: Arc<tokio::sync::Mutex<()>>,
     generation: u64,
+    revoked: CancellationToken,
     marker: PhantomData<T>,
 }
 
@@ -203,5 +214,16 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for KafkaMes
             .unwrap()
             .committed(self.generation, &key, next);
         Ok(())
+    }
+
+    fn ordering_key(&self) -> Option<OrderingKey> {
+        Some(OrderingKey::new(
+            self.raw.topic(),
+            i64::from(self.raw.partition()),
+        ))
+    }
+
+    fn revocation(&self) -> Option<CancellationToken> {
+        Some(self.revoked.clone())
     }
 }

@@ -175,6 +175,14 @@ Keep these contracts explicit:
 - Dropping a received message must not ACK it.
 - Successful publication must reach the sink's documented confirmation boundary.
 - Broker-specific commit order and assignment validity belong to the adapter.
+- A source with ordered delivery scopes, such as partitions, returns an
+  `OrderingKey` from `SourceMessage::ordering_key`.
+- A source whose deliveries can move to another consumer returns a revocation
+  `CancellationToken` from `SourceMessage::revocation` and cancels it when the
+  delivery is no longer owned.
+
+`Delivery::with_ordering_key` and `Delivery::with_revocation` provide both for
+custom sources built on `Delivery<T>`.
 
 See [architecture](architecture.md) for ownership boundaries and the
 [runtime guide](runtime.md) for retry, failure, and shutdown behavior.

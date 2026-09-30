@@ -26,7 +26,8 @@ src/
 │   ├── mod.rs             # Module declarations and public re-exports
 │   ├── builder.rs         # Subscription type and builder API
 │   ├── config.rs          # Runtime configuration and validation
-│   ├── runtime.rs         # Private scheduling, draining, and cleanup
+│   ├── runtime.rs         # Private receive loop, draining, and cleanup
+│   ├── scheduler.rs       # Private ordering-key queues
 │   └── processing.rs      # Private per-message processing lifecycle
 └── adapters/
     ├── mod.rs
@@ -47,7 +48,7 @@ The scheduler and per-message processing implementation remain private.
 | Contract | Responsibility |
 |---|---|
 | `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure |
-| `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, and acknowledge completion |
+| `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key and revocation |
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
 | `Decoder<T>` / `Encoder<T>` | Convert serialization formats without broker operations |
 | `Sink<T>` | Prepare an associated output representation, publish it, and close resources |
@@ -66,7 +67,11 @@ as the adapter's `Raw` type. The runtime calls it only when a failure is routed
 to a dead-letter sink.
 
 ACK consumes the message. Its adapter owns safe broker completion behavior,
-including offset ordering and assignment validity where applicable. A custom
+including offset ordering and assignment validity where applicable. A message
+can expose an `OrderingKey` for its ordered delivery scope and a revocation
+`CancellationToken` that the adapter cancels when it loses ownership. The
+runtime uses these for [scheduling and revocation](runtime.md#ordering-and-backpressure)
+without exposing broker rebalances to handlers. A custom
 `Source::receive` must be cancellation-safe: dropping its future must not silently
 lose a delivery.
 

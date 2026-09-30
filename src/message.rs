@@ -1,5 +1,43 @@
-//! Received message ownership, decoding, and acknowledgement.
-use std::{future::Future, pin::Pin};
+//! Received message ownership, decoding, ordering scope, and acknowledgement.
+use crate::shutdown::CancellationToken;
+use std::{future::Future, pin::Pin, sync::Arc};
+
+/// Identifies a source-defined ordering scope, such as a Kafka topic partition
+/// or a message key within a Pulsar topic partition.
+///
+/// Deliveries with equal keys are processed sequentially under
+/// [`ProcessingOrder::PerKey`](crate::subscription::ProcessingOrder::PerKey).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct OrderingKey {
+    scope: Arc<str>,
+    index: i64,
+    key: Option<Arc<[u8]>>,
+}
+
+impl OrderingKey {
+    /// A whole partition-like scope, identified by a name and an index.
+    pub fn new(scope: impl Into<Arc<str>>, index: i64) -> Self {
+        Self {
+            scope: scope.into(),
+            index,
+            key: None,
+        }
+    }
+    /// Narrows the scope to one message key within it.
+    pub fn with_key(mut self, key: impl Into<Arc<[u8]>>) -> Self {
+        self.key = Some(key.into());
+        self
+    }
+    pub fn scope(&self) -> &str {
+        &self.scope
+    }
+    pub fn index(&self) -> i64 {
+        self.index
+    }
+    pub fn key(&self) -> Option<&[u8]> {
+        self.key.as_deref()
+    }
+}
 
 /// A delivery owns its ACK capability; handlers only receive decoded values.
 /// Decode must not acknowledge or publish. Dropping a message must never ACK it.
@@ -14,6 +52,17 @@ pub trait SourceMessage: Send + 'static {
     /// original payload and broker metadata even when decoding failed.
     type Raw: Send + Sync + 'static;
     fn raw(&self) -> Self::Raw;
+    /// The scope within which the source delivers in order. `None` means the
+    /// delivery has no ordering relationship with other deliveries.
+    fn ordering_key(&self) -> Option<OrderingKey> {
+        None
+    }
+    /// A token the source cancels when it no longer owns this delivery, for
+    /// example after a partition revocation. The runtime then abandons the
+    /// delivery without ACK and without treating it as a failure.
+    fn revocation(&self) -> Option<CancellationToken> {
+        None
+    }
 }
 
 type AckFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
@@ -23,6 +72,8 @@ type Acknowledge = Box<dyn FnOnce() -> AckFuture + Send>;
 pub struct Delivery<T> {
     pub value: T,
     ack: Acknowledge,
+    ordering_key: Option<OrderingKey>,
+    revocation: Option<CancellationToken>,
 }
 impl<T> Delivery<T> {
     pub fn new<F, Fut>(value: T, ack: F) -> Self
@@ -33,10 +84,20 @@ impl<T> Delivery<T> {
         Self {
             value,
             ack: Box::new(|| Box::pin(ack())),
+            ordering_key: None,
+            revocation: None,
         }
     }
     pub fn untracked(value: T) -> Self {
         Self::new(value, || async { Ok(()) })
+    }
+    pub fn with_ordering_key(mut self, key: OrderingKey) -> Self {
+        self.ordering_key = Some(key);
+        self
+    }
+    pub fn with_revocation(mut self, token: CancellationToken) -> Self {
+        self.revocation = Some(token);
+        self
     }
     pub async fn ack(self) -> anyhow::Result<()> {
         (self.ack)().await
@@ -53,5 +114,11 @@ impl<T: Clone + Send + Sync + 'static> SourceMessage for Delivery<T> {
     fn raw(&self) {}
     async fn ack(self) -> anyhow::Result<()> {
         Delivery::ack(self).await
+    }
+    fn ordering_key(&self) -> Option<OrderingKey> {
+        self.ordering_key.clone()
+    }
+    fn revocation(&self) -> Option<CancellationToken> {
+        self.revocation.clone()
     }
 }
