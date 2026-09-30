@@ -1,3 +1,5 @@
+#[path = "runtime/blocking.rs"]
+mod blocking;
 #[path = "runtime/concurrency.rs"]
 mod concurrency;
 #[path = "runtime/dead_letter.rs"]

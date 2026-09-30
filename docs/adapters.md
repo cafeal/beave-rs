@@ -131,7 +131,7 @@ are fatal receive errors.
 The first receive starts a dedicated reader thread with a bounded channel. This
 bounds queued lines, not individual line size; there is no maximum line-length
 setting. Reading from a custom iterator or stdin is not a substitute for the
-[planned blocking-handler pool](plan.md#handler-execution-model).
+[blocking-handler pool](runtime.md#blocking-handlers).
 
 Closing the source closes its channel. An in-progress OS read may remain blocked,
 but the detached reader does not prevent Tokio runtime shutdown. Use only one

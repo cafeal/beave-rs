@@ -15,6 +15,7 @@ src/
 ├── message.rs             # SourceMessage and Delivery ownership
 ├── sink.rs                # Prepare, publish, and close contracts
 ├── handler.rs             # Handler, Emit, HandlerError, and Result
+├── blocking.rs            # Synchronous handlers on a bounded worker pool
 ├── error_policy.rs        # FailureKind, FailureAction, and ErrorPolicy
 ├── dead_letter.rs         # DeadLetter envelope
 ├── retry.rs               # Retry policy and jitter
@@ -84,10 +85,9 @@ lose a delivery.
 normalizes results into `Emit` internally. Retry and middleware currently require
 inputs to implement `Clone + Send + Sync`.
 
-The future-returning contract can later accommodate a `blocking(...)` wrapper
-that submits synchronous work to a worker pool and asynchronously waits for its
-result. This does not require changing Source or Sink to synchronous APIs. The
-wrapper and pool are [planned, not implemented](plan.md#handler-execution-model).
+`blocking(...)` wraps a synchronous function in a `Handler` that submits each
+call to a `BlockingPool` and asynchronously waits for its result, so Source and
+Sink stay asynchronous. See [blocking handlers](runtime.md#blocking-handlers).
 
 See the [codec guide](codecs.md) for serialization implementations and payload bounds.
 
