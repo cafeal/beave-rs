@@ -1,6 +1,6 @@
 //! Typed subscription middleware around the handler.
 use crate::handler::{Emit, Result};
-use std::marker::PhantomData;
+use std::{future::Future, marker::PhantomData};
 
 /// The outcome of [`Middleware::pre_handler`].
 #[derive(Debug)]
@@ -14,6 +14,13 @@ pub enum Flow<I, O> {
 }
 
 /// Middleware that runs before and after the handler.
+///
+/// Both hooks are asynchronous, so a middleware can await external lookups
+/// such as a schema registry, a cache, or a metadata service. Implement them
+/// with `async fn`; the returned futures must be `Send`. The runtime awaits
+/// each hook before starting the next one, so hooks of one delivery never run
+/// concurrently. A hook without `.await` points runs to completion in its
+/// first poll.
 ///
 /// `pre_handler` runs once per delivery, in registration order, before the
 /// handler. It receives the input produced by the previous middleware and
@@ -38,22 +45,27 @@ pub enum Flow<I, O> {
 /// acknowledges it, like a handler rejection. `Retry` and `Fatal` stop
 /// processing without ACK; a middleware error never reruns the handler or the
 /// middleware.
-pub trait Middleware<I, O>: Send + Sync + 'static {
-    fn pre_handler(&self, input: I) -> Result<Flow<I, O>> {
-        Ok(Flow::Continue(input))
+pub trait Middleware<I, O>: Send + Sync + 'static
+where
+    I: Send + Sync,
+    O: Send,
+{
+    fn pre_handler(&self, input: I) -> impl Future<Output = Result<Flow<I, O>>> + Send {
+        async { Ok(Flow::Continue(input)) }
     }
 
-    fn post_handler(&self, _input: &I, output: O) -> Result<O> {
-        Ok(output)
+    fn post_handler(&self, _input: &I, output: O) -> impl Future<Output = Result<O>> + Send {
+        async { Ok(output) }
     }
 }
 
 /// Middleware backed by a function or closure `Fn(&Input, Output) -> Result<Output>`
 /// used as its `post_handler`.
 ///
-/// Use it for output mappings that the built-in adapter middleware does not
-/// cover, including cross-platform conversions between broker record and
-/// publish types.
+/// Use it for synchronous output mappings that the built-in adapter middleware
+/// does not cover, including cross-platform conversions between broker record
+/// and publish types. Implement [`Middleware`] directly when the mapping needs
+/// to await.
 pub struct MapMetadata<F, I, O> {
     map: F,
     marker: PhantomData<fn(&I, O) -> O>,
@@ -74,10 +86,10 @@ where
 impl<F, I, O> Middleware<I, O> for MapMetadata<F, I, O>
 where
     F: Fn(&I, O) -> Result<O> + Send + Sync + 'static,
-    I: 'static,
-    O: 'static,
+    I: Send + Sync + 'static,
+    O: Send + 'static,
 {
-    fn post_handler(&self, input: &I, output: O) -> Result<O> {
+    async fn post_handler(&self, input: &I, output: O) -> Result<O> {
         (self.map)(input, output)
     }
 }

@@ -56,8 +56,12 @@ impl Tombstones {
     }
 }
 
-impl<I: TombstoneRecord + 'static, O: 'static> Middleware<I, O> for Tombstones {
-    fn pre_handler(&self, input: I) -> Result<Flow<I, O>> {
+impl<I, O> Middleware<I, O> for Tombstones
+where
+    I: TombstoneRecord + Send + Sync + 'static,
+    O: Send + 'static,
+{
+    async fn pre_handler(&self, input: I) -> Result<Flow<I, O>> {
         if !input.is_tombstone() {
             return Ok(Flow::Continue(input));
         }
@@ -80,10 +84,10 @@ pub struct PropagateTombstones;
 
 impl<I, O> Middleware<I, O> for PropagateTombstones
 where
-    I: TombstoneRecord + 'static,
-    O: TombstonePublish<I> + 'static,
+    I: TombstoneRecord + Send + Sync + 'static,
+    O: TombstonePublish<I> + Send + 'static,
 {
-    fn pre_handler(&self, input: I) -> Result<Flow<I, O>> {
+    async fn pre_handler(&self, input: I) -> Result<Flow<I, O>> {
         if !input.is_tombstone() {
             return Ok(Flow::Continue(input));
         }

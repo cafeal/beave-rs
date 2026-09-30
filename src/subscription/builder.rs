@@ -2,6 +2,7 @@
 use super::{
     completion::{Complete, Publish, Transact},
     config::{ProcessingOrder, SubscriptionConfig},
+    hooks::DynMiddleware,
     processing,
 };
 use crate::{
@@ -21,7 +22,7 @@ use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc, time::Durati
 pub(super) type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 pub(super) type BoxHandler<I, O> =
     Arc<dyn Fn(I) -> BoxFuture<crate::handler::Result<Emit<O>>> + Send + Sync>;
-pub(super) type Mapper<I, O> = Arc<dyn Middleware<I, O>>;
+pub(super) type Mapper<I, O> = Arc<dyn DynMiddleware<I, O>>;
 pub(super) type DeadLetterRoute<I, R> = Arc<
     dyn Fn(DeadLetter<I, R>, RetryPolicy, Counter) -> BoxFuture<anyhow::Result<()>> + Send + Sync,
 >;

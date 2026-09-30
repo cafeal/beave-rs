@@ -127,7 +127,7 @@ where
     let mut flow = Flow::Continue(input.clone());
     for middleware in &pipeline.middleware {
         let Flow::Continue(value) = flow else { break };
-        flow = match middleware.pre_handler(value) {
+        flow = match middleware.pre_handler(value).await {
             Ok(next) => next,
             Err(HandlerError::Reject(error)) => {
                 return Ok(Err(Failure {
@@ -144,7 +144,7 @@ where
     }
     let handler_input = match flow {
         Flow::Continue(value) => value,
-        Flow::Intercept(values) => return finish(values.values(), input, 0, pipeline),
+        Flow::Intercept(values) => return finish(values.values(), input, 0, pipeline).await,
     };
     let policy = &pipeline.handler_retry;
     let mut attempts = 0;
@@ -180,11 +180,11 @@ where
             input: Some(input),
         }));
     };
-    finish(outputs, input, attempts, pipeline)
+    finish(outputs, input, attempts, pipeline).await
 }
 
 /// Runs post-handler hooks over every output.
-fn finish<M, O>(
+async fn finish<M, O>(
     outputs: Vec<O>,
     input: M::Item,
     attempts: usize,
@@ -192,17 +192,12 @@ fn finish<M, O>(
 ) -> Handled<M::Item, O>
 where
     M: SourceMessage,
-    O: 'static,
+    O: Send + Sync + 'static,
 {
     // Resolve every output before publishing any; middleware errors never rerun the handler.
     let mut mapped = Vec::with_capacity(outputs.len());
     for output in outputs {
-        match pipeline
-            .middleware
-            .iter()
-            .try_fold(output, |output, middleware| {
-                middleware.post_handler(&input, output)
-            }) {
+        match post_handlers(output, &input, pipeline).await {
             Ok(output) => mapped.push(output),
             Err(HandlerError::Reject(error)) => {
                 return Ok(Err(Failure {
@@ -222,6 +217,22 @@ where
         input,
         attempts,
     }))
+}
+
+/// Passes one output through every middleware's post-handler hook in registration order.
+async fn post_handlers<M, O>(
+    mut output: O,
+    input: &M::Item,
+    pipeline: &Pipeline<M, O>,
+) -> crate::handler::Result<O>
+where
+    M: SourceMessage,
+    O: Send + Sync + 'static,
+{
+    for middleware in &pipeline.middleware {
+        output = middleware.post_handler(input, output).await?;
+    }
+    Ok(output)
 }
 
 async fn route<M, O>(
