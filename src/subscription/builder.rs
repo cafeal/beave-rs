@@ -6,7 +6,9 @@ use super::{
 use crate::{
     dead_letter::DeadLetter,
     error_policy::ErrorPolicy,
-    handler::{Emit, Handler, Result},
+    forward::{SamePlatform, ValueRecord},
+    handler::{Emit, Handler},
+    middleware::Middleware,
     retry::RetryPolicy,
     sink::Sink,
     source::{Source, SourceItem, SourceRaw},
@@ -14,8 +16,9 @@ use crate::{
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 pub(super) type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
-pub(super) type BoxHandler<I, O> = Arc<dyn Fn(I) -> BoxFuture<Result<Emit<O>>> + Send + Sync>;
-pub(super) type Mapper<I, O> = Arc<dyn Fn(&I, O) -> Result<O> + Send + Sync>;
+pub(super) type BoxHandler<I, O> =
+    Arc<dyn Fn(I) -> BoxFuture<crate::handler::Result<Emit<O>>> + Send + Sync>;
+pub(super) type Mapper<I, O> = Arc<dyn Middleware<I, O>>;
 pub(super) type DeadLetterRoute<I, R> =
     Arc<dyn Fn(DeadLetter<I, R>, RetryPolicy) -> BoxFuture<anyhow::Result<()>> + Send + Sync>;
 
@@ -59,6 +62,48 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             middleware: vec![],
             config: SubscriptionConfig::default(),
         }
+    }
+
+    /// Registers a value-only handler between a source and sink of the same platform.
+    ///
+    /// The handler receives the record value and returns the output value. The
+    /// platform's publish record is built from that value, and the platform's
+    /// default metadata inheritance runs before any other middleware.
+    pub fn forward<H, U>(source: S, sink: K, handler: H) -> Self
+    where
+        SourceItem<S>: SamePlatform<U, Publish = O>,
+        H: Handler<<SourceItem<S> as ValueRecord>::Value, Output = U>,
+        U: Send + Sync + 'static,
+    {
+        let handler = Arc::new(handler);
+        Self::forward_emitting(source, sink, move |value| {
+            let handler = handler.clone();
+            async move { handler.handle(value).await.map(Emit::One) }
+        })
+    }
+
+    /// Value-only counterpart of `new_emitting`; each emitted value inherits
+    /// metadata from the same input record.
+    pub fn forward_emitting<H, U>(source: S, sink: K, handler: H) -> Self
+    where
+        SourceItem<S>: SamePlatform<U, Publish = O>,
+        H: Handler<<SourceItem<S> as ValueRecord>::Value, Output = Emit<U>>,
+        U: Send + Sync + 'static,
+    {
+        let handler = Arc::new(handler);
+        Self::new_emitting(source, sink, move |record: SourceItem<S>| {
+            let handler = handler.clone();
+            async move {
+                let values = handler.handle(record.value()?).await?.values();
+                Ok(Emit::Many(
+                    values
+                        .into_iter()
+                        .map(<SourceItem<S> as SamePlatform<U>>::publish)
+                        .collect(),
+                ))
+            }
+        })
+        .middleware(<SourceItem<S> as SamePlatform<U>>::Inherit::default())
     }
 
     pub fn name(mut self, name: impl Into<String>) -> Self {
@@ -149,13 +194,9 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         self
     }
 
-    /// Typed post-handler output mapping; executed once per emitted value, before publish retry.
-    /// Broker-specific metadata policies can build on this hook.
-    pub fn middleware<M>(mut self, map: M) -> Self
-    where
-        M: Fn(&SourceItem<S>, O) -> Result<O> + Send + Sync + 'static,
-    {
-        self.middleware.push(Arc::new(map));
+    /// Registers middleware whose hooks run around the handler in registration order.
+    pub fn middleware<M: Middleware<SourceItem<S>, O>>(mut self, middleware: M) -> Self {
+        self.middleware.push(Arc::new(middleware));
         self
     }
 

@@ -1,10 +1,11 @@
-//! One delivery: decode, handler retries, output mapping, publishing, failure routing, then ACK.
+//! One delivery: decode, middleware, handler retries, publishing, failure routing, then ACK.
 use super::builder::{BoxHandler, DeadLetterRoute, Mapper};
 use crate::{
     dead_letter::DeadLetter,
     error_policy::{ErrorPolicy, FailureAction, FailureKind},
     handler::HandlerError,
     message::SourceMessage,
+    middleware::Flow,
     retry::RetryPolicy,
     sink::Sink,
 };
@@ -61,15 +62,39 @@ async fn handle<I, R, O, K>(
     pipeline: &Pipeline<I, R, O, K>,
 ) -> anyhow::Result<Option<Failure<I>>>
 where
-    I: Clone,
+    I: Clone + 'static,
     O: Send + Sync + 'static,
     K: Sink<O>,
 {
+    // Pre-handler hooks transform the handler input or intercept the delivery;
+    // `input` stays as decoded for post-handler hooks and dead letters.
+    let mut flow = Flow::Continue(input.clone());
+    for middleware in &pipeline.middleware {
+        let Flow::Continue(value) = flow else { break };
+        flow = match middleware.pre_handler(value) {
+            Ok(next) => next,
+            Err(HandlerError::Reject(error)) => {
+                return Ok(Some(Failure {
+                    kind: FailureKind::Rejected,
+                    error: error.context("rejected before the handler"),
+                    attempts: 0,
+                    input: Some(input),
+                }));
+            }
+            Err(HandlerError::Retry(error) | HandlerError::Fatal(error)) => {
+                return Err(error.context("pre-handler middleware failed"));
+            }
+        };
+    }
+    let handler_input = match flow {
+        Flow::Continue(value) => value,
+        Flow::Intercept(values) => return finish(values.values(), input, 0, pipeline).await,
+    };
     let policy = &pipeline.handler_retry;
     let mut attempts = 0;
     let outputs = loop {
         attempts += 1;
-        let (kind, error) = match (pipeline.handler)(input.clone()).await {
+        let (kind, error) = match (pipeline.handler)(handler_input.clone()).await {
             Ok(values) => break values.values(),
             Err(HandlerError::Retry(error)) if attempts >= policy.max_attempts => {
                 (FailureKind::RetryExhausted, error)
@@ -88,19 +113,45 @@ where
             input: Some(input),
         }));
     };
-    // Resolve every output before publishing any; mapping errors never rerun the handler.
-    let outputs = outputs
-        .into_iter()
-        .map(|output| {
-            pipeline.middleware.iter().try_fold(output, |output, map| {
-                map(&input, output).map_err(|error| match error {
-                    HandlerError::Retry(e) | HandlerError::Reject(e) | HandlerError::Fatal(e) => {
-                        e.context("metadata mapping failed")
-                    }
-                })
-            })
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
+    finish(outputs, input, attempts, pipeline).await
+}
+
+/// Runs post-handler hooks, then prepares and publishes every output.
+async fn finish<I, R, O, K>(
+    outputs: Vec<O>,
+    input: I,
+    attempts: usize,
+    pipeline: &Pipeline<I, R, O, K>,
+) -> anyhow::Result<Option<Failure<I>>>
+where
+    I: 'static,
+    O: Send + Sync + 'static,
+    K: Sink<O>,
+{
+    // Resolve every output before publishing any; middleware errors never rerun the handler.
+    let mut mapped = Vec::with_capacity(outputs.len());
+    for output in outputs {
+        match pipeline
+            .middleware
+            .iter()
+            .try_fold(output, |output, middleware| {
+                middleware.post_handler(&input, output)
+            }) {
+            Ok(output) => mapped.push(output),
+            Err(HandlerError::Reject(error)) => {
+                return Ok(Some(Failure {
+                    kind: FailureKind::Rejected,
+                    error: error.context("rejected after the handler"),
+                    attempts,
+                    input: Some(input),
+                }));
+            }
+            Err(HandlerError::Retry(error) | HandlerError::Fatal(error)) => {
+                return Err(error.context("post-handler middleware failed"));
+            }
+        }
+    }
+    let outputs = mapped;
     // Preparing all outputs first means an encode failure never follows a partial publish.
     let outputs = match outputs
         .into_iter()

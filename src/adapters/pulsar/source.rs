@@ -80,7 +80,9 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PulsarSource<C,
         {
             Some(Ok(raw)) => Ok(Receive::Message(PulsarMessage {
                 ordering_key: ordering_key(self.config.subscription_type, &raw),
-                bytes: raw.bytes,
+                payload: raw
+                    .payload
+                    .filter(|bytes| !(self.config.empty_payload_is_tombstone && bytes.is_empty())),
                 key: raw.key,
                 properties: raw.properties,
                 event_time: raw.event_time,
@@ -139,7 +141,7 @@ fn ordering_key(subscription_type: SubType, raw: &RawDelivery) -> Option<Orderin
 /// One delivery; dropping it leaves the broker message unacknowledged.
 pub struct PulsarMessage<C, T> {
     ordering_key: Option<OrderingKey>,
-    bytes: Vec<u8>,
+    payload: Option<Vec<u8>>,
     key: Option<Vec<u8>>,
     properties: HashMap<String, String>,
     event_time: Option<u64>,
@@ -155,7 +157,11 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMe
 
     fn decode(&self) -> anyhow::Result<Self::Item> {
         Ok(PulsarRecord {
-            value: self.codec.decode(&self.bytes)?,
+            value: self
+                .payload
+                .as_deref()
+                .map(|bytes| self.codec.decode(bytes))
+                .transpose()?,
             key: self.key.clone(),
             properties: self.properties.clone(),
             event_time: self.event_time,
@@ -165,7 +171,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMe
 
     fn raw(&self) -> Self::Raw {
         PulsarRecord {
-            value: self.bytes.clone(),
+            value: self.payload.clone(),
             key: self.key.clone(),
             properties: self.properties.clone(),
             event_time: self.event_time,
@@ -202,7 +208,7 @@ mod tests {
 
     fn raw(key: Option<&[u8]>, ordering_key: Option<&[u8]>) -> RawDelivery {
         RawDelivery {
-            bytes: vec![],
+            payload: Some(vec![]),
             key: key.map(<[u8]>::to_vec),
             ordering_key: ordering_key.map(<[u8]>::to_vec),
             properties: HashMap::new(),

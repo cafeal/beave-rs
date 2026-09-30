@@ -40,11 +40,47 @@ value bytes. Dead letters carry it, so the original value, key, headers, and
 delivery metadata survive even when decoding fails. `KafkaRecord` implements
 `Serialize` when its value does.
 
-Input metadata is never inherited by a sink. The sink always publishes to its
+Input metadata is never inherited implicitly. The sink always publishes to its
 configured topic and lets Kafka choose a partition from the explicit key. It
 does not copy a source partition, offset, timestamp, or topic into output.
 `prepare` encodes the nullable value, key, and headers once; publication retries
 reuse that prepared value and wait for Kafka's producer delivery report.
+
+## Metadata inheritance
+
+Register `KafkaInherit` on a Kafka-to-Kafka subscription to forward the received
+key and headers:
+
+```rust,ignore
+use beavers::adapters::kafka::KafkaInherit;
+
+Subscription::new(kafka_source, kafka_sink, handler)
+    .middleware(KafkaInherit::new())
+```
+
+Explicit output fields take precedence. The received key is used only when the
+output key is `None`; because an unset key and an intentionally absent key are
+both `None`, use `KafkaInherit::new().without_key()` to publish keyless records.
+Received headers are placed before the output's own headers, except headers
+whose name the output already sets. `without_headers()` disables header
+inheritance. The source topic, partition, offset, and timestamp are never
+inherited: the sink chooses the topic, Kafka chooses the partition and
+timestamp, and the source offset is only used for the source's own commits.
+
+`Subscription::forward` applies `KafkaInherit::new()` automatically for a
+value-only handler between a Kafka source and sink. See the
+[runtime guide](../runtime.md#same-platform-forwarding).
+
+## Tombstones
+
+A Kafka producer sends a null value as a tombstone, typically to delete a key in
+a compacted topic. Use the platform-neutral `Tombstones` middleware to reject,
+skip, or propagate them before the handler runs; see
+[tombstones](../runtime.md#tombstones). Propagation publishes
+`KafkaPublish::tombstone` with the received key and rejects a tombstone without
+a key.
+
+## Acknowledgements and ordering
 
 The source disables Kafka auto-commit and auto-offset-store. A successful ACK
 records a completed delivery and commits only the contiguous completed prefix

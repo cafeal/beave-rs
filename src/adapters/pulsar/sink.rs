@@ -71,7 +71,14 @@ impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarS
 
     fn prepare(&self, output: PulsarPublish<T>) -> anyhow::Result<Self::Prepared> {
         Ok(PulsarPrepared {
-            payload: self.codec.encode(&output.value)?,
+            // A null value is published as an empty payload, which topic
+            // compaction treats as deleting the key.
+            payload: output
+                .value
+                .as_ref()
+                .map(|value| self.codec.encode(value))
+                .transpose()?
+                .unwrap_or_default(),
             properties: output.properties,
             key: output.key,
             ordering_key: output.ordering_key,

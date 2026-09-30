@@ -30,12 +30,29 @@ The codec applies to the payload. `PulsarMessage::decode` returns a
 `PulsarRecord<T>` with top-level `value`, `key`, `properties`, and `event_time`
 fields. These application fields map directly to `PulsarPublish<T>`. Its
 `metadata` contains read-only delivery facts: topic, message ID, and publish
-time. Pulsar payloads are byte vectors, so an empty payload remains an empty
-byte vector rather than a nullable value. Pulsar does not have Kafka-style
-tombstones.
+time.
+
+A null value is a tombstone. Pulsar topic compaction deletes a key when it sees
+a message with that key and an empty payload, and producers can also mark a
+value as null explicitly. `PulsarSourceConfig::empty_payload_is_tombstone`,
+enabled by default, follows the compaction rule: an empty payload or a
+null-marked message becomes `PulsarRecord { value: None, .. }` and is not passed
+to the codec. When disabled, only a null-marked message becomes `None`, and an
+empty payload is decoded by the codec. Disable it only for topics that carry
+meaningful empty values and are not compacted.
+
+The `pulsar` 6.9 client drops the null marker for messages inside a producer
+batch, which then arrive as empty payloads; with the default setting they are
+still read as tombstones. The client also cannot publish the null marker, so the
+sink publishes `PulsarPublish { value: None, .. }` as an empty payload.
+`PulsarPublish::tombstone(key)` builds one, and `Tombstones::propagate()`
+supports Pulsar-to-Pulsar forwarding. The sink publishes non-null values as
+encoded, even when the encoding is empty; readers that treat empty payloads as
+tombstones, including topic compaction, will read such a value as a deletion.
+See [tombstones](../runtime.md#tombstones).
 
 The raw form of a `PulsarMessage` is a `PulsarRecord<Vec<u8>>` with the
-undecoded payload bytes. Dead letters carry it, so the original payload, key,
+undecoded payload bytes, or `value: None` for a tombstone. Dead letters carry it, so the original payload, key,
 properties, event time, and delivery metadata survive even when decoding fails.
 
 The source owns a dedicated consumer task. `receive` only waits on a bounded
@@ -90,6 +107,31 @@ The sink connects lazily on the first `publish`. Each publish clones the
 prepared bytes and metadata into a fresh producer message, then waits for
 Pulsar's broker receipt. Retrying a prepared value does not rerun the codec.
 `close` closes the producer after in-flight publication has released it.
+
+## Metadata inheritance
+
+Register `PulsarInherit` on a Pulsar-to-Pulsar subscription to forward the
+received key, properties, and event time:
+
+```rust,ignore
+use beavers::adapters::pulsar::PulsarInherit;
+
+Subscription::new(pulsar_source, pulsar_sink, handler)
+    .middleware(PulsarInherit::new())
+```
+
+Explicit output fields take precedence. The key and event time are inherited
+only when the output leaves them `None`, and a received property is added only
+when the output does not already set that name. `without_key()`,
+`without_properties()`, and `without_event_time()` disable the corresponding
+field. The source topic, message ID, and publish time are never inherited, and
+no ordering key is derived from the input.
+
+`Subscription::forward` applies `PulsarInherit::new()` automatically for a
+value-only handler between a Pulsar source and sink. See the
+[runtime guide](../runtime.md#same-platform-forwarding).
+
+## Delivery guarantees
 
 The adapter does not claim transactions or exactly-once processing. A source
 ACK and a sink publication are separate broker operations, so a process failure

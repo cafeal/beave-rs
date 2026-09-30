@@ -8,9 +8,11 @@ pub struct PulsarMetadata {
     pub publish_time: u64,
 }
 
+/// A decoded Pulsar delivery. `value` is `None` when the producer marked the
+/// message value as null, which topic compaction treats as a key deletion.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PulsarRecord<T> {
-    pub value: T,
+    pub value: Option<T>,
     pub key: Option<Vec<u8>>,
     pub properties: HashMap<String, String>,
     pub event_time: Option<u64>,
@@ -23,9 +25,11 @@ impl<T> PulsarRecord<T> {
     }
 }
 
+/// User-controlled Pulsar output. A `None` value is a tombstone, published as
+/// an empty payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PulsarPublish<T> {
-    pub value: T,
+    pub value: Option<T>,
     pub properties: HashMap<String, String>,
     pub key: Option<Vec<u8>>,
     pub ordering_key: Option<Vec<u8>>,
@@ -35,9 +39,19 @@ pub struct PulsarPublish<T> {
 impl<T> PulsarPublish<T> {
     pub fn new(value: T) -> Self {
         Self {
-            value,
+            value: Some(value),
             properties: HashMap::new(),
             key: None,
+            ordering_key: None,
+            event_time: None,
+        }
+    }
+
+    pub fn tombstone(key: Vec<u8>) -> Self {
+        Self {
+            value: None,
+            properties: HashMap::new(),
+            key: Some(key),
             ordering_key: None,
             event_time: None,
         }

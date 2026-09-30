@@ -22,7 +22,7 @@ App::new()
             .publish_retry(publish_retry)
             .dlq_retry(dead_letter_retry)
             .drain_timeout(Duration::from_secs(30))
-            .middleware(|_input, output| Ok(output))
+            .middleware(MapMetadata::new(|_input, output| Ok(output)))
             .dlq(dead_letter_sink)
             .error_policy(ErrorPolicy::dead_letter_all()),
     )
@@ -108,7 +108,7 @@ configuration and acknowledgement semantics.
 ## Per-message lifecycle
 
 ```text
-receive → decode → handler → map outputs → prepare all outputs → publish → ACK
+receive → decode → pre_handler → handler → post_handler → prepare all outputs → publish → ACK
 ```
 
 Use `Subscription::new_emitting` to register a handler returning
@@ -117,11 +117,126 @@ emits several. A regular `Vec<T>` remains a single payload. With `Many`, outputs
 are published sequentially and the input is acknowledged only after all succeed.
 With no outputs, successful processing can proceed directly to ACK.
 
-The current middleware hook is `Fn(&Input, Output) -> Result<Output>`. It runs for
-each emitted value before preparation. Mapping errors stop processing regardless
-of their handler error classification. Decode and preparation failures follow the
-[error policy](#error-policy). Broker-specific metadata inheritance is not
-implemented.
+Decode and preparation failures follow the [error policy](#error-policy).
+
+## Middleware
+
+`Subscription::middleware` registers a `Middleware<Input, Output>` with two
+hooks, both of which default to doing nothing:
+
+```rust,ignore
+pub trait Middleware<I, O> {
+    fn pre_handler(&self, input: I) -> Result<Flow<I, O>>;
+    fn post_handler(&self, input: &I, output: O) -> Result<O>;
+}
+
+pub enum Flow<I, O> {
+    Continue(I),
+    Intercept(Emit<O>),
+}
+```
+
+`pre_handler` runs once per delivery, before the handler, in registration
+order. Each middleware receives the input returned by the previous one.
+`Flow::Continue(input)` passes a possibly transformed input on, and the handler
+receives the final one. `Flow::Intercept(emit)` skips the remaining
+`pre_handler` hooks and the handler: `Emit::None` acknowledges the delivery
+without output, and other values become its outputs. Handler retries reuse the
+transformed input and never rerun `pre_handler`.
+
+`post_handler` runs in registration order for every output, including outputs
+from an intercepting middleware, and every invocation receives the input as
+decoded from the source, before any `pre_handler` transformation. All outputs
+pass through `post_handler` and are prepared before the first publication, so
+publish retries never rerun a middleware. Handler outputs carry explicit
+publish fields; an inheriting middleware only fills fields that the output
+leaves unset.
+
+The source item and sink output types are checked at compile time, so a
+middleware written for one broker's record and publish types cannot be
+registered on a subscription whose source or sink uses different types. Wrap a
+function or closure in `MapMetadata::new` to use it as a `post_handler`,
+including for conversions between different platforms:
+
+```rust,ignore
+Subscription::new(kafka_source, pulsar_sink, handler)
+    .middleware(MapMetadata::new(|input: &KafkaRecord<Order>, mut output: PulsarPublish<Order>| {
+        output.key = input.key.clone();
+        Ok(output)
+    }))
+```
+
+A middleware error never reruns the handler or the middleware. `Reject` is a
+`Rejected` failure routed by the [error policy](#error-policy) with the input as
+decoded from the source, and none of the delivery's outputs are published.
+`Retry` and `Fatal` stop processing without ACK.
+
+Adapters provide same-platform inheritance middleware: `KafkaInherit` for Kafka
+to Kafka and `PulsarInherit` for Pulsar to Pulsar. They copy user-controlled
+metadata and never copy delivery facts such as offsets, partitions, message IDs,
+or broker timestamps. See the [Kafka](adapters/kafka.md#metadata-inheritance)
+and [Pulsar](adapters/pulsar.md#metadata-inheritance) guides. A subscription
+registered with `Subscription::new` carries no received metadata into outputs
+unless middleware maps it.
+
+## Same-platform forwarding
+
+When the source and sink use the same platform's record and publish types,
+`Subscription::forward` accepts a handler that works only with values:
+
+```rust,ignore
+Subscription::forward(kafka_source, kafka_sink, |order: Order| async move {
+    Ok(enrich(order))
+})
+```
+
+The handler receives the record value and returns the output value. The runtime
+builds the platform's publish record from each output value and registers that
+platform's default inheritance as the first middleware, so outputs keep the
+input metadata without the handler handling it. `forward_emitting` is the
+`Emit` counterpart; every emitted value inherits from the same input. Further
+`.middleware(...)` registrations run after the default inheritance.
+
+The pairing is checked at compile time through the `ValueRecord` and
+`SamePlatform` traits, which an adapter implements for its record type. Kafka
+uses `KafkaInherit::new()` and Pulsar uses `PulsarInherit::new()`. A record
+whose value cannot be represented as a plain value, such as a Kafka null value,
+is rejected without invoking the handler and routed by the error policy as a
+`Rejected` failure. Register `Tombstones` to choose
+another policy, or use `Subscription::new` with a record handler to customize
+inheritance.
+
+## Tombstones
+
+A tombstone is a received record whose value is null. Producers send them to
+delete a key in a compacted topic, and change-data-capture tools emit them
+after deleted rows; append-only event streams normally never contain them.
+Adapters mark such records through `TombstoneRecord`: Kafka and Pulsar records
+with `value: None`.
+
+Register `Tombstones` to decide their handling before the handler runs:
+
+```rust,ignore
+Subscription::forward(kafka_source, kafka_sink, handler)
+    .middleware(Tombstones::propagate())
+```
+
+| Policy | Behavior for a tombstone |
+|---|---|
+| `Tombstones::reject()` | Route the record as a `Rejected` failure through the error policy |
+| `Tombstones::skip()` | Acknowledge without output |
+| `Tombstones::propagate()` | Publish a tombstone for the same key; reject a tombstone the sink cannot express |
+
+Records with a value always reach the handler. `propagate()` requires the output
+type to implement `TombstonePublish` for the input, so it compiles only for
+sinks that can publish a tombstone; `KafkaPublish` and `PulsarPublish` implement
+it for input from the same platform and require a key. Propagated tombstones
+still pass through every middleware's `post_handler`, so inheritance adds
+metadata. Propagating is appropriate only when the output shares the input key
+space; a handler that re-keys its output should handle tombstones itself.
+
+Without `Tombstones`, a value-only `forward` handler rejects tombstones, while a
+record handler registered with `Subscription::new` receives them.
 
 See the [codec guide](codecs.md#lifecycle-and-failures) for decoding and encoding boundaries.
 
@@ -153,7 +268,7 @@ failures, identified by `FailureKind`:
 | `FailureKind` | Cause | Default action |
 |---|---|---|
 | `Decode` | `SourceMessage::decode` failed | `Stop` |
-| `Rejected` | The handler returned `Reject`, including errors propagated with `?` | `DeadLetter` |
+| `Rejected` | The handler or a middleware returned `Reject`, including errors propagated with `?` | `DeadLetter` |
 | `RetryExhausted` | The handler returned `Retry` on its final permitted attempt | `DeadLetter` |
 | `Encode` | `Sink::prepare` failed for an emitted output | `Stop` |
 
@@ -217,10 +332,12 @@ stops without ACK; dead-letter failures are never routed again.
 |---|---|
 | Handler `Retry` | Retry the handler with cloned input, then apply `RetryExhausted` routing |
 | Handler `Fatal` | Stop without ACK |
-| Output mapping failure | Stop without ACK, regardless of the returned classification |
 | Receive `Retry` | Back off and retry receive; reset the failure count after receiving a message |
 | Receive `Fatal` or exhausted retry | Stop receiving, drain outstanding work, return an error |
-| Publish failure | Retry the prepared output; never rerun handler, mapping, or encoding |
+| Value-only input unavailable (tombstone) | `Rejected` routing without invoking the handler |
+| Middleware `Reject` | `Rejected` routing with the decoded input; publish no outputs |
+| Middleware `Retry` or `Fatal` | Stop without ACK; never rerun the handler or middleware |
+| Publish failure | Retry the prepared output; never rerun handler, middleware, or encoding |
 | Exhausted publish | Stop without ACK; infrastructure failures are never dead-lettered |
 | ACK failure | Return an error; do not claim successful completion |
 
@@ -255,10 +372,10 @@ implemented. Kafka maintains contiguous commits for completed offsets, schedules
 work per partition, and abandons revoked work, but does not provide Kafka
 transactions or exactly-once processing. Pulsar uses individual
 acknowledgements, schedules work by its subscription type's ordering scope, and
-likewise provides no transactions or exactly-once processing. NATS JetStream, SQS, automatic metadata inheritance, adapter
-pause/resume backpressure, and tracing / metrics integration are not
-implemented. The middleware is an output transformation hook, not yet a
-validated cross-broker metadata mapping API.
+likewise provides no transactions or exactly-once processing. NATS JetStream,
+SQS, adapter pause/resume backpressure, and tracing / metrics integration are
+not implemented. Metadata inheritance is limited to same-platform middleware;
+cross-platform mappings are application-written `MapMetadata` functions.
 
 Inputs currently require `Clone + Send + Sync`. Stdin and stdout construct
 `Default` codecs internally and do not yet accept configured codec instances.

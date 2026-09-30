@@ -11,7 +11,7 @@ use beavers::{
 #[test]
 fn records_keep_delivery_facts_separate_from_application_fields() {
     let record = PulsarRecord {
-        value: "order-1".to_owned(),
+        value: Some("order-1".to_owned()),
         key: Some(b"customer-7".to_vec()),
         properties: [("kind".to_owned(), "order".to_owned())].into(),
         event_time: Some(42),
@@ -34,7 +34,7 @@ fn records_keep_delivery_facts_separate_from_application_fields() {
     publish.key = record.key.clone();
     publish.properties = record.properties.clone();
     publish.event_time = record.event_time;
-    assert_eq!(publish.value, "processed");
+    assert_eq!(publish.value.as_deref(), Some("processed"));
     assert_eq!(publish.key, record.key);
     assert_eq!(publish.properties, record.properties);
     assert_eq!(publish.event_time, record.event_time);
@@ -54,6 +54,26 @@ fn unique_name(prefix: &str) -> String {
         .as_nanos();
     let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
     format!("{prefix}-{nanos}-{sequence}")
+}
+
+#[test]
+fn tombstones_are_published_as_empty_payloads() {
+    assert!(
+        PulsarSourceConfig::new("pulsar://broker", "topic", "subscription")
+            .empty_payload_is_tombstone
+    );
+    let sink = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new("pulsar://broker", "topic"));
+    let tombstone = sink
+        .prepare(PulsarPublish::tombstone(b"customer-7".to_vec()))
+        .unwrap();
+    assert!(tombstone.payload.is_empty());
+    assert_eq!(tombstone.key.as_deref(), Some(b"customer-7".as_slice()));
+    assert!(
+        sink.prepare(PulsarPublish::new(String::new()))
+            .unwrap()
+            .payload
+            .is_empty()
+    );
 }
 
 #[test]
@@ -146,7 +166,7 @@ async fn publish_receive_and_ack_against_pulsar() -> anyhow::Result<()> {
     let (record, metadata) = tokio::time::timeout(Duration::from_secs(20), receive_task)
         .await
         .expect("timed out waiting for Pulsar record")??;
-    assert_eq!(record.value, "hello pulsar");
+    assert_eq!(record.value.as_deref(), Some("hello pulsar"));
     assert_eq!(metadata.topic, topic);
     assert_eq!(record.key.as_deref(), Some(b"binary-key".as_slice()));
     assert!(

@@ -1,6 +1,7 @@
 use super::fixtures::{Flaky, ScriptedSource, fast};
 use beavers::{
-    App, CancellationToken, HandlerError, InMemorySink, IterSource, RetryPolicy, Subscription,
+    App, CancellationToken, HandlerError, InMemorySink, IterSource, MapMetadata, RetryPolicy,
+    Subscription,
 };
 use std::{
     sync::{
@@ -34,10 +35,10 @@ async fn publish_retry_does_not_repeat_handler_or_mapping() {
                 },
             )
             .publish_retry(fast())
-            .middleware(move |_, n| {
+            .middleware(MapMetadata::new(move |_, n| {
                 mapping_calls.fetch_add(1, Ordering::SeqCst);
                 Ok(n)
-            }),
+            })),
         )
         .run()
         .await

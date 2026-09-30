@@ -39,6 +39,9 @@ pub struct PulsarSourceConfig {
     pub subscription_type: SubType,
     pub authentication: Option<PulsarAuthentication>,
     pub buffer_size: usize,
+    /// Treat an empty payload as a null value, matching topic compaction,
+    /// which deletes a key on an empty payload. Enabled by default.
+    pub empty_payload_is_tombstone: bool,
 }
 
 impl PulsarSourceConfig {
@@ -54,6 +57,7 @@ impl PulsarSourceConfig {
             subscription_type: SubType::Shared,
             authentication: None,
             buffer_size: 100,
+            empty_payload_is_tombstone: true,
         }
     }
 
