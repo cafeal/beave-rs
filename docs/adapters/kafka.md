@@ -71,6 +71,10 @@ timestamp, and the source offset is only used for the source's own commits.
 value-only handler between a Kafka source and sink. See the
 [runtime guide](../runtime.md#same-platform-forwarding).
 
+Inherited headers include trace-context headers such as `traceparent`. Register
+`TraceContext` after `KafkaInherit` to replace them with the processing span's
+context; see [trace-context propagation](../runtime.md#trace-context-propagation).
+
 ## Tombstones
 
 A Kafka producer sends a null value as a tombstone, typically to delete a key in

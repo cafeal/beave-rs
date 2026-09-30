@@ -1,6 +1,7 @@
 //! Receive scheduling, bounded concurrency, revocation, draining, and resource cleanup.
 use super::{
     builder::Subscription,
+    instruments::Instruments,
     processing::{Pipeline, process},
     scheduler::Scheduler,
 };
@@ -15,11 +16,23 @@ use tokio::{
     task::{JoinError, JoinSet},
     time::{Instant, sleep_until, timeout},
 };
+use tracing::{Instrument, debug, error, info, info_span, warn};
 
 type Jobs = JoinSet<anyhow::Result<Option<OrderingKey>>>;
 
 impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
-    pub(crate) async fn run(mut self, shutdown: CancellationToken) -> anyhow::Result<()> {
+    pub(crate) async fn run(self, shutdown: CancellationToken) -> anyhow::Result<()> {
+        let span = info_span!("subscription", subscription = %self.config.name);
+        self.execute(shutdown).instrument(span).await
+    }
+
+    async fn execute(mut self, shutdown: CancellationToken) -> anyhow::Result<()> {
+        info!("subscription started");
+        let instruments = Instruments::new(
+            &self.config.name,
+            &self.config.error_policy,
+            self.dlq.is_some(),
+        );
         let sink = Arc::new(self.sink);
         let worker = Worker {
             pipeline: Arc::new(Pipeline {
@@ -32,6 +45,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                 publish_retry: self.config.publish_retry.clone(),
                 dead_letter_retry: self.config.dead_letter_retry.clone(),
                 error_policy: self.config.error_policy.clone(),
+                instruments,
             }),
         };
         let concurrency = self.config.concurrency;
@@ -42,7 +56,9 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         let mut failures = 0;
         let mut next_receive = Instant::now();
         let mut ended = false;
+        let in_flight = worker.pipeline.instruments.in_flight.clone();
         loop {
+            in_flight.set(scheduler.outstanding() as f64);
             worker.start_ready(&mut jobs, &mut scheduler, concurrency);
             tokio::select! {
                 biased;
@@ -58,16 +74,21 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                     match received {
                         Ok(Receive::End) => { ended = true; break; }
                         Ok(Receive::Message(delivery)) => {
+                            worker.pipeline.instruments.received.increment(1);
                             failures = 0;
                             next_receive = Instant::now();
                             scheduler.push(delivery);
                         }
                         Err(ReceiveError::Retry(error)) => {
+                            worker.pipeline.instruments.receive_errors.increment(1);
                             failures += 1;
                             if failures >= self.config.receive_retry.max_attempts { failure = Some(error.context("receive retry exhausted")); shutdown.cancel(); break; }
-                            next_receive = Instant::now() + self.config.receive_retry.delay(failures);
+                            let delay = self.config.receive_retry.delay(failures);
+                            warn!(attempt = failures, ?delay, error = format!("{error:#}"), "retrying receive");
+                            next_receive = Instant::now() + delay;
                         }
-                        Err(ReceiveError::Fatal(error)) => { failure = Some(error.context("fatal receive error")); shutdown.cancel(); break; }
+                        Err(ReceiveError::Fatal(error)) => {
+                            worker.pipeline.instruments.receive_errors.increment(1); failure = Some(error.context("fatal receive error")); shutdown.cancel(); break; }
                     }
                 }
             }
@@ -82,6 +103,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                 if shutdown.is_cancelled() {
                     scheduler.discard_pending();
                 }
+                in_flight.set(scheduler.outstanding() as f64);
                 worker.start_ready(&mut jobs, &mut scheduler, concurrency);
                 let Some(result) = jobs.join_next().await else {
                     break;
@@ -125,12 +147,17 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                 failure.get_or_insert_with(|| anyhow::anyhow!("close timeout"));
             }
         }
+        in_flight.set(0.0);
         match failure {
-            Some(error) => {
+            Some(failure) => {
                 shutdown.cancel();
-                Err(error.context(self.config.name))
+                error!(error = format!("{failure:#}"), "subscription failed");
+                Err(failure.context(self.config.name))
             }
-            None => Ok(()),
+            None => {
+                info!("subscription stopped");
+                Ok(())
+            }
         }
     }
 }
@@ -158,8 +185,12 @@ where
                 return;
             };
             let revocation = delivery.revocation();
-            let processing = process(delivery, self.pipeline.clone());
-            jobs.spawn(async move {
+            let span = info_span!("message", "otel.kind" = "consumer");
+            #[cfg(feature = "opentelemetry")]
+            crate::telemetry::set_remote_parent(&span, &delivery.propagation_fields());
+            let pipeline = self.pipeline.clone();
+            let processing = process(delivery, pipeline.clone());
+            let job = async move {
                 let Some(revoked) = revocation else {
                     return processing.await.map(|()| key);
                 };
@@ -167,13 +198,17 @@ where
                 // including an ACK rejected because of the revocation, is not a failure.
                 tokio::select! {
                     biased;
-                    _ = revoked.cancelled() => Ok(key),
+                    _ = revoked.cancelled() => {}
                     result = processing => match result {
-                        Err(_) if revoked.is_cancelled() => Ok(key),
-                        result => result.map(|()| key),
+                        Err(_) if revoked.is_cancelled() => {}
+                        result => return result.map(|()| key),
                     },
                 }
-            });
+                pipeline.instruments.revoked.increment(1);
+                debug!("abandoned revoked delivery");
+                Ok(key)
+            };
+            jobs.spawn(job.instrument(span));
         }
     }
 }

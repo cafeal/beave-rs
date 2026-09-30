@@ -1,3 +1,4 @@
+use crate::propagation::PropagationCarrier;
 use serde::Serialize;
 
 /// Read-only delivery location; never copied into producer routing implicitly.
@@ -47,5 +48,14 @@ impl<T> KafkaPublish<T> {
             value: None,
             headers: Vec::new(),
         }
+    }
+}
+
+/// Fields are UTF-8 header values. Setting a field removes every header with that name.
+impl<T> PropagationCarrier for KafkaPublish<T> {
+    fn set_propagation_field(&mut self, name: &str, value: String) {
+        self.headers.retain(|(header, _)| header != name);
+        self.headers
+            .push((name.to_owned(), Some(value.into_bytes())));
     }
 }

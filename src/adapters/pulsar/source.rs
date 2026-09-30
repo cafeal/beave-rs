@@ -198,6 +198,13 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMe
     fn ordering_key(&self) -> Option<OrderingKey> {
         self.ordering_key.clone()
     }
+
+    fn propagation_fields(&self) -> Vec<(&str, &str)> {
+        self.properties
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect()
+    }
 }
 
 #[cfg(test)]

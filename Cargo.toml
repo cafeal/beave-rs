@@ -10,6 +10,8 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "io-util", "io-std"] }
+tracing = "0.1"
+metrics = "0.24"
 
 [features]
 default = []
@@ -17,6 +19,7 @@ avro = ["dep:apache-avro"]
 protobuf = ["dep:prost"]
 kafka = ["dep:rdkafka"]
 pulsar = ["dep:pulsar", "dep:futures-util"]
+opentelemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 
 [dependencies.rdkafka]
 version = "0.39"
@@ -40,3 +43,19 @@ optional = true
 version = "0.22"
 default-features = false
 optional = true
+
+[dependencies.opentelemetry]
+version = "0.33"
+default-features = false
+features = ["trace"]
+optional = true
+
+[dependencies.tracing-opentelemetry]
+version = "0.34"
+default-features = false
+optional = true
+
+[dev-dependencies]
+metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "testing"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }

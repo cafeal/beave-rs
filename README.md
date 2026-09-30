@@ -47,6 +47,11 @@ The example writes one JSON event per line, such as `{"order_id":10}`.
 - [Runtime behavior, configuration, and limitations](docs/runtime.md)
 - [Design plan and roadmap](docs/plan.md)
 
+The runtime emits `tracing` spans and `metrics` counters and histograms for
+every delivery stage. The optional `opentelemetry` feature propagates trace
+context through Kafka headers and Pulsar properties. See
+[observability](docs/runtime.md#observability).
+
 Kafka and Pulsar are optional Cargo features. See the [adapter guide](docs/adapters.md)
 for feature flags and delivery semantics. Synchronous handlers through
 `blocking(sync_handler)` are a recorded design choice, not an implemented API.

@@ -131,6 +131,11 @@ no ordering key is derived from the input.
 value-only handler between a Pulsar source and sink. See the
 [runtime guide](../runtime.md#same-platform-forwarding).
 
+Inherited properties include trace-context properties such as `traceparent`.
+Register `TraceContext` after `PulsarInherit` to replace them with the
+processing span's context; see
+[trace-context propagation](../runtime.md#trace-context-propagation).
+
 ## Delivery guarantees
 
 The adapter does not claim transactions or exactly-once processing. A source

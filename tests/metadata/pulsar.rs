@@ -1,5 +1,5 @@
 use beavers::{
-    App, InMemorySink, IterSource, Subscription, Tombstones,
+    App, InMemorySink, IterSource, PropagationCarrier, Subscription, Tombstones,
     adapters::pulsar::{PulsarInherit, PulsarMetadata, PulsarPublish, PulsarRecord},
 };
 use std::sync::atomic::Ordering;
@@ -150,4 +150,15 @@ async fn propagated_pulsar_tombstones_keep_the_key_and_inherited_fields() {
     expected.properties = tombstone.properties;
     expected.event_time = tombstone.event_time;
     assert_eq!(sink.values(), vec![expected]);
+}
+
+#[test]
+fn propagation_fields_replace_properties() {
+    let mut output = PulsarPublish::new("order".to_owned());
+    output
+        .properties
+        .insert("traceparent".into(), "inherited".into());
+    output.set_propagation_field("traceparent", "current".into());
+    assert_eq!(output.properties["traceparent"], "current");
+    assert_eq!(output.properties.len(), 1);
 }

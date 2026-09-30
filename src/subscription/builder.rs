@@ -13,14 +13,16 @@ use crate::{
     sink::Sink,
     source::{Source, SourceItem, SourceRaw},
 };
+use metrics::Counter;
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 pub(super) type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 pub(super) type BoxHandler<I, O> =
     Arc<dyn Fn(I) -> BoxFuture<crate::handler::Result<Emit<O>>> + Send + Sync>;
 pub(super) type Mapper<I, O> = Arc<dyn Middleware<I, O>>;
-pub(super) type DeadLetterRoute<I, R> =
-    Arc<dyn Fn(DeadLetter<I, R>, RetryPolicy) -> BoxFuture<anyhow::Result<()>> + Send + Sync>;
+pub(super) type DeadLetterRoute<I, R> = Arc<
+    dyn Fn(DeadLetter<I, R>, RetryPolicy, Counter) -> BoxFuture<anyhow::Result<()>> + Send + Sync,
+>;
 
 pub struct Subscription<S: Source, K, O> {
     pub(super) source: S,
@@ -167,14 +169,14 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             let sink = close_sink.clone();
             Box::pin(async move { sink.close().await })
         }));
-        self.dlq = Some(Arc::new(move |dead_letter, policy| {
+        self.dlq = Some(Arc::new(move |dead_letter, policy, failures| {
             let sink = sink.clone();
             let convert = convert.clone();
             Box::pin(async move {
                 let prepared = convert(dead_letter)
                     .and_then(|output| sink.prepare(output))
                     .map_err(|error| error.context("prepare dead letter failed"))?;
-                processing::retry_publish(&policy, || sink.publish(&prepared))
+                processing::retry_publish(&policy, &failures, || sink.publish(&prepared))
                     .await
                     .map_err(|error| error.context("dead-letter publish failed"))
             })

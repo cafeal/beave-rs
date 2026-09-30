@@ -365,6 +365,102 @@ worker threads. Cancellation and timeouts are cooperative and cannot forcibly
 interrupt arbitrary synchronous code. Dedicated blocking-handler execution is a
 [future addition](plan.md#handler-execution-model).
 
+## Observability
+
+The runtime reports through the [`tracing`](https://docs.rs/tracing) and
+[`metrics`](https://docs.rs/metrics) facades. Both do nothing until the
+application installs a subscriber or recorder, such as `tracing-subscriber`
+or a Prometheus exporter. Metric handles are registered when a subscription
+starts, so install the recorder before `App::run`.
+
+### Spans
+
+```text
+subscription                 subscription = <name>
+  └── message                one per delivery
+       ├── decode
+       ├── handler           one per attempt, with `attempt`
+       ├── encode            `Sink::prepare` for every output
+       ├── publish           every output, including publish retries
+       ├── dead_letter       conversion and dead-letter publication
+       └── ack
+```
+
+`pre_handler` and `post_handler` middleware run in the `message` span.
+
+### Events
+
+| Event | Level | Fields |
+|---|---|---|
+| `subscription started` / `subscription stopped` | INFO | |
+| `subscription failed` | ERROR | `error` |
+| `discarding delivery` | WARN | `failure`, `attempts`, `error` |
+| `dead-lettered delivery` | WARN | `failure`, `attempts`, `error` |
+| `retrying receive` | WARN | `attempt`, `delay`, `error` |
+| `retrying handler` / `retrying publish` | DEBUG | `attempt`, `error` |
+| `abandoned revoked delivery` | DEBUG | |
+
+A discarded delivery is always logged and counted, because
+`FailureAction::Discard` leaves no other trace.
+
+### Metrics
+
+Every metric carries a `subscription` label with the subscription name.
+
+| Metric | Type | Additional labels | Meaning |
+|---|---|---|---|
+| `beavers_deliveries_received_total` | counter | | Deliveries received from the source |
+| `beavers_deliveries_acknowledged_total` | counter | | Successful ACKs, including after discard and dead-lettering |
+| `beavers_delivery_failures_total` | counter | `failure`, `action` | Routable failures by `FailureKind` and the action taken |
+| `beavers_handler_retries_total` | counter | | Handler attempts that returned `Retry` and were retried |
+| `beavers_publish_failures_total` | counter | `sink` (`output`, `dead_letter`) | Failed publish attempts, including retried ones |
+| `beavers_receive_errors_total` | counter | | Failed receive attempts |
+| `beavers_deliveries_revoked_total` | counter | | Deliveries abandoned after revocation |
+| `beavers_deliveries_in_flight` | gauge | | Received deliveries that have not finished |
+| `beavers_stage_duration_seconds` | histogram | `stage` | Duration of `decode`, `handler`, `encode`, `publish`, `dead_letter`, and `ack` |
+
+`failure` is `decode`, `rejected`, `retry_exhausted`, or `encode`. `action` is
+`stop`, `dead_letter`, or `discard`; a `DeadLetter` action without a
+dead-letter sink is reported as `stop`, which is what it does. A failure is
+counted when it is routed, before the action runs. `handler` durations are
+per attempt and exclude retry backoff; `publish` durations cover all outputs
+of a delivery, including backoff.
+
+### Trace-context propagation
+
+`SourceMessage::propagation_fields` exposes text-map fields received with a
+delivery, and `PropagationCarrier` lets an output record accept them. Each
+adapter maps the fields to its own metadata:
+
+| Adapter | Received fields | Output fields |
+|---|---|---|
+| Kafka | Headers with UTF-8 values | Headers; every header of the same name is replaced |
+| Pulsar | Properties | Properties |
+| Local adapters and `Delivery` | None | Not supported |
+
+With the `opentelemetry` feature, the runtime extracts each `message` span's
+remote parent from those fields through the global text-map propagator, and
+the `TraceContext` middleware injects the `message` span's context into every
+output:
+
+```rust,ignore
+use beavers::TraceContext;
+
+opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
+// Install a tracing subscriber with a tracing-opentelemetry layer.
+
+Subscription::forward(kafka_source, kafka_sink, handler)
+    .middleware(TraceContext::new())
+```
+
+Inheritance middleware such as `KafkaInherit` copies every header, including
+`traceparent`, unchanged. Without `TraceContext`, an output therefore carries
+the received context, and the processing step is invisible to the trace. With
+`TraceContext` registered after the inheritance middleware, the injected
+context replaces the inherited one, so downstream consumers continue the trace
+as children of the processing step. Middleware runs in registration order, and
+`Subscription::forward` registers the inheritance middleware first.
+
 ## Implementation limits
 
 Kafka and Pulsar adapters, broker record types, Protobuf, and Avro codecs are
@@ -373,8 +469,7 @@ work per partition, and abandons revoked work, but does not provide Kafka
 transactions or exactly-once processing. Pulsar uses individual
 acknowledgements, schedules work by its subscription type's ordering scope, and
 likewise provides no transactions or exactly-once processing. NATS JetStream,
-SQS, adapter pause/resume backpressure, and tracing / metrics integration are
-not implemented. Metadata inheritance is limited to same-platform middleware;
+SQS and adapter pause/resume backpressure are not implemented. Metadata inheritance is limited to same-platform middleware;
 cross-platform mappings are application-written `MapMetadata` functions.
 
 Inputs currently require `Clone + Send + Sync`. Stdin and stdout construct

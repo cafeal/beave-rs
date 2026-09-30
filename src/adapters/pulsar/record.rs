@@ -1,3 +1,4 @@
+use crate::propagation::PropagationCarrier;
 use pulsar::message::proto::MessageIdData;
 use std::collections::HashMap;
 
@@ -55,5 +56,12 @@ impl<T> PulsarPublish<T> {
             ordering_key: None,
             event_time: None,
         }
+    }
+}
+
+/// Fields are message properties.
+impl<T> PropagationCarrier for PulsarPublish<T> {
+    fn set_propagation_field(&mut self, name: &str, value: String) {
+        self.properties.insert(name.to_owned(), value);
     }
 }

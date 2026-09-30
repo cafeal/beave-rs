@@ -1,5 +1,5 @@
 use beavers::{
-    App, Emit, InMemorySink, IterSource, Subscription, Tombstones,
+    App, Emit, InMemorySink, IterSource, PropagationCarrier, Subscription, Tombstones,
     adapters::kafka::{KafkaInherit, KafkaMetadata, KafkaPublish, KafkaRecord},
 };
 use std::sync::atomic::Ordering;
@@ -199,4 +199,19 @@ async fn skipped_tombstones_are_acknowledged_without_output() {
         .unwrap();
     assert!(sink.values().is_empty());
     assert_eq!(acks.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn propagation_fields_replace_every_header_of_that_name() {
+    let mut output = KafkaPublish::new("order".to_owned());
+    output.headers = vec![
+        header("traceparent", "inherited"),
+        header("kind", "new"),
+        header("traceparent", "duplicate"),
+    ];
+    output.set_propagation_field("traceparent", "current".into());
+    assert_eq!(
+        output.headers,
+        vec![header("kind", "new"), header("traceparent", "current")]
+    );
 }
