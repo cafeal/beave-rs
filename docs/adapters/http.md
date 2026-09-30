@@ -54,6 +54,7 @@ curl -i -X POST localhost:8080/orders -d '{"id":7}'
 |---|---|---|
 | `bind` | required | Listen address. Port 0 selects a free port. |
 | `max_body_bytes` | 1 MiB | Larger bodies are answered with `413` and never become deliveries. |
+| `response` | `ResponseTiming::Ack` | When a received request is answered; see [response timing](#response-timing). |
 
 `HttpSource::new(config)` validates the configuration and binds the listener
 immediately, so an address in use is reported by the constructor and
@@ -85,11 +86,12 @@ delivery span continues the client's trace.
 
 ## Responses and delivery
 
-The server answers each request once its delivery has an outcome:
+With the default `ResponseTiming::Ack`, the server answers each request once
+its delivery has an outcome:
 
 | Outcome | Status |
 |---|---|
-| ACK after processing, dead-lettering, or discarding | `204 No Content` |
+| ACK after processing, dead-lettering, or discarding | `200 OK` |
 | ACK after a decode failure was discarded or dead-lettered | `400 Bad Request` |
 | Delivery dropped without ACK: subscription failure, shutdown, or drain timeout | `503 Service Unavailable` |
 | Request not yet received when the source closes | `503 Service Unavailable` |
@@ -111,7 +113,25 @@ body stops the subscription and the server. Because HTTP input is not trusted,
 set `decode` to `FailureAction::Discard`, or to `FailureAction::DeadLetter` with
 a dead-letter sink, so malformed requests are answered with `400` and the
 server keeps running. Handler rejections are dead-lettered by default and then
-answered with `204`; without a dead-letter sink they stop the subscription.
+answered with `200`; without a dead-letter sink they stop the subscription.
+
+## Response timing
+
+`ResponseTiming::Receive` answers `202 Accepted` as soon as the subscription
+receives the request, before decoding and processing. Clients get a response
+without waiting for the pipeline, but a success status no longer means the
+request was processed:
+
+- A request is lost if the process stops before its delivery completes.
+- Decode failures, handler failures, and publish failures are not reported to
+  the client, so configure the error policy and a dead-letter sink to keep them.
+- Requests not yet received when the source closes are still answered with
+  `503`, and invalid requests still receive `405`, `413`, or `400` before they
+  become deliveries.
+
+Use it when the producer cannot wait for processing and occasional loss on a
+crash is acceptable. Keep the default when every accepted request must be
+processed at least once.
 
 ## Backpressure and ordering
 
@@ -132,7 +152,7 @@ the source also stops the listener.
 ## Limitations
 
 - HTTP/1.1 only, without TLS. Terminate TLS and HTTP/2 at a reverse proxy.
-- The response has no body. Returning handler output to the client, as a
+- Responses have no body. Returning handler output to the client, as a
   request-reply endpoint, is not supported.
 - No request timeout is enforced by the server; the drain timeout bounds how
   long shutdown waits for open requests.

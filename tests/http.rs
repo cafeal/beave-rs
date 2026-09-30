@@ -3,7 +3,7 @@
 use beavers::{
     App, CancellationToken, DeadLetter, ErrorPolicy, FailureAction, FailureKind, HandlerError,
     InMemorySink, Json, Receive, Source, SourceMessage, Subscription, Utf8,
-    adapters::http::{HttpRecord, HttpSource, HttpSourceConfig},
+    adapters::http::{HttpRecord, HttpSource, HttpSourceConfig, ResponseTiming},
 };
 use serde::Deserialize;
 use std::{net::SocketAddr, time::Duration};
@@ -64,7 +64,7 @@ fn config_rejects_an_empty_body_limit() {
 }
 
 #[tokio::test]
-async fn acknowledged_request_is_answered_with_no_content() {
+async fn acknowledged_request_is_answered_with_ok() {
     let source = HttpSource::<Json, Order>::new(config()).unwrap();
     let addr = source.local_addr();
     assert_ne!(addr.port(), 0);
@@ -72,7 +72,7 @@ async fn acknowledged_request_is_answered_with_no_content() {
     let shutdown = CancellationToken::new();
     let app = run(
         App::new().subscribe(
-            "acknowledged_request_is_answered_with_no_content",
+            "acknowledged_request_is_answered_with_ok",
             source,
             sink.clone(),
             |record: HttpRecord<Order>| async move {
@@ -92,7 +92,7 @@ async fn acknowledged_request_is_answered_with_no_content() {
     )
     .await;
 
-    assert_eq!(status, 204);
+    assert_eq!(status, 200);
     assert_eq!(
         sink.values(),
         vec![(
@@ -151,7 +151,7 @@ async fn discarded_decode_failure_is_answered_with_bad_request() {
     );
 
     assert_eq!(post(addr, b"not json").await, 400);
-    assert_eq!(post(addr, br#"{"id":1}"#).await, 204);
+    assert_eq!(post(addr, br#"{"id":1}"#).await, 200);
     assert_eq!(sink.values(), vec![1]);
     shutdown.cancel();
     app.await.unwrap().unwrap();
@@ -180,7 +180,7 @@ async fn dead_letter_keeps_the_raw_request() {
 
     let status = request(addr, "POST", "/events", &[("x-id", "9")], b"payload").await;
 
-    assert_eq!(status, 204);
+    assert_eq!(status, 200);
     let [dead_letter]: [DeadLetter<HttpRecord<String>, HttpRecord<Vec<u8>>>; 1] =
         dlq.values().try_into().unwrap();
     assert_eq!(dead_letter.failure, FailureKind::Rejected);
@@ -210,7 +210,7 @@ async fn invalid_requests_do_not_become_deliveries() {
     };
     assert_eq!(message.decode().unwrap().body, "ok");
     message.ack().await.unwrap();
-    assert_eq!(client.await.unwrap(), (405, 413, 204));
+    assert_eq!(client.await.unwrap(), (405, 413, 200));
     source.close().await.unwrap();
 }
 
@@ -256,10 +256,34 @@ async fn close_answers_queued_requests_and_stops_listening() {
     });
     assert_eq!(queued.await.unwrap(), 503);
     message.ack().await.unwrap();
-    assert_eq!(first.await.unwrap(), 204);
+    assert_eq!(first.await.unwrap(), 200);
     let mut source = close.await.unwrap();
 
     assert!(TcpStream::connect(addr).await.is_err());
     assert!(matches!(source.receive().await.unwrap(), Receive::End));
+    source.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn receive_timing_answers_accepted_before_processing() {
+    let mut config = config();
+    config.response = ResponseTiming::Receive;
+    let mut source = HttpSource::<Json, Order>::new(config).unwrap();
+    let addr = source.local_addr();
+    let accepted = tokio::spawn(post(addr, br#"{"id":1}"#));
+    let Receive::Message(message) = source.receive().await.unwrap() else {
+        panic!("expected a delivery");
+    };
+    // Answered while the delivery is still unacknowledged.
+    assert_eq!(accepted.await.unwrap(), 202);
+    drop(message);
+
+    let undecodable = tokio::spawn(post(addr, b"not json"));
+    let Receive::Message(message) = source.receive().await.unwrap() else {
+        panic!("expected a delivery");
+    };
+    assert!(message.decode().is_err());
+    assert_eq!(undecodable.await.unwrap(), 202);
+    message.ack().await.unwrap();
     source.close().await.unwrap();
 }

@@ -5,6 +5,6 @@ mod record;
 mod server;
 mod source;
 
-pub use config::HttpSourceConfig;
+pub use config::{HttpSourceConfig, ResponseTiming};
 pub use record::{HttpMetadata, HttpRecord};
 pub use source::{HttpMessage, HttpSource};

@@ -1,5 +1,5 @@
 use super::{
-    config::HttpSourceConfig,
+    config::{HttpSourceConfig, ResponseTiming},
     record::HttpRecord,
     server::{Pending, serve},
 };
@@ -34,9 +34,10 @@ enum State {
 ///
 /// The listener is bound on construction, so address errors surface immediately
 /// and [`local_addr`](Self::local_addr) is known before the subscription runs.
-/// The server starts on the first receive. Each request is answered only when
-/// its delivery completes: `204 No Content` on ACK, and
-/// `503 Service Unavailable` when the delivery is dropped without ACK.
+/// The server starts on the first receive. With [`ResponseTiming::Ack`], each
+/// request is answered only when its delivery completes: `200 OK` on
+/// ACK, and `503 Service Unavailable` when the delivery is dropped without ACK.
+/// With [`ResponseTiming::Receive`], it is answered `202 Accepted` on receive.
 pub struct HttpSource<C, T> {
     config: HttpSourceConfig,
     codec: Arc<C>,
@@ -107,7 +108,13 @@ where
         Ok(match requests.recv().await {
             Some(Pending { record, respond }) => Receive::Message(HttpMessage {
                 record,
-                respond,
+                respond: match self.config.response {
+                    ResponseTiming::Ack => Some(respond),
+                    ResponseTiming::Receive => {
+                        let _ = respond.send(StatusCode::ACCEPTED);
+                        None
+                    }
+                },
                 codec: self.codec.clone(),
                 decode_failed: AtomicBool::new(false),
                 marker: PhantomData,
@@ -138,7 +145,8 @@ impl<C, T> Drop for HttpSource<C, T> {
 /// or dropped.
 pub struct HttpMessage<C, T> {
     record: HttpRecord<Vec<u8>>,
-    respond: tokio::sync::oneshot::Sender<StatusCode>,
+    /// `None` once the request was answered on receive.
+    respond: Option<tokio::sync::oneshot::Sender<StatusCode>>,
     codec: Arc<C>,
     decode_failed: AtomicBool,
     marker: PhantomData<T>,
@@ -167,16 +175,20 @@ where
         })
     }
 
-    /// Answers `204 No Content`, or `400 Bad Request` when the body failed to
-    /// decode and the error policy discarded or dead-lettered it. A client that
-    /// disconnected before the response still counts as acknowledged.
+    /// With [`ResponseTiming::Ack`], answers `200 OK`, or
+    /// `400 Bad Request` when the body failed to decode and the error policy
+    /// discarded or dead-lettered it. A client that disconnected before the
+    /// response still counts as acknowledged.
     async fn ack(self) -> anyhow::Result<()> {
+        let Some(respond) = self.respond else {
+            return Ok(());
+        };
         let status = if self.decode_failed.load(Ordering::Relaxed) {
             StatusCode::BAD_REQUEST
         } else {
-            StatusCode::NO_CONTENT
+            StatusCode::OK
         };
-        let _ = self.respond.send(status);
+        let _ = respond.send(status);
         Ok(())
     }
 
