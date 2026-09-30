@@ -62,6 +62,11 @@ inheritance. The source topic, partition, offset, and timestamp are never
 inherited: the sink chooses the topic, Kafka chooses the partition and
 timestamp, and the source offset is only used for the source's own commits.
 
+`Subscription::forward` applies `KafkaInherit::new()` automatically for a
+value-only handler between a Kafka source and sink. It rejects records with a
+null value before the handler runs, so tombstones require a record handler. See
+the [runtime guide](../runtime.md#same-platform-forwarding).
+
 ## Acknowledgements and ordering
 
 The source disables Kafka auto-commit and auto-offset-store. A successful ACK

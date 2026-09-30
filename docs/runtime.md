@@ -105,8 +105,35 @@ Adapters provide same-platform inheritance middleware: `KafkaInherit` for Kafka
 to Kafka and `PulsarInherit` for Pulsar to Pulsar. They copy user-controlled
 metadata and never copy delivery facts such as offsets, partitions, message IDs,
 or broker timestamps. See the [Kafka](adapters/kafka.md#metadata-inheritance)
-and [Pulsar](adapters/pulsar.md#metadata-inheritance) guides. Without
-middleware, no received metadata is carried into outputs.
+and [Pulsar](adapters/pulsar.md#metadata-inheritance) guides. A subscription
+registered with `Subscription::new` carries no received metadata into outputs
+unless middleware maps it.
+
+## Same-platform forwarding
+
+When the source and sink use the same platform's record and publish types,
+`Subscription::forward` accepts a handler that works only with values:
+
+```rust,ignore
+Subscription::forward(kafka_source, kafka_sink, |order: Order| async move {
+    Ok(enrich(order))
+})
+```
+
+The handler receives the record value and returns the output value. The runtime
+builds the platform's publish record from each output value and registers that
+platform's default inheritance as the first middleware, so outputs keep the
+input metadata without the handler handling it. `forward_emitting` is the
+`Emit` counterpart; every emitted value inherits from the same input. Further
+`.middleware(...)` registrations run after the default inheritance.
+
+The pairing is checked at compile time through the `ValueRecord` and
+`SamePlatform` traits, which an adapter implements for its record type. Kafka
+uses `KafkaInherit::new()` and Pulsar uses `PulsarInherit::new()`. A record
+whose value cannot be represented as a plain value, such as a Kafka null value,
+is rejected without invoking the handler: it goes to the DLQ when one is
+configured and otherwise stops without ACK. Use `Subscription::new` with a
+record handler to process such records or to customize inheritance.
 
 See the [codec guide](codecs.md#lifecycle-and-failures) for decoding and encoding boundaries.
 
@@ -123,6 +150,7 @@ classifies them as Fatal; retry must be requested explicitly.
 | Handler `Fatal` | Stop without ACK |
 | Receive `Retry` | Back off and retry receive; reset the failure count after receiving a message |
 | Receive `Fatal` or exhausted retry | Stop receiving, drain outstanding work, return an error |
+| Value-only input unavailable (Kafka null) | Treated as handler `Reject` without invoking the handler |
 | Mapping `Reject` | Publish the original typed input to the configured DLQ, then ACK; publish no outputs |
 | Mapping `Retry` or `Fatal` | Stop without ACK; never rerun the handler or mapping |
 | Publish failure | Retry the prepared output; never rerun handler, mapping, or encoding |

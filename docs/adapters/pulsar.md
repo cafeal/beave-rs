@@ -89,6 +89,10 @@ when the output does not already set that name. `without_key()`,
 field. The source topic, message ID, and publish time are never inherited, and
 no ordering key is derived from the input.
 
+`Subscription::forward` applies `PulsarInherit::new()` automatically for a
+value-only handler between a Pulsar source and sink. See the
+[runtime guide](../runtime.md#same-platform-forwarding).
+
 ## Delivery guarantees
 
 The adapter does not claim transactions or exactly-once processing. A source

@@ -1,5 +1,9 @@
 use super::record::{PulsarPublish, PulsarRecord};
-use crate::{handler::Result, middleware::Middleware};
+use crate::{
+    forward::{SamePlatform, ValueRecord},
+    handler::Result,
+    middleware::Middleware,
+};
 
 /// Pulsar-to-Pulsar middleware that copies the received key, properties, and
 /// event time into each output message.
@@ -69,5 +73,24 @@ impl<I: 'static, O: 'static> Middleware<PulsarRecord<I>, PulsarPublish<O>> for P
             output.event_time = input.event_time;
         }
         Ok(output)
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> ValueRecord for PulsarRecord<T> {
+    type Value = T;
+
+    fn value(&self) -> Result<T> {
+        Ok(self.value.clone())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static, U: Send + Sync + 'static> SamePlatform<U>
+    for PulsarRecord<T>
+{
+    type Publish = PulsarPublish<U>;
+    type Inherit = PulsarInherit;
+
+    fn publish(value: U) -> PulsarPublish<U> {
+        PulsarPublish::new(value)
     }
 }

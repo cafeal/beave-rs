@@ -7,6 +7,7 @@
 pub mod adapters;
 pub mod app;
 pub mod codec;
+pub mod forward;
 pub mod handler;
 pub mod message;
 pub mod middleware;
@@ -25,6 +26,7 @@ pub use codec::Avro;
 #[cfg(feature = "protobuf")]
 pub use codec::Protobuf;
 pub use codec::{Decoder, Encoder, Json, RawBytes, Utf8};
+pub use forward::{SamePlatform, ValueRecord};
 pub use handler::{Emit, Handler, HandlerError, Result};
 pub use message::{Delivery, SourceMessage};
 pub use middleware::{MapMetadata, Middleware};

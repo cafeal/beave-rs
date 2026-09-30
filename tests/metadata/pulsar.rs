@@ -74,3 +74,23 @@ async fn disabled_fields_are_not_inherited() {
         .unwrap();
     assert_eq!(sink.values(), vec![PulsarPublish::new("order".to_owned())]);
 }
+
+#[tokio::test]
+async fn value_handlers_inherit_pulsar_metadata_by_default() {
+    let sink = InMemorySink::default();
+    App::new()
+        .subscription(Subscription::forward(
+            IterSource::new([record()]),
+            sink.clone(),
+            |value: String| async move { Ok(value.to_uppercase()) },
+        ))
+        .run()
+        .await
+        .unwrap();
+    let input = record();
+    let mut expected = PulsarPublish::new("ORDER".to_owned());
+    expected.key = input.key;
+    expected.properties = input.properties;
+    expected.event_time = input.event_time;
+    assert_eq!(sink.values(), vec![expected]);
+}

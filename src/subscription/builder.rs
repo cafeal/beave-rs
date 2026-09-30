@@ -1,6 +1,7 @@
 //! Subscription type and builder API.
 use super::{config::SubscriptionConfig, processing};
 use crate::{
+    forward::{SamePlatform, ValueRecord},
     handler::{Emit, Handler, Result},
     middleware::Middleware,
     retry::RetryPolicy,
@@ -55,6 +56,48 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             middleware: vec![],
             config: SubscriptionConfig::default(),
         }
+    }
+
+    /// Registers a value-only handler between a source and sink of the same platform.
+    ///
+    /// The handler receives the record value and returns the output value. The
+    /// platform's publish record is built from that value, and the platform's
+    /// default metadata inheritance runs before any other middleware.
+    pub fn forward<H, U>(source: S, sink: K, handler: H) -> Self
+    where
+        SourceItem<S>: SamePlatform<U, Publish = O>,
+        H: Handler<<SourceItem<S> as ValueRecord>::Value, Output = U>,
+        U: Send + Sync + 'static,
+    {
+        let handler = Arc::new(handler);
+        Self::forward_emitting(source, sink, move |value| {
+            let handler = handler.clone();
+            async move { handler.handle(value).await.map(Emit::One) }
+        })
+    }
+
+    /// Value-only counterpart of `new_emitting`; each emitted value inherits
+    /// metadata from the same input record.
+    pub fn forward_emitting<H, U>(source: S, sink: K, handler: H) -> Self
+    where
+        SourceItem<S>: SamePlatform<U, Publish = O>,
+        H: Handler<<SourceItem<S> as ValueRecord>::Value, Output = Emit<U>>,
+        U: Send + Sync + 'static,
+    {
+        let handler = Arc::new(handler);
+        Self::new_emitting(source, sink, move |record: SourceItem<S>| {
+            let handler = handler.clone();
+            async move {
+                let values = handler.handle(record.value()?).await?.values();
+                Ok(Emit::Many(
+                    values
+                        .into_iter()
+                        .map(<SourceItem<S> as SamePlatform<U>>::publish)
+                        .collect(),
+                ))
+            }
+        })
+        .middleware(<SourceItem<S> as SamePlatform<U>>::Inherit::default())
     }
 
     pub fn name(mut self, name: impl Into<String>) -> Self {

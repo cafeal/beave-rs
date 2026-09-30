@@ -2,6 +2,7 @@ use beavers::{
     App, Emit, InMemorySink, IterSource, Subscription,
     adapters::kafka::{KafkaInherit, KafkaMetadata, KafkaPublish, KafkaRecord},
 };
+use std::sync::atomic::Ordering;
 
 type Header = (String, Option<Vec<u8>>);
 
@@ -79,4 +80,59 @@ async fn disabled_fields_are_not_inherited() {
         .await
         .unwrap();
     assert_eq!(sink.values(), vec![KafkaPublish::new("order".to_owned())]);
+}
+
+#[tokio::test]
+async fn value_handlers_inherit_kafka_metadata_by_default() {
+    let sink = InMemorySink::default();
+    App::new()
+        .subscription(Subscription::forward_emitting(
+            IterSource::new([record()]),
+            sink.clone(),
+            |value: String| async move { Ok(Emit::Many(vec![value.len(), 0])) },
+        ))
+        .run()
+        .await
+        .unwrap();
+    let headers = vec![header("trace", "abc"), header("kind", "new")];
+    assert_eq!(
+        sink.values(),
+        vec![
+            KafkaPublish {
+                key: Some(b"customer-7".to_vec()),
+                value: Some(5),
+                headers: headers.clone(),
+            },
+            KafkaPublish {
+                key: Some(b"customer-7".to_vec()),
+                value: Some(0),
+                headers,
+            },
+        ]
+    );
+}
+
+#[tokio::test]
+async fn value_handlers_reject_null_kafka_values() {
+    let mut tombstone = record();
+    tombstone.value = None;
+    let source = IterSource::new([tombstone.clone()]);
+    let acks = source.acknowledgements();
+    let sink = InMemorySink::<KafkaPublish<String>>::default();
+    let dlq = InMemorySink::default();
+    App::new()
+        .subscription(
+            Subscription::forward(
+                source,
+                sink.clone(),
+                |value: String| async move { Ok(value) },
+            )
+            .dlq(dlq.clone()),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert!(sink.values().is_empty());
+    assert_eq!(dlq.values(), vec![tombstone]);
+    assert_eq!(acks.load(Ordering::SeqCst), 1);
 }

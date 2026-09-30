@@ -1,5 +1,9 @@
 use super::record::{KafkaPublish, KafkaRecord};
-use crate::{handler::Result, middleware::Middleware};
+use crate::{
+    forward::{SamePlatform, ValueRecord},
+    handler::{HandlerError, Result},
+    middleware::Middleware,
+};
 
 /// Kafka-to-Kafka middleware that copies the received key and headers into
 /// each output record.
@@ -60,5 +64,27 @@ impl<I: 'static, O: 'static> Middleware<KafkaRecord<I>, KafkaPublish<O>> for Kaf
             output.headers = headers;
         }
         Ok(output)
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> ValueRecord for KafkaRecord<T> {
+    type Value = T;
+
+    /// A Kafka null value is rejected; use a record handler to process tombstones.
+    fn value(&self) -> Result<T> {
+        self.value
+            .clone()
+            .ok_or_else(|| HandlerError::Reject(anyhow::anyhow!("Kafka record has a null value")))
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static, U: Send + Sync + 'static> SamePlatform<U>
+    for KafkaRecord<T>
+{
+    type Publish = KafkaPublish<U>;
+    type Inherit = KafkaInherit;
+
+    fn publish(value: U) -> KafkaPublish<U> {
+        KafkaPublish::new(value)
     }
 }

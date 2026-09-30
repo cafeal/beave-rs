@@ -190,8 +190,7 @@ in the relevant durable documentation.
 4. Compile-time versus startup validation of broker capabilities.
 5. Shutdown deadlines and cancellation policy.
 6. Adapter and codec crate boundaries as optional dependencies grow.
-7. Kafka null values in handlers that request a plain value.
-8. Isolation of handler futures from communication and control execution.
+7. Isolation of handler futures from communication and control execution.
 
 ## Core philosophy
 
