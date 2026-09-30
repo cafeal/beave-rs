@@ -11,6 +11,7 @@ use crate::{
     message::SourceMessage,
     middleware::Flow,
     retry::RetryPolicy,
+    sink::PublishRejected,
 };
 use metrics::Counter;
 use std::{future::Future, sync::Arc, time::Instant};
@@ -93,6 +94,15 @@ where
                     };
                     return route(delivery, &pipeline, failure).await.map(|()| None);
                 }
+                Completion::Rejected(delivery, error) => {
+                    let failure = Failure {
+                        kind: FailureKind::PublishRejected,
+                        error,
+                        attempts,
+                        input: Some(input),
+                    };
+                    return route(delivery, &pipeline, failure).await.map(|()| None);
+                }
             },
             Err(failure) => failure,
         },
@@ -153,7 +163,7 @@ where
         Completion::Done => Ok(()),
         // Without outputs nothing is submitted, so nothing can be pending.
         Completion::Pending(delivery, _) => ack_delivery(delivery, &pipeline.instruments).await,
-        Completion::Encode(_, error) => Err(error),
+        Completion::Encode(_, error) | Completion::Rejected(_, error) => Err(error),
     }
 }
 
@@ -338,6 +348,8 @@ where
     }
 }
 
+/// Retries a failed publication under `policy`. A rejection is returned without
+/// retrying.
 pub(super) async fn retry_publish<T, F, Fut>(
     policy: &RetryPolicy,
     failures: &Counter,
@@ -355,6 +367,7 @@ where
         }
         match result {
             Ok(value) => return Ok(value),
+            Err(error) if PublishRejected::is(&error) => return Err(error),
             Err(error) if attempt >= policy.max_attempts => {
                 return Err(error.context("publish retry exhausted"));
             }

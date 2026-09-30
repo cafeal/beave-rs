@@ -20,7 +20,7 @@ protobuf = ["dep:prost"]
 kafka = ["dep:rdkafka"]
 pulsar = ["dep:magnetar", "dep:base64", "dep:bytes", "dep:futures-util"]
 opentelemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
-http = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "tokio/net"]
+http = ["dep:hyper", "dep:hyper-util", "dep:hyper-rustls", "dep:rustls", "dep:http-body-util", "dep:bytes", "tokio/net"]
 
 [dependencies.rdkafka]
 version = "0.39"
@@ -47,12 +47,24 @@ optional = true
 
 [dependencies.hyper]
 version = "1"
-features = ["server", "http1"]
+features = ["client", "server", "http1"]
 optional = true
 
 [dependencies.hyper-util]
 version = "0.1"
-features = ["tokio", "server", "server-graceful", "http1"]
+features = ["tokio", "client-legacy", "server", "server-graceful", "http1"]
+optional = true
+
+[dependencies.hyper-rustls]
+version = "0.27"
+default-features = false
+features = ["http1", "native-tokio", "ring", "tls12"]
+optional = true
+
+[dependencies.rustls]
+version = "0.23"
+default-features = false
+features = ["ring", "std", "tls12"]
 optional = true
 
 [dependencies.http-body-util]
@@ -96,3 +108,7 @@ required-features = ["pulsar"]
 [[example]]
 name = "kafka_to_pulsar"
 required-features = ["kafka", "pulsar"]
+
+[[example]]
+name = "kafka_to_http"
+required-features = ["kafka", "http"]
