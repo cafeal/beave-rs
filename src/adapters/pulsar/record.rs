@@ -1,12 +1,26 @@
 use crate::propagation::PropagationCarrier;
-use pulsar::message::proto::MessageIdData;
 use std::collections::HashMap;
 
+/// Read-only facts about a received message.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PulsarMetadata {
+    /// The topic the message was received from. For a partitioned topic this
+    /// is the partition's topic, such as `persistent://tenant/ns/orders-partition-2`.
     pub topic: String,
-    pub message_id: MessageIdData,
+    pub message_id: PulsarMessageId,
+    /// Broker publish time in milliseconds since the Unix epoch.
     pub publish_time: u64,
+}
+
+/// The broker-assigned position of a message.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PulsarMessageId {
+    pub ledger_id: u64,
+    pub entry_id: u64,
+    /// Partition index, or `-1` for a non-partitioned topic.
+    pub partition: i32,
+    /// Index within a batched entry, or `-1` when the entry is not a batch.
+    pub batch_index: i32,
 }
 
 /// A decoded Pulsar delivery. `value` is `None` when the producer marked the

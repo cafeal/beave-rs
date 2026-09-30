@@ -53,9 +53,10 @@ when the registry is unavailable.
 
 ## Delivery semantics and transactions
 
-Kafka-to-Kafka transactions are described in the
+Kafka-to-Kafka and Pulsar-to-Pulsar transactions are described in the
 [runtime guide](runtime.md#transactions) and the
-[Kafka guide](adapters/kafka.md#transactions). Remaining work:
+[Kafka](adapters/kafka.md#transactions) and
+[Pulsar](adapters/pulsar.md#transactions) guides. Remaining work:
 
 - Batch several deliveries into one Kafka transaction. Each delivery currently
   commits its own transaction and one producer serializes them, so throughput
@@ -65,7 +66,13 @@ Kafka-to-Kafka transactions are described in the
 - A commit that times out after its retriable retries has an unknown outcome.
   The transaction is then aborted or its producer replaced, and the retry can
   duplicate outputs if the timed-out commit had in fact completed.
-- Pulsar transaction support, using the same `TransactionalSink` capability.
+- Pulsar transactions have the same per-delivery cost: each one opens,
+  registers partitions and a subscription, and ends with coordinator round
+  trips. Batching deliveries into one Pulsar transaction needs the same size or
+  time limits and joint abort and retry.
+- A Pulsar commit whose response is lost has an unknown outcome as well. The
+  sink reports it as a failure, and the retried delivery can duplicate outputs
+  if the commit had completed.
 
 The ignored `transactional_pipeline_commits_outputs_with_offsets` test passes
 against a single-node Kafka 3.9 broker. Failure and rebalance paths have not
@@ -81,6 +88,20 @@ been verified against a live broker. Verify with Kafka:
 - Offsets sent with the group metadata of a consumer that has rejoined the
   group are accepted only for partitions it still owns, including under
   cooperative rebalancing.
+
+The ignored Pulsar transaction tests pass against a Pulsar 4.0 standalone
+broker with `transactionCoordinatorEnabled=true`: outputs routed to a
+three-partition topic commit with the acknowledgements of a two-partition
+input, and a transaction whose acknowledgement fails is aborted, its output
+stays invisible, and the redelivered message commits. Verify with Pulsar:
+
+- Acknowledging a message from a producer batch within a transaction, with and
+  without `acknowledgmentAtBatchIndexLevelEnabled`. The adapter acknowledges
+  each batch index individually.
+- A broker restart or topic unload during a transaction, and a transaction
+  coordinator that is unavailable when the sink opens a transaction.
+- A transaction that outlives `transaction_timeout` is aborted by the
+  coordinator, and the retried delivery commits once.
 
 Multiple sinks within one subscription remain deferred because partial publish
 success makes retry and acknowledgement behavior ambiguous. Any future design
@@ -120,6 +141,19 @@ have not been verified against a live broker. Verify with Kafka:
 
 Verify with Pulsar that Failover and Key_Shared deliveries carry the partition
 index and ordering key expected by the adapter.
+
+## Pulsar client
+
+The Pulsar adapter uses `magnetar-driver`, which implements Pulsar
+transactions; the `pulsar` crate it replaced has no transaction API. The client
+was first released in 2026, so its reconnect behavior needs verification under
+broker restarts and topic unloads. Other client limitations:
+
+- Acknowledging through a client after `close` never completes, so a source
+  keeps its client open until the last of its deliveries is dropped.
+- The source and sink read the partition count when they connect. Partitions
+  added to a topic later are neither consumed nor published to until the
+  application restarts.
 
 ## Observability
 
