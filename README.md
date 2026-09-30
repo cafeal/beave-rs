@@ -55,9 +55,16 @@ See the [execution model](docs/plan.md#handler-execution-model).
 ## Development
 
 ```sh
+cargo fmt --check
 cargo test
-cargo clippy --all-targets -- -D warnings
-cargo doc --no-deps
+cargo test --all-features
+cargo clippy --all-features --all-targets -- -D warnings
+cargo doc --all-features --no-deps
 ```
+
+Building with `--all-features` requires `protoc`, which the Pulsar client uses
+to generate its protocol types. GitHub Actions runs these checks on every pull
+request and on pushes to `main`. Live Kafka and Pulsar tests are ignored by
+default and are not run in CI.
 
 **Let application code process events. Let beave.rs manage the flow.**
