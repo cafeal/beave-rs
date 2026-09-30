@@ -1,7 +1,7 @@
 use super::fixtures::{Flaky, RejectNegative, TextSource, fast};
 use beavers::{
     App, DeadLetter, Emit, ErrorPolicy, FailureAction, FailureKind, HandlerError, InMemorySink,
-    IterSource, RawPayload, RetryPolicy, Subscription,
+    IterSource, RetryPolicy, Subscription,
 };
 use std::sync::{
     Arc,
@@ -18,7 +18,7 @@ fn text_source(payloads: &[&'static str]) -> (TextSource, Arc<AtomicUsize>) {
 }
 
 #[tokio::test]
-async fn decode_failure_dead_letters_raw_payload_and_continues() {
+async fn decode_failure_dead_letters_raw_delivery_and_continues() {
     let (source, acks) = text_source(&["1", "oops", "3"]);
     let sink = InMemorySink::default();
     let dlq = InMemorySink::default();
@@ -35,11 +35,11 @@ async fn decode_failure_dead_letters_raw_payload_and_continues() {
         .await
         .unwrap();
     assert_eq!(sink.values(), vec![1, 3]);
-    let [dead_letter]: [DeadLetter<i32>; 1] = dlq.values().try_into().unwrap();
+    let [dead_letter]: [DeadLetter<i32, Vec<u8>>; 1] = dlq.values().try_into().unwrap();
     assert_eq!(dead_letter.failure, FailureKind::Decode);
     assert_eq!(dead_letter.attempts, 0);
     assert_eq!(dead_letter.input, None);
-    assert_eq!(dead_letter.raw, Some(RawPayload::Bytes(b"oops".to_vec())));
+    assert_eq!(dead_letter.raw, b"oops");
     assert!(dead_letter.error.contains("invalid digit"));
     assert_eq!(acks.load(Ordering::SeqCst), 3);
 }
@@ -86,11 +86,11 @@ async fn retry_exhaustion_stops_by_default_and_can_be_dead_lettered() {
         assert_eq!(calls.load(Ordering::SeqCst), 3);
         if dead_letter {
             result.unwrap();
-            let [letter]: [DeadLetter<i32>; 1] = dlq.values().try_into().unwrap();
+            let [letter]: [DeadLetter<i32, Vec<u8>>; 1] = dlq.values().try_into().unwrap();
             assert_eq!(letter.failure, FailureKind::RetryExhausted);
             assert_eq!(letter.attempts, 3);
             assert_eq!(letter.input, Some(5));
-            assert_eq!(letter.raw, Some(RawPayload::Bytes(b"5".to_vec())));
+            assert_eq!(letter.raw, b"5");
             assert_eq!(acks.load(Ordering::SeqCst), 1);
         } else {
             let error = format!("{:#}", result.unwrap_err());
@@ -118,7 +118,7 @@ async fn encode_failure_dead_letters_input_without_partial_publish() {
         .await
         .unwrap();
     assert!(sink.0.lock().unwrap().is_empty());
-    let [letter]: [DeadLetter<i32>; 1] = dlq.values().try_into().unwrap();
+    let [letter]: [DeadLetter<i32, ()>; 1] = dlq.values().try_into().unwrap();
     assert_eq!(letter.failure, FailureKind::Encode);
     assert_eq!(letter.input, Some(1));
     assert!(letter.error.contains("negative output"));
@@ -211,10 +211,10 @@ async fn dead_letter_serializes_failure_context() {
         .run()
         .await
         .unwrap();
-    let [letter]: [DeadLetter<i32>; 1] = dlq.values().try_into().unwrap();
+    let [letter]: [DeadLetter<i32, Vec<u8>>; 1] = dlq.values().try_into().unwrap();
     let json = serde_json::to_value(&letter).unwrap();
     assert_eq!(json["subscription"], "numbers");
     assert_eq!(json["failure"], "decode");
     assert_eq!(json["input"], serde_json::Value::Null);
-    assert_eq!(json["raw"]["bytes"], serde_json::json!([120]));
+    assert_eq!(json["raw"], serde_json::json!([120]));
 }

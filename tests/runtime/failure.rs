@@ -24,13 +24,12 @@ async fn reject_goes_to_dlq_before_ack() {
         .run()
         .await
         .unwrap();
-    let [dead_letter]: [DeadLetter<i32>; 1] = dlq.values().try_into().unwrap();
+    let [dead_letter]: [DeadLetter<i32, ()>; 1] = dlq.values().try_into().unwrap();
     assert_eq!(dead_letter.subscription, "orders");
     assert_eq!(dead_letter.failure, FailureKind::Rejected);
     assert_eq!(dead_letter.error, "invalid");
     assert_eq!(dead_letter.attempts, 1);
     assert_eq!(dead_letter.input, Some(7));
-    assert_eq!(dead_letter.raw, None);
     assert_eq!(acks.load(Ordering::SeqCst), 1);
 }
 

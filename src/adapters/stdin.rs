@@ -1,4 +1,4 @@
-use crate::message::{RawPayload, SourceMessage};
+use crate::message::SourceMessage;
 use crate::{
     codec::Decoder,
     source::{Receive, ReceiveError, Source},
@@ -88,13 +88,15 @@ pub struct StdinMessage<C, T> {
 }
 impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for StdinMessage<C, T> {
     type Item = T;
+    /// The received line without its trailing newline.
+    type Raw = Vec<u8>;
     fn decode(&self) -> anyhow::Result<T> {
         self.codec.decode(&self.bytes)
     }
     async fn ack(self) -> anyhow::Result<()> {
         Ok(())
     }
-    fn raw_payload(&self) -> Option<RawPayload> {
-        Some(RawPayload::Bytes(self.bytes.clone()))
+    fn raw(&self) -> Vec<u8> {
+        self.bytes.clone()
     }
 }

@@ -1,6 +1,4 @@
-use beavers::{
-    Delivery, RawPayload, Receive, ReceiveError, RetryPolicy, Sink, Source, SourceMessage,
-};
+use beavers::{Delivery, Receive, ReceiveError, RetryPolicy, Sink, Source, SourceMessage};
 use std::{
     collections::VecDeque,
     future::pending,
@@ -83,6 +81,7 @@ pub(crate) struct TextMessage {
 
 impl SourceMessage for TextMessage {
     type Item = i32;
+    type Raw = Vec<u8>;
 
     fn decode(&self) -> anyhow::Result<i32> {
         Ok(self.payload.parse()?)
@@ -93,8 +92,8 @@ impl SourceMessage for TextMessage {
         Ok(())
     }
 
-    fn raw_payload(&self) -> Option<RawPayload> {
-        Some(RawPayload::Bytes(self.payload.as_bytes().to_vec()))
+    fn raw(&self) -> Vec<u8> {
+        self.payload.as_bytes().to_vec()
     }
 }
 

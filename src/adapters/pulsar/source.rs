@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     codec::Decoder,
-    message::{RawPayload, SourceMessage},
+    message::SourceMessage,
     source::{Receive, ReceiveError, Source},
 };
 use pulsar::{Consumer, Pulsar, TokioExecutor};
@@ -127,6 +127,7 @@ pub struct PulsarMessage<C, T> {
 
 impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMessage<C, T> {
     type Item = PulsarRecord<T>;
+    type Raw = PulsarRecord<Vec<u8>>;
 
     fn decode(&self) -> anyhow::Result<Self::Item> {
         Ok(PulsarRecord {
@@ -138,8 +139,14 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMe
         })
     }
 
-    fn raw_payload(&self) -> Option<RawPayload> {
-        Some(RawPayload::Bytes(self.bytes.clone()))
+    fn raw(&self) -> Self::Raw {
+        PulsarRecord {
+            value: self.bytes.clone(),
+            key: self.key.clone(),
+            properties: self.properties.clone(),
+            event_time: self.event_time,
+            metadata: self.metadata.clone(),
+        }
     }
 
     async fn ack(self) -> anyhow::Result<()> {

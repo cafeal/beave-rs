@@ -67,8 +67,6 @@ The middleware design must establish:
 - behavior for plain handler outputs and `Emit::Many`;
 - mapping error classification, including whether mapping failures become a
   routable `FailureKind`;
-- exposure of broker metadata, such as Kafka keys and headers, in dead letters
-  for deliveries that failed to decode;
 - preparation before publication so retries reuse the mapped output;
 - a clear policy when cross-platform value-only forwarding would discard
   metadata.

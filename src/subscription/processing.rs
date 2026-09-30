@@ -11,12 +11,12 @@ use crate::{
 use std::{future::Future, sync::Arc};
 
 /// Everything a job needs, shared by all jobs of one subscription run.
-pub(super) struct Pipeline<I, O, K> {
+pub(super) struct Pipeline<I, R, O, K> {
     pub(super) name: String,
     pub(super) handler: BoxHandler<I, O>,
     pub(super) middleware: Vec<Mapper<I, O>>,
     pub(super) sink: Arc<K>,
-    pub(super) dlq: Option<DeadLetterRoute<I>>,
+    pub(super) dlq: Option<DeadLetterRoute<I, R>>,
     pub(super) handler_retry: RetryPolicy,
     pub(super) publish_retry: RetryPolicy,
     pub(super) dead_letter_retry: RetryPolicy,
@@ -33,7 +33,7 @@ struct Failure<I> {
 
 pub(super) async fn process<M, O, K>(
     delivery: M,
-    pipeline: Arc<Pipeline<M::Item, O, K>>,
+    pipeline: Arc<Pipeline<M::Item, M::Raw, O, K>>,
 ) -> anyhow::Result<()>
 where
     M: SourceMessage,
@@ -56,9 +56,9 @@ where
 }
 
 /// Returns `Ok(None)` when every output was published and the delivery may be acknowledged.
-async fn handle<I, O, K>(
+async fn handle<I, R, O, K>(
     input: I,
-    pipeline: &Pipeline<I, O, K>,
+    pipeline: &Pipeline<I, R, O, K>,
 ) -> anyhow::Result<Option<Failure<I>>>
 where
     I: Clone,
@@ -125,7 +125,7 @@ where
 
 async fn route<M, O, K>(
     delivery: M,
-    pipeline: &Pipeline<M::Item, O, K>,
+    pipeline: &Pipeline<M::Item, M::Raw, O, K>,
     failure: Failure<M::Item>,
 ) -> anyhow::Result<()>
 where
@@ -152,7 +152,7 @@ where
                 &error,
                 attempts,
                 input,
-                delivery.raw_payload(),
+                delivery.raw(),
             );
             dlq(dead_letter, pipeline.dead_letter_retry.clone())
                 .await

@@ -126,7 +126,8 @@ not duplicate outputs.
 
 ### Dead letters
 
-`Subscription::dlq(sink)` accepts a `Sink<DeadLetter<Input>>`.
+`Subscription::dlq(sink)` accepts a `Sink<DeadLetter<Input, Raw>>`, where `Raw`
+is the source message's undecoded form (`SourceRaw<S>`).
 `Subscription::dlq_with(sink, convert)` converts each envelope into the sink's
 own output type first, for example to forward the original payload to a broker
 topic with failure details as headers. Handlers never see dead letters.
@@ -138,12 +139,21 @@ topic with failure details as headers. Handlers never see dead letters.
 | `error` | Error message including its context chain |
 | `attempts` | Handler attempts made; zero for decode failures |
 | `input` | Decoded handler input; `None` after a decode failure |
-| `raw` | Received payload when the source retains it (`RawPayload::Bytes` or `Null`) |
+| `raw` | The delivery as received, with its broker metadata |
 
-`DeadLetter` implements `Serialize` when its input does, so a JSON sink can
-publish it directly. Sources provide `raw` through
-`SourceMessage::raw_payload`; the Kafka, Pulsar, and stdin sources do, while
-already typed local sources such as `IterSource` and `Channel` do not.
+`SourceMessage::Raw` defines `raw` per source, so broker metadata keeps its
+native shape instead of passing through a universal structure:
+
+| Source | `Raw` |
+|---|---|
+| Kafka | `KafkaRecord<Vec<u8>>`: value bytes, key, headers, and delivery metadata |
+| Pulsar | `PulsarRecord<Vec<u8>>`: payload bytes, key, properties, event time, and delivery metadata |
+| Stdin | `Vec<u8>`: the received line |
+| `Delivery` (`IterSource`, `Channel`) | `()`: input is already typed |
+
+`DeadLetter` implements `Serialize` when its input and raw form do, so a JSON
+sink can publish it directly; this holds for Kafka and stdin sources. Pulsar
+message IDs are not serializable, so Pulsar dead letters go through `dlq_with`.
 
 Conversion and preparation run once. Publication then retries under the
 `dlq_retry` policy. A conversion, preparation, or exhausted publication failure
@@ -199,7 +209,5 @@ validated cross-broker metadata mapping API.
 
 Inputs currently require `Clone + Send + Sync`. Stdin and stdout construct
 `Default` codecs internally and do not yet accept configured codec instances.
-A dead letter for a decode failure carries the raw payload but not broker
-metadata such as Kafka keys and headers or Pulsar properties. See
-[architecture](architecture.md) for extension contracts and the [roadmap](plan.md#implementation-order)
-for the intended sequence.
+See [architecture](architecture.md) for extension contracts and the
+[roadmap](plan.md#implementation-order) for the intended sequence.

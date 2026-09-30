@@ -6,21 +6,21 @@ use crate::{
     handler::{Emit, Handler, Result},
     retry::RetryPolicy,
     sink::Sink,
-    source::{Source, SourceItem},
+    source::{Source, SourceItem, SourceRaw},
 };
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 pub(super) type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 pub(super) type BoxHandler<I, O> = Arc<dyn Fn(I) -> BoxFuture<Result<Emit<O>>> + Send + Sync>;
 pub(super) type Mapper<I, O> = Arc<dyn Fn(&I, O) -> Result<O> + Send + Sync>;
-pub(super) type DeadLetterRoute<I> =
-    Arc<dyn Fn(DeadLetter<I>, RetryPolicy) -> BoxFuture<anyhow::Result<()>> + Send + Sync>;
+pub(super) type DeadLetterRoute<I, R> =
+    Arc<dyn Fn(DeadLetter<I, R>, RetryPolicy) -> BoxFuture<anyhow::Result<()>> + Send + Sync>;
 
 pub struct Subscription<S: Source, K, O> {
     pub(super) source: S,
     pub(super) sink: K,
     pub(super) handler: BoxHandler<SourceItem<S>, O>,
-    pub(super) dlq: Option<DeadLetterRoute<SourceItem<S>>>,
+    pub(super) dlq: Option<DeadLetterRoute<SourceItem<S>, SourceRaw<S>>>,
     pub(super) middleware: Vec<Mapper<SourceItem<S>, O>>,
     pub(super) close_dlq: Option<Arc<dyn Fn() -> BoxFuture<anyhow::Result<()>> + Send + Sync>>,
     pub(super) config: SubscriptionConfig,
@@ -95,7 +95,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
 
     /// Dead-letter sink for failures the [`ErrorPolicy`] routes there. Each dead letter is
     /// published before the original delivery is acknowledged.
-    pub fn dlq<D: Sink<DeadLetter<SourceItem<S>>>>(self, sink: D) -> Self {
+    pub fn dlq<D: Sink<DeadLetter<SourceItem<S>, SourceRaw<S>>>>(self, sink: D) -> Self {
         self.dlq_with(sink, Ok)
     }
 
@@ -105,7 +105,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     pub fn dlq_with<D, T, F>(mut self, sink: D, convert: F) -> Self
     where
         D: Sink<T>,
-        F: Fn(DeadLetter<SourceItem<S>>) -> anyhow::Result<T> + Send + Sync + 'static,
+        F: Fn(DeadLetter<SourceItem<S>, SourceRaw<S>>) -> anyhow::Result<T> + Send + Sync + 'static,
     {
         let sink = Arc::new(sink);
         let convert = Arc::new(convert);

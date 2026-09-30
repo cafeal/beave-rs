@@ -1,5 +1,4 @@
 //! Received message ownership, decoding, and acknowledgement.
-use serde::Serialize;
 use std::{future::Future, pin::Pin};
 
 /// A delivery owns its ACK capability; handlers only receive decoded values.
@@ -11,20 +10,10 @@ pub trait SourceMessage: Send + 'static {
     /// Success means the adapter safely recorded completion. Broker commit ordering
     /// and assignment validity remain the adapter's responsibility.
     fn ack(self) -> impl Future<Output = anyhow::Result<()>> + Send;
-    /// Received payload exactly as delivered, copied into dead letters so undecodable input
-    /// can still be routed. Return `None` when the delivery retains no raw payload.
-    fn raw_payload(&self) -> Option<RawPayload> {
-        None
-    }
-}
-
-/// Undecoded payload of a received delivery.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RawPayload {
-    Bytes(Vec<u8>),
-    /// The broker delivered a record without a payload.
-    Null,
+    /// Undecoded form of this delivery, copied into dead letters so failures keep the
+    /// original payload and broker metadata even when decoding failed.
+    type Raw: Send + Sync + 'static;
+    fn raw(&self) -> Self::Raw;
 }
 
 type AckFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
@@ -56,9 +45,12 @@ impl<T> Delivery<T> {
 
 impl<T: Clone + Send + Sync + 'static> SourceMessage for Delivery<T> {
     type Item = T;
+    /// Already typed local input has no separate undecoded form.
+    type Raw = ();
     fn decode(&self) -> anyhow::Result<T> {
         Ok(self.value.clone())
     }
+    fn raw(&self) {}
     async fn ack(self) -> anyhow::Result<()> {
         Delivery::ack(self).await
     }

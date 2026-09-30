@@ -19,11 +19,13 @@ struct RawMessage {
 }
 impl SourceMessage for RawMessage {
     type Item = i32;
+    type Raw = ();
     fn decode(&self) -> anyhow::Result<i32> {
         self.decoded.fetch_add(1, Ordering::SeqCst);
         anyhow::ensure!(!self.fail_decode, "decode failed");
         Ok(21)
     }
+    fn raw(&self) {}
     async fn ack(self) -> anyhow::Result<()> {
         self.acked.fetch_add(1, Ordering::SeqCst);
         Ok(())
