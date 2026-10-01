@@ -68,20 +68,21 @@ when the registry is unavailable.
 Kafka-to-Kafka and Pulsar-to-Pulsar transactions are described in the
 [runtime guide](runtime.md#transactions) and the
 [Kafka](adapters/kafka.md#transactions) and
-[Pulsar](adapters/pulsar.md#transactions) guides. Remaining work:
+[Pulsar](adapters/pulsar.md#transactions) guides, including the
+[batching](runtime.md#batches) of deliveries into one transaction. Remaining
+work:
 
-- Batch several deliveries into one Kafka transaction. Each delivery currently
-  commits its own transaction and one producer serializes them, so throughput
-  is bounded by commit latency. A batch must close on a size or time limit,
-  commit each partition's highest contiguous offset, and abort and retry every
-  delivery in it together.
 - A commit that times out after its retriable retries has an unknown outcome.
   The transaction is then aborted or its producer replaced, and the retry can
-  duplicate outputs if the timed-out commit had in fact completed.
-- Pulsar transactions have the same per-delivery cost: each one opens,
-  registers partitions and a subscription, and ends with coordinator round
-  trips. Batching deliveries into one Pulsar transaction needs the same size or
-  time limits and joint abort and retry.
+  duplicate outputs if the timed-out commit had in fact completed. Batching
+  widens this to every delivery of the batch.
+- A subscription's batches commit one at a time. Pulsar allows concurrent
+  transactions, so batches of different ordering scopes could commit in
+  parallel; that needs a rule for a failed batch whose scopes also appear in a
+  later batch that already committed.
+- The Kafka sink commits a batch of one source only; a batch with deliveries of
+  several consumers fails. Several subscriptions sharing one transactional sink
+  each form their own batches and serialize on its producer.
 - A Pulsar commit whose response is lost has an unknown outcome as well. The
   sink reports it as a failure, and the retried delivery can duplicate outputs
   if the commit had completed.
@@ -90,9 +91,19 @@ Kafka-to-Kafka and Pulsar-to-Pulsar transactions are described in the
   from the brokers, such as the cluster name from the admin API, would also
   accept different URLs of one cluster.
 
-The ignored `transactional_pipeline_commits_outputs_with_offsets` test passes
-against a single-node Kafka 3.9 broker. Failure and rebalance paths have not
-been verified against a live broker. Verify with Kafka:
+The ignored `transactional_pipeline_commits_outputs_with_offsets` test passed
+against a single-node Kafka 3.9 broker with one transaction per delivery.
+Batched commits, and failure and rebalance paths, have not been verified
+against a live broker. Verify with Kafka:
+
+- A batch with deliveries of several partitions commits the offset after each
+  partition's last delivery, and the committed offsets match the outputs
+  visible to `read_committed` consumers.
+- Throughput and commit latency for the default `TransactionBatch` and for
+  larger batches, and a batch whose outputs approach `transaction.timeout.ms`.
+- A revoke during a batch's commit aborts it, the retry without the revoked
+  partition's deliveries commits, and the revoked records are reprocessed by the
+  next owner.
 
 - Outputs of an aborted transaction stay invisible to `read_committed`
   consumers, and the retried delivery commits once.
@@ -108,11 +119,19 @@ been verified against a live broker. Verify with Kafka:
   development environment runs one Kafka cluster, so no live test covers the
   mismatch.
 
-The ignored Pulsar transaction tests pass against a Pulsar 4.0 standalone
-broker with `transactionCoordinatorEnabled=true`: outputs routed to a
-three-partition topic commit with the acknowledgements of a two-partition
-input, and a transaction whose acknowledgement fails is aborted, its output
-stays invisible, and the redelivered message commits. Verify with Pulsar:
+The ignored Pulsar transaction tests passed against a Pulsar 4.0 standalone
+broker with `transactionCoordinatorEnabled=true`, with one transaction per
+delivery: outputs routed to a three-partition topic commit with the
+acknowledgements of a two-partition input, and a transaction whose
+acknowledgement fails is aborted, its output stays invisible, and the
+redelivered message commits. Batched commits have not been verified against a
+live broker. Verify with Pulsar:
+
+- A batch acknowledges deliveries of several input partitions within one
+  transaction, registering each partition's subscription once, and an aborted
+  batch redelivers all of them.
+- Throughput and coordinator latency for the default `TransactionBatch` and for
+  larger batches.
 
 - Acknowledging a message from a producer batch within a transaction, with and
   without `acknowledgmentAtBatchIndexLevelEnabled`. The adapter acknowledges
@@ -274,6 +293,27 @@ The HTTP source answers each request with a status only. Remaining decisions:
 
 Its server limits are listed under [failure defaults](#failure-defaults).
 
+## HTTP sink
+
+The [HTTP sink](adapters/http.md#sink) sends each output as a request and
+retries every failed attempt under `publish_retry`. Remaining decisions:
+
+- A permanent failure such as `400` or `422` is retried like a transient one,
+  and an exhausted retry stops the subscription. Routing such an output to the
+  dead-letter sink needs publish failures that the error policy can classify,
+  which no sink offers yet.
+- `Retry-After` on `429` and `503` is ignored; the retry policy's backoff
+  applies.
+- Each publication waits for its response. Pipelining requests through
+  `Sink::submit` would raise throughput per ordering scope, but requests on
+  separate connections can reach the endpoint out of order.
+- Mutual TLS, custom root certificates, and HTTP/2 are not configurable.
+- A default `content-type` derived from the codec.
+
+The sink is tested against a local HTTP/1.1 endpoint only. HTTPS was checked by
+hand against one public endpoint through a proxy; certificate failures and
+connection reuse after an endpoint restart are untested.
+
 Each broker adapter must define its native record and publish types, ACK model,
 redelivery behavior, ordering scope, cancellation behavior, connection
 lifecycle, and mapping of trace-context propagation fields (NATS headers, SQS
@@ -286,7 +326,7 @@ message attributes) before implementation.
 | 1 | Adapter pause/resume backpressure and graceful rebalance handoff |
 | 2 | Cross-platform metadata mapping policy |
 | 3 | Observability refinements |
-| 4 | Kafka transaction batching and Pulsar transactions |
+| 4 | Live verification of batched Kafka and Pulsar transactions |
 | 5 | NATS JetStream and AWS SQS adapters |
 | 6 | Schema Registry and additional codecs |
 

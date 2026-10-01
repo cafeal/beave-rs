@@ -2,7 +2,7 @@
 
 use beavers::{
     App, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage, Subscription,
-    TransactionalSink, Utf8,
+    TransactionEntry, TransactionalSink, Utf8,
     adapters::pulsar::{
         PulsarAuthentication, PulsarMessage, PulsarMessageId, PulsarMetadata, PulsarPublish,
         PulsarRecord, PulsarSink, PulsarSinkConfig, PulsarSource, PulsarSourceConfig,
@@ -320,7 +320,11 @@ async fn failed_acknowledgement_aborts_the_transaction() -> anyhow::Result<()> {
         .expect("timed out waiting for input");
     let prepared = sink.prepare(PulsarPublish::new("aborted".to_owned()))?;
     source.close().await?;
-    assert!(sink.commit(&delivery, &[prepared]).await.is_err());
+    let batch = [TransactionEntry {
+        delivery: &delivery,
+        outputs: &[prepared],
+    }];
+    assert!(sink.commit(&batch).await.is_err());
     assert!(
         next_message(&mut reader, Duration::from_secs(2))
             .await?
@@ -333,7 +337,11 @@ async fn failed_acknowledgement_aborts_the_transaction() -> anyhow::Result<()> {
         .await?
         .expect("the aborted delivery was not redelivered");
     let prepared = sink.prepare(PulsarPublish::new("committed".to_owned()))?;
-    sink.commit(&delivery, &[prepared]).await?;
+    sink.commit(&[TransactionEntry {
+        delivery: &delivery,
+        outputs: &[prepared],
+    }])
+    .await?;
     let message = next_message(&mut reader, Duration::from_secs(20))
         .await?
         .expect("timed out waiting for committed output");

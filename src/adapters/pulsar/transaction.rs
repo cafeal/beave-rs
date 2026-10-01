@@ -7,7 +7,7 @@ use super::{
 use crate::{
     codec::{Decoder, Encoder},
     sink::Sink,
-    transaction::TransactionalSink,
+    transaction::{TransactionEntry, TransactionalSink},
 };
 use futures_util::future::try_join_all;
 use magnetar::{Transaction, TxnState};
@@ -52,7 +52,7 @@ impl<C, T> PulsarTransactionalSink<C, T> {
     async fn transact(
         &self,
         outputs: Vec<PulsarPrepared>,
-        acknowledgement: Option<SourceAcknowledgement>,
+        acknowledgements: Vec<SourceAcknowledgement>,
     ) -> anyhow::Result<()> {
         let connection = self.connection.clone();
         tokio::spawn(async move {
@@ -61,7 +61,7 @@ impl<C, T> PulsarTransactionalSink<C, T> {
             let transaction = client
                 .new_transaction(connection.config().transaction_timeout)
                 .await?;
-            if let Err(error) = run(&producers, transaction, &outputs, acknowledgement).await {
+            if let Err(error) = run(&producers, transaction, &outputs, acknowledgements).await {
                 // The coordinator also aborts the transaction when it times
                 // out, so a failed abort only delays the cleanup.
                 let _ = client.abort_transaction(transaction).await;
@@ -90,7 +90,7 @@ where
     }
 
     async fn publish(&self, output: &Self::Prepared) -> anyhow::Result<()> {
-        self.transact(vec![output.clone()], None).await
+        self.transact(vec![output.clone()], Vec::new()).await
     }
 
     async fn close(&self) -> anyhow::Result<()> {
@@ -119,11 +119,17 @@ where
 
     async fn commit(
         &self,
-        delivery: &PulsarMessage<D, U>,
-        outputs: &[Self::Prepared],
+        batch: &[TransactionEntry<'_, PulsarMessage<D, U>, Self::Prepared>],
     ) -> anyhow::Result<()> {
-        self.transact(outputs.to_vec(), Some(SourceAcknowledgement::new(delivery)))
-            .await
+        let outputs = batch
+            .iter()
+            .flat_map(|entry| entry.outputs.iter().cloned())
+            .collect();
+        let acknowledgements = batch
+            .iter()
+            .map(|entry| SourceAcknowledgement::new(entry.delivery))
+            .collect();
+        self.transact(outputs, acknowledgements).await
     }
 }
 
@@ -152,14 +158,14 @@ impl SourceAcknowledgement {
     }
 }
 
-/// Registers every partition the outputs are routed to and the delivery's
+/// Registers every partition the outputs are routed to and every delivery's
 /// subscription with the transaction, then publishes the outputs and
-/// acknowledges the delivery within it.
+/// acknowledges the deliveries within it.
 async fn run(
     producers: &Producers,
     transaction: Transaction,
     outputs: &[PulsarPrepared],
-    acknowledgement: Option<SourceAcknowledgement>,
+    acknowledgements: Vec<SourceAcknowledgement>,
 ) -> anyhow::Result<()> {
     let client = &producers.client;
     let routes: Vec<_> = outputs
@@ -180,24 +186,30 @@ async fn run(
             .map(|(partition, output)| partition.send(output, Some(transaction.id()))),
     )
     .await?;
-    if let Some(SourceAcknowledgement {
+    let mut subscriptions = HashSet::new();
+    for SourceAcknowledgement {
         acknowledgement,
         topic,
-    }) = acknowledgement
+    } in &acknowledgements
     {
         acknowledgement.ensure_open()?;
-        client
-            .register_subscription_to_transaction(
-                transaction,
-                topic,
-                &*acknowledgement.subscription,
-            )
-            .await?;
-        acknowledgement
-            .consumer
-            .ack_with_txn(acknowledgement.id, transaction.id())
-            .await?;
+        if subscriptions.insert((topic.as_str(), &*acknowledgement.subscription)) {
+            client
+                .register_subscription_to_transaction(
+                    transaction,
+                    topic.clone(),
+                    &*acknowledgement.subscription,
+                )
+                .await?;
+        }
     }
+    try_join_all(acknowledgements.iter().map(|source| {
+        source
+            .acknowledgement
+            .consumer
+            .ack_with_txn(source.acknowledgement.id, transaction.id())
+    }))
+    .await?;
     Ok(())
 }
 

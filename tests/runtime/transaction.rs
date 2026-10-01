@@ -1,11 +1,14 @@
 use super::fixtures::{TransactionalSource, Transactions, fast};
 use beavers::{
-    App, Emit, ErrorPolicy, FailureAction, HandlerError, InMemorySink, ProcessingOrder,
-    Subscription,
+    App, CancellationToken, Emit, ErrorPolicy, FailureAction, HandlerError, InMemorySink,
+    ProcessingOrder, RetryPolicy, Subscription, TransactionBatch,
 };
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
 };
 
 #[tokio::test]
@@ -187,4 +190,150 @@ async fn an_incompatible_source_stops_the_subscription_before_processing() {
     assert_eq!(handled.load(Ordering::SeqCst), 0);
     assert_eq!(sink.attempts.load(Ordering::SeqCst), 0);
     assert_eq!(acks.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn deliveries_commit_in_batches_bounded_by_size() {
+    let sink = Transactions::default();
+    App::new()
+        .subscription(
+            Subscription::new(
+                "transactions",
+                TransactionalSource::new(1..=10),
+                sink.clone(),
+                |n: i32| async move { Ok(n) },
+            )
+            .transactional()
+            .transaction_batch(TransactionBatch::new(4, Duration::from_millis(200))),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(*sink.batches.lock().unwrap(), vec![4, 4, 2]);
+    let committed = sink.committed.lock().unwrap();
+    assert_eq!(
+        committed.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
+        (1..=10).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+async fn a_single_delivery_batch_commits_each_delivery_alone() {
+    let sink = Transactions::default();
+    App::new()
+        .subscription(
+            Subscription::new(
+                "transactions",
+                TransactionalSource::new(1..=3),
+                sink.clone(),
+                |n: i32| async move { Ok(n) },
+            )
+            .transactional()
+            .transaction_batch(TransactionBatch::single()),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(*sink.batches.lock().unwrap(), vec![1, 1, 1]);
+}
+
+#[tokio::test]
+async fn a_failed_batch_is_retried_as_a_whole() {
+    let sink = Transactions {
+        failures: 1,
+        ..Transactions::default()
+    };
+    App::new()
+        .subscription(
+            Subscription::new(
+                "transactions",
+                TransactionalSource::new(1..=3),
+                sink.clone(),
+                |n: i32| async move { Ok(n) },
+            )
+            .transactional()
+            .transaction_batch(TransactionBatch::new(3, Duration::from_secs(5)))
+            .publish_retry(fast()),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(sink.attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(*sink.batches.lock().unwrap(), vec![3]);
+}
+
+#[tokio::test]
+async fn a_revoked_delivery_leaves_the_batch_without_spending_a_retry() {
+    let revoked = CancellationToken::new();
+    let mut source = TransactionalSource::new(1..=3);
+    source.revocable = Some((2, revoked.clone()));
+    let sink = Transactions {
+        failures: 1,
+        revoke_on_failure: Some(revoked),
+        ..Transactions::default()
+    };
+    App::new()
+        .subscription(
+            Subscription::new("transactions", source, sink.clone(), |n: i32| async move {
+                Ok(n)
+            })
+            .transactional()
+            .transaction_batch(TransactionBatch::new(3, Duration::from_secs(5)))
+            .publish_retry(RetryPolicy {
+                max_attempts: 1,
+                ..fast()
+            }),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(
+        *sink.committed.lock().unwrap(),
+        vec![(1, vec![1]), (3, vec![3])]
+    );
+}
+
+#[tokio::test]
+async fn batches_after_a_failed_batch_do_not_commit() {
+    let sink = Transactions {
+        failures: usize::MAX,
+        ..Transactions::default()
+    };
+    let error = App::new()
+        .subscription(
+            Subscription::new(
+                "transactions",
+                TransactionalSource::new(1..=4),
+                sink.clone(),
+                |n: i32| async move { Ok(n) },
+            )
+            .transactional()
+            .transaction_batch(TransactionBatch::new(2, Duration::from_secs(5)))
+            .publish_retry(fast()),
+        )
+        .run()
+        .await
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("transaction aborted"));
+    assert_eq!(sink.attempts.load(Ordering::SeqCst), 3);
+    assert!(sink.committed.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_zero_transaction_batch_size_fails_validation() {
+    let error = App::new()
+        .subscription(
+            Subscription::new(
+                "transactions",
+                TransactionalSource::new([1]),
+                Transactions::default(),
+                |n: i32| async move { Ok(n) },
+            )
+            .transactional()
+            .transaction_batch(TransactionBatch::new(0, Duration::ZERO)),
+        )
+        .run()
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("transaction batch size"));
 }

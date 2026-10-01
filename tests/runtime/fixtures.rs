@@ -1,6 +1,6 @@
 use beavers::{
-    Delivery, OrderingKey, Receive, ReceiveError, RetryPolicy, Sink, Source, SourceMessage,
-    TransactionalSink,
+    CancellationToken, Delivery, OrderingKey, Receive, ReceiveError, RetryPolicy, Sink, Source,
+    SourceMessage, TransactionEntry, TransactionalSink,
 };
 use std::{
     collections::VecDeque,
@@ -174,6 +174,7 @@ pub(crate) fn keyed(value: i32, partition: i64, acks: &Arc<AtomicUsize>) -> Deli
 pub(crate) struct Transactional {
     pub(crate) value: i32,
     pub(crate) acks: Arc<AtomicUsize>,
+    pub(crate) revocation: Option<CancellationToken>,
 }
 
 impl SourceMessage for Transactional {
@@ -197,11 +198,17 @@ impl SourceMessage for Transactional {
     fn ordering_key(&self) -> Option<OrderingKey> {
         Some(OrderingKey::new("events", 0))
     }
+
+    fn revocation(&self) -> Option<CancellationToken> {
+        self.revocation.clone()
+    }
 }
 
 pub(crate) struct TransactionalSource {
     pub(crate) values: VecDeque<i32>,
     pub(crate) acks: Arc<AtomicUsize>,
+    /// A delivery value and the revocation token its delivery carries.
+    pub(crate) revocable: Option<(i32, CancellationToken)>,
 }
 
 impl TransactionalSource {
@@ -209,6 +216,7 @@ impl TransactionalSource {
         Self {
             values: values.into_iter().collect(),
             acks: Arc::default(),
+            revocable: None,
         }
     }
 }
@@ -221,6 +229,11 @@ impl Source for TransactionalSource {
             Some(value) => Receive::Message(Transactional {
                 value,
                 acks: self.acks.clone(),
+                revocation: self
+                    .revocable
+                    .as_ref()
+                    .filter(|(revocable, _)| *revocable == value)
+                    .map(|(_, token)| token.clone()),
             }),
             None => Receive::End,
         })
@@ -230,12 +243,15 @@ impl Source for TransactionalSource {
 /// A committed delivery value and the outputs committed with it.
 pub(crate) type Committed = (i32, Vec<i32>);
 
-/// Records each committed transaction as the delivery value and its outputs.
-/// Negative outputs fail to prepare; the first `failures` commits and the
-/// first `verify_failures` source checks fail.
+/// Records each committed delivery value with its outputs, and the number of
+/// deliveries of each committed transaction. Negative outputs fail to prepare;
+/// the first `failures` commits and the first `verify_failures` source checks
+/// fail. A failing commit cancels `revoke_on_failure` first.
 #[derive(Clone, Default)]
 pub(crate) struct Transactions {
     pub(crate) committed: Arc<Mutex<Vec<Committed>>>,
+    pub(crate) batches: Arc<Mutex<Vec<usize>>>,
+    pub(crate) revoke_on_failure: Option<CancellationToken>,
     pub(crate) attempts: Arc<AtomicUsize>,
     pub(crate) failures: usize,
     pub(crate) verifications: Arc<AtomicUsize>,
@@ -262,13 +278,23 @@ impl TransactionalSink<Transactional, i32> for Transactions {
         Ok(())
     }
 
-    async fn commit(&self, delivery: &Transactional, outputs: &[i32]) -> anyhow::Result<()> {
+    async fn commit(
+        &self,
+        batch: &[TransactionEntry<'_, Transactional, i32>],
+    ) -> anyhow::Result<()> {
         let attempt = self.attempts.fetch_add(1, Ordering::SeqCst);
-        anyhow::ensure!(attempt >= self.failures, "transaction aborted");
-        self.committed
-            .lock()
-            .unwrap()
-            .push((delivery.value, outputs.to_vec()));
+        if attempt < self.failures {
+            if let Some(token) = &self.revoke_on_failure {
+                token.cancel();
+            }
+            anyhow::bail!("transaction aborted");
+        }
+        self.committed.lock().unwrap().extend(
+            batch
+                .iter()
+                .map(|entry| (entry.delivery.value, entry.outputs.to_vec())),
+        );
+        self.batches.lock().unwrap().push(batch.len());
         Ok(())
     }
 }

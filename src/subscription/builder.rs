@@ -1,7 +1,7 @@
 //! Subscription type and builder API.
 use super::{
     completion::{Complete, Publish, Transact},
-    config::{ProcessingOrder, SubscriptionConfig},
+    config::{ProcessingOrder, SubscriptionConfig, TransactionBatch},
     hooks::DynMiddleware,
     processing,
 };
@@ -17,7 +17,7 @@ use crate::{
     transaction::TransactionalSink,
 };
 use metrics::Counter;
-use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 pub(super) type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 pub(super) type BoxHandler<I, O> =
@@ -209,6 +209,13 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         self
     }
 
+    /// Batching of a [transactional](Self::transactional) subscription's
+    /// commits.
+    pub fn transaction_batch(mut self, batch: TransactionBatch) -> Self {
+        self.config.transaction_batch = batch;
+        self
+    }
+
     pub fn config(mut self, config: SubscriptionConfig) -> Self {
         self.config = config;
         self
@@ -218,9 +225,11 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         &self.name
     }
 
-    /// Publishes each delivery's outputs and acknowledges the delivery in one
-    /// sink transaction, for exactly-once processing between a source and a
-    /// sink whose transactions include the source's acknowledgement.
+    /// Publishes deliveries' outputs and acknowledges the deliveries in sink
+    /// transactions, for exactly-once processing between a source and a sink
+    /// whose transactions include the source's acknowledgement. Each
+    /// transaction commits a batch of deliveries bounded by
+    /// [`transaction_batch`](Self::transaction_batch).
     ///
     /// Only compiles when the sink implements [`TransactionalSink`] for the
     /// source's message type:
@@ -236,19 +245,16 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     /// ```
     ///
     /// A delivery acknowledged without output, because it was discarded or
-    /// dead-lettered, is committed in a transaction without outputs. Dead
-    /// letters are published by the dead-letter sink outside that transaction.
+    /// dead-lettered, joins a batch without outputs. Dead letters are published
+    /// by the dead-letter sink outside the transaction.
     /// A transactional subscription requires [`ProcessingOrder::PerKey`], so
-    /// deliveries of one ordering scope commit in receive order.
+    /// deliveries of one ordering scope join batches in receive order.
     pub fn transactional(mut self) -> Self
     where
         S::Message: Sync,
         K: TransactionalSink<S::Message, O>,
     {
-        self.output = Arc::new(Transact {
-            sink: self.sink.clone(),
-            marker: PhantomData,
-        });
+        self.output = Arc::new(Transact::new(self.sink.clone()));
         self.transactional = true;
         self
     }

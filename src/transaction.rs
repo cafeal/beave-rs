@@ -10,6 +10,10 @@ use std::future::Future;
 /// offsets committed through a Kafka producer transaction. A pair without an
 /// implementation cannot be registered with
 /// [`Subscription::transactional`](crate::Subscription::transactional).
+///
+/// The runtime collects the deliveries of a transactional subscription into
+/// batches, bounded by [`TransactionBatch`](crate::TransactionBatch), and
+/// commits each batch in one transaction.
 pub trait TransactionalSink<M: SourceMessage, T>: Sink<T> {
     /// Fails when `delivery`'s acknowledgement cannot join this sink's
     /// transactions, for example because the source and the sink connect to
@@ -21,17 +25,37 @@ pub trait TransactionalSink<M: SourceMessage, T>: Sink<T> {
     /// without processing or acknowledging anything.
     fn verify_source(&self, delivery: &M) -> impl Future<Output = anyhow::Result<()>> + Send;
 
-    /// Publishes `outputs` and acknowledges `delivery` atomically: either every
-    /// output becomes visible together with the acknowledgement, or neither
-    /// takes effect. An empty `outputs` acknowledges the delivery alone.
+    /// Publishes the outputs of every entry and acknowledges every entry's
+    /// delivery in one transaction: either all outputs become visible together
+    /// with all acknowledgements, or none takes effect. An entry with empty
+    /// `outputs` acknowledges its delivery alone.
     ///
-    /// A failed commit leaves the delivery unacknowledged, and the runtime may
-    /// retry it with the same prepared outputs. Dropping the returned future
-    /// must not leave a transaction half-finished; the implementation either
-    /// completes or aborts it.
+    /// Entries are in completion order, so deliveries of one ordering scope
+    /// appear in receive order and a later delivery of a scope acknowledges
+    /// progress through every earlier one.
+    ///
+    /// A failed commit leaves every delivery unacknowledged, and the runtime
+    /// may retry the batch with the same prepared outputs, without the entries
+    /// whose deliveries were revoked in the meantime. Dropping the returned
+    /// future must not leave a transaction half-finished; the implementation
+    /// either completes or aborts it.
     fn commit(
         &self,
-        delivery: &M,
-        outputs: &[Self::Prepared],
+        batch: &[TransactionEntry<'_, M, Self::Prepared>],
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
+
+/// One delivery committed by [`TransactionalSink::commit`], with the prepared
+/// outputs published in the same transaction.
+pub struct TransactionEntry<'a, M, P> {
+    pub delivery: &'a M,
+    pub outputs: &'a [P],
+}
+
+impl<M, P> Clone for TransactionEntry<'_, M, P> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<M, P> Copy for TransactionEntry<'_, M, P> {}

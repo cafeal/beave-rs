@@ -1,9 +1,11 @@
 # HTTP adapter
 
-The HTTP adapter runs an HTTP/1.1 server and turns each `POST` request into a
-delivery. The response waits for the delivery's outcome, so a client learns
-whether its request was processed and can retry when it was not. Enable it with
-the `http` feature:
+The HTTP adapter provides a source and a sink. `HttpSource` runs an HTTP/1.1
+server and turns each `POST` request into a delivery. The response waits for
+the delivery's outcome, so a client learns whether its request was processed and
+can retry when it was not. [`HttpSink`](#sink) sends each output as a request to
+an HTTP endpoint, for example to hand Kafka events to a service with an HTTP
+interface. Enable both with the `http` feature:
 
 ```toml
 [dependencies]
@@ -172,10 +174,108 @@ A request whose client disconnects before the response is not counted in
 `beavers_http_requests_total`. Decode failures appear as `status="400"` and
 never reach the subscription's `beavers_delivery_failures_total`.
 
-## Limitations
+## Source limitations
 
 - HTTP/1.1 only, without TLS. Terminate TLS and HTTP/2 at a reverse proxy.
 - Responses have no body. Returning handler output to the client, as a
   request-reply endpoint, is not supported.
 - No request timeout is enforced by the server; the drain timeout bounds how
   long shutdown waits for open requests.
+
+## Sink
+
+`HttpSink<C, T>` publishes `HttpPublish<T>` outputs. Each output becomes one
+request whose body is encoded by the sink codec:
+
+```rust,no_run
+use beavers::{
+    App, Json, Result,
+    adapters::{
+        http::{HttpPublish, HttpSink, HttpSinkConfig},
+        kafka::{KafkaRecord, KafkaSource, KafkaSourceConfig},
+    },
+};
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Deserialize, Serialize)]
+struct Order {
+    id: u64,
+}
+
+async fn deliver(record: KafkaRecord<Order>) -> Result<HttpPublish<Order>> {
+    let key = format!("{}-{}", record.metadata.partition, record.metadata.offset);
+    let order = record.value.ok_or_else(|| anyhow::anyhow!("tombstone"))?;
+    Ok(HttpPublish::new(order).header("idempotency-key", key))
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let source = KafkaSource::<Json, Order>::new(KafkaSourceConfig::new(
+        "localhost:9092",
+        "order-forwarder",
+        ["orders"],
+    ));
+    let sink = HttpSink::<Json, Order>::new(
+        HttpSinkConfig::new("https://orders.example.com/v1/orders")
+            .header("content-type", "application/json"),
+    )?;
+    App::new().subscribe("orders", source, sink, deliver).run().await
+}
+```
+
+### Sink configuration
+
+| Field | Default | Meaning |
+|---|---|---|
+| `url` | required | Endpoint with an `http` or `https` scheme |
+| `method` | `POST` | Request method |
+| `headers` | none | Headers sent with every request, such as `content-type` or `authorization` |
+| `request_timeout` | 30 s | Bound on one request attempt, from connecting until the response is read |
+| `connect_timeout` | 10 s | Bound on establishing a connection, including the TLS handshake |
+
+`HttpSink::new(config)` validates the configuration: the URL, the method, the
+header names and values, and non-zero timeouts. It performs no network access;
+the client is created on the first publish. `with_codec(config, codec)` accepts
+a configured codec. The sink sets no `content-type` of its own, so configure
+the one matching the codec.
+
+`https` endpoints are verified against the platform's trust store with
+`rustls`. Requests use HTTP/1.1 over pooled keep-alive connections, and the
+client honors the `HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY` environment
+variables.
+
+### Publish records
+
+| `HttpPublish<T>` field | Content |
+|---|---|
+| `path` | Path and optional query, such as `/orders/7?notify=1`, replacing those of the configured URL; `None` keeps them |
+| `headers` | Names and byte values sent after the configured headers; repeated names send one line per value |
+| `body` | Value encoded by the sink codec |
+
+`HttpPublish::new(body)` creates a record without path or headers, and
+`path(...)` and `header(...)` add them. `prepare` encodes the body and checks
+the path and headers once, so an invalid path or header is an encode failure
+routed by the [error policy](../runtime.md#error-policy), and a publish retry
+sends the same request. With `TraceContext`, the trace context is injected as
+request headers such as `traceparent`.
+
+### Sink delivery
+
+A publication succeeds when the endpoint answers with a `2xx` status, and the
+input is acknowledged only after every output of the delivery succeeded.
+Any other status, a connection failure, and a timeout fail the attempt; the
+error names the status and the first 512 characters of the response body.
+Redirects are not followed, so a `3xx` status fails as well. Failed attempts are retried under the subscription's `publish_retry` policy,
+and an exhausted retry stops the subscription without acknowledging the input.
+
+The sink is at-least-once. A request whose response is lost, or that times out
+after the endpoint processed it, is sent again by the retry or after the input
+is redelivered. Give the endpoint a way to recognize duplicates, such as an
+`idempotency-key` header built from the input's Kafka partition and offset or
+Pulsar message ID.
+
+Each publication waits for its response, so a subscription sends at most
+`concurrency` requests at a time and outputs of one ordering scope arrive in
+order. Every status other than `2xx` is retried the same way, including
+permanent failures such as `400`; see the [design plan](../plan.md#http-sink)
+for the remaining decisions.

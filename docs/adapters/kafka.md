@@ -156,11 +156,13 @@ does not acknowledge it.
 `KafkaSink::transactional(transactional_id)` converts a sink into a
 `KafkaTransactionalSink`, which publishes records in Kafka producer
 transactions. Registered with `Subscription::transactional()` behind a
-`KafkaSource`, each delivery is completed by one transaction that contains the
-delivery's outputs and the consumer offset after it:
+`KafkaSource`, each [batch](../runtime.md#batches) of deliveries is completed
+by one transaction that contains the outputs of every delivery in it and, for
+each partition, the consumer offset after the batch's last delivery of that
+partition:
 
 ```text
-begin transaction → produce outputs → send consumer offset → commit transaction
+begin transaction → produce outputs → send consumer offsets → commit transaction
 ```
 
 ```rust
@@ -189,12 +191,12 @@ let subscription = Subscription::forward("orders", source, sink, |order: String|
 registered with `Subscription::transactional()`.
 
 Consumers that read the output with `isolation.level=read_committed`, the
-librdkafka default, see a delivery's outputs only once its offset is committed
+librdkafka default, see a batch's outputs only once its offsets are committed
 with them. A commit failure aborts the transaction, so neither the outputs nor
-the offset take effect, and the runtime retries the delivery with the same
+the offsets take effect, and the runtime retries the batch with the same
 prepared outputs. Deliveries that complete without output, such as discarded
-or dead-lettered ones, commit their offset in a transaction without records.
-Dead letters are published outside the transaction.
+or dead-lettered ones, contribute their offset without records. Dead letters
+are published outside the transaction.
 
 The transactional ID becomes the producer's `transactional.id`. Give each
 running instance of the application its own ID and keep it across restarts of
@@ -213,11 +215,13 @@ non-transactional client, and a mismatch stops the subscription. Different
 `brokers` lists for the same cluster are accepted. Each cluster ID request
 waits up to `transaction_timeout`.
 
-A producer runs one transaction at a time, so transactions from every
-partition and every clone of the sink are serialized, while handlers still run
-in parallel up to the subscription's `concurrency`. Each transaction runs in
-its own task: an abandoned delivery does not leave a transaction half-finished
-or release the producer while it is in use. A commit that fails with a
+A producer runs one transaction at a time, so transactions from every clone of
+the sink are serialized, while handlers still run in parallel up to the
+subscription's `concurrency`. Batching amortizes that serialization: one
+transaction's commit latency covers up to `TransactionBatch::max_deliveries`
+deliveries from every partition. Each transaction runs in its own task: an
+abandoned batch does not leave a transaction half-finished or release the
+producer while it is in use. A commit that fails with a
 retriable error is retried within the same transaction. After an error that
 cannot be aborted, or a fatal one such as fencing, the producer is discarded and
 the next attempt initializes a new one with the same transactional ID.
@@ -225,8 +229,11 @@ the next attempt initializes a new one with the same transactional ID.
 Offsets are sent with the consumer's current group metadata, so the group
 coordinator rejects them from a consumer that has left the group generation.
 The offset check and commit run while the source holds its revoke callback
-back: a revoke waits for a commit in progress, and a transaction for a revoked
-or lost assignment is aborted without committing. Offsets are committed only
+back: a revoke waits for a commit in progress, and a transaction that contains
+a delivery of a revoked or lost assignment is aborted without committing. The
+runtime then retries the batch without the revoked deliveries. A batch holds
+the deliveries of one source; a batch whose deliveries come from different
+consumers is rejected. Offsets are committed only
 through transactions; the source's own commits are never used in a
 transactional subscription.
 
