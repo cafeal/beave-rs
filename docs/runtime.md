@@ -510,6 +510,95 @@ Conversion and preparation run once. Publication then retries under the
 `dlq_retry` policy. A conversion, preparation, or exhausted publication failure
 stops without ACK; dead-letter failures are never routed again.
 
+### Forwarding dead letters to a broker topic
+
+`KafkaPublish::from_dead_letter` and `PulsarPublish::from_dead_letter` convert a
+dead letter into a record for a dead-letter topic of the same platform. The
+record keeps the original key, value bytes, and headers or properties (and the
+Pulsar event time), so the payload can be inspected with ordinary broker tools
+and decoded by the same codec as the original topic. Failure details are added
+as text headers (Kafka) or properties (Pulsar):
+
+| Name | Value |
+|---|---|
+| `beavers-dlq-subscription` | Subscription that dead-lettered the payload |
+| `beavers-dlq-failure` | `FailureKind` name, such as `rejected` |
+| `beavers-dlq-error` | Error message including its context chain |
+| `beavers-dlq-attempts` | Handler attempts made |
+| `beavers-dlq-count` | Times the payload has been dead-lettered, including this one |
+| `beavers-dlq-origin-topic` | Topic the payload was first received from |
+| `beavers-dlq-origin-partition`, `-offset`, `-timestamp` | Kafka location and record timestamp of the first receipt |
+| `beavers-dlq-origin-message-id`, `-publish-time` | Pulsar message ID (`ledger:entry:partition:batch`) and publish time of the first receipt |
+
+The sink must publish raw bytes:
+
+```rust,ignore
+let dead_letters = KafkaSink::<RawBytes, Vec<u8>>::new(KafkaSinkConfig::new(brokers, "orders-dlq"));
+
+Subscription::new("orders", source, sink, handle)
+    .dlq_with(dead_letters, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)));
+```
+
+When the dead-lettered record was itself received from a dead-letter topic, the
+origin headers are kept and the count is incremented, while the other details
+describe the latest failure. Previous dead-letter headers that are malformed
+are replaced as if the payload had never been dead-lettered.
+`KafkaDeadLetter::from_record` and `PulsarDeadLetter::from_record` read the
+details back from a received record and return `None` for a record without
+them. `KafkaInherit` and `PulsarInherit` never copy names starting with
+`DEAD_LETTER_HEADER_PREFIX` into outputs.
+
+The dead-letter record's own timestamp or publish time is when it was
+dead-lettered. A subscription downstream of a [channel](adapters/channel.md)
+receives a `ChannelRaw`; `DeadLetter::try_map_raw` reads it as the upstream
+record before conversion.
+
+### Reprocessing dead letters
+
+beavers has no dedicated redrive command. A dead-letter topic is an ordinary
+topic, so dead letters are reprocessed by a subscription whose source reads the
+dead-letter topic and whose handler is the original one, or a wrapper around
+it that inspects `KafkaDeadLetter::from_record` first:
+
+```rust,ignore
+let source = KafkaSource::<Json, Order>::new(KafkaSourceConfig::new(
+    brokers,
+    "orders-redrive",
+    ["orders-dlq"],
+));
+
+Subscription::new("orders-redrive", source, sink, |record: KafkaRecord<Order>| async move {
+    let dead_letter = KafkaDeadLetter::from_record(&record).reject()?;
+    if dead_letter.is_some_and(|dead| dead.details.count >= 3) {
+        return Err(HandlerError::Fatal(anyhow::anyhow!("dead-lettered too often")));
+    }
+    handle(record).await
+})
+.dlq_with(dead_letters, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)));
+```
+
+Reading the dead-letter topic, rather than publishing dead letters back to the
+original topic, keeps other consumers of the original topic from receiving
+them again. Two operating styles are common:
+
+- **After a fix.** An operator runs the subscription once the cause is fixed
+  and stops it once its consumer lag reaches zero.
+- **Continuously, for transient failures.** The subscription runs alongside
+  the original one and waits before reprocessing: the handler sleeps until the
+  record's timestamp plus a delay. Later records of a partition are newer, so
+  waiting at the head of the partition delays them by no more than the same
+  delay. Payloads that keep failing return to the dead-letter topic, so the
+  handler must stop them after a limit on `details.count`, for example by
+  failing or by routing them to a final topic that nothing reads automatically.
+
+Reprocessed payloads arrive after newer payloads with the same key, so a
+handler that overwrites state by key can replace newer state with older state.
+A Kafka handler that sleeps longer than `max.poll.interval.ms` (5 minutes by
+default) while `max_in_flight` deliveries are waiting makes the consumer leave
+its group; raise that property for longer delays. Shutdown does not wait for a
+sleeping handler beyond `drain_timeout`; its delivery stays unacknowledged and
+is received again.
+
 ### Other failures
 
 | Failure | Behavior |
@@ -625,6 +714,54 @@ counted when it is routed, before the action runs. `handler` durations are
 per attempt and exclude retry backoff; `publish` durations cover all outputs
 of a delivery, including backoff. `commit` durations are per successful
 transaction and cover the whole batch.
+
+### Alerting
+
+beavers sends no notifications itself. Alert on the metrics with a monitoring
+system and let it route alerts, since per-message notifications flood a channel
+when many deliveries fail at once. Example Prometheus rules:
+
+```yaml
+groups:
+  - name: beavers
+    rules:
+      - alert: BeaversDeadLetters
+        expr: sum by (subscription) (increase(beavers_delivery_failures_total{action="dead_letter"}[10m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.subscription }} dead-lettered {{ $value }} deliveries in 10 minutes"
+      - alert: BeaversDecodeFailureRatio
+        expr: |
+          sum by (subscription) (rate(beavers_delivery_failures_total{failure="decode"}[5m]))
+            / sum by (subscription) (rate(beavers_deliveries_received_total[5m])) > 0.01
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.subscription }} cannot decode over 1% of its input; check producers and schemas"
+      - alert: BeaversDeadLetterPublishFailing
+        expr: sum by (subscription) (increase(beavers_publish_failures_total{sink="dead_letter"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.subscription }} cannot publish dead letters"
+      - alert: BeaversStoppedOnFailure
+        expr: sum by (subscription) (increase(beavers_delivery_failures_total{action="stop"}[15m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.subscription }} stopped on an unroutable failure"
+```
+
+A typical routing sends `warning` alerts to the owning team's channel and
+`critical` alerts to on-call paging, because a stopped subscription or a
+failing dead-letter sink stops consumption, while dead letters only need
+investigation. A failed subscription also makes the
+[liveness probe](#health-checks) fail. How many dead letters remain unhandled
+is a property of the dead-letter topic; measure it with the broker's own
+metrics, such as the consumer lag of a reprocessing subscription.
 
 ### Exporting metrics to OpenTelemetry
 

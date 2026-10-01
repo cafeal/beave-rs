@@ -98,7 +98,7 @@ impl Instruments {
                 counter!(
                     "beavers_delivery_failures_total",
                     "subscription" => name.clone(),
-                    "failure" => kind_label(kind),
+                    "failure" => kind.as_str(),
                     "action" => action_label(action),
                 )
             }),
@@ -130,16 +130,6 @@ pub(super) fn effective_action(
     match policy.action(kind) {
         FailureAction::DeadLetter if !has_dead_letter_sink => FailureAction::Stop,
         action => action,
-    }
-}
-
-fn kind_label(kind: FailureKind) -> &'static str {
-    match kind {
-        FailureKind::Decode => "decode",
-        FailureKind::Rejected => "rejected",
-        FailureKind::RetryExhausted => "retry_exhausted",
-        FailureKind::Encode => "encode",
-        FailureKind::PublishRejected => "publish_rejected",
     }
 }
 

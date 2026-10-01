@@ -1,5 +1,6 @@
 use super::record::{KafkaPublish, KafkaRecord};
 use crate::{
+    dead_letter::DEAD_LETTER_HEADER_PREFIX,
     forward::{SamePlatform, ValueRecord},
     handler::{HandlerError, Result},
     middleware::Middleware,
@@ -10,7 +11,8 @@ use crate::{
 ///
 /// Explicit output fields take precedence. A key is inherited only when the
 /// output key is `None`. Received headers are placed before the output's own
-/// headers, except those whose name the output already sets. Topic,
+/// headers, except those whose name the output already sets and
+/// [dead-letter headers](crate::DEAD_LETTER_HEADER_PREFIX). Topic,
 /// partition, offset, and timestamp are never inherited: the sink publishes to
 /// its configured topic and Kafka chooses the partition and timestamp.
 ///
@@ -65,7 +67,10 @@ where
             let mut headers: Vec<_> = input
                 .headers
                 .iter()
-                .filter(|(name, _)| output.headers.iter().all(|(explicit, _)| explicit != name))
+                .filter(|(name, _)| {
+                    !name.starts_with(DEAD_LETTER_HEADER_PREFIX)
+                        && output.headers.iter().all(|(explicit, _)| explicit != name)
+                })
                 .cloned()
                 .collect();
             headers.append(&mut output.headers);

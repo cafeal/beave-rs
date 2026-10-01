@@ -142,6 +142,25 @@ still stop it. Remaining decisions:
   number of concurrent connections, and how many requests may wait for the
   subscription before new ones are refused with `503`.
 
+## Dead-letter handling
+
+Forwarding dead letters with failure headers, reprocessing them with a
+subscription on the dead-letter topic, and example alert rules are described
+in the [runtime guide](runtime.md#forwarding-dead-letters-to-a-broker-topic).
+The library deliberately sends no notifications and has no redrive command.
+Remaining decisions:
+
+- a source option that ends once it reaches the end of its topics as of
+  startup, such as each Kafka partition's high watermark or the last Pulsar
+  message ID, so a one-off reprocessing run exits by itself instead of being
+  stopped once its lag reaches zero;
+- delayed reprocessing without a sleeping handler, such as Pulsar's delayed
+  delivery on the dead-letter producer or pausing a Kafka partition until its
+  next record is due, if the `max.poll.interval.ms` limit becomes a problem.
+
+Dead-letter headers and properties have not been verified against live
+brokers.
+
 ## Concurrency and ordering
 
 Per-key scheduling bounds consumption with `max_in_flight`, but one busy

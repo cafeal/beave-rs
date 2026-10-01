@@ -1,5 +1,6 @@
 use super::record::{PulsarPublish, PulsarRecord};
 use crate::{
+    dead_letter::DEAD_LETTER_HEADER_PREFIX,
     forward::{SamePlatform, ValueRecord},
     handler::{HandlerError, Result},
     middleware::Middleware,
@@ -10,7 +11,8 @@ use crate::{
 ///
 /// Explicit output fields take precedence. The key and event time are
 /// inherited only when the output leaves them `None`, and a received property
-/// is inserted only when the output does not already set that name. Topic,
+/// is inserted only when the output does not already set that name.
+/// [Dead-letter properties](crate::DEAD_LETTER_HEADER_PREFIX) are not inherited. Topic,
 /// message ID, and publish time are never inherited, and no ordering key is
 /// derived from the input.
 #[derive(Clone, Copy, Debug)]
@@ -66,7 +68,11 @@ where
             output.key.clone_from(&input.key);
         }
         if self.properties {
-            for (name, value) in &input.properties {
+            let inherited = input
+                .properties
+                .iter()
+                .filter(|(name, _)| !name.starts_with(DEAD_LETTER_HEADER_PREFIX));
+            for (name, value) in inherited {
                 output
                     .properties
                     .entry(name.clone())
