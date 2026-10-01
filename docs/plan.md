@@ -65,10 +65,9 @@ when the registry is unavailable.
 
 ## Delivery semantics and transactions
 
-Kafka-to-Kafka and Pulsar-to-Pulsar transactions are described in the
+Kafka-to-Kafka transactions are described in the
 [runtime guide](runtime.md#transactions) and the
-[Kafka](adapters/kafka.md#transactions) and
-[Pulsar](adapters/pulsar.md#transactions) guides. Remaining work:
+[Kafka guide](adapters/kafka.md#transactions). Remaining work:
 
 - Batch several deliveries into one Kafka transaction. Each delivery currently
   commits its own transaction and one producer serializes them, so throughput
@@ -78,17 +77,6 @@ Kafka-to-Kafka and Pulsar-to-Pulsar transactions are described in the
 - A commit that times out after its retriable retries has an unknown outcome.
   The transaction is then aborted or its producer replaced, and the retry can
   duplicate outputs if the timed-out commit had in fact completed.
-- Pulsar transactions have the same per-delivery cost: each one opens,
-  registers partitions and a subscription, and ends with coordinator round
-  trips. Batching deliveries into one Pulsar transaction needs the same size or
-  time limits and joint abort and retry.
-- A Pulsar commit whose response is lost has an unknown outcome as well. The
-  sink reports it as a failure, and the retried delivery can duplicate outputs
-  if the commit had completed.
-- A Pulsar transactional sink accepts only a source with the same service URL,
-  because the protocol reports no cluster identity. Comparing an identity read
-  from the brokers, such as the cluster name from the admin API, would also
-  accept different URLs of one cluster.
 
 The ignored `transactional_pipeline_commits_outputs_with_offsets` test passes
 against a single-node Kafka 3.9 broker. Failure and rebalance paths have not
@@ -108,143 +96,22 @@ been verified against a live broker. Verify with Kafka:
   development environment runs one Kafka cluster, so no live test covers the
   mismatch.
 
-The ignored Pulsar transaction tests pass against a Pulsar 4.0 standalone
-broker with `transactionCoordinatorEnabled=true`, but failure testing found
-`magnetar-driver` 1.7 defects in the transaction path, so Pulsar transactions
-are to be removed rather than fixed:
-
-- A transactional acknowledgement of a message from a producer batch reuses
-  the consumer's session-wide batch bitset. The broker rejects every message
-  of a batch after the first with `TransactionConflictException`, and a batch
-  index acknowledged by an aborted transaction is acknowledged again by a later
-  one and never redelivered. Fixing this needs a patched client.
-- After a broker restart the client never repeats its transaction coordinator
-  handshake, so new transactions fail with "transaction not found" until
-  another client connects.
-- A delivery redelivered after a reconnect, whose original transaction then
-  commits, fails every retry with an "already acked before" conflict.
-
-Removing them depends on the [Pulsar client](#pulsar-client) decision.
-
-Multiple sinks within one subscription remain deferred because partial publish
-success makes retry and acknowledgement behavior ambiguous. Any future design
-must define atomicity or explicit partial-failure semantics.
-
-## Failure defaults
-
-`ErrorPolicy::default()` stops the subscription without ACK on a decode or
-encode failure, and on a handler rejection or exhausted retry when no
-dead-letter sink is configured. For a durable broker source, one poison record
-then stops the application on every restart until it is handled. For a source
-fed by untrusted clients, such as the HTTP source, one bad request would stop
-the server; the HTTP source avoids this for decode failures by decoding before
-a request becomes a delivery, but handler rejections without a dead-letter sink
-still stop it. Remaining decisions:
-
-- whether the defaults stay uniform or each source declares its own, for
-  example through a capability trait, so a broker source keeps `Stop` while a
-  request-driven source defaults to discarding or rejecting the input;
-- whether a subscription without a dead-letter sink should warn or fail at
-  startup when its policy can stop on a single input;
-- the HTTP server's default limits: request and header-read timeouts, the
-  number of concurrent connections, and how many requests may wait for the
-  subscription before new ones are refused with `503`.
-
-## Concurrency and ordering
-
-Per-key scheduling bounds consumption with `max_in_flight`, but one busy
-partition can fill that bound and stop receiving for every partition. Coordinate
-runtime backpressure with adapter pause/resume capabilities, such as pausing a
-Kafka partition whose queue reaches a per-key limit, so other partitions keep
-flowing. The design must define the per-key limit, resume timing, and the pause
-state across rebalances.
-
-## Chained subscriptions
-
-`channel` chains subscriptions, as described in the
-[channel adapter guide](adapters/channel.md). Remaining decisions:
-
-- fan-out to several downstream subscriptions, which needs a completion rule
-  for one upstream value observed by several stages;
-- whether a channel delivery should carry the upstream ordering key, so the
-  downstream stage can schedule `PerKey` independently of the upstream job
-  that waits for it;
-- startup validation that both ends of a channel are registered in the same
-  `App`, since an unregistered upstream leaves the downstream subscription
-  waiting for `Receive::End` during shutdown.
-
-Upstream revocation and redelivery through a channel are covered by local tests
-only. Verify with Kafka that a partition revocation during a downstream stage
-abandons the downstream work and that the next owner reprocesses it.
-
-## Pipelined broker publication
-
-Kafka and Pulsar sinks accept a record when the producer queues it and complete
-it on the delivery report or broker receipt, as described in the
-[Kafka](adapters/kafka.md#publication) and
-[Pulsar](adapters/pulsar.md#publication) guides. Remaining decisions:
-
-- A failed delivery report or receipt stops the subscription, because both
-  clients already retry internally and the failure usually means the producer
-  cannot recover. The runtime could instead publish the prepared output again
-  under `publish_retry`, at the cost of reordering it behind later outputs.
-- `max_pending` bounds each sink separately. Several subscriptions sharing one
-  sink share its bound, and a subscription cannot reserve part of it.
-
-Only the offline acceptance bound of the Kafka sink is covered by default tests.
-The ignored live tests check that completions resolve on delivery and that
-`max_pending` holds. Verify with the brokers:
-
-- Kafka with `enable.idempotence=false` and retried produce requests: outputs of
-  one key can reorder; confirm that `enable.idempotence=true` keeps them in
-  submission order.
-- A partition revocation while completions are pending abandons their
-  acknowledgements, and the new owner reprocesses those records.
-- Pulsar: a send the broker rejects is not replayed by `magnetar-driver`,
-  unlike the Java client, which reconnects and resends. A broker that is
-  shutting down rejects sends with a persistence error, and a topic unload
-  occasionally fences sends in flight, so a broker restart stopped every plain
-  Pulsar pipeline exercised by hand, and an unload can stop one. Options are a
-  client fix that resends after a transient rejection, or a sink that publishes
-  the rejected output again at the cost of reordering it.
-- Shutdown with pending completions drains them before the sink closes, within
-  the subscription's shutdown timeout.
-
-## Kafka rebalance behavior
-
-Revoked partitions currently abandon in-flight work immediately. Evaluate an
-optional graceful handoff that delays revoke completion for a bounded time so
-work in flight can finish and commit, reducing duplicates for the next owner.
-
-Partition scheduling and revocation are covered by unit and runtime tests but
-have not been verified against a live broker. Verify with Kafka:
-
-- `receive` skips records of partitions the adapter does not consider assigned.
-  This assumes rdkafka always runs `post_rebalance` with the assignment before
-  it returns the first record of a newly assigned partition. If that does not
-  hold, the source silently skips every record of that partition.
-- Eager and cooperative (`partition.assignment.strategy=cooperative-sticky`)
-  rebalances both cancel the revoked partitions' tokens and reassign cleanly.
-- After `assignment_lost`, all tokens are cancelled and the next assignment
-  resumes processing.
-- A revoked delivery's in-flight commit does not affect the next assignment.
-- Commits advance past offset gaps on a compacted topic and on a topic written
-  by transactional producers (`isolation.level=read_committed`, including
-  aborted transactions). This assumes the consumer returns a partition's
-  records in strictly increasing offset order within an assignment.
+Pulsar transactions were removed. `magnetar-driver` 1.7 reuses the consumer's
+session-wide batch bitset for transactional acknowledgements of batched
+messages, so the broker rejects all but the first message of a batch, does not
+repeat its transaction coordinator handshake after a broker restart, and fails
+every retry of a redelivered delivery whose original transaction committed.
+Reintroducing them needs a client that fixes these defects.
 
 Verify with Pulsar that Failover and Key_Shared deliveries carry the partition
 index and ordering key expected by the adapter.
 
 ## Pulsar client
 
-The Pulsar adapter uses `magnetar-driver`, which implements Pulsar
-transactions; the `pulsar` crate it replaced has no transaction API. Without
-transactions, the choice between the two clients rests on their behavior under
-broker failures: compare the `pulsar` crate against the send rejections listed
-under [pipelined broker publication](#pipelined-broker-publication) before
-deciding. `magnetar-driver` consumers and producers reattach after topic
-unloads and broker restarts. Other client limitations:
+The Pulsar adapter uses `magnetar-driver`. Its consumers and producers
+reattach after topic unloads and broker restarts, while the `pulsar` crate
+adapter it replaced stalled its consumer after a topic unload and ended the
+pipeline on a broker restart. Other client limitations:
 
 - Acknowledging through a client after `close` never completes, so a source
   keeps its client open until the last of its deliveries is dropped.
@@ -333,7 +200,7 @@ message attributes) before implementation.
 | 1 | Adapter pause/resume backpressure and graceful rebalance handoff |
 | 2 | Cross-platform metadata mapping policy |
 | 3 | Observability refinements |
-| 4 | Kafka transaction batching and Pulsar transactions |
+| 4 | Kafka transaction batching |
 | 5 | NATS JetStream and AWS SQS adapters |
 | 6 | Schema Registry and additional codecs |
 
