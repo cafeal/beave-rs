@@ -21,6 +21,7 @@ protobuf = ["dep:prost"]
 kafka = ["dep:rdkafka"]
 pulsar = ["dep:magnetar", "dep:base64", "dep:bytes", "dep:futures-util"]
 rabbitmq = ["dep:lapin", "dep:futures-util"]
+sqs = ["dep:aws-config", "dep:aws-sdk-sqs"]
 opentelemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 testing = []
 http = ["dep:hyper", "dep:hyper-util", "dep:hyper-rustls", "dep:rustls", "dep:http-body-util", "dep:bytes", "tokio/net"]
@@ -41,6 +42,18 @@ optional = true
 version = "4.12"
 default-features = false
 features = ["tokio", "rustls--ring", "rustls-native-certs"]
+optional = true
+
+[dependencies.aws-config]
+version = "1.8"
+default-features = false
+features = ["rt-tokio", "default-https-client", "behavior-version-latest"]
+optional = true
+
+[dependencies.aws-sdk-sqs]
+version = "1.90"
+default-features = false
+features = ["rt-tokio", "default-https-client", "behavior-version-latest"]
 optional = true
 
 [dependencies.base64]

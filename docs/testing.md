@@ -9,14 +9,14 @@ tests only:
 beavers = { version = "0.1", features = ["testing", "kafka"] }
 ```
 
-The Kafka, Pulsar, and RabbitMQ record types additionally need the `kafka`,
-`pulsar`, or `rabbitmq` feature, which an application testing those handlers already enables.
+The Kafka, Pulsar, RabbitMQ, and SQS record types additionally need the `kafka`,
+`pulsar`, `rabbitmq`, or `sqs` feature, which an application testing those handlers already enables.
 
 ## What each part covers
 
 | Need | Use |
 |---|---|
-| Feed Kafka, Pulsar, or RabbitMQ records with chosen metadata, key, headers, or properties | `KafkaTestSource<C, T>`, `PulsarTestSource<C, T>`, `RabbitMqTestSource<C, T>`, with `kafka_record`, `pulsar_record`, and `rabbitmq_record` |
+| Feed Kafka, Pulsar, RabbitMQ, or SQS records with chosen metadata, key, headers, properties, or attributes | `KafkaTestSource<C, T>`, `PulsarTestSource<C, T>`, `RabbitMqTestSource<C, T>`, `SqsTestSource<C, T>`, with `kafka_record`, `pulsar_record`, `rabbitmq_record`, and `sqs_record` |
 | Feed bare payloads through a codec | `TestSource<C, T, Vec<u8>>` |
 | Check which records were acknowledged or left unacknowledged | `TestSource::deliveries()` |
 | Capture published outputs | `InMemorySink<T>` for the subscription's output type |
@@ -45,18 +45,21 @@ adapter the record type belongs to:
 | `KafkaRecord<Vec<u8>>` | `KafkaRecord<T>` | Topic and partition | Headers with UTF-8 values |
 | `PulsarRecord<Vec<u8>>` | `PulsarRecord<T>` | Topic and partition index | Properties |
 | `RabbitMqRecord<Vec<u8>>` | `RabbitMqRecord<T>` | None | String headers |
+| `SqsRecord<Vec<u8>>` | `SqsRecord<T>` | Queue and message group, for FIFO messages | String attributes |
 
 A null Kafka or Pulsar value stays `None` after decoding, as with the broker
 sources. The Pulsar ordering key is the partition scope of Exclusive and
 Failover subscriptions; the Key_Shared and Shared scopes of a real
 `PulsarSource` are not reproduced. RabbitMQ deliveries have no ordering key, as
-for a source that is not configured as ordered.
+for a source that is not configured as ordered. An SQS record has an ordering
+key when its queue URL ends in `.fifo` and its `message_group_id` is set.
 
 `new(records)` uses a default-constructed codec; `with_codec(records, codec)`
 accepts a configured one. `kafka_record(topic, partition, offset, value)` and
-`pulsar_record(topic, entry_id, value)`, and
-`rabbitmq_record(queue, delivery_tag, value)` build records with empty optional
-fields. Set the public fields for keys, headers, properties, timestamps, a
+`pulsar_record(topic, entry_id, value)`,
+`rabbitmq_record(queue, delivery_tag, value)`, and
+`sqs_record(queue_url, message_id, value)` build records with empty optional
+fields. Set the public fields for keys, headers, properties, attributes, timestamps, a
 partition topic's index, or a null value.
 
 Implement `TestRecord` to fabricate records of another source.

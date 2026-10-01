@@ -301,7 +301,6 @@ Remaining decisions:
 Candidate adapters are:
 
 - NATS JetStream source and sink;
-- AWS SQS source and sink;
 - local file input and output if concrete debugging use cases justify their
   framing and durability semantics.
 
@@ -350,10 +349,35 @@ RabbitMQ:
 - a single-active-consumer queue with `ordered` sources on several instances,
   including the handover when the active consumer stops.
 
+The [SQS adapter](adapters/sqs.md) consumes and sends to one queue with one
+request per message. Remaining decisions:
+
+- batching acknowledgements with `DeleteMessageBatch` and publications with
+  `SendMessageBatch`, which needs completions that resolve per entry;
+- a text representation, such as base64, for binary codecs, whose output SQS
+  bodies cannot carry, and the extended client's S3 payloads beyond 256 KiB;
+- whether an error policy should leave a failed delivery visible again so the
+  queue's redrive policy moves it, instead of publishing dead letters through a
+  sink;
+- releasing an abandoned message after a configurable delay rather than at
+  once, so a message that keeps failing does not loop through the queue.
+
+The ignored SQS live tests cover sending with attributes, deletion on ACK,
+visibility extension, release on drop and close, FIFO group ordering, and a
+forwarding pipeline against ElasticMQ. Verify with Amazon SQS:
+
+- visibility extension near the 12-hour limit, throttling of
+  `ChangeMessageVisibilityBatch` with many held messages, and receipt handles
+  rejected after a failed extension;
+- FIFO queues with high-throughput mode, and message group IDs on standard
+  queues (fair queues);
+- a redrive policy's `maxReceiveCount` against releases on shutdown;
+- the default credential chain with web identity and container credentials.
+
 Each broker adapter must define its native record and publish types, ACK model,
 redelivery behavior, ordering scope, cancellation behavior, connection
-lifecycle, and mapping of trace-context propagation fields (NATS headers, SQS
-message attributes) before implementation.
+lifecycle, and mapping of trace-context propagation fields (NATS headers)
+before implementation.
 
 ## Implementation order
 
@@ -363,7 +387,7 @@ message attributes) before implementation.
 | 2 | Cross-platform metadata mapping policy |
 | 3 | Observability refinements |
 | 4 | Live verification of batched Kafka transactions |
-| 5 | AWS SQS and NATS JetStream adapters |
+| 5 | NATS JetStream adapter |
 | 6 | Schema Registry and additional codecs |
 
 The order may change when a concrete application requires a later capability.

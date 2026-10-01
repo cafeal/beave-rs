@@ -66,8 +66,8 @@ spreads retries from many consumers that failed at the same moment.
 A source can give each delivery an `OrderingKey`, the scope in which the source
 delivers in order. The Kafka source uses the topic partition. The Pulsar source
 uses the topic partition or message key, depending on its subscription type.
-The RabbitMQ source uses its queue when configured as ordered. Local adapters
-provide no key.
+The RabbitMQ source uses its queue when configured as ordered. The SQS source
+uses the message group of a FIFO queue. Local adapters provide no key.
 
 With the default `ProcessingOrder::PerKey`, the runtime runs at most one
 delivery per key at a time, in receive order. A delivery whose key is busy waits
@@ -309,12 +309,13 @@ decoded from the source, and none of the delivery's outputs are published.
 `Retry` and `Fatal` stop processing without ACK.
 
 Adapters provide same-platform inheritance middleware: `KafkaInherit` for Kafka
-to Kafka, `PulsarInherit` for Pulsar to Pulsar, and `RabbitMqInherit` for
-RabbitMQ to RabbitMQ. They copy user-controlled metadata and never copy delivery
+to Kafka, `PulsarInherit` for Pulsar to Pulsar, `RabbitMqInherit` for
+RabbitMQ to RabbitMQ, and `SqsInherit` for SQS to SQS. They copy user-controlled metadata and never copy delivery
 facts such as offsets, partitions, message IDs, routing keys, or broker
 timestamps. See the [Kafka](adapters/kafka.md#metadata-inheritance),
-[Pulsar](adapters/pulsar.md#metadata-inheritance), and
-[RabbitMQ](adapters/rabbitmq.md#metadata-inheritance) guides. A subscription
+[Pulsar](adapters/pulsar.md#metadata-inheritance),
+[RabbitMQ](adapters/rabbitmq.md#metadata-inheritance), and
+[SQS](adapters/sqs.md#metadata-inheritance) guides. A subscription
 registered with `Subscription::new` carries no received metadata into outputs
 unless middleware maps it.
 
@@ -338,8 +339,8 @@ input metadata without the handler handling it. `forward_emitting` is the
 
 The pairing is checked at compile time through the `ValueRecord` and
 `SamePlatform` traits, which an adapter implements for its record type. Kafka
-uses `KafkaInherit::new()`, Pulsar uses `PulsarInherit::new()`, and RabbitMQ
-uses `RabbitMqInherit::new()`. A record
+uses `KafkaInherit::new()`, Pulsar uses `PulsarInherit::new()`, RabbitMQ
+uses `RabbitMqInherit::new()`, and SQS uses `SqsInherit::new()`. A record
 whose value cannot be represented as a plain value, such as a Kafka null value,
 is rejected without invoking the handler and routed by the error policy as a
 `Rejected` failure. Register `Tombstones` to choose
@@ -504,6 +505,7 @@ native shape instead of passing through a universal structure:
 | Kafka | `KafkaRecord<Vec<u8>>`: value bytes, key, headers, and delivery metadata |
 | Pulsar | `PulsarRecord<Vec<u8>>`: payload bytes, key, properties, event time, and delivery metadata |
 | RabbitMQ | `RabbitMqRecord<Vec<u8>>`: body bytes, headers, properties, and delivery metadata |
+| SQS | `SqsRecord<Vec<u8>>`: body bytes, message attributes, and message metadata |
 | Stdin | `Vec<u8>`: the received line |
 | `Delivery` (`IterSource`) | `()`: input is already typed |
 | Channel | `ChannelRaw`: the raw form of the upstream delivery that produced the value |
@@ -517,13 +519,15 @@ stops without ACK; dead-letter failures are never routed again.
 
 ### Forwarding dead letters to a broker topic
 
-`KafkaPublish::from_dead_letter`, `PulsarPublish::from_dead_letter`, and
-`RabbitMqPublish::from_dead_letter` convert a dead letter into a record for a
+`KafkaPublish::from_dead_letter`, `PulsarPublish::from_dead_letter`,
+`RabbitMqPublish::from_dead_letter`, and `SqsPublish::from_dead_letter` convert a dead letter into a record for a
 dead-letter topic or queue of the same platform. The record keeps the original
 key, value bytes, and headers or properties (and the Pulsar event time), so the
 payload can be inspected with ordinary broker tools and decoded by the same
 codec as the original topic. Failure details are added as text headers (Kafka),
-properties (Pulsar), or string headers (RabbitMQ):
+properties (Pulsar), or string headers (RabbitMQ). SQS accepts at most 10
+message attributes, so the SQS adapter writes the same names and values as one
+JSON object into the `beavers-dlq-details` string attribute:
 
 | Name | Value |
 |---|---|
@@ -536,6 +540,7 @@ properties (Pulsar), or string headers (RabbitMQ):
 | `beavers-dlq-origin-partition`, `-offset`, `-timestamp` | Kafka location and record timestamp of the first receipt |
 | `beavers-dlq-origin-message-id`, `-publish-time` | Pulsar message ID (`ledger:entry:partition:batch`) and publish time of the first receipt |
 | `beavers-dlq-origin-queue`, `-exchange`, `-routing-key` | RabbitMQ queue of the first receipt, and the exchange and routing key it was published with |
+| `beavers-dlq-origin-queue-url`, `-message-id` | SQS queue URL and message ID of the first receipt |
 
 The sink must publish raw bytes:
 
@@ -550,8 +555,8 @@ When the dead-lettered record was itself received from a dead-letter topic, the
 origin headers are kept and the count is incremented, while the other details
 describe the latest failure. Previous dead-letter headers that are malformed
 are replaced as if the payload had never been dead-lettered.
-`KafkaDeadLetter::from_record`, `PulsarDeadLetter::from_record`, and
-`RabbitMqDeadLetter::from_record` read the details back from a received record
+`KafkaDeadLetter::from_record`, `PulsarDeadLetter::from_record`,
+`RabbitMqDeadLetter::from_record`, and `SqsDeadLetter::from_record` read the details back from a received record
 and return `None` for a record without them. The inheritance middleware of each
 adapter never copies names starting with
 `DEAD_LETTER_HEADER_PREFIX` into outputs.
@@ -841,6 +846,7 @@ adapter maps the fields to its own metadata:
 | Kafka | Headers with UTF-8 values | Headers; every header of the same name is replaced |
 | Pulsar | Properties | Properties |
 | RabbitMQ | String headers | String headers |
+| SQS | String message attributes | String message attributes |
 | Channel | The sender's trace context, captured when a value is enqueued | Captured automatically; no carrier needed |
 | `Delivery` | Fields set with `Delivery::with_propagation_fields` | Not supported |
 | Other local adapters | None | Not supported |
@@ -939,15 +945,16 @@ The health server does not export metrics; [metrics](#metrics) go through the
 
 ## Implementation limits
 
-Kafka, Pulsar, and RabbitMQ adapters, broker record types, Protobuf, and Avro
+Kafka, Pulsar, RabbitMQ, and SQS adapters, broker record types, Protobuf, and Avro
 codecs are implemented. Kafka commits up to the first unfinished offset per partition,
 schedules work per partition, and abandons revoked work. Kafka-to-Kafka
 subscriptions can publish and commit offsets in batched Kafka transactions;
 other pairs are at-least-once. Pulsar uses individual
 acknowledgements, schedules work by its subscription type's ordering scope, and
 provides no transactions or exactly-once processing. RabbitMQ uses individual
-acknowledgements and revokes the deliveries of a lost channel. NATS JetStream,
-SQS and adapter pause/resume backpressure are not implemented. Async handler
+acknowledgements and revokes the deliveries of a lost channel. SQS deletes each
+acknowledged message, extends the visibility of held messages, and revokes a
+delivery whose visibility could not be kept. NATS JetStream and adapter pause/resume backpressure are not implemented. Async handler
 futures run on the shared Tokio executor without isolation. Metadata inheritance
 is limited to same-platform middleware;
 cross-platform mappings are application-written `MapMetadata` functions.

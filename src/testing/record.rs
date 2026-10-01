@@ -11,6 +11,8 @@ use crate::adapters::rabbitmq::{
     RabbitMqHeaders, RabbitMqMetadata, RabbitMqProperties, RabbitMqRecord,
     text_headers as rabbitmq_text_headers,
 };
+#[cfg(feature = "sqs")]
+use crate::adapters::sqs::{SqsAttributes, SqsMetadata, SqsRecord, text_attributes};
 #[cfg(feature = "pulsar")]
 use std::collections::HashMap;
 
@@ -162,6 +164,37 @@ impl TestRecord for RabbitMqRecord<Vec<u8>> {
     }
 }
 
+/// Decodes like an [`SqsSource`](crate::adapters::sqs::SqsSource). A FIFO
+/// queue message, whose queue URL ends in `.fifo`, is ordered by its message
+/// group, and `String` attributes carry trace context.
+#[cfg(feature = "sqs")]
+impl TestRecord for SqsRecord<Vec<u8>> {
+    type Decoded<T: Clone + Send + Sync + 'static> = SqsRecord<T>;
+
+    fn decode<C, T>(&self, codec: &C) -> anyhow::Result<SqsRecord<T>>
+    where
+        C: Decoder<T>,
+        T: Clone + Send + Sync + 'static,
+    {
+        Ok(SqsRecord {
+            value: codec.decode(&self.value)?,
+            attributes: self.attributes.clone(),
+            metadata: self.metadata.clone(),
+        })
+    }
+
+    fn ordering_key(&self) -> Option<OrderingKey> {
+        let group = self.metadata.message_group_id.as_deref()?;
+        self.metadata.queue_url.ends_with(".fifo").then(|| {
+            OrderingKey::new(self.metadata.queue_url.as_str(), 0).with_key(group.as_bytes())
+        })
+    }
+
+    fn propagation_fields(&self) -> Vec<(&str, &str)> {
+        text_attributes(&self.attributes)
+    }
+}
+
 /// A Kafka record at `offset` of a topic partition, without key, headers, or
 /// timestamp. Set the public fields for anything else, such as `value = None`
 /// for a tombstone.
@@ -235,6 +268,31 @@ pub fn rabbitmq_record(
             redelivered: false,
             persistent: true,
             delivery_tag,
+        },
+    }
+}
+
+/// An SQS message with `message_id` received from `queue_url` for the first
+/// time, without attributes, timestamps, or FIFO fields. Set the public fields
+/// for anything else, such as `metadata.message_group_id` on a FIFO queue.
+#[cfg(feature = "sqs")]
+pub fn sqs_record(
+    queue_url: impl Into<String>,
+    message_id: impl Into<String>,
+    value: impl Into<Vec<u8>>,
+) -> SqsRecord<Vec<u8>> {
+    SqsRecord {
+        value: value.into(),
+        attributes: SqsAttributes::new(),
+        metadata: SqsMetadata {
+            queue_url: queue_url.into(),
+            message_id: message_id.into(),
+            receive_count: 1,
+            sent_timestamp: None,
+            first_receive_timestamp: None,
+            message_group_id: None,
+            deduplication_id: None,
+            sequence_number: None,
         },
     }
 }
