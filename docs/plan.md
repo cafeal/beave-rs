@@ -91,10 +91,10 @@ work:
   from the brokers, such as the cluster name from the admin API, would also
   accept different URLs of one cluster.
 
-The ignored `transactional_pipeline_commits_outputs_with_offsets` test passed
-against a single-node Kafka 3.9 broker with one transaction per delivery.
-Batched commits, and failure and rebalance paths, have not been verified
-against a live broker. Verify with Kafka:
+The ignored `transactional_pipeline_commits_outputs_with_offsets` test passes
+against a single-node Kafka 3.9 broker with the default `TransactionBatch`.
+Failure and rebalance paths of batched commits have not been verified against
+a live broker. Verify with Kafka:
 
 - A batch with deliveries of several partitions commits the offset after each
   partition's last delivery, and the committed offsets match the outputs
@@ -119,13 +119,12 @@ against a live broker. Verify with Kafka:
   development environment runs one Kafka cluster, so no live test covers the
   mismatch.
 
-The ignored Pulsar transaction tests passed against a Pulsar 4.0 standalone
-broker with `transactionCoordinatorEnabled=true`, with one transaction per
-delivery: outputs routed to a three-partition topic commit with the
+The ignored Pulsar transaction tests pass against a Pulsar 4.0 standalone
+broker with `transactionCoordinatorEnabled=true` and the default
+`TransactionBatch`: outputs routed to a three-partition topic commit with the
 acknowledgements of a two-partition input, and a transaction whose
 acknowledgement fails is aborted, its output stays invisible, and the
-redelivered message commits. Batched commits have not been verified against a
-live broker. Verify with Pulsar:
+redelivered message commits. Verify with Pulsar:
 
 - A batch acknowledges deliveries of several input partitions within one
   transaction, registering each partition's subscription once, and an aborted
