@@ -1,13 +1,17 @@
 //! Metric handles registered once per subscription run.
-use crate::error_policy::{ErrorPolicy, FailureAction, FailureKind};
+use crate::{
+    error_policy::{ErrorPolicy, FailureAction, FailureKind},
+    health::Tracker,
+};
 use metrics::{Counter, Gauge, Histogram, counter, gauge, histogram};
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
-const KINDS: [FailureKind; 4] = [
+const KINDS: [FailureKind; 5] = [
     FailureKind::Decode,
     FailureKind::Rejected,
     FailureKind::RetryExhausted,
     FailureKind::Encode,
+    FailureKind::PublishRejected,
 ];
 
 /// A timed part of one delivery's processing.
@@ -59,7 +63,9 @@ pub(super) struct Instruments {
     pub(super) publish_failures: Counter,
     pub(super) dead_letter_publish_failures: Counter,
     pub(super) in_flight: Gauge,
-    failures: [Counter; 4],
+    /// Health state the runtime reports while it receives and publishes.
+    pub(super) health: Arc<Tracker>,
+    failures: [Counter; 5],
     stages: [Histogram; 8],
 }
 
@@ -69,6 +75,7 @@ impl Instruments {
         subscription: &str,
         policy: &ErrorPolicy,
         has_dead_letter_sink: bool,
+        health: Arc<Tracker>,
     ) -> Self {
         let name = subscription.to_owned();
         let publish_failures = |sink: &'static str| counter!("beavers_publish_failures_total", "subscription" => name.clone(), "sink" => sink);
@@ -81,6 +88,7 @@ impl Instruments {
             publish_failures: publish_failures("output"),
             dead_letter_publish_failures: publish_failures("dead_letter"),
             in_flight: gauge!("beavers_deliveries_in_flight", "subscription" => name.clone()),
+            health,
             failures: KINDS.map(|kind| {
                 let action = effective_action(policy, kind, has_dead_letter_sink);
                 counter!(
@@ -127,6 +135,7 @@ fn kind_label(kind: FailureKind) -> &'static str {
         FailureKind::Rejected => "rejected",
         FailureKind::RetryExhausted => "retry_exhausted",
         FailureKind::Encode => "encode",
+        FailureKind::PublishRejected => "publish_rejected",
     }
 }
 

@@ -1,6 +1,9 @@
 //! Application registration, subscription supervision, and shutdown coordination.
+#[cfg(feature = "health")]
+use crate::health::HealthServer;
 use crate::{
     handler::Handler,
+    health::Health,
     shutdown::{CancellationToken, termination_signal},
     sink::Sink,
     source::{Source, SourceItem},
@@ -18,6 +21,9 @@ pub struct App {
     subscriptions: Vec<Runner>,
     names: HashSet<String>,
     validation: Vec<String>,
+    health: Health,
+    #[cfg(feature = "health")]
+    health_server: Option<HealthServer>,
 }
 impl App {
     pub fn new() -> Self {
@@ -54,8 +60,20 @@ impl App {
                 subscription.name()
             ));
         }
+        let tracker = self.health.register(subscription.name());
         self.subscriptions
-            .push(Box::new(|token| Box::pin(subscription.run(token))));
+            .push(Box::new(|token| Box::pin(subscription.run(token, tracker))));
+        self
+    }
+    /// A handle reporting the liveness and readiness of the subscriptions
+    /// registered so far and of those registered later.
+    pub fn health(&self) -> Health {
+        self.health.clone()
+    }
+    /// Serves liveness and readiness probes while the application runs.
+    #[cfg(feature = "health")]
+    pub fn health_server(mut self, server: HealthServer) -> Self {
+        self.health_server = Some(server);
         self
     }
     pub async fn run_until(self, shutdown: CancellationToken) -> anyhow::Result<()> {
@@ -64,6 +82,13 @@ impl App {
             "invalid subscription configuration: {}",
             self.validation.join("; ")
         );
+        self.health.start(&shutdown);
+        #[cfg(feature = "health")]
+        let health_server = self.health_server.map(|server| {
+            let stop = CancellationToken::new();
+            let task = tokio::spawn(server.serve(self.health.clone(), stop.clone()));
+            (stop, task)
+        });
         let mut subscriptions = JoinSet::new();
         for run in self.subscriptions {
             subscriptions.spawn(run(shutdown.clone()));
@@ -73,6 +98,13 @@ impl App {
             if let Err(error) = result.unwrap_or_else(|error| Err(error.into())) {
                 shutdown.cancel();
                 failure.get_or_insert(error);
+            }
+        }
+        #[cfg(feature = "health")]
+        if let Some((stop, task)) = health_server {
+            stop.cancel();
+            if let Err(error) = task.await.unwrap_or_else(|error| Err(error.into())) {
+                failure.get_or_insert(error.context("health server failed"));
             }
         }
         match failure {

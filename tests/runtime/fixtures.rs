@@ -1,6 +1,6 @@
 use beavers::{
-    Delivery, OrderingKey, Receive, ReceiveError, RetryPolicy, Sink, Source, SourceMessage,
-    TransactionalSink,
+    Completion, Delivery, OrderingKey, PublishRejected, Receive, ReceiveError, RetryPolicy, Sink,
+    Source, SourceMessage, TransactionalSink,
 };
 use std::{
     collections::VecDeque,
@@ -156,6 +156,41 @@ impl Sink<i32> for RejectNegative {
     async fn publish(&self, value: &i32) -> anyhow::Result<()> {
         self.0.lock().unwrap().push(*value);
         Ok(())
+    }
+}
+
+/// Refuses negative outputs permanently. Accepted outputs complete later,
+/// recording their value once `acks` shows no acknowledgement yet.
+#[derive(Clone, Default)]
+pub(crate) struct RefuseNegative {
+    pub(crate) attempts: Arc<AtomicUsize>,
+    pub(crate) completed: Arc<Mutex<Vec<i32>>>,
+    pub(crate) acks: Arc<AtomicUsize>,
+}
+
+impl Sink<i32> for RefuseNegative {
+    type Prepared = i32;
+
+    fn prepare(&self, value: i32) -> anyhow::Result<i32> {
+        Ok(value)
+    }
+
+    async fn publish(&self, value: &i32) -> anyhow::Result<()> {
+        self.submit(value).await?.wait().await
+    }
+
+    async fn submit(&self, value: &i32) -> anyhow::Result<Completion> {
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        if *value < 0 {
+            return Err(PublishRejected::wrap(anyhow::anyhow!("negative output")));
+        }
+        let (value, completed, acks) = (*value, self.completed.clone(), self.acks.clone());
+        Ok(Completion::pending(async move {
+            tokio::task::yield_now().await;
+            assert_eq!(acks.load(Ordering::SeqCst), 0);
+            completed.lock().unwrap().push(value);
+            Ok(())
+        }))
     }
 }
 

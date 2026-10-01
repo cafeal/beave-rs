@@ -6,6 +6,7 @@ use super::{
     scheduler::Scheduler,
 };
 use crate::{
+    health::{SubscriptionStatus, Tracker},
     message::{OrderingKey, SourceMessage},
     shutdown::CancellationToken,
     sink::Sink,
@@ -25,15 +26,36 @@ type Jobs = JoinSet<anyhow::Result<(Option<OrderingKey>, Option<PendingAck>)>>;
 type Acks = JoinSet<anyhow::Result<()>>;
 
 impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
-    pub(crate) async fn run(self, shutdown: CancellationToken) -> anyhow::Result<()> {
+    pub(crate) async fn run(
+        self,
+        shutdown: CancellationToken,
+        health: Arc<Tracker>,
+    ) -> anyhow::Result<()> {
         let span = info_span!("subscription", subscription = %self.name);
-        self.execute(shutdown).instrument(span).await
+        let result = self
+            .execute(shutdown, health.clone())
+            .instrument(span)
+            .await;
+        health.set_status(match result {
+            Ok(()) => SubscriptionStatus::Stopped,
+            Err(_) => SubscriptionStatus::Failed,
+        });
+        result
     }
 
-    async fn execute(mut self, shutdown: CancellationToken) -> anyhow::Result<()> {
+    async fn execute(
+        mut self,
+        shutdown: CancellationToken,
+        health: Arc<Tracker>,
+    ) -> anyhow::Result<()> {
         info!("subscription started");
-        let instruments =
-            Instruments::new(&self.name, &self.config.error_policy, self.dlq.is_some());
+        health.set_status(SubscriptionStatus::Running);
+        let instruments = Instruments::new(
+            &self.name,
+            &self.config.error_policy,
+            self.dlq.is_some(),
+            health.clone(),
+        );
         let output = self.output;
         let worker = Worker {
             pipeline: Arc::new(Pipeline {
@@ -84,13 +106,18 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                 result = acks.join_next(), if !acks.is_empty() => {
                     if let Err(error) = flatten(result.unwrap()) { failure = Some(error); shutdown.cancel(); break; }
                 }
-                received = async { sleep_until(next_receive).await; self.source.receive().await },
+                received = async {
+                    sleep_until(next_receive).await;
+                    health.receive_resumed();
+                    self.source.receive().await
+                },
                     if jobs.len() < concurrency && scheduler.outstanding() < max_in_flight => {
                     match received {
                         Ok(Receive::End) => { ended = true; break; }
                         Ok(Receive::Message(delivery)) => {
                             worker.pipeline.instruments.received.increment(1);
                             failures = 0;
+                            health.receive_succeeded();
                             next_receive = Instant::now();
                             let delivery = if verified {
                                 delivery
@@ -108,6 +135,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                         Err(ReceiveError::Retry(error)) => {
                             worker.pipeline.instruments.receive_errors.increment(1);
                             failures += 1;
+                            health.receive_failed(failures);
                             if failures >= self.config.receive_retry.max_attempts { failure = Some(error.context("receive retry exhausted")); shutdown.cancel(); break; }
                             let delay = self.config.receive_retry.delay(failures);
                             warn!(attempt = failures, ?delay, error = format!("{error:#}"), "retrying receive");
@@ -119,6 +147,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                 }
             }
         }
+        health.set_status(SubscriptionStatus::Stopping);
         // After End, received deliveries still run. On shutdown or failure,
         // unstarted deliveries are dropped unacknowledged.
         if !ended {

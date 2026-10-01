@@ -4,7 +4,10 @@ use super::{
     processing::retry_publish,
 };
 use crate::{
-    message::SourceMessage, retry::RetryPolicy, sink, sink::Sink, transaction::TransactionalSink,
+    message::SourceMessage,
+    retry::RetryPolicy,
+    sink::{self, PublishRejected, Sink},
+    transaction::TransactionalSink,
 };
 use anyhow::Context as _;
 use metrics::Counter;
@@ -22,6 +25,9 @@ pub(super) enum Completion<M> {
     /// Preparing an output failed before anything was published; the
     /// delivery is returned unacknowledged for failure routing.
     Encode(M, anyhow::Error),
+    /// The sink rejected an output after every output submitted before it
+    /// completed; the delivery is returned unacknowledged for failure routing.
+    Rejected(M, anyhow::Error),
 }
 
 /// Completes deliveries of one subscription with the sink's output.
@@ -71,16 +77,34 @@ where
             if !outputs.is_empty() {
                 let started = Instant::now();
                 let failures = &instruments.publish_failures;
-                async {
+                let rejected = async {
                     for output in &outputs {
-                        completions
-                            .push(retry_publish(policy, failures, || self.0.submit(output)).await?);
+                        match retry_publish(policy, failures, Some(&instruments.health), || {
+                            self.0.submit(output)
+                        })
+                        .await
+                        {
+                            Ok(completion) => completions.push(completion),
+                            Err(error) if PublishRejected::is(&error) => return Ok(Some(error)),
+                            Err(error) => return Err(error),
+                        }
                     }
-                    anyhow::Ok(())
+                    anyhow::Ok(None)
                 }
                 .instrument(info_span!("publish", outputs = outputs.len()))
                 .await?;
                 instruments.record(Stage::Publish, started);
+                if let Some(error) = rejected {
+                    // Routing acknowledges the delivery, so earlier outputs must
+                    // reach their acknowledgement boundary first.
+                    for completion in completions {
+                        completion
+                            .wait()
+                            .await
+                            .context("output completion failed")?;
+                    }
+                    return Ok(Completion::Rejected(delivery, error));
+                }
             }
             if !completions.iter().all(sink::Completion::is_done) {
                 return Ok(Completion::Pending(delivery, completions));
@@ -125,11 +149,21 @@ where
             };
             let started = Instant::now();
             // Each retry commits a new transaction with the same prepared outputs.
-            retry_publish(policy, &instruments.publish_failures, || {
-                self.sink.commit(&delivery, &outputs)
-            })
+            let committed = retry_publish(
+                policy,
+                &instruments.publish_failures,
+                Some(&instruments.health),
+                || self.sink.commit(&delivery, &outputs),
+            )
             .instrument(info_span!("commit", outputs = outputs.len()))
-            .await?;
+            .await;
+            match committed {
+                Ok(()) => {}
+                Err(error) if PublishRejected::is(&error) => {
+                    return Ok(Completion::Rejected(delivery, error));
+                }
+                Err(error) => return Err(error),
+            }
             instruments.record(Stage::Commit, started);
             instruments.acknowledged.increment(1);
             Ok(Completion::Done)
@@ -142,7 +176,7 @@ where
         policy: &'a RetryPolicy,
     ) -> BoxFuture<'a, anyhow::Result<M>> {
         Box::pin(async move {
-            retry_publish(policy, &Counter::noop(), || {
+            retry_publish(policy, &Counter::noop(), None, || {
                 self.sink.verify_source(&delivery)
             })
             .await

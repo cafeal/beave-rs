@@ -8,7 +8,7 @@ Source → Subscription → Handler → Sink
 
 The current implementation includes local adapters, a bounded in-process
 channel that chains subscriptions with end-to-end acknowledgement, optional
-Kafka and Apache Pulsar adapters, an optional HTTP source, typed codecs, bounded
+Kafka and Apache Pulsar adapters, an optional HTTP source and sink, typed codecs, bounded
 concurrency, retries, and graceful shutdown. NATS JetStream and SQS remain on
 the roadmap.
 
@@ -67,6 +67,9 @@ The runtime emits `tracing` spans and `metrics` counters and histograms for
 every delivery stage. The optional `opentelemetry` feature propagates trace
 context through Kafka headers and Pulsar properties. See
 [observability](docs/runtime.md#observability).
+
+The optional `health` feature serves `/livez` and `/readyz` for Kubernetes
+probes; see [health checks](docs/runtime.md#health-checks).
 
 Kafka, Pulsar, and HTTP are optional Cargo features. See the [adapter guide](docs/adapters.md)
 for feature flags and delivery semantics. Synchronous handlers run on a bounded

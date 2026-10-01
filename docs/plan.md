@@ -263,9 +263,34 @@ Spans, events, metrics, and trace-context propagation are described in the
 - a producer span per published output instead of injecting the `message`
   span's context into every output.
 
+Health checks report runtime-observed state, as described in the
+[runtime guide](runtime.md#health-checks). Remaining decisions:
+
+- consumer lag in the health report, which needs an adapter-provided
+  measurement such as the distance from a Kafka partition's committed offset to
+  its high watermark or a Pulsar subscription's backlog, and a policy for
+  whether lag above a threshold makes the application unready;
+- source connection state in readiness, since the Kafka and Pulsar clients
+  reconnect internally and a pending receive cannot tell an idle broker from an
+  unreachable one;
+- liveness that detects a stalled subscription, such as a handler or ACK that
+  never completes, without restarting instances that are merely idle.
+
 Trace-context propagation and the
 [Prometheus export path](runtime.md#exporting-metrics-to-opentelemetry) have not
 been verified against live brokers or an OpenTelemetry Collector.
+
+## Testing utilities
+
+The `testing` feature is described in the [testing guide](testing.md).
+Remaining decisions:
+
+- fabricated HTTP requests, whose source decodes the body before a request
+  becomes a delivery and answers `400` instead of reporting a decode failure;
+- Key_Shared and Shared ordering scopes for fabricated Pulsar messages, which
+  depend on the subscription type rather than on the record;
+- scripted receive errors and revocations, and a sink that fails publication
+  or completion on demand, for testing retry and revocation paths.
 
 ## Future adapters
 
@@ -285,6 +310,16 @@ The HTTP source answers each request with a status only. Remaining decisions:
 - idempotency keys that let a retried request be recognized as a duplicate.
 
 Its server limits are listed under [failure defaults](#failure-defaults).
+
+The HTTP sink sends one request per output and classifies responses with a
+fixed rule. Remaining decisions:
+
+- configurable classification of retryable and rejected statuses, and honoring
+  `Retry-After` on `429` and `503` instead of the `publish_retry` delay;
+- a path or query chosen per output, for destinations that address resources in
+  the URL;
+- custom root certificates, client certificates, and HTTP/2;
+- batching several outputs into one request for destinations with bulk APIs.
 
 Each broker adapter must define its native record and publish types, ACK model,
 redelivery behavior, ordering scope, cancellation behavior, connection

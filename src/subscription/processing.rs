@@ -8,9 +8,11 @@ use crate::{
     dead_letter::DeadLetter,
     error_policy::{ErrorPolicy, FailureAction, FailureKind},
     handler::HandlerError,
+    health::Tracker,
     message::SourceMessage,
     middleware::Flow,
     retry::RetryPolicy,
+    sink::PublishRejected,
 };
 use metrics::Counter;
 use std::{future::Future, sync::Arc, time::Instant};
@@ -93,6 +95,15 @@ where
                     };
                     return route(delivery, &pipeline, failure).await.map(|()| None);
                 }
+                Completion::Rejected(delivery, error) => {
+                    let failure = Failure {
+                        kind: FailureKind::PublishRejected,
+                        error,
+                        attempts,
+                        input: Some(input),
+                    };
+                    return route(delivery, &pipeline, failure).await.map(|()| None);
+                }
             },
             Err(failure) => failure,
         },
@@ -153,7 +164,7 @@ where
         Completion::Done => Ok(()),
         // Without outputs nothing is submitted, so nothing can be pending.
         Completion::Pending(delivery, _) => ack_delivery(delivery, &pipeline.instruments).await,
-        Completion::Encode(_, error) => Err(error),
+        Completion::Encode(_, error) | Completion::Rejected(_, error) => Err(error),
     }
 }
 
@@ -338,15 +349,20 @@ where
     }
 }
 
+/// Publishes with retries. With `health`, the delivery counts as retrying its
+/// publication from the first failure until it succeeds or gives up. A rejection
+/// is returned without retrying.
 pub(super) async fn retry_publish<T, F, Fut>(
     policy: &RetryPolicy,
     failures: &Counter,
+    health: Option<&Tracker>,
     mut publish: F,
 ) -> anyhow::Result<T>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = anyhow::Result<T>>,
 {
+    let mut retrying = None;
     let mut attempt = 1;
     loop {
         let result = publish().await;
@@ -355,11 +371,15 @@ where
         }
         match result {
             Ok(value) => return Ok(value),
+            Err(error) if PublishRejected::is(&error) => return Err(error),
             Err(error) if attempt >= policy.max_attempts => {
                 return Err(error.context("publish retry exhausted"));
             }
             Err(error) => {
                 debug!(attempt, error = format!("{error:#}"), "retrying publish");
+                if retrying.is_none() {
+                    retrying = health.map(Tracker::publish_retry);
+                }
                 tokio::time::sleep(policy.delay(attempt)).await;
                 attempt += 1;
             }
