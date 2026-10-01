@@ -26,8 +26,14 @@ impl<C: Default, T> Default for StdinSource<C, T> {
 }
 impl<C: Default, T> StdinSource<C, T> {
     pub fn new() -> Self {
+        Self::with_codec(C::default())
+    }
+}
+impl<C, T> StdinSource<C, T> {
+    /// Uses an existing codec instance, such as a configured `Avro` codec.
+    pub fn with_codec(codec: C) -> Self {
         Self {
-            codec: Arc::new(C::default()),
+            codec: Arc::new(codec),
             receiver: None,
             marker: PhantomData,
         }
@@ -48,6 +54,7 @@ impl<T: Clone + Send + Sync + 'static, C: Decoder<T>> Source for StdinSource<C, 
                         match reader.read_until(b'\n', &mut line) {
                             Ok(0) => break,
                             Ok(_) => {
+                                trim_line_ending(&mut line);
                                 if sender.blocking_send(Ok(line)).is_err() {
                                     break;
                                 }
@@ -80,6 +87,16 @@ impl<T: Clone + Send + Sync + 'static, C: Decoder<T>> Source for StdinSource<C, 
     }
 }
 
+/// Removes a trailing `\n` or `\r\n`.
+fn trim_line_ending(line: &mut Vec<u8>) {
+    if line.last() == Some(&b'\n') {
+        line.pop();
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+    }
+}
+
 /// Owns one raw stdin line until decode and processing have completed.
 pub struct StdinMessage<C, T> {
     bytes: Vec<u8>,
@@ -88,7 +105,7 @@ pub struct StdinMessage<C, T> {
 }
 impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for StdinMessage<C, T> {
     type Item = T;
-    /// The received line without its trailing newline.
+    /// The received line without its line ending.
     type Raw = Vec<u8>;
     fn decode(&self) -> anyhow::Result<T> {
         self.codec.decode(&self.bytes)
@@ -98,5 +115,25 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for StdinMes
     }
     fn raw(&self) -> Vec<u8> {
         self.bytes.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::trim_line_ending;
+
+    #[test]
+    fn line_endings_are_removed() {
+        for (input, expected) in [
+            (&b"a\n"[..], &b"a"[..]),
+            (b"a\r\n", b"a"),
+            (b"a", b"a"),
+            (b"\n", b""),
+            (b"a\r", b"a\r"),
+        ] {
+            let mut line = input.to_vec();
+            trim_line_ending(&mut line);
+            assert_eq!(line, expected);
+        }
     }
 }

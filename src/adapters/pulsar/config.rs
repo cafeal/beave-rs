@@ -1,4 +1,4 @@
-use crate::retry::RetryPolicy;
+use crate::{adapters::pending::PendingLimit, retry::RetryPolicy};
 use bytes::Bytes;
 use magnetar::proto::{AuthError, AuthProvider, pb::command_subscribe::SubType};
 use std::{fmt, sync::Arc, time::Duration};
@@ -173,11 +173,7 @@ impl PulsarSinkConfig {
                 "Pulsar producer name must not be empty"
             );
         }
-        anyhow::ensure!(
-            (1..=tokio::sync::Semaphore::MAX_PERMITS).contains(&self.max_pending),
-            "Pulsar sink max_pending must be between 1 and {}",
-            tokio::sync::Semaphore::MAX_PERMITS
-        );
+        PendingLimit::validate(self.max_pending, "Pulsar")?;
         self.send_retry.validate()?;
         Ok(())
     }

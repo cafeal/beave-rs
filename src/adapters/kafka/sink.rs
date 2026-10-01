@@ -1,5 +1,6 @@
 use super::{config::KafkaSinkConfig, record::KafkaPublish, transaction::KafkaTransactionalSink};
 use crate::{
+    adapters::pending::PendingLimit,
     codec::Encoder,
     sink::{Completion, Sink},
 };
@@ -18,7 +19,6 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::Semaphore;
 
 /// An encoded Kafka record. Preparing a value performs all codec work once.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,7 +32,7 @@ struct State {
     producer: Mutex<Option<FutureProducer>>,
     closed: AtomicBool,
     /// One permit per record awaiting its delivery report.
-    pending: Arc<Semaphore>,
+    pending: PendingLimit,
 }
 
 /// Queues records on the producer and completes each one when Kafka reports
@@ -68,9 +68,7 @@ impl<C, T> KafkaSink<C, T> {
             state: Arc::new(State {
                 producer: Mutex::new(None),
                 closed: AtomicBool::new(false),
-                pending: Arc::new(Semaphore::new(
-                    config.max_pending.min(Semaphore::MAX_PERMITS),
-                )),
+                pending: PendingLimit::new(config.max_pending, "Kafka"),
             }),
             config,
             marker: PhantomData,
@@ -130,8 +128,7 @@ where
     /// resolves on its delivery report.
     async fn submit(&self, output: &Self::Prepared) -> anyhow::Result<Completion> {
         let producer = self.producer()?;
-        let permit = (self.state.pending.clone().acquire_owned().await)
-            .map_err(|_| anyhow::anyhow!("Kafka sink is closed"))?;
+        let permit = self.state.pending.acquire().await?;
         let delivery = enqueue(&producer, &self.config.topic, output).await?;
         Ok(Completion::pending(async move {
             let _permit = permit;
