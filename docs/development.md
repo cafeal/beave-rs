@@ -113,6 +113,12 @@ no committed offset, and the Pulsar example uses the subscription created by
 Run a `process` command again to see that committed or acknowledged deliveries
 are not processed twice.
 
+GitHub Actions runs each example flow in an `Example` job per scenario with
+`.github/scripts/example.sh`, which starts the services the flow needs, runs
+the commands above, and checks that 10 outputs arrive on the output topic or
+at the HTTP receiver. Run the script locally with the same scenario name, such
+as `.github/scripts/example.sh kafka-to-http`, after starting the brokers.
+
 ## Inspecting broker state
 
 Kafka UI shows topics, partitions, messages, and consumer group offsets. Pulsar
