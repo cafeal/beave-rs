@@ -6,11 +6,12 @@ use crate::{
 use metrics::{Counter, Gauge, Histogram, counter, gauge, histogram};
 use std::{sync::Arc, time::Instant};
 
-const KINDS: [FailureKind; 4] = [
+const KINDS: [FailureKind; 5] = [
     FailureKind::Decode,
     FailureKind::Rejected,
     FailureKind::RetryExhausted,
     FailureKind::Encode,
+    FailureKind::PublishRejected,
 ];
 
 /// A timed part of one delivery's processing.
@@ -64,7 +65,7 @@ pub(super) struct Instruments {
     pub(super) in_flight: Gauge,
     /// Health state the runtime reports while it receives and publishes.
     pub(super) health: Arc<Tracker>,
-    failures: [Counter; 4],
+    failures: [Counter; 5],
     stages: [Histogram; 8],
 }
 
@@ -134,6 +135,7 @@ fn kind_label(kind: FailureKind) -> &'static str {
         FailureKind::Rejected => "rejected",
         FailureKind::RetryExhausted => "retry_exhausted",
         FailureKind::Encode => "encode",
+        FailureKind::PublishRejected => "publish_rejected",
     }
 }
 

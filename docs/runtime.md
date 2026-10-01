@@ -47,7 +47,7 @@ Registration constructs the application. Processing starts in `run()`.
 | Initial retry delay | 100 ms | Exponential backoff starting delay |
 | Maximum retry delay | 5 s | Backoff cap |
 | Retry jitter | `Jitter::None` | Randomization of each backoff delay |
-| Error policy | `ErrorPolicy::default()` | Dead-letter handler failures; stop on decode and encode failures |
+| Error policy | `ErrorPolicy::default()` | Dead-letter handler failures and rejected publications; stop on decode and encode failures |
 | Drain timeout | 30 s | Bound on draining; cleanup has a separate timeout of the same duration |
 
 Receive, handler, output publish, and dead-letter publish retries have
@@ -399,7 +399,7 @@ async fn handle(order: Order) -> Result<Output> {
 
 ### Error policy
 
-`ErrorPolicy` decides what happens to a delivery after one of four routable
+`ErrorPolicy` decides what happens to a delivery after one of five routable
 failures, identified by `FailureKind`:
 
 | `FailureKind` | Cause | Default action |
@@ -408,6 +408,7 @@ failures, identified by `FailureKind`:
 | `Rejected` | The handler or a middleware returned `Reject`, including errors propagated with `?` | `DeadLetter` |
 | `RetryExhausted` | The handler returned `Retry` on its final permitted attempt | `DeadLetter` |
 | `Encode` | `Sink::prepare` failed for an emitted output | `Stop` |
+| `PublishRejected` | The sink's destination refused an output permanently | `DeadLetter` |
 
 Each failure maps to one `FailureAction`:
 
@@ -418,15 +419,24 @@ Each failure maps to one `FailureAction`:
 - `Discard` acknowledges the delivery without publishing anything. It is an
   explicit choice to lose that delivery.
 
-Rejections and exhausted handler retries without a configured dead-letter sink
-stop without ACK: the handler could not process the input and nothing can
-receive it. `DeadLetter` for decode or encode failures requires a dead-letter
+Rejections, exhausted handler retries, and rejected publications without a
+configured dead-letter sink stop without ACK: the input could not be processed
+and nothing can receive it. `DeadLetter` for decode or encode failures requires a dead-letter
 sink and fails validation otherwise. `ErrorPolicy::dead_letter_all()` routes
 every kind to the dead-letter sink.
 
 Encoding happens for all emitted outputs before any publication, so an `Encode`
 failure never follows a partial publish; dead-lettering the input after it does
 not duplicate outputs.
+
+A sink reports a permanent refusal, such as an HTTP `4xx` response, by marking
+its publish, submit, or commit error with `PublishRejected::wrap`. The runtime
+does not retry a rejected output and submits no later outputs of the delivery.
+Outputs submitted before it stay published, and their completions are awaited
+before the delivery is routed, so a `DeadLetter` or `Discard` action
+acknowledges it only after they reached the sink's acknowledgement boundary.
+Errors without the marker are retried under `publish_retry`, and an exhausted
+retry stops the subscription. A failed completion is never routed.
 
 ### Dead letters
 
@@ -475,6 +485,7 @@ stops without ACK; dead-letter failures are never routed again.
 | Middleware `Reject` | `Rejected` routing with the decoded input; publish no outputs |
 | Middleware `Retry` or `Fatal` | Stop without ACK; never rerun the handler or middleware |
 | Publish failure | Retry the prepared output; never rerun handler, middleware, or encoding |
+| Publish rejected by the destination | `PublishRejected` routing without retry |
 | Exhausted publish | Stop without ACK; infrastructure failures are never dead-lettered |
 | ACK failure | Return an error; do not claim successful completion |
 
@@ -566,7 +577,8 @@ Every metric carries a `subscription` label with the subscription name.
 | `beavers_deliveries_in_flight` | gauge | | Received deliveries that have not finished |
 | `beavers_stage_duration_seconds` | histogram | `stage` | Duration of `decode`, `handler`, `encode`, `publish`, `complete`, `dead_letter`, `ack`, and `commit` |
 
-`failure` is `decode`, `rejected`, `retry_exhausted`, or `encode`. `action` is
+`failure` is `decode`, `rejected`, `retry_exhausted`, `encode`, or
+`publish_rejected`. `action` is
 `stop`, `dead_letter`, or `discard`; a `DeadLetter` action without a
 dead-letter sink is reported as `stop`, which is what it does. A failure is
 counted when it is routed, before the action runs. `handler` durations are
@@ -642,12 +654,19 @@ adapter maps the fields to its own metadata:
 |---|---|---|
 | Kafka | Headers with UTF-8 values | Headers; every header of the same name is replaced |
 | Pulsar | Properties | Properties |
-| Local adapters and `Delivery` | None | Not supported |
+| Channel | The sender's trace context, captured when a value is enqueued | Captured automatically; no carrier needed |
+| `Delivery` | Fields set with `Delivery::with_propagation_fields` | Not supported |
+| Other local adapters | None | Not supported |
 
 With the `opentelemetry` feature, the runtime extracts each `message` span's
 remote parent from those fields through the global text-map propagator, and
 the `TraceContext` middleware injects the `message` span's context into every
 output:
+
+A [channel](adapters/channel.md) needs no middleware. With the
+`opentelemetry` feature, `ChannelSink` and `ChannelSender` capture the current
+span's context when they enqueue a value, so the receiving subscription's
+`message` span continues the trace as a child of the sending stage.
 
 ```rust,ignore
 use beavers::TraceContext;

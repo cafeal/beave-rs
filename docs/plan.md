@@ -299,6 +299,16 @@ The HTTP source answers each request with a status only. Remaining decisions:
 
 Its server limits are listed under [failure defaults](#failure-defaults).
 
+The HTTP sink sends one request per output and classifies responses with a
+fixed rule. Remaining decisions:
+
+- configurable classification of retryable and rejected statuses, and honoring
+  `Retry-After` on `429` and `503` instead of the `publish_retry` delay;
+- a path or query chosen per output, for destinations that address resources in
+  the URL;
+- custom root certificates, client certificates, and HTTP/2;
+- batching several outputs into one request for destinations with bulk APIs.
+
 Each broker adapter must define its native record and publish types, ACK model,
 redelivery behavior, ordering scope, cancellation behavior, connection
 lifecycle, and mapping of trace-context propagation fields (NATS headers, SQS
