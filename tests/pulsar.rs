@@ -1,12 +1,11 @@
 #![cfg(feature = "pulsar")]
 
 use beavers::{
-    App, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage, Subscription,
-    TransactionEntry, TransactionalSink, Utf8,
+    Receive, ReceiveError, Sink, Source, SourceMessage, Utf8,
     adapters::pulsar::{
         PulsarAuthentication, PulsarMessage, PulsarMessageId, PulsarMetadata, PulsarPublish,
         PulsarRecord, PulsarSink, PulsarSinkConfig, PulsarSource, PulsarSourceConfig,
-        PulsarSubscriptionType, PulsarTransactionalSink,
+        PulsarSubscriptionType,
     },
 };
 use tokio::{
@@ -120,37 +119,9 @@ fn configs_validate_without_connecting() {
             .validate()
             .is_err()
     );
-    let mut transactional = PulsarSinkConfig::new("pulsar://broker", "topic");
-    transactional.transaction_timeout = Duration::ZERO;
-    assert!(transactional.validate().is_err());
     let mut unbounded = PulsarSinkConfig::new("pulsar://broker", "topic");
     unbounded.max_pending = 0;
     assert!(unbounded.validate().is_err());
-}
-
-fn uppercase_pipeline(
-    source: PulsarSource<Utf8, String>,
-    sink: PulsarTransactionalSink<Utf8, String>,
-) -> Subscription<
-    PulsarSource<Utf8, String>,
-    PulsarTransactionalSink<Utf8, String>,
-    PulsarPublish<String>,
-> {
-    Subscription::forward("uppercase", source, sink, |value: String| async move {
-        Ok(value.to_uppercase())
-    })
-    .transactional()
-}
-
-#[test]
-fn pulsar_source_and_transactional_sink_form_a_transactional_pair() {
-    let source = PulsarSource::new(PulsarSourceConfig::new(
-        "pulsar://broker",
-        "in",
-        "subscription",
-    ));
-    let sink = PulsarSink::new(PulsarSinkConfig::new("pulsar://broker", "out")).transactional();
-    let _ = uppercase_pipeline(source, sink);
 }
 
 fn service_url() -> String {
@@ -161,14 +132,13 @@ fn unique_topic(prefix: &str) -> String {
     format!("persistent://public/default/{}", unique_name(prefix))
 }
 
-/// Creates a partitioned topic through the admin REST API at
-/// `PULSAR_ADMIN_ADDR` (default: `127.0.0.1:8080`).
-async fn create_partitioned_topic(topic: &str, partitions: u32) -> anyhow::Result<()> {
+/// Sends a `PUT` for `topic` to the admin REST API at `PULSAR_ADMIN_ADDR`
+/// (default: `127.0.0.1:8080`). `action` follows the topic path.
+async fn put_topic_admin(topic: &str, action: &str, body: &str) -> anyhow::Result<()> {
     let address = env::var("PULSAR_ADMIN_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
     let path = topic.replacen("persistent://", "/admin/v2/persistent/", 1);
-    let body = partitions.to_string();
     let request = format!(
-        "PUT {path}/partitions HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\n\
+        "PUT {path}/{action} HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\n\
          Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
@@ -178,9 +148,14 @@ async fn create_partitioned_topic(topic: &str, partitions: u32) -> anyhow::Resul
     stream.read_to_string(&mut response).await?;
     anyhow::ensure!(
         response.starts_with("HTTP/1.1 2"),
-        "creating {topic} failed: {response}"
+        "{action} of {topic} failed: {response}"
     );
     Ok(())
+}
+
+/// Closes the topic on its broker, so clients reconnect to it.
+async fn unload_topic(topic: &str) -> anyhow::Result<()> {
+    put_topic_admin(topic, "unload", "").await
 }
 
 async fn next_message(
@@ -220,168 +195,37 @@ fn exclusive_source(topic: &str, subscription: &str) -> PulsarSource<Utf8, Strin
     PulsarSource::new(config)
 }
 
-/// Requires a broker at `PULSAR_URL` with `transactionCoordinatorEnabled=true`
-/// and its admin API at `PULSAR_ADMIN_ADDR`. Records are copied between
-/// partitioned topics in transactions, then the output and the input
-/// subscription's backlog are checked.
+/// Requires the development broker at `PULSAR_URL` and its admin API at
+/// `PULSAR_ADMIN_ADDR`. A delivery received before its topic is unloaded is
+/// acknowledged once the consumer has reconnected.
 #[tokio::test]
-#[ignore = "requires a Pulsar broker with transactions; run with cargo test --features pulsar -- --ignored"]
-async fn transactional_pipeline_commits_outputs_with_acknowledgements() -> anyhow::Result<()> {
-    let input = unique_topic("beavers-pulsar-tx-in");
-    let output = unique_topic("beavers-pulsar-tx-out");
-    create_partitioned_topic(&input, 2).await?;
-    create_partitioned_topic(&output, 3).await?;
-    let subscription = unique_name("beavers-pulsar-tx");
-
-    // Create both subscriptions before publishing, since a new subscription
-    // starts at the latest message.
-    let mut reader = exclusive_source(&output, &unique_name("beavers-pulsar-reader"));
-    assert!(
-        next_message(&mut reader, Duration::from_millis(500))
-            .await?
-            .is_none()
-    );
-    let mut source = exclusive_source(&input, &subscription);
+#[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
+async fn acknowledgement_is_retried_across_a_topic_unload() -> anyhow::Result<()> {
+    let topic = unique_topic("beavers-pulsar-unload");
+    let subscription = unique_name("beavers-pulsar-unload");
+    let mut source = exclusive_source(&topic, &subscription);
     assert!(
         next_message(&mut source, Duration::from_millis(500))
             .await?
             .is_none()
     );
+    publish_all(&topic, &["a"]).await?;
+    let delivery = next_message(&mut source, Duration::from_secs(20))
+        .await?
+        .expect("timed out waiting for input");
+    unload_topic(&topic).await?;
+    tokio::time::timeout(Duration::from_secs(120), delivery.ack())
+        .await
+        .expect("timed out acknowledging after the unload")?;
     source.close().await?;
-    publish_all(&input, &["a", "b", "c", "d"]).await?;
 
-    let sink = PulsarSink::new(PulsarSinkConfig::new(service_url(), &output)).transactional();
-    let shutdown = CancellationToken::new();
-    let app = tokio::spawn(
-        App::new()
-            .subscription(uppercase_pipeline(
-                exclusive_source(&input, &subscription),
-                sink,
-            ))
-            .run_until(shutdown.clone()),
-    );
-
-    let mut values = Vec::new();
-    while values.len() < 4 {
-        let message = next_message(&mut reader, Duration::from_secs(60))
-            .await?
-            .expect("timed out waiting for transactional output");
-        let record = message.decode()?;
-        assert_eq!(
-            record.key.as_deref().map(<[u8]>::to_ascii_uppercase),
-            record.value.as_ref().map(|value| value.as_bytes().to_vec())
-        );
-        values.push(record.value.unwrap());
-        message.ack().await?;
-    }
-    values.sort();
-    assert_eq!(values, ["A", "B", "C", "D"]);
-    shutdown.cancel();
-    app.await??;
-    reader.close().await?;
-
-    let mut source = exclusive_source(&input, &subscription);
+    let mut source = exclusive_source(&topic, &subscription);
     assert!(
         next_message(&mut source, Duration::from_secs(2))
             .await?
             .is_none(),
-        "committed deliveries were redelivered"
+        "the acknowledged delivery was redelivered"
     );
-    source.close().await
-}
-
-/// Requires a broker at `PULSAR_URL` with `transactionCoordinatorEnabled=true`.
-/// A transaction whose acknowledgement fails is aborted, so its output never
-/// becomes visible and the delivery can be committed again.
-#[tokio::test]
-#[ignore = "requires a Pulsar broker with transactions; run with cargo test --features pulsar -- --ignored"]
-async fn failed_acknowledgement_aborts_the_transaction() -> anyhow::Result<()> {
-    let input = unique_topic("beavers-pulsar-abort-in");
-    let output = unique_topic("beavers-pulsar-abort-out");
-    let subscription = unique_name("beavers-pulsar-abort");
-    let mut reader = exclusive_source(&output, &unique_name("beavers-pulsar-reader"));
-    assert!(
-        next_message(&mut reader, Duration::from_millis(500))
-            .await?
-            .is_none()
-    );
-    let mut source = exclusive_source(&input, &subscription);
-    assert!(
-        next_message(&mut source, Duration::from_millis(500))
-            .await?
-            .is_none()
-    );
-    publish_all(&input, &["a"]).await?;
-
-    let sink = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(service_url(), &output))
-        .transactional();
-    let delivery = next_message(&mut source, Duration::from_secs(20))
-        .await?
-        .expect("timed out waiting for input");
-    let prepared = sink.prepare(PulsarPublish::new("aborted".to_owned()))?;
-    source.close().await?;
-    let batch = [TransactionEntry {
-        delivery: &delivery,
-        outputs: &[prepared],
-    }];
-    assert!(sink.commit(&batch).await.is_err());
-    assert!(
-        next_message(&mut reader, Duration::from_secs(2))
-            .await?
-            .is_none(),
-        "aborted output became visible"
-    );
-
-    let mut source = exclusive_source(&input, &subscription);
-    let delivery = next_message(&mut source, Duration::from_secs(20))
-        .await?
-        .expect("the aborted delivery was not redelivered");
-    let prepared = sink.prepare(PulsarPublish::new("committed".to_owned()))?;
-    sink.commit(&[TransactionEntry {
-        delivery: &delivery,
-        outputs: &[prepared],
-    }])
-    .await?;
-    let message = next_message(&mut reader, Duration::from_secs(20))
-        .await?
-        .expect("timed out waiting for committed output");
-    assert_eq!(message.decode()?.value.as_deref(), Some("committed"));
-    message.ack().await?;
-    sink.close().await?;
-    source.close().await?;
-    reader.close().await
-}
-
-/// Requires the development broker at `PULSAR_URL`. A transactional sink
-/// accepts a source only when both use the same service URL.
-#[tokio::test]
-#[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
-async fn transactional_sink_rejects_a_source_of_another_service() -> anyhow::Result<()> {
-    let input = unique_topic("beavers-pulsar-verify-in");
-    let mut source = exclusive_source(&input, &unique_name("beavers-pulsar-verify"));
-    assert!(
-        next_message(&mut source, Duration::from_millis(500))
-            .await?
-            .is_none()
-    );
-    publish_all(&input, &["a"]).await?;
-    let delivery = next_message(&mut source, Duration::from_secs(20))
-        .await?
-        .expect("timed out waiting for input");
-
-    let same = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(
-        format!("{}/", service_url()),
-        "out",
-    ))
-    .transactional();
-    same.verify_source(&delivery).await?;
-    let other = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(
-        "pulsar://other-cluster:6650",
-        "out",
-    ))
-    .transactional();
-    let error = other.verify_source(&delivery).await.unwrap_err();
-    assert!(error.to_string().contains("differs from sink service URL"));
     source.close().await
 }
 

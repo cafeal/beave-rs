@@ -6,6 +6,7 @@ use super::{
 use crate::{
     codec::Decoder,
     message::{OrderingKey, SourceMessage},
+    retry::RetryPolicy,
     source::{Receive, ReceiveError, Source},
 };
 use anyhow::Context as _;
@@ -38,9 +39,8 @@ pub struct PulsarSource<C, T> {
 struct Connection {
     client: Arc<SharedClient>,
     consumers: Vec<Consumer>,
-    subscription: Arc<str>,
-    service_url: Arc<str>,
     closed: Arc<AtomicBool>,
+    ack_retry: Arc<RetryPolicy>,
     /// The consumer polled first by the next `receive`, so that a busy
     /// partition cannot starve the others.
     next: usize,
@@ -84,9 +84,8 @@ impl<C, T> PulsarSource<C, T> {
         Ok(Connection {
             client: SharedClient::new(client),
             consumers,
-            subscription: self.config.subscription.as_str().into(),
-            service_url: self.config.service_url.as_str().into(),
             closed: Arc::new(AtomicBool::new(false)),
+            ack_retry: Arc::new(self.config.ack_retry.clone()),
             next: 0,
         })
     }
@@ -149,9 +148,8 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PulsarSource<C,
             acknowledgement: Acknowledgement {
                 consumer,
                 id: message.message_id,
-                subscription: connection.subscription.clone(),
-                service_url: connection.service_url.clone(),
                 closed: connection.closed.clone(),
+                retry: connection.ack_retry.clone(),
                 _client: connection.client.clone(),
             },
             marker: PhantomData,
@@ -271,19 +269,16 @@ fn ordering_key(
 }
 
 /// What acknowledging one delivery needs.
-#[derive(Clone)]
-pub(super) struct Acknowledgement {
-    pub(super) consumer: Consumer,
-    pub(super) id: MessageId,
-    pub(super) subscription: Arc<str>,
-    /// The source's service URL, which a transactional sink compares with its own.
-    pub(super) service_url: Arc<str>,
+struct Acknowledgement {
+    consumer: Consumer,
+    id: MessageId,
     closed: Arc<AtomicBool>,
+    retry: Arc<RetryPolicy>,
     _client: Arc<SharedClient>,
 }
 
 impl Acknowledgement {
-    pub(super) fn ensure_open(&self) -> anyhow::Result<()> {
+    fn ensure_open(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.closed.load(Ordering::Acquire),
             "Pulsar source is closed"
@@ -301,14 +296,8 @@ pub struct PulsarMessage<C, T> {
     event_time: Option<u64>,
     metadata: PulsarMetadata,
     codec: Arc<C>,
-    pub(super) acknowledgement: Acknowledgement,
+    acknowledgement: Acknowledgement,
     marker: PhantomData<T>,
-}
-
-impl<C, T> PulsarMessage<C, T> {
-    pub(super) fn topic(&self) -> &str {
-        &self.metadata.topic
-    }
 }
 
 impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMessage<C, T> {
@@ -339,13 +328,26 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMe
         }
     }
 
+    /// Retries a failed acknowledgement under the source's `ack_retry`
+    /// policy. Acknowledging a message again is harmless, and an attempt
+    /// on a reconnected session succeeds for a message the broker
+    /// redelivers.
     async fn ack(self) -> anyhow::Result<()> {
-        self.acknowledgement.ensure_open()?;
-        self.acknowledgement
-            .consumer
-            .ack(self.acknowledgement.id)
-            .await?;
-        Ok(())
+        let acknowledgement = &self.acknowledgement;
+        let mut failures = 0;
+        loop {
+            acknowledgement.ensure_open()?;
+            let Err(error) = acknowledgement.consumer.ack(acknowledgement.id).await else {
+                return Ok(());
+            };
+            failures += 1;
+            if failures >= acknowledgement.retry.max_attempts {
+                return Err(anyhow::Error::new(error).context(format!(
+                    "Pulsar acknowledgement failed after {failures} attempts"
+                )));
+            }
+            tokio::time::sleep(acknowledgement.retry.delay(failures)).await;
+        }
     }
 
     fn ordering_key(&self) -> Option<OrderingKey> {

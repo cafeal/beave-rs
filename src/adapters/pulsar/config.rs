@@ -1,3 +1,4 @@
+use crate::retry::RetryPolicy;
 use bytes::Bytes;
 use magnetar::proto::{AuthError, AuthProvider, pb::command_subscribe::SubType};
 use std::{fmt, sync::Arc, time::Duration};
@@ -82,6 +83,10 @@ pub struct PulsarSourceConfig {
     /// Treat an empty payload as a null value, matching topic compaction,
     /// which deletes a key on an empty payload. Enabled by default.
     pub empty_payload_is_tombstone: bool,
+    /// Attempts to acknowledge a delivery. An acknowledgement sent while the
+    /// client reconnects after a topic unload or broker restart fails or
+    /// times out, and a later attempt on the new session succeeds.
+    pub ack_retry: RetryPolicy,
 }
 
 impl PulsarSourceConfig {
@@ -98,6 +103,12 @@ impl PulsarSourceConfig {
             authentication: None,
             buffer_size: 100,
             empty_payload_is_tombstone: true,
+            ack_retry: RetryPolicy {
+                max_attempts: 5,
+                initial_delay: Duration::from_millis(100),
+                max_delay: Duration::from_secs(2),
+                ..RetryPolicy::default()
+            },
         }
     }
 
@@ -111,6 +122,7 @@ impl PulsarSourceConfig {
             self.buffer_size > 0,
             "Pulsar buffer size must be greater than zero"
         );
+        self.ack_retry.validate()?;
         if let Some(authentication) = &self.authentication {
             authentication.validate()?;
         }
@@ -127,11 +139,6 @@ pub struct PulsarSinkConfig {
     /// Maximum number of messages queued by `submit` whose broker receipt has
     /// not arrived. `submit` waits while this many are outstanding.
     pub max_pending: usize,
-    /// Broker-side timeout of a transaction opened by a
-    /// [`PulsarTransactionalSink`](super::PulsarTransactionalSink). The
-    /// transaction coordinator aborts a transaction that is still open after
-    /// this duration.
-    pub transaction_timeout: Duration,
 }
 
 impl PulsarSinkConfig {
@@ -142,7 +149,6 @@ impl PulsarSinkConfig {
             producer_name: None,
             authentication: None,
             max_pending: 1000,
-            transaction_timeout: Duration::from_secs(60),
         }
     }
 
@@ -161,10 +167,6 @@ impl PulsarSinkConfig {
             (1..=tokio::sync::Semaphore::MAX_PERMITS).contains(&self.max_pending),
             "Pulsar sink max_pending must be between 1 and {}",
             tokio::sync::Semaphore::MAX_PERMITS
-        );
-        anyhow::ensure!(
-            !self.transaction_timeout.is_zero(),
-            "Pulsar transaction timeout must be greater than zero"
         );
         Ok(())
     }
