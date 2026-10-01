@@ -190,24 +190,22 @@ let sink = PulsarSink::<Json, Order>::new(PulsarSinkConfig::new(
 Subscription::forward("orders", pulsar_source, sink, handler).transactional()
 ```
 
-With `Subscription::transactional()` and a `PulsarSource`, each
-[batch](../runtime.md#batches) of deliveries is one transaction:
+With `Subscription::transactional()` and a `PulsarSource`, each delivery is one
+transaction:
 
 1. The sink opens a transaction with the configured `transaction_timeout`.
-2. It registers every output partition, publishes the outputs of every delivery
-   within the transaction, and waits for their receipts.
-3. It registers each distinct topic partition and subscription of the
-   deliveries, and acknowledges every delivery within the transaction.
+2. It registers every output partition, publishes the outputs within the
+   transaction, and waits for their receipts.
+3. It registers the delivery's topic partition and subscription, and
+   acknowledges the delivery within the transaction.
 4. It commits the transaction.
 
-Consumers see the outputs only after the commit, and the acknowledgements take
+Consumers see the outputs only after the commit, and the acknowledgement takes
 effect at the same time. When any step fails, the sink aborts the transaction
-and every delivery of the batch stays unacknowledged, so the runtime retries
-the batch with the same prepared outputs. The transaction coordinator also
-aborts a transaction that remains open longer than `transaction_timeout`; the
-transaction opens when its batch is closed, so it must cover publishing a full
-batch. Each transaction runs in its own task, so a cancelled commit still
-finishes or aborts.
+and the delivery stays unacknowledged, so the runtime retries it with the same
+prepared outputs. The transaction coordinator also aborts a transaction that
+remains open longer than `transaction_timeout`. Each transaction runs in its
+own task, so a cancelled commit still finishes or aborts.
 
 The source and the sink must use the same Pulsar cluster, because the sink's
 transaction coordinator commits the acknowledgement. The Pulsar protocol does
@@ -217,9 +215,8 @@ trailing slash, and a mismatch stops the subscription. Configure a
 transactional pipeline's source and sink with the same service URL, even when
 another URL would reach the same cluster.
 
-Pulsar allows many open transactions per producer, but the runtime commits a
-subscription's batches one at a time, so one transaction's coordinator round
-trips cover a whole batch. Pulsar has no transactional producer ID
+Pulsar allows many open transactions per producer, so deliveries of different
+ordering scopes commit concurrently. Pulsar has no transactional producer ID
 and no producer fencing: a second instance with the same subscription is simply
 another consumer of it. Used as a plain `Sink`, a `PulsarTransactionalSink`
 publishes each output in a transaction of its own.

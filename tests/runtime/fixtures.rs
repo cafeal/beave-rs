@@ -1,6 +1,6 @@
 use beavers::{
-    CancellationToken, Delivery, OrderingKey, Receive, ReceiveError, RetryPolicy, Sink, Source,
-    SourceMessage, TransactionEntry, TransactionalSink,
+    CancellationToken, Completion, Delivery, OrderingKey, PublishRejected, Receive, ReceiveError,
+    RetryPolicy, Sink, Source, SourceMessage, TransactionEntry, TransactionalSink,
 };
 use std::{
     collections::VecDeque,
@@ -159,6 +159,41 @@ impl Sink<i32> for RejectNegative {
     }
 }
 
+/// Refuses negative outputs permanently. Accepted outputs complete later,
+/// recording their value once `acks` shows no acknowledgement yet.
+#[derive(Clone, Default)]
+pub(crate) struct RefuseNegative {
+    pub(crate) attempts: Arc<AtomicUsize>,
+    pub(crate) completed: Arc<Mutex<Vec<i32>>>,
+    pub(crate) acks: Arc<AtomicUsize>,
+}
+
+impl Sink<i32> for RefuseNegative {
+    type Prepared = i32;
+
+    fn prepare(&self, value: i32) -> anyhow::Result<i32> {
+        Ok(value)
+    }
+
+    async fn publish(&self, value: &i32) -> anyhow::Result<()> {
+        self.submit(value).await?.wait().await
+    }
+
+    async fn submit(&self, value: &i32) -> anyhow::Result<Completion> {
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        if *value < 0 {
+            return Err(PublishRejected::wrap(anyhow::anyhow!("negative output")));
+        }
+        let (value, completed, acks) = (*value, self.completed.clone(), self.acks.clone());
+        Ok(Completion::pending(async move {
+            tokio::task::yield_now().await;
+            assert_eq!(acks.load(Ordering::SeqCst), 0);
+            completed.lock().unwrap().push(value);
+            Ok(())
+        }))
+    }
+}
+
 /// A delivery in partition `partition` of a test topic that counts its ACK.
 pub(crate) fn keyed(value: i32, partition: i64, acks: &Arc<AtomicUsize>) -> Delivery<i32> {
     let acks = acks.clone();
@@ -252,6 +287,8 @@ pub(crate) struct Transactions {
     pub(crate) committed: Arc<Mutex<Vec<Committed>>>,
     pub(crate) batches: Arc<Mutex<Vec<usize>>>,
     pub(crate) revoke_on_failure: Option<CancellationToken>,
+    /// Failing commits are marked as rejected.
+    pub(crate) reject: bool,
     pub(crate) attempts: Arc<AtomicUsize>,
     pub(crate) failures: usize,
     pub(crate) verifications: Arc<AtomicUsize>,
@@ -287,7 +324,12 @@ impl TransactionalSink<Transactional, i32> for Transactions {
             if let Some(token) = &self.revoke_on_failure {
                 token.cancel();
             }
-            anyhow::bail!("transaction aborted");
+            let error = anyhow::anyhow!("transaction aborted");
+            return Err(if self.reject {
+                PublishRejected::wrap(error)
+            } else {
+                error
+            });
         }
         self.committed.lock().unwrap().extend(
             batch

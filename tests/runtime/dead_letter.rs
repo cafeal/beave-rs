@@ -1,4 +1,4 @@
-use super::fixtures::{Flaky, RejectNegative, TextSource, fast};
+use super::fixtures::{Flaky, RefuseNegative, RejectNegative, TextSource, fast};
 use beavers::{
     App, Classify, DeadLetter, Emit, ErrorPolicy, FailureAction, FailureKind, HandlerError,
     InMemorySink, IterSource, RetryPolicy, Subscription,
@@ -363,4 +363,56 @@ async fn reject_classified_errors_match_propagated_errors() {
     assert_eq!(letter.failure, FailureKind::Rejected);
     assert_eq!(letter.attempts, 1);
     assert_eq!(acks.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn rejected_publication_is_dead_lettered_after_earlier_outputs_complete() {
+    let source = IterSource::new([1]);
+    let sink = RefuseNegative {
+        acks: source.acknowledgements(),
+        ..RefuseNegative::default()
+    };
+    let dlq = InMemorySink::default();
+    App::new()
+        .subscription(
+            Subscription::new_emitting(
+                "rejected_publication_is_dead_lettered_after_earlier_outputs_complete",
+                source,
+                sink.clone(),
+                |n: i32| async move { Ok(Emit::Many(vec![n, -n, n])) },
+            )
+            .publish_retry(fast())
+            .dlq(dlq.clone()),
+        )
+        .run()
+        .await
+        .unwrap();
+    // The rejection is not retried and later outputs are not submitted.
+    assert_eq!(sink.attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(*sink.completed.lock().unwrap(), vec![1]);
+    let [letter]: [DeadLetter<i32, ()>; 1] = dlq.values().try_into().unwrap();
+    assert_eq!(letter.failure, FailureKind::PublishRejected);
+    assert_eq!(letter.input, Some(1));
+    assert!(letter.error.contains("negative output"), "{}", letter.error);
+    assert_eq!(sink.acks.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn rejected_publication_without_dead_letter_sink_stops_without_ack() {
+    let source = IterSource::new([1]);
+    let acks = source.acknowledgements();
+    let error = App::new()
+        .subscribe(
+            "rejected_publication_without_dead_letter_sink_stops_without_ack",
+            source,
+            RefuseNegative::default(),
+            |n: i32| async move { Ok(-n) },
+        )
+        .run()
+        .await
+        .unwrap_err();
+    let error = format!("{error:#}");
+    assert!(error.contains("sink rejected output"), "{error}");
+    assert!(error.contains("no dead-letter sink configured"), "{error}");
+    assert_eq!(acks.load(Ordering::SeqCst), 0);
 }

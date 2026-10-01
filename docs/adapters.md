@@ -18,6 +18,7 @@ types are also re-exported at the crate root.
 | `PulsarSource<C, T>` / `PulsarSink<C, T>` | Pulsar records and publishes | Durable broker pipelines (`pulsar` feature) |
 | `PulsarTransactionalSink<C, T>` | Pulsar publishes in transactions | Exactly-once Pulsar-to-Pulsar pipelines (`pulsar` feature) |
 | `HttpSource<C, T>` | HTTP `POST` requests answered on ACK | Webhooks and push ingestion (`http` feature) |
+| `HttpSink<C, T>` | HTTP requests that succeed on a `2xx` response | Delivering events to HTTP services (`http` feature) |
 
 NATS JetStream and SQS are [planned](plan.md#implementation-order). Local and
 channel adapters do not provide durable delivery guarantees.
@@ -86,6 +87,10 @@ async fn main() -> anyhow::Result<()> {
 The example uses the default concurrency of one. Parallel handlers can publish
 in a different order. The sink retains all output without a capacity limit, so
 use it for bounded test runs rather than long-lived output storage.
+
+To feed fabricated Kafka or Pulsar records with their metadata and check which
+deliveries were acknowledged, use the `testing` feature described in the
+[testing guide](testing.md).
 
 ## StdinSource
 
@@ -178,6 +183,9 @@ Keep these contracts explicit:
 - Decoding and preparing output must not publish or ACK.
 - Dropping a received message must not ACK it.
 - Successful publication must reach the sink's documented confirmation boundary.
+- A sink whose destination refuses an output permanently, where sending it
+  again cannot succeed, marks the error with `PublishRejected::wrap` so the
+  error policy routes the delivery instead of retrying it.
 - Broker-specific commit order and assignment validity belong to the adapter.
 - A source with ordered delivery scopes, such as partitions, returns an
   `OrderingKey` from `SourceMessage::ordering_key`.

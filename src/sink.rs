@@ -1,5 +1,5 @@
 //! Preparing output is separate from transport publication and its retries.
-use std::{future::Future, pin::Pin};
+use std::{fmt, future::Future, pin::Pin};
 
 type CompletionFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
 
@@ -37,6 +37,37 @@ impl Completion {
     }
 }
 
+/// Marks a publication error as a permanent refusal of the output by its
+/// destination, such as an HTTP `400 Bad Request`.
+///
+/// A sink attaches it as context with [`PublishRejected::wrap`]. The runtime
+/// does not retry a rejected output and routes the delivery through the
+/// error policy as [`FailureKind::PublishRejected`](crate::FailureKind::PublishRejected)
+/// instead of stopping the subscription. It is recognized on errors returned by
+/// [`Sink::publish`] and [`Sink::submit`], not on a failed [`Completion`]. A
+/// rejected [`TransactionalSink::commit`](crate::TransactionalSink::commit)
+/// fails its whole batch instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PublishRejected;
+
+impl PublishRejected {
+    /// Marks `error` as a rejection, keeping it as the displayed cause.
+    pub fn wrap(error: anyhow::Error) -> anyhow::Error {
+        error.context(Self)
+    }
+
+    /// Whether `error` or a context it was wrapped in marks a rejection.
+    pub fn is(error: &anyhow::Error) -> bool {
+        error.downcast_ref::<Self>().is_some()
+    }
+}
+
+impl fmt::Display for PublishRejected {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("output rejected by its destination")
+    }
+}
+
 /// Sink metadata belongs in `T` or `Prepared`, not in a universal broker envelope.
 pub trait Sink<T>: Send + Sync + 'static {
     type Prepared: Send + Sync + 'static;
@@ -44,6 +75,7 @@ pub trait Sink<T>: Send + Sync + 'static {
     fn prepare(&self, value: T) -> anyhow::Result<Self::Prepared>;
     /// Success means the output reached this sink's acknowledgement boundary.
     /// Retrying the same prepared output must not rerun encoding or routing.
+    /// An error marked with [`PublishRejected`] is not retried.
     fn publish(&self, output: &Self::Prepared) -> impl Future<Output = anyhow::Result<()>> + Send;
     /// Hand the output to the sink and return once the sink has accepted it, with
     /// the [`Completion`] that resolves at the acknowledgement boundary. The runtime

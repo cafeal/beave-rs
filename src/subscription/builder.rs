@@ -183,7 +183,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                 let prepared = convert(dead_letter)
                     .and_then(|output| sink.prepare(output))
                     .map_err(|error| error.context("prepare dead letter failed"))?;
-                processing::retry_publish(&policy, &failures, || sink.publish(&prepared))
+                processing::retry_publish(&policy, &failures, None, || sink.publish(&prepared))
                     .await
                     .map_err(|error| error.context("dead-letter publish failed"))
             })

@@ -76,3 +76,22 @@ pub(crate) fn set_remote_parent(span: &Span, fields: &[(&str, &str)]) {
     // Setting a parent can only fail when the span is disabled or already started.
     let _ = span.set_parent(parent);
 }
+
+/// The current span's trace context as text-map fields, for in-process hand-offs
+/// such as channels that have no broker metadata to carry it.
+pub(crate) fn current_fields() -> Vec<(String, String)> {
+    let context = Span::current().context();
+    let mut fields = FieldInjector(Vec::new());
+    global::get_text_map_propagator(|propagator| {
+        propagator.inject_context(&context, &mut fields);
+    });
+    fields.0
+}
+
+struct FieldInjector(Vec<(String, String)>);
+
+impl Injector for FieldInjector {
+    fn set(&mut self, key: &str, value: String) {
+        self.0.push((key.to_owned(), value));
+    }
+}

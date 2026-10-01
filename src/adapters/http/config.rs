@@ -1,4 +1,9 @@
-use std::net::SocketAddr;
+use anyhow::Context as _;
+use hyper::{
+    Method, Uri,
+    header::{HeaderName, HeaderValue},
+};
+use std::{net::SocketAddr, time::Duration};
 
 /// Default limit for a request body: 1 MiB.
 const DEFAULT_MAX_BODY_BYTES: usize = 1024 * 1024;
@@ -42,5 +47,86 @@ impl HttpSourceConfig {
             "HTTP maximum body size must be greater than zero"
         );
         Ok(())
+    }
+}
+
+/// Default time allowed for one request, from connecting to reading the response.
+const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Request method of an [`HttpSink`](super::HttpSink).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HttpMethod {
+    #[default]
+    Post,
+    Put,
+    Patch,
+}
+
+impl HttpMethod {
+    pub(super) fn as_hyper(self) -> Method {
+        match self {
+            Self::Post => Method::POST,
+            Self::Put => Method::PUT,
+            Self::Patch => Method::PATCH,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct HttpSinkConfig {
+    /// Absolute `http` or `https` URL every output is sent to. Credentials
+    /// belong in `headers`, not in the URL.
+    pub url: String,
+    pub method: HttpMethod,
+    /// Headers sent with every request, such as `content-type` or
+    /// `authorization`. Headers of an output are added after them.
+    pub headers: Vec<(String, String)>,
+    /// Maximum time for one attempt, from connecting until the response body
+    /// is read. An attempt that times out is retried.
+    pub timeout: Duration,
+}
+
+impl HttpSinkConfig {
+    pub fn new(url: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            method: HttpMethod::default(),
+            headers: Vec::new(),
+            timeout: DEFAULT_REQUEST_TIMEOUT,
+        }
+    }
+
+    pub fn validate(&self) -> anyhow::Result<()> {
+        self.uri()?;
+        for (name, value) in &self.headers {
+            HeaderName::from_bytes(name.as_bytes())
+                .with_context(|| format!("invalid HTTP header name {name:?}"))?;
+            HeaderValue::from_str(value)
+                .with_context(|| format!("invalid value for HTTP header {name:?}"))?;
+        }
+        anyhow::ensure!(
+            !self.timeout.is_zero(),
+            "HTTP request timeout must be greater than zero"
+        );
+        Ok(())
+    }
+
+    pub(super) fn uri(&self) -> anyhow::Result<Uri> {
+        let uri: Uri = self
+            .url
+            .parse()
+            .with_context(|| format!("invalid HTTP sink URL {:?}", self.url))?;
+        anyhow::ensure!(
+            matches!(uri.scheme_str(), Some("http" | "https")),
+            "HTTP sink URL must use the http or https scheme"
+        );
+        let authority = uri
+            .authority()
+            .context("HTTP sink URL must include a host")?;
+        anyhow::ensure!(
+            !authority.as_str().contains('@'),
+            "HTTP sink URL must not contain credentials; send them in a header"
+        );
+        Ok(uri)
     }
 }

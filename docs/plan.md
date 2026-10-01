@@ -69,17 +69,18 @@ Kafka-to-Kafka and Pulsar-to-Pulsar transactions are described in the
 [runtime guide](runtime.md#transactions) and the
 [Kafka](adapters/kafka.md#transactions) and
 [Pulsar](adapters/pulsar.md#transactions) guides, including the
-[batching](runtime.md#batches) of deliveries into one transaction. Remaining
-work:
+[batching](runtime.md#batches) of Kafka deliveries into one transaction.
+Remaining work:
 
 - A commit that times out after its retriable retries has an unknown outcome.
   The transaction is then aborted or its producer replaced, and the retry can
   duplicate outputs if the timed-out commit had in fact completed. Batching
   widens this to every delivery of the batch.
-- A subscription's batches commit one at a time. Pulsar allows concurrent
-  transactions, so batches of different ordering scopes could commit in
-  parallel; that needs a rule for a failed batch whose scopes also appear in a
-  later batch that already committed.
+- A rejected batch commit (`PublishRejected`) cannot be attributed to one
+  delivery, so it stops the subscription instead of being routed by the error
+  policy. Committing the batch's deliveries one by one would identify the
+  rejected output, but its failure routing must finish before later batches
+  commit past it.
 - The Kafka sink commits a batch of one source only; a batch with deliveries of
   several consumers fails. Several subscriptions sharing one transactional sink
   each form their own batches and serialize on its producer.
@@ -104,7 +105,6 @@ a live broker. Verify with Kafka:
 - A revoke during a batch's commit aborts it, the retry without the revoked
   partition's deliveries commits, and the revoked records are reprocessed by the
   next owner.
-
 - Outputs of an aborted transaction stay invisible to `read_committed`
   consumers, and the retried delivery commits once.
 - A revoke waits for a commit in progress, and a delivery of the revoked
@@ -120,17 +120,10 @@ a live broker. Verify with Kafka:
   mismatch.
 
 The ignored Pulsar transaction tests pass against a Pulsar 4.0 standalone
-broker with `transactionCoordinatorEnabled=true` and the default
-`TransactionBatch`: outputs routed to a three-partition topic commit with the
-acknowledgements of a two-partition input, and a transaction whose
-acknowledgement fails is aborted, its output stays invisible, and the
-redelivered message commits. Verify with Pulsar:
-
-- A batch acknowledges deliveries of several input partitions within one
-  transaction, registering each partition's subscription once, and an aborted
-  batch redelivers all of them.
-- Throughput and coordinator latency for the default `TransactionBatch` and for
-  larger batches.
+broker with `transactionCoordinatorEnabled=true`: outputs routed to a
+three-partition topic commit with the acknowledgements of a two-partition
+input, and a transaction whose acknowledgement fails is aborted, its output
+stays invisible, and the redelivered message commits. Verify with Pulsar:
 
 - Acknowledging a message from a producer batch within a transaction, with and
   without `acknowledgmentAtBatchIndexLevelEnabled`. The adapter acknowledges
@@ -269,9 +262,34 @@ Spans, events, metrics, and trace-context propagation are described in the
 - a producer span per published output instead of injecting the `message`
   span's context into every output.
 
+Health checks report runtime-observed state, as described in the
+[runtime guide](runtime.md#health-checks). Remaining decisions:
+
+- consumer lag in the health report, which needs an adapter-provided
+  measurement such as the distance from a Kafka partition's committed offset to
+  its high watermark or a Pulsar subscription's backlog, and a policy for
+  whether lag above a threshold makes the application unready;
+- source connection state in readiness, since the Kafka and Pulsar clients
+  reconnect internally and a pending receive cannot tell an idle broker from an
+  unreachable one;
+- liveness that detects a stalled subscription, such as a handler or ACK that
+  never completes, without restarting instances that are merely idle.
+
 Trace-context propagation and the
 [Prometheus export path](runtime.md#exporting-metrics-to-opentelemetry) have not
 been verified against live brokers or an OpenTelemetry Collector.
+
+## Testing utilities
+
+The `testing` feature is described in the [testing guide](testing.md).
+Remaining decisions:
+
+- fabricated HTTP requests, whose source decodes the body before a request
+  becomes a delivery and answers `400` instead of reporting a decode failure;
+- Key_Shared and Shared ordering scopes for fabricated Pulsar messages, which
+  depend on the subscription type rather than on the record;
+- scripted receive errors and revocations, and a sink that fails publication
+  or completion on demand, for testing retry and revocation paths.
 
 ## Future adapters
 
@@ -292,6 +310,16 @@ The HTTP source answers each request with a status only. Remaining decisions:
 
 Its server limits are listed under [failure defaults](#failure-defaults).
 
+The HTTP sink sends one request per output and classifies responses with a
+fixed rule. Remaining decisions:
+
+- configurable classification of retryable and rejected statuses, and honoring
+  `Retry-After` on `429` and `503` instead of the `publish_retry` delay;
+- a path or query chosen per output, for destinations that address resources in
+  the URL;
+- custom root certificates, client certificates, and HTTP/2;
+- batching several outputs into one request for destinations with bulk APIs.
+
 Each broker adapter must define its native record and publish types, ACK model,
 redelivery behavior, ordering scope, cancellation behavior, connection
 lifecycle, and mapping of trace-context propagation fields (NATS headers, SQS
@@ -304,7 +332,7 @@ message attributes) before implementation.
 | 1 | Adapter pause/resume backpressure and graceful rebalance handoff |
 | 2 | Cross-platform metadata mapping policy |
 | 3 | Observability refinements |
-| 4 | Live verification of batched Kafka and Pulsar transactions |
+| 4 | Live verification of batched Kafka transactions |
 | 5 | NATS JetStream and AWS SQS adapters |
 | 6 | Schema Registry and additional codecs |
 

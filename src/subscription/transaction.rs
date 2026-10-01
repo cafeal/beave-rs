@@ -7,7 +7,7 @@ use crate::{
     message::SourceMessage,
     retry::RetryPolicy,
     shutdown::CancellationToken,
-    sink,
+    sink::{self, PublishRejected},
     transaction::{TransactionEntry, TransactionalSink},
 };
 use std::{marker::PhantomData, sync::Arc, time::Instant};
@@ -180,13 +180,16 @@ where
     /// Commits the batch, retrying under the publish retry policy. Abandoned
     /// deliveries leave the batch before each attempt; a failure caused by a
     /// revocation during the attempt is retried without the revoked deliveries
-    /// and without counting against the policy.
+    /// and without counting against the policy. A rejection is not retried:
+    /// it cannot be attributed to one delivery of the batch, so it fails the
+    /// whole batch.
     async fn commit<M>(&self, members: &mut Vec<Entry<M, K::Prepared>>) -> anyhow::Result<()>
     where
         M: SourceMessage + Sync,
         K: TransactionalSink<M, O>,
     {
         let mut attempt = 1;
+        let mut retrying = None;
         loop {
             members.retain(|member| !member.abandoned());
             if members.is_empty() {
@@ -218,6 +221,9 @@ where
                 Err(error) => error,
             };
             self.instruments.publish_failures.increment(1);
+            if PublishRejected::is(&error) {
+                return Err(error.context("a transaction batch cannot route a rejected output"));
+            }
             if members.iter().any(Entry::abandoned) {
                 debug!(
                     error = format!("{error:#}"),
@@ -229,6 +235,9 @@ where
                 return Err(error.context("publish retry exhausted"));
             }
             debug!(attempt, error = format!("{error:#}"), "retrying commit");
+            if retrying.is_none() {
+                retrying = Some(self.instruments.health.publish_retry());
+            }
             tokio::time::sleep(self.policy.delay(attempt)).await;
             attempt += 1;
         }

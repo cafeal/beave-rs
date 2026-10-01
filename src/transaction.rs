@@ -36,9 +36,11 @@ pub trait TransactionalSink<M: SourceMessage, T>: Sink<T> {
     ///
     /// A failed commit leaves every delivery unacknowledged, and the runtime
     /// may retry the batch with the same prepared outputs, without the entries
-    /// whose deliveries were revoked in the meantime. Dropping the returned
-    /// future must not leave a transaction half-finished; the implementation
-    /// either completes or aborts it.
+    /// whose deliveries were revoked in the meantime. A failure marked with
+    /// [`PublishRejected`](crate::PublishRejected) is not retried and stops
+    /// the subscription, because it cannot be attributed to one delivery.
+    /// Dropping the returned future must not leave a transaction
+    /// half-finished; the implementation either completes or aborts it.
     fn commit(
         &self,
         batch: &[TransactionEntry<'_, M, Self::Prepared>],

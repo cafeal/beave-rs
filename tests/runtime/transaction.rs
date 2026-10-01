@@ -337,3 +337,27 @@ async fn a_zero_transaction_batch_size_fails_validation() {
         .unwrap_err();
     assert!(error.to_string().contains("transaction batch size"));
 }
+
+#[tokio::test]
+async fn a_rejected_batch_commit_stops_without_retrying() {
+    let source = TransactionalSource::new(1..=2);
+    let sink = Transactions {
+        failures: usize::MAX,
+        reject: true,
+        ..Transactions::default()
+    };
+    let error = App::new()
+        .subscription(
+            Subscription::new("transactions", source, sink.clone(), |n: i32| async move {
+                Ok(n)
+            })
+            .transactional()
+            .publish_retry(fast()),
+        )
+        .run()
+        .await
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("cannot route a rejected output"));
+    assert_eq!(sink.attempts.load(Ordering::SeqCst), 1);
+    assert!(sink.committed.lock().unwrap().is_empty());
+}
