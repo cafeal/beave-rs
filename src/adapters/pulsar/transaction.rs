@@ -10,7 +10,7 @@ use crate::{
     transaction::TransactionalSink,
 };
 use futures_util::future::try_join_all;
-use magnetar::{Transaction, TxnState};
+use magnetar::{Transaction, TxnState, proto::pb::ServerError, runtime_tokio::ClientError};
 use std::{collections::HashSet, marker::PhantomData, sync::Arc};
 
 /// Publishes Pulsar messages in transactions.
@@ -57,15 +57,39 @@ impl<C, T> PulsarTransactionalSink<C, T> {
         let connection = self.connection.clone();
         tokio::spawn(async move {
             let producers = connection.producers().await?;
-            let client = &producers.client;
-            let transaction = client
+            let transaction = match producers
+                .client
                 .new_transaction(connection.config().transaction_timeout)
-                .await?;
-            if let Err(error) = run(&producers, transaction, &outputs, acknowledgement).await {
-                // The coordinator also aborts the transaction when it times
-                // out, so a failed abort only delays the cleanup.
-                let _ = client.abort_transaction(transaction).await;
-                return Err(error);
+                .await
+            {
+                Ok(transaction) => transaction,
+                Err(error) => {
+                    // The client performs its transaction coordinator
+                    // handshake only once, and a coordinator reloaded by a
+                    // broker restart answers every new transaction with
+                    // "transaction not found" until a client repeats it. A
+                    // new client does, so the retry connects one.
+                    connection.replace(producers).await;
+                    return Err(error.into());
+                }
+            };
+            let client = &producers.client;
+            match run(&producers, transaction, &outputs, acknowledgement).await {
+                Ok(Acknowledged::InTransaction) => {}
+                Ok(Acknowledged::Before) => {
+                    // An earlier transaction committed this delivery's
+                    // outputs and acknowledgement, and the broker redelivered
+                    // it before learning of the commit. Its outputs are
+                    // dropped, and the delivery is done.
+                    let _ = client.abort_transaction(transaction).await;
+                    return Ok(());
+                }
+                Err(error) => {
+                    // The coordinator also aborts the transaction when it
+                    // times out, so a failed abort only delays the cleanup.
+                    let _ = client.abort_transaction(transaction).await;
+                    return Err(error);
+                }
             }
             let state = client.commit_transaction(transaction).await?;
             anyhow::ensure!(
@@ -152,6 +176,14 @@ impl SourceAcknowledgement {
     }
 }
 
+/// How a transaction's delivery was acknowledged.
+enum Acknowledged {
+    /// Within the transaction, or the transaction has no delivery.
+    InTransaction,
+    /// By a committed transaction before this one.
+    Before,
+}
+
 /// Registers every partition the outputs are routed to and the delivery's
 /// subscription with the transaction, then publishes the outputs and
 /// acknowledges the delivery within it.
@@ -160,7 +192,7 @@ async fn run(
     transaction: Transaction,
     outputs: &[PulsarPrepared],
     acknowledgement: Option<SourceAcknowledgement>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Acknowledged> {
     let client = &producers.client;
     let routes: Vec<_> = outputs
         .iter()
@@ -193,17 +225,56 @@ async fn run(
                 &*acknowledgement.subscription,
             )
             .await?;
-        acknowledgement
+        if let Err(error) = acknowledgement
             .consumer
             .ack_with_txn(acknowledgement.id, transaction.id())
-            .await?;
+            .await
+        {
+            if acknowledged_before(&error) {
+                return Ok(Acknowledged::Before);
+            }
+            return Err(error.into());
+        }
     }
-    Ok(())
+    Ok(Acknowledged::InTransaction)
+}
+
+/// Whether the broker rejected a transactional acknowledgement because a
+/// committed acknowledgement already covers the message. The broker reports
+/// this only through the message of a `TransactionConflict` error; a
+/// conflict with a transaction that is still pending is retried instead.
+fn acknowledged_before(error: &ClientError) -> bool {
+    matches!(
+        error,
+        ClientError::Broker { code, message }
+            if *code == ServerError::TransactionConflict as i32
+                && message.ends_with("already acked before.")
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::same_service;
+    use super::*;
+
+    #[test]
+    fn only_a_conflict_with_a_committed_acknowledgement_counts_as_acknowledged() {
+        let conflict = |message: &str| ClientError::Broker {
+            code: ServerError::TransactionConflict as i32,
+            message: message.to_owned(),
+        };
+        assert!(acknowledged_before(&conflict(
+            "[persistent://public/default/in][s] Transaction:(0,264) try to ack \
+             message:2033:9 (ackSet is null) already acked before."
+        )));
+        assert!(!acknowledged_before(&conflict(
+            "[persistent://public/default/in][s] Transaction:(0,10) try to ack \
+             message:39:0 (ackSet is null) in pending ack status."
+        )));
+        assert!(!acknowledged_before(&ClientError::Broker {
+            code: ServerError::PersistenceError as i32,
+            message: "already acked before.".to_owned(),
+        }));
+    }
 
     #[test]
     fn service_urls_match_regardless_of_case_and_trailing_slash() {

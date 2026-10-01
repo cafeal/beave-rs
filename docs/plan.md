@@ -109,18 +109,25 @@ been verified against a live broker. Verify with Kafka:
   mismatch.
 
 The ignored Pulsar transaction tests pass against a Pulsar 4.0 standalone
-broker with `transactionCoordinatorEnabled=true`: outputs routed to a
-three-partition topic commit with the acknowledgements of a two-partition
-input, and a transaction whose acknowledgement fails is aborted, its output
-stays invisible, and the redelivered message commits. Verify with Pulsar:
+broker with `transactionCoordinatorEnabled=true` and the default
+`acknowledgmentAtBatchIndexLevelEnabled=false`, covering partitioned topics,
+aborts, expired transactions, the messages of a producer batch, and a
+redelivered delivery that was already committed. A topic unload and a broker
+restart during a transactional pipeline were exercised by hand: with a
+`publish_retry` policy that outlasts the restart, every input was committed
+exactly once. Remaining Pulsar transaction work:
 
-- Acknowledging a message from a producer batch within a transaction, with and
-  without `acknowledgmentAtBatchIndexLevelEnabled`. The adapter acknowledges
-  each batch index individually.
-- A broker restart or topic unload during a transaction, and a transaction
-  coordinator that is unavailable when the sink opens a transaction.
-- A transaction that outlives `transaction_timeout` is aborted by the
-  coordinator, and the retried delivery commits once.
+- Verify batch-index acknowledgements with
+  `acknowledgmentAtBatchIndexLevelEnabled=true`.
+- In some manual broker restarts, outputs stopped appearing for more than a
+  minute while the pipeline kept running; whether the pipeline or the test's
+  reader stalled is not yet known.
+- Decide whether a transactional sink should apply its own retry budget to
+  opening transactions, so that the subscription's `publish_retry` need not be
+  sized for a broker restart.
+- Drop the vendored `magnetar-proto` once a release acknowledges batched
+  messages per transaction, and report the coordinator handshake that is not
+  repeated after a broker restart upstream.
 
 Multiple sinks within one subscription remain deferred because partial publish
 success makes retry and acknowledgement behavior ambiguous. Any future design
@@ -196,8 +203,13 @@ The ignored live tests check that completions resolve on delivery and that
   submission order.
 - A partition revocation while completions are pending abandons their
   acknowledgements, and the new owner reprocesses those records.
-- A Pulsar broker restart or topic unload with messages awaiting receipts: the
-  producer replays them, the completions resolve, and the order holds.
+- Pulsar: a send the broker rejects is not replayed by `magnetar-driver`,
+  unlike the Java client, which reconnects and resends. A broker that is
+  shutting down rejects sends with a persistence error, and a topic unload
+  occasionally fences sends in flight, so a broker restart stopped every plain
+  Pulsar pipeline exercised by hand, and an unload can stop one. Options are a
+  client fix that resends after a transient rejection, or a sink that publishes
+  the rejected output again at the cost of reordering it.
 - Shutdown with pending completions drains them before the sink closes, within
   the subscription's shutdown timeout.
 
@@ -230,9 +242,11 @@ index and ordering key expected by the adapter.
 ## Pulsar client
 
 The Pulsar adapter uses `magnetar-driver`, which implements Pulsar
-transactions; the `pulsar` crate it replaced has no transaction API. The client
-was first released in 2026, so its reconnect behavior needs verification under
-broker restarts and topic unloads. Other client limitations:
+transactions; the `pulsar` crate it replaced has no transaction API. Its
+consumers and producers reattach after topic unloads and broker restarts, with
+the send rejections listed under
+[pipelined broker publication](#pipelined-broker-publication). Other client
+limitations:
 
 - Acknowledging through a client after `close` never completes, so a source
   keeps its client open until the last of its deliveries is dropped.

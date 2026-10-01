@@ -1053,8 +1053,6 @@ dependencies = [
 [[package]]
 name = "magnetar-proto"
 version = "1.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "253beed85f05ad2617593af2fde254cc80f5d1b6bc69212b72a41bd63b976481"
 dependencies = [
  "apache-avro",
  "bytes",
