@@ -124,8 +124,7 @@ impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarS
         let receipt = producers.route(output).enqueue(output);
         Ok(Completion::pending(async move {
             let _held = (producers, permit);
-            receipt.await?;
-            Ok(())
+            receipt.await
         }))
     }
 

@@ -1,15 +1,19 @@
 use super::{
     client::{connect, partition_topics},
     config::PulsarSinkConfig,
+    resend::Resender,
     sink::PulsarPrepared,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use magnetar::{
     PulsarClient, java_string_hash,
     proto::{pb::KeyValue, pb::MessageMetadata, producer::OutgoingMessage},
-    runtime_tokio::{Producer, SendFut},
+    runtime_tokio::Producer,
 };
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    future::Future,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 /// A client with one producer per partition of the sink topic, or a single
 /// producer for a non-partitioned topic.
@@ -22,6 +26,7 @@ pub(super) struct Producers {
 
 pub(super) struct Partition {
     producer: Producer,
+    resender: Resender<Producer>,
 }
 
 impl Producers {
@@ -35,7 +40,10 @@ impl Producers {
                 builder = builder.name(name);
             }
             let producer = builder.create().await?;
-            partitions.push(Partition { producer });
+            partitions.push(Partition {
+                resender: Resender::spawn(producer.clone(), config.send_retry.clone()),
+                producer,
+            });
         }
         Ok(Self {
             client,
@@ -58,8 +66,9 @@ impl Producers {
 
     pub(super) async fn close(self) -> anyhow::Result<()> {
         let mut result = Ok(());
-        for partition in self.partitions {
-            if let Err(error) = partition.producer.close().await {
+        for Partition { producer, resender } in self.partitions {
+            drop(resender);
+            if let Err(error) = producer.close().await {
                 result = Err(error.into());
             }
         }
@@ -70,9 +79,13 @@ impl Producers {
 
 impl Partition {
     /// Queues `output` on the producer. The returned future resolves with the
-    /// broker receipt.
-    pub(super) fn enqueue(&self, output: &PulsarPrepared) -> SendFut {
-        self.producer.send(outgoing(output))
+    /// broker receipt, after sending the message again if the broker rejects
+    /// it.
+    pub(super) fn enqueue(
+        &self,
+        output: &PulsarPrepared,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send + 'static {
+        self.resender.send(outgoing(output))
     }
 }
 

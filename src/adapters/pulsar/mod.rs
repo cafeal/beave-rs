@@ -5,6 +5,7 @@ mod config;
 mod inherit;
 mod producer;
 mod record;
+mod resend;
 mod sink;
 mod source;
 mod tombstone;
