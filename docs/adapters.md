@@ -96,9 +96,9 @@ deliveries were acknowledged, use the `testing` feature described in the
 
 ## StdinSource
 
-StdinSource uses a default-constructed `Decoder<T>` and reads newline-delimited
-input. JSON input normally uses `StdinSource::<Json, _>::new()`, with the input type
-inferred from the handler. With Json, input must also implement Serde's
+StdinSource reads newline-delimited input. `new()` uses a default-constructed
+`Decoder<T>` and `with_codec(codec)` an existing one. JSON input normally uses
+`StdinSource::<Json, _>::new()`, with the input type inferred from the handler. With Json, input must also implement Serde's
 `DeserializeOwned`.
 
 ```rust
@@ -129,9 +129,10 @@ For this example, feed one JSON number per line. For the repository's
 printf '%s\n' '{"id":10}' '{"id":20}' | cargo run --example transform -- --stdin
 ```
 
-Each `StdinMessage` owns its raw line. The runtime decodes it after receiving
-it, so a decode failure is distinct from a receive I/O failure. Blank lines and
-malformed JSON fail decoding; they are not skipped. The raw line is available to
+Each `StdinMessage` owns its raw line without its line ending; a trailing `\n`
+or `\r\n` is removed before decoding. The runtime decodes it after receiving
+it, so a decode failure is distinct from a receive I/O failure. Blank lines are
+not skipped: with `Json`, they and malformed JSON fail decoding. The raw line is available to
 dead letters as the source's raw form, so the [error
 policy](runtime.md#error-policy) can route or discard undecodable lines. A final
 nonempty line without a trailing newline is still processed. EOF produces End
@@ -150,7 +151,8 @@ a no-op completion marker; consumed lines cannot be recovered automatically.
 
 ## StdoutSink
 
-StdoutSink default-constructs an `Encoder<T>`. `StdoutSink::<Json>::new()` requires
+`StdoutSink::new()` default-constructs an `Encoder<T>`, and `with_codec(codec)`
+accepts an existing one. `StdoutSink::<Json>::new()` requires
 Serde-serializable output and emits compact JSON followed by a newline.
 
 Preparation encodes the value once and appends the newline. Publication writes
@@ -220,5 +222,4 @@ broker's configuration and delivery behavior.
 Broker adapter constructors use `C::default()` for a codec. Their
 `with_codec(config, codec)` constructors accept an existing codec instance,
 which is required for configured codecs such as `Avro`. `StdinSource` and
-`StdoutSink` currently only construct `Default` codecs; configured codec
-injection for those local adapters remains future work.
+`StdoutSink` take a codec the same way with `with_codec(codec)`.
