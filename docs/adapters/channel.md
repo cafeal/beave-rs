@@ -67,6 +67,20 @@ With `ProcessingOrder::PerKey`, the next delivery of a key starts once the
 previous one has enqueued its outputs, so values of one key enter the channel in
 order. Channel deliveries carry no ordering key of their own.
 
+## Metadata and tracing
+
+A channel carries only the typed value. Broker metadata of the original
+delivery, such as Kafka keys and headers, reaches the downstream stage only when
+the value contains it: an upstream handler can return a `KafkaRecord<U>`
+built from its input, and the downstream stage can then use
+`Subscription::forward` into a Kafka sink to inherit that metadata. Channel
+deliveries have no undecoded form, so downstream dead letters carry the value
+as their input and `()` as their raw delivery.
+
+With the `opentelemetry` feature, the channel carries the sender's trace
+context with each value, and the downstream `message` span continues that
+trace. See [trace-context propagation](../runtime.md#trace-context-propagation).
+
 ## Revocation
 
 When the upstream subscription stops waiting before the downstream stage

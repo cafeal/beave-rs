@@ -41,6 +41,16 @@ struct Queued<T> {
     value: T,
     done: oneshot::Sender<()>,
     abandoned: CancellationToken,
+    /// Trace context of the code that sent the value.
+    propagation: Vec<(String, String)>,
+}
+
+/// The sender's trace context, so the receiving subscription continues its trace.
+fn propagation() -> Vec<(String, String)> {
+    #[cfg(feature = "opentelemetry")]
+    return crate::telemetry::current_fields();
+    #[cfg(not(feature = "opentelemetry"))]
+    Vec::new()
 }
 
 /// Cancels the downstream delivery when the upstream publication is dropped
@@ -92,6 +102,7 @@ async fn enqueue<T>(sender: &mpsc::Sender<Queued<T>>, value: T) -> anyhow::Resul
         value,
         done,
         abandoned,
+        propagation: propagation(),
     });
     Ok(Completion::pending(async move {
         let result = completed.await;
@@ -239,6 +250,7 @@ impl<T> ChannelSender<T> {
             value,
             done,
             abandoned: CancellationToken::new(),
+            propagation: propagation(),
         });
         Ok(())
     }
@@ -297,6 +309,7 @@ impl<T: Clone + Send + Sync + 'static> Source for ChannelSource<T> {
                 value,
                 done,
                 abandoned,
+                propagation,
             } = queued;
             let delivery = Delivery::new(value, move || async move {
                 // A sender that is not waiting has either abandoned the value or
@@ -304,7 +317,11 @@ impl<T: Clone + Send + Sync + 'static> Source for ChannelSource<T> {
                 let _ = done.send(());
                 Ok(())
             });
-            return Ok(Receive::Message(delivery.with_revocation(abandoned)));
+            return Ok(Receive::Message(
+                delivery
+                    .with_revocation(abandoned)
+                    .with_propagation_fields(propagation),
+            ));
         }
     }
 
