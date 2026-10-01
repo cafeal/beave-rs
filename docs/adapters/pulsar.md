@@ -144,18 +144,33 @@ runtime frees the job's concurrency slot at submission and acknowledges the
 input when the receipt arrives. `publish` queues the message and waits for the
 receipt. A producer sends queued messages in order and replays unacknowledged
 ones in order after a reconnect, so outputs of one partition keep their
-submission order.
+submission order unless the broker rejects a send, as described below.
 
 `PulsarSinkConfig::max_pending` bounds the messages queued by `submit` whose
 receipt has not arrived; the default is 1000. `submit` waits while that many
 are outstanding. A completion dropped before its receipt, as when the input is
-abandoned, frees its slot; the message stays queued and may still be written.
-A send error on the receipt fails the completion, which stops the subscription
-without acknowledging the input. Publish retries apply to queueing only. The
-client replays sends that lose their connection, but a send the broker rejects
-fails: a broker that is shutting down rejects sends with a persistence error,
-and a topic unload occasionally fences sends in flight, so either can stop a
-subscription.
+abandoned, frees its slot; the message stays queued and may still be written,
+but it is not sent again after a rejection. Publish retries apply to queueing
+only.
+
+The client replays sends that lose their connection. A send the broker answers
+with an error is not replayed by the client, and a broker that is shutting down
+or unloading the topic, as during a restart or a routine load-balancer unload,
+rejects the sends in flight with a persistence error. The sink therefore sends
+a rejected message again under `PulsarSinkConfig::send_retry`, ten sends with
+backoff from 100 ms to 5 s by default, measured from the previous send. A task
+per producer observes the receipts in submission order, so the messages of one
+rejected run are sent again in their original order and reach the topic's next
+owner. Like the Java client, the sink does not send a message again after a
+`NotAllowedError` or `TopicTerminatedError` rejection. A send error that is
+not sent again, or a message rejected on every attempt, fails the completion,
+which stops the subscription without acknowledging the input.
+
+A message sent again is written after later messages of its partition that the
+client replayed or the broker accepted in the meantime, so a rejection can
+reorder the outputs of one partition. A message the broker wrote despite
+answering with an error is written twice.
+
 `close` stops new submissions, waits for every outstanding receipt, then closes
 the producers.
 

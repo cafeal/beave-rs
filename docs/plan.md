@@ -133,6 +133,11 @@ pipeline on a broker restart. Other client limitations:
 - The source and sink read the partition count when they connect. Partitions
   added to a topic later are neither consumed nor published to until the
   application restarts.
+- A send the broker rejects is not replayed by the client, unlike the Java
+  client, which reconnects and replays every pending send in order. The sink
+  sends rejected messages again itself, after later messages the client has
+  already replayed, so a broker restart or topic unload can reorder outputs of
+  one partition. Keeping the order needs a client that replays rejected sends.
 
 ## Observability
 

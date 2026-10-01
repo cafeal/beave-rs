@@ -11,6 +11,7 @@ use beavers::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
+    task::JoinSet,
 };
 
 #[test]
@@ -50,8 +51,12 @@ fn records_keep_delivery_facts_separate_from_application_fields() {
     assert_eq!(publish.event_time, record.event_time);
 }
 use std::{
+    collections::HashSet,
     env,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -122,6 +127,9 @@ fn configs_validate_without_connecting() {
     let mut unbounded = PulsarSinkConfig::new("pulsar://broker", "topic");
     unbounded.max_pending = 0;
     assert!(unbounded.validate().is_err());
+    let mut unsent = PulsarSinkConfig::new("pulsar://broker", "topic");
+    unsent.send_retry.max_attempts = 0;
+    assert!(unsent.validate().is_err());
 }
 
 fn service_url() -> String {
@@ -226,6 +234,63 @@ async fn acknowledgement_is_retried_across_a_topic_unload() -> anyhow::Result<()
             .is_none(),
         "the acknowledged delivery was redelivered"
     );
+    source.close().await
+}
+
+/// Requires the development broker at `PULSAR_URL` and its admin API at
+/// `PULSAR_ADMIN_ADDR`. Unloading a topic rejects some of the sends in flight
+/// with a persistence error. The sink sends them again, so every submission
+/// completes and every message reaches the topic.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
+async fn submissions_complete_across_topic_unloads() -> anyhow::Result<()> {
+    let topic = unique_topic("beavers-pulsar-resend");
+    let mut source = exclusive_source(&topic, &unique_name("beavers-pulsar-resend"));
+    assert!(
+        next_message(&mut source, Duration::from_millis(500))
+            .await?
+            .is_none()
+    );
+
+    let sink = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(service_url(), &topic));
+    let stop = Arc::new(AtomicBool::new(false));
+    let publisher = tokio::spawn({
+        let stop = stop.clone();
+        async move {
+            // A completion holds its `max_pending` slot until it is awaited.
+            let mut completions = JoinSet::new();
+            let mut count = 0;
+            while !stop.load(Ordering::Relaxed) {
+                for _ in 0..10 {
+                    let output = sink.prepare(PulsarPublish::new(count.to_string()))?;
+                    completions.spawn(sink.submit(&output).await?.wait());
+                    count += 1;
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            while let Some(result) = completions.join_next().await {
+                result??;
+            }
+            sink.close().await?;
+            anyhow::Ok(count)
+        }
+    });
+    for _ in 0..10 {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        unload_topic(&topic).await?;
+    }
+    stop.store(true, Ordering::Relaxed);
+    let count = tokio::time::timeout(Duration::from_secs(120), publisher)
+        .await
+        .expect("timed out waiting for the broker receipts")??;
+
+    let mut missing: HashSet<_> = (0..count).map(|index| index.to_string()).collect();
+    while !missing.is_empty() {
+        let message = next_message(&mut source, Duration::from_secs(30))
+            .await?
+            .unwrap_or_else(|| panic!("{} of {count} messages are missing", missing.len()));
+        missing.remove(&message.decode()?.value.expect("a value"));
+    }
     source.close().await
 }
 

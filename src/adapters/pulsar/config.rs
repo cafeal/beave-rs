@@ -139,6 +139,10 @@ pub struct PulsarSinkConfig {
     /// Maximum number of messages queued by `submit` whose broker receipt has
     /// not arrived. `submit` waits while this many are outstanding.
     pub max_pending: usize,
+    /// Sends of a message, including the first, when the broker rejects it.
+    /// A broker that is shutting down or unloading the topic rejects the
+    /// sends in flight, and a later send reaches the topic's next owner.
+    pub send_retry: RetryPolicy,
 }
 
 impl PulsarSinkConfig {
@@ -149,6 +153,12 @@ impl PulsarSinkConfig {
             producer_name: None,
             authentication: None,
             max_pending: 1000,
+            send_retry: RetryPolicy {
+                max_attempts: 10,
+                initial_delay: Duration::from_millis(100),
+                max_delay: Duration::from_secs(5),
+                ..RetryPolicy::default()
+            },
         }
     }
 
@@ -168,6 +178,7 @@ impl PulsarSinkConfig {
             "Pulsar sink max_pending must be between 1 and {}",
             tokio::sync::Semaphore::MAX_PERMITS
         );
+        self.send_retry.validate()?;
         Ok(())
     }
 }
