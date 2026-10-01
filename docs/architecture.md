@@ -22,6 +22,7 @@ src/
 ├── propagation.rs         # Trace-context carrier contract for outputs
 ├── telemetry.rs           # OpenTelemetry propagation (`opentelemetry` feature)
 ├── shutdown.rs            # Cancellation and process signals
+├── testing/               # Test sources for fabricated records (`testing` feature)
 ├── codec/
 │   ├── mod.rs             # Decoder and Encoder contracts
 │   └── json.rs            # JSON implementation

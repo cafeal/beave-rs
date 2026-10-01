@@ -25,6 +25,16 @@ impl<T> KafkaRecord<T> {
     }
 }
 
+/// Headers with UTF-8 values, in record order; null and binary headers are skipped.
+pub(crate) fn text_headers<'a>(
+    headers: impl IntoIterator<Item = (&'a str, Option<&'a [u8]>)>,
+) -> Vec<(&'a str, &'a str)> {
+    headers
+        .into_iter()
+        .filter_map(|(name, value)| Some((name, std::str::from_utf8(value?).ok()?)))
+        .collect()
+}
+
 /// User-controlled Kafka output. Source topic, partition, offset, and timestamp are excluded.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KafkaPublish<T> {
@@ -57,5 +67,24 @@ impl<T> PropagationCarrier for KafkaPublish<T> {
         self.headers.retain(|(header, _)| header != name);
         self.headers
             .push((name.to_owned(), Some(value.into_bytes())));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::text_headers;
+
+    #[test]
+    fn propagation_fields_are_text_headers() {
+        let headers = [
+            ("traceparent", Some(&b"00-trace"[..])),
+            ("null", None),
+            ("binary", Some(&[0xff_u8][..])),
+            ("tracestate", Some(&b"vendor=1"[..])),
+        ];
+        assert_eq!(
+            text_headers(headers),
+            vec![("traceparent", "00-trace"), ("tracestate", "vendor=1")]
+        );
     }
 }

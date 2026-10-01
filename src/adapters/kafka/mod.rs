@@ -11,6 +11,8 @@ mod transaction;
 
 pub use config::{KafkaSinkConfig, KafkaSourceConfig};
 pub use inherit::KafkaInherit;
+#[cfg(feature = "testing")]
+pub(crate) use record::text_headers;
 pub use record::{KafkaMetadata, KafkaPublish, KafkaRecord};
 pub use sink::{KafkaPrepared, KafkaSink};
 pub use source::{KafkaMessage, KafkaSource};

@@ -5,6 +5,7 @@
 | [Architecture](architecture.md) | Module layout, trait contracts, and extension boundaries |
 | [Adapters](adapters.md) | Local, channel, Kafka, Pulsar, and HTTP adapters, usage, and extension contracts |
 | [Codecs](codecs.md) | Serialization contracts and JSON, raw bytes, UTF-8, Protobuf, and Avro codecs |
+| [Testing](testing.md) | Testing handlers, middleware, and error policies with fabricated broker records |
 | [Runtime](runtime.md) | Implemented APIs, processing behavior, configuration, and limitations |
 | [Design plan](plan.md) | Product goals, agreed design direction, future work, and open questions |
 | [Local development brokers](development.md) | Docker Compose Kafka and Pulsar brokers, web consoles, broker examples, and live tests |

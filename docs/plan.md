@@ -255,6 +255,18 @@ Trace-context propagation and the
 [Prometheus export path](runtime.md#exporting-metrics-to-opentelemetry) have not
 been verified against live brokers or an OpenTelemetry Collector.
 
+## Testing utilities
+
+The `testing` feature is described in the [testing guide](testing.md).
+Remaining decisions:
+
+- fabricated HTTP requests, whose source decodes the body before a request
+  becomes a delivery and answers `400` instead of reporting a decode failure;
+- Key_Shared and Shared ordering scopes for fabricated Pulsar messages, which
+  depend on the subscription type rather than on the record;
+- scripted receive errors and revocations, and a sink that fails publication
+  or completion on demand, for testing retry and revocation paths.
+
 ## Future adapters
 
 Candidate adapters are:

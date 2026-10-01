@@ -22,6 +22,8 @@ pub mod source;
 pub mod subscription;
 #[cfg(feature = "opentelemetry")]
 pub mod telemetry;
+#[cfg(feature = "testing")]
+pub mod testing;
 pub mod tombstone;
 pub mod transaction;
 
