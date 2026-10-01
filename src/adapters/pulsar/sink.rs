@@ -11,7 +11,7 @@ use std::{
     marker::PhantomData,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
 };
 use tokio::sync::{OwnedRwLockReadGuard, RwLock, Semaphore};
@@ -31,9 +31,6 @@ pub struct PulsarPrepared {
 pub(super) struct Connection {
     config: PulsarSinkConfig,
     producers: Arc<RwLock<Option<Producers>>>,
-    /// Counts connected clients, so that a replacement closes only the
-    /// client that failed.
-    generations: AtomicU64,
     closed: AtomicBool,
 }
 
@@ -42,7 +39,6 @@ impl Connection {
         Self {
             config,
             producers: Arc::new(RwLock::new(None)),
-            generations: AtomicU64::new(0),
             closed: AtomicBool::new(false),
         }
     }
@@ -71,25 +67,8 @@ impl Connection {
                 "Pulsar sink is closed"
             );
             if producers.is_none() {
-                let generation = self.generations.fetch_add(1, Ordering::Relaxed);
-                *producers = Some(Producers::connect(&self.config, generation).await?);
+                *producers = Some(Producers::connect(&self.config).await?);
             }
-        }
-    }
-
-    /// Closes `failed` so that the next use connects a new client, unless
-    /// another caller has already replaced it.
-    pub(super) async fn replace(&self, failed: OwnedRwLockReadGuard<Option<Producers>, Producers>) {
-        let generation = failed.generation;
-        drop(failed);
-        let mut producers = self.producers.write().await;
-        if producers
-            .as_ref()
-            .is_some_and(|producers| producers.generation == generation)
-            && let Some(producers) = producers.take()
-        {
-            // A failed close only leaves the old connection to the broker.
-            let _ = producers.close().await;
         }
     }
 

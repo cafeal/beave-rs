@@ -96,8 +96,3 @@ required-features = ["pulsar"]
 [[example]]
 name = "kafka_to_pulsar"
 required-features = ["kafka", "pulsar"]
-
-# magnetar-proto 1.7.2 with transactional acknowledgements of batched messages
-# fixed; see vendor/README.md.
-[patch.crates-io]
-magnetar-proto = { path = "vendor/magnetar-proto" }

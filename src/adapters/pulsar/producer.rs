@@ -15,8 +15,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// producer for a non-partitioned topic.
 pub(super) struct Producers {
     pub(super) client: PulsarClient,
-    /// Identifies this client among those its sink has connected.
-    pub(super) generation: u64,
     partitions: Vec<Partition>,
     /// Round-robin position for keyless messages.
     next: AtomicUsize,
@@ -28,10 +26,7 @@ pub(super) struct Partition {
 }
 
 impl Producers {
-    pub(super) async fn connect(
-        config: &PulsarSinkConfig,
-        generation: u64,
-    ) -> anyhow::Result<Self> {
+    pub(super) async fn connect(config: &PulsarSinkConfig) -> anyhow::Result<Self> {
         config.validate()?;
         let client = connect(&config.service_url, config.authentication.as_ref()).await?;
         let mut partitions = Vec::new();
@@ -45,7 +40,6 @@ impl Producers {
         }
         Ok(Self {
             client,
-            generation,
             partitions,
             next: AtomicUsize::new(0),
         })

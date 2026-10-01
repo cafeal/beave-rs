@@ -223,26 +223,6 @@ prepared outputs. The transaction coordinator also aborts a transaction that
 remains open longer than `transaction_timeout`. Each transaction runs in its
 own task, so a cancelled commit still finishes or aborts.
 
-An input message from a producer batch is acknowledged at its batch index, so
-the messages of one batch commit in separate transactions. This relies on a
-patched `magnetar-proto`; see `vendor/README.md`.
-
-A topic unload or broker restart during a transaction fails one of its steps,
-the sink aborts, and the runtime retries the delivery. After a broker restart
-the client's transaction coordinator session answers every new transaction
-with "transaction not found", so a sink whose client fails to open a
-transaction connects a new client for the next attempt. Opening transactions
-keeps failing until the restarted broker serves the coordinator again, so a
-transactional subscription survives a restart only when its `publish_retry`
-policy outlasts that window; the default policy, three attempts within about
-300 ms, does not.
-
-The broker redelivers unacknowledged messages when a consumer reattaches,
-including a delivery whose transaction is still being retried. When the
-original commits first, the broker rejects the redelivered copy's
-acknowledgement as already acknowledged; the sink then aborts that transaction,
-discarding its outputs, and reports the delivery as committed.
-
 The source and the sink must use the same Pulsar cluster, because the sink's
 transaction coordinator commits the acknowledgement. The Pulsar protocol does
 not report a cluster identity, so before the first delivery is processed the

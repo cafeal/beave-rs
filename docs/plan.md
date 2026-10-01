@@ -109,25 +109,22 @@ been verified against a live broker. Verify with Kafka:
   mismatch.
 
 The ignored Pulsar transaction tests pass against a Pulsar 4.0 standalone
-broker with `transactionCoordinatorEnabled=true` and the default
-`acknowledgmentAtBatchIndexLevelEnabled=false`, covering partitioned topics,
-aborts, expired transactions, the messages of a producer batch, and a
-redelivered delivery that was already committed. A topic unload and a broker
-restart during a transactional pipeline were exercised by hand: with a
-`publish_retry` policy that outlasts the restart, every input was committed
-exactly once. Remaining Pulsar transaction work:
+broker with `transactionCoordinatorEnabled=true`, but failure testing found
+`magnetar-driver` 1.7 defects in the transaction path, so Pulsar transactions
+are to be removed rather than fixed:
 
-- Verify batch-index acknowledgements with
-  `acknowledgmentAtBatchIndexLevelEnabled=true`.
-- In some manual broker restarts, outputs stopped appearing for more than a
-  minute while the pipeline kept running; whether the pipeline or the test's
-  reader stalled is not yet known.
-- Decide whether a transactional sink should apply its own retry budget to
-  opening transactions, so that the subscription's `publish_retry` need not be
-  sized for a broker restart.
-- Drop the vendored `magnetar-proto` once a release acknowledges batched
-  messages per transaction, and report the coordinator handshake that is not
-  repeated after a broker restart upstream.
+- A transactional acknowledgement of a message from a producer batch reuses
+  the consumer's session-wide batch bitset. The broker rejects every message
+  of a batch after the first with `TransactionConflictException`, and a batch
+  index acknowledged by an aborted transaction is acknowledged again by a later
+  one and never redelivered. Fixing this needs a patched client.
+- After a broker restart the client never repeats its transaction coordinator
+  handshake, so new transactions fail with "transaction not found" until
+  another client connects.
+- A delivery redelivered after a reconnect, whose original transaction then
+  commits, fails every retry with an "already acked before" conflict.
+
+Removing them depends on the [Pulsar client](#pulsar-client) decision.
 
 Multiple sinks within one subscription remain deferred because partial publish
 success makes retry and acknowledgement behavior ambiguous. Any future design
@@ -242,11 +239,12 @@ index and ordering key expected by the adapter.
 ## Pulsar client
 
 The Pulsar adapter uses `magnetar-driver`, which implements Pulsar
-transactions; the `pulsar` crate it replaced has no transaction API. Its
-consumers and producers reattach after topic unloads and broker restarts, with
-the send rejections listed under
-[pipelined broker publication](#pipelined-broker-publication). Other client
-limitations:
+transactions; the `pulsar` crate it replaced has no transaction API. Without
+transactions, the choice between the two clients rests on their behavior under
+broker failures: compare the `pulsar` crate against the send rejections listed
+under [pipelined broker publication](#pipelined-broker-publication) before
+deciding. `magnetar-driver` consumers and producers reattach after topic
+unloads and broker restarts. Other client limitations:
 
 - Acknowledging through a client after `close` never completes, so a source
   keeps its client open until the last of its deliveries is dropped.
