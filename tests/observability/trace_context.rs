@@ -1,5 +1,7 @@
 use super::fixtures::{Capture, FieldSource, exported_spans};
-use beavers::{App, InMemorySink, MapMetadata, PropagationCarrier, Subscription, TraceContext};
+use beavers::{
+    App, InMemorySink, MapMetadata, PropagationCarrier, Subscription, TraceContext, channel,
+};
 
 const TRACE_ID: &str = "4bf92f3577b34da6a3ce929d0e0e4736";
 const PARENT_SPAN_ID: &str = "00f067aa0ba902b7";
@@ -71,4 +73,51 @@ async fn outputs_continue_the_received_trace() {
         .unwrap();
     assert_eq!(message.parent_span_id.to_string(), PARENT_SPAN_ID);
     assert_eq!(message.span_context.span_id().to_string(), parts[2]);
+}
+
+#[tokio::test]
+async fn channel_stages_continue_the_received_trace() {
+    Capture::global();
+    let trace_id = "5bf92f3577b34da6a3ce929d0e0e4736";
+    let traceparent = format!("00-{trace_id}-{PARENT_SPAN_ID}-01");
+    let (sink, source) = channel(1);
+    let output = InMemorySink::default();
+    App::new()
+        .subscribe(
+            "first-stage",
+            FieldSource::with_fields(&["5"], &[("traceparent", &traceparent)]),
+            sink,
+            |value: i32| async move { Ok(value) },
+        )
+        .subscribe(
+            "second-stage",
+            source,
+            output.clone(),
+            |value: i32| async move { Ok(value + 1) },
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(output.values(), [6]);
+
+    let spans = exported_spans();
+    let in_trace: Vec<_> = spans
+        .iter()
+        .filter(|span| span.span_context.trace_id().to_string() == trace_id)
+        .collect();
+    let messages: Vec<_> = in_trace
+        .iter()
+        .filter(|span| span.name == "message")
+        .collect();
+    assert_eq!(messages.len(), 2, "both stages join the received trace");
+    let downstream = messages
+        .iter()
+        .find(|span| span.parent_span_id.to_string() != PARENT_SPAN_ID)
+        .unwrap();
+    // The second stage is a child of a span within the first stage's processing.
+    assert!(
+        in_trace
+            .iter()
+            .any(|span| span.span_context.span_id() == downstream.parent_span_id)
+    );
 }

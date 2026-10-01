@@ -81,6 +81,7 @@ pub struct Delivery<T> {
     ack: Acknowledge,
     ordering_key: Option<OrderingKey>,
     revocation: Option<CancellationToken>,
+    propagation: Vec<(String, String)>,
 }
 impl<T> Delivery<T> {
     pub fn new<F, Fut>(value: T, ack: F) -> Self
@@ -93,6 +94,7 @@ impl<T> Delivery<T> {
             ack: Box::new(|| Box::pin(ack())),
             ordering_key: None,
             revocation: None,
+            propagation: Vec::new(),
         }
     }
     pub fn untracked(value: T) -> Self {
@@ -104,6 +106,12 @@ impl<T> Delivery<T> {
     }
     pub fn with_revocation(mut self, token: CancellationToken) -> Self {
         self.revocation = Some(token);
+        self
+    }
+    /// Text-map fields, such as a W3C `traceparent`, from which the runtime
+    /// continues the trace of the code that produced this value.
+    pub fn with_propagation_fields(mut self, fields: Vec<(String, String)>) -> Self {
+        self.propagation = fields;
         self
     }
     pub async fn ack(self) -> anyhow::Result<()> {
@@ -127,5 +135,11 @@ impl<T: Clone + Send + Sync + 'static> SourceMessage for Delivery<T> {
     }
     fn revocation(&self) -> Option<CancellationToken> {
         self.revocation.clone()
+    }
+    fn propagation_fields(&self) -> Vec<(&str, &str)> {
+        self.propagation
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect()
     }
 }

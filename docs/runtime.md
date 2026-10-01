@@ -642,12 +642,19 @@ adapter maps the fields to its own metadata:
 |---|---|---|
 | Kafka | Headers with UTF-8 values | Headers; every header of the same name is replaced |
 | Pulsar | Properties | Properties |
-| Local adapters and `Delivery` | None | Not supported |
+| Channel | The sender's trace context, captured when a value is enqueued | Captured automatically; no carrier needed |
+| `Delivery` | Fields set with `Delivery::with_propagation_fields` | Not supported |
+| Other local adapters | None | Not supported |
 
 With the `opentelemetry` feature, the runtime extracts each `message` span's
 remote parent from those fields through the global text-map propagator, and
 the `TraceContext` middleware injects the `message` span's context into every
 output:
+
+A [channel](adapters/channel.md) needs no middleware. With the
+`opentelemetry` feature, `ChannelSink` and `ChannelSender` capture the current
+span's context when they enqueue a value, so the receiving subscription's
+`message` span continues the trace as a child of the sending stage.
 
 ```rust,ignore
 use beavers::TraceContext;
