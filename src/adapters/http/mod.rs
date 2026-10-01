@@ -1,14 +1,11 @@
-//! HTTP adapter: an HTTP/1.1 server whose requests become deliveries, and a
-//! client sink that sends each output as a request.
+//! HTTP source adapter: an HTTP/1.1 server whose requests become deliveries.
 
 mod config;
 mod metrics;
 mod record;
 mod server;
-mod sink;
 mod source;
 
-pub use config::{HttpSinkConfig, HttpSourceConfig, ResponseTiming};
-pub use record::{HttpMetadata, HttpPublish, HttpRecord};
-pub use sink::{HttpPrepared, HttpSink};
+pub use config::{HttpSourceConfig, ResponseTiming};
+pub use record::{HttpMetadata, HttpRecord};
 pub use source::{HttpMessage, HttpSource};

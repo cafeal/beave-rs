@@ -18,7 +18,6 @@ types are also re-exported at the crate root.
 | `PulsarSource<C, T>` / `PulsarSink<C, T>` | Pulsar records and publishes | Durable broker pipelines (`pulsar` feature) |
 | `PulsarTransactionalSink<C, T>` | Pulsar publishes in transactions | Exactly-once Pulsar-to-Pulsar pipelines (`pulsar` feature) |
 | `HttpSource<C, T>` | HTTP `POST` requests answered on ACK | Webhooks and push ingestion (`http` feature) |
-| `HttpSink<C, T>` | One HTTP request per output, successful on `2xx` | Handing events to HTTP services (`http` feature) |
 
 NATS JetStream and SQS are [planned](plan.md#implementation-order). Local and
 channel adapters do not provide durable delivery guarantees.

@@ -292,27 +292,6 @@ The HTTP source answers each request with a status only. Remaining decisions:
 
 Its server limits are listed under [failure defaults](#failure-defaults).
 
-## HTTP sink
-
-The [HTTP sink](adapters/http.md#sink) sends each output as a request and
-retries every failed attempt under `publish_retry`. Remaining decisions:
-
-- A permanent failure such as `400` or `422` is retried like a transient one,
-  and an exhausted retry stops the subscription. Routing such an output to the
-  dead-letter sink needs publish failures that the error policy can classify,
-  which no sink offers yet.
-- `Retry-After` on `429` and `503` is ignored; the retry policy's backoff
-  applies.
-- Each publication waits for its response. Pipelining requests through
-  `Sink::submit` would raise throughput per ordering scope, but requests on
-  separate connections can reach the endpoint out of order.
-- Mutual TLS, custom root certificates, and HTTP/2 are not configurable.
-- A default `content-type` derived from the codec.
-
-The sink is tested against a local HTTP/1.1 endpoint only. HTTPS was checked by
-hand against one public endpoint through a proxy; certificate failures and
-connection reuse after an endpoint restart are untested.
-
 Each broker adapter must define its native record and publish types, ACK model,
 redelivery behavior, ordering scope, cancellation behavior, connection
 lifecycle, and mapping of trace-context propagation fields (NATS headers, SQS

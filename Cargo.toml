@@ -20,16 +20,7 @@ protobuf = ["dep:prost"]
 kafka = ["dep:rdkafka"]
 pulsar = ["dep:magnetar", "dep:base64", "dep:bytes", "dep:futures-util"]
 opentelemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
-http = [
-    "dep:hyper",
-    "dep:hyper-util",
-    "dep:http-body-util",
-    "dep:bytes",
-    "dep:reqwest",
-    "dep:rustls",
-    "dep:rustls-platform-verifier",
-    "tokio/net",
-]
+http = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "tokio/net"]
 
 [dependencies.rdkafka]
 version = "0.39"
@@ -66,22 +57,6 @@ optional = true
 
 [dependencies.http-body-util]
 version = "0.1"
-optional = true
-
-[dependencies.reqwest]
-version = "0.13"
-default-features = false
-features = ["rustls-no-provider"]
-optional = true
-
-[dependencies.rustls]
-version = "0.23"
-default-features = false
-features = ["ring", "std", "tls12", "logging"]
-optional = true
-
-[dependencies.rustls-platform-verifier]
-version = "0.7"
 optional = true
 
 [dependencies.prost]
