@@ -6,7 +6,7 @@ use super::{
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use magnetar::{
     PulsarClient, java_string_hash,
-    proto::{TxnId, pb::KeyValue, pb::MessageMetadata, producer::OutgoingMessage},
+    proto::{pb::KeyValue, pb::MessageMetadata, producer::OutgoingMessage},
     runtime_tokio::{Producer, SendFut},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,7 +21,6 @@ pub(super) struct Producers {
 }
 
 pub(super) struct Partition {
-    pub(super) topic: String,
     producer: Producer,
 }
 
@@ -36,7 +35,7 @@ impl Producers {
                 builder = builder.name(name);
             }
             let producer = builder.create().await?;
-            partitions.push(Partition { topic, producer });
+            partitions.push(Partition { producer });
         }
         Ok(Self {
             client,
@@ -70,23 +69,10 @@ impl Producers {
 }
 
 impl Partition {
-    /// Publishes `output`, as part of `transaction` when one is given, and
-    /// waits for the broker receipt.
-    pub(super) async fn send(
-        &self,
-        output: &PulsarPrepared,
-        transaction: Option<TxnId>,
-    ) -> anyhow::Result<()> {
-        self.enqueue(output, transaction).await?;
-        Ok(())
-    }
-
     /// Queues `output` on the producer. The returned future resolves with the
     /// broker receipt.
-    pub(super) fn enqueue(&self, output: &PulsarPrepared, transaction: Option<TxnId>) -> SendFut {
-        let mut message = outgoing(output);
-        message.txn_id = transaction;
-        self.producer.send(message)
+    pub(super) fn enqueue(&self, output: &PulsarPrepared) -> SendFut {
+        self.producer.send(outgoing(output))
     }
 }
 

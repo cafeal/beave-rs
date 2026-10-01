@@ -1,7 +1,4 @@
-use super::{
-    config::PulsarSinkConfig, producer::Producers, record::PulsarPublish,
-    transaction::PulsarTransactionalSink,
-};
+use super::{config::PulsarSinkConfig, producer::Producers, record::PulsarPublish};
 use crate::{
     codec::Encoder,
     sink::{Completion, Sink},
@@ -41,10 +38,6 @@ impl Connection {
             producers: Arc::new(RwLock::new(None)),
             closed: AtomicBool::new(false),
         }
-    }
-
-    pub(super) fn config(&self) -> &PulsarSinkConfig {
-        &self.config
     }
 
     /// Connects on first use. The returned guard keeps `close` waiting until
@@ -109,16 +102,6 @@ impl<C, T> PulsarSink<C, T> {
             marker: PhantomData,
         }
     }
-
-    /// Converts this sink into one that publishes in Pulsar transactions.
-    ///
-    /// Register the result with
-    /// [`Subscription::transactional`](crate::Subscription::transactional)
-    /// for exactly-once processing behind a `PulsarSource`. The broker must
-    /// run with `transactionCoordinatorEnabled=true`.
-    pub fn transactional(self) -> PulsarTransactionalSink<C, T> {
-        PulsarTransactionalSink::new(self.connection, self.codec)
-    }
 }
 
 impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarSink<C, T> {
@@ -138,7 +121,7 @@ impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarS
         let producers = self.connection.producers().await?;
         let permit = (self.pending.clone().acquire_owned().await)
             .map_err(|_| anyhow::anyhow!("Pulsar sink is closed"))?;
-        let receipt = producers.route(output).enqueue(output, None);
+        let receipt = producers.route(output).enqueue(output);
         Ok(Completion::pending(async move {
             let _held = (producers, permit);
             receipt.await?;

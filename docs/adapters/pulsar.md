@@ -74,6 +74,18 @@ cumulative acknowledgements. Broker receive errors are reported as
 metadata errors are `ReceiveError::Fatal`. The client reconnects after the
 broker connection drops and reattaches its consumers.
 
+A topic unload, as the broker's load balancer performs routinely, or a broker
+restart closes the consumers. An acknowledgement in flight at that moment
+fails, and one sent before the consumer has reattached times out after the
+client's 30-second operation timeout. `ack` therefore retries a failed
+acknowledgement under `PulsarSourceConfig::ack_retry`, five attempts with
+backoff from 100 ms to 2 s by default, and an attempt on the reattached
+consumer succeeds. Only an exhausted retry fails the acknowledgement and stops
+the subscription. After reattaching, the broker redelivers every
+unacknowledged message, including messages the consumer had already
+prefetched and still returns, so deliveries received around an unload can be
+processed twice and out of their original order.
+
 Call `close` during shutdown to close the consumers. A delivery acknowledged
 after its source closed fails with an error, and the client closes once the
 last delivery of the source is dropped.
@@ -139,7 +151,11 @@ receipt has not arrived; the default is 1000. `submit` waits while that many
 are outstanding. A completion dropped before its receipt, as when the input is
 abandoned, frees its slot; the message stays queued and may still be written.
 A send error on the receipt fails the completion, which stops the subscription
-without acknowledging the input. Publish retries apply to queueing only.
+without acknowledging the input. Publish retries apply to queueing only. The
+client replays sends that lose their connection, but a send the broker rejects
+fails: a broker that is shutting down rejects sends with a persistence error,
+and a topic unload occasionally fences sends in flight, so either can stop a
+subscription.
 `close` stops new submissions, waits for every outstanding receipt, then closes
 the producers.
 
@@ -171,64 +187,10 @@ Register `TraceContext` after `PulsarInherit` to replace them with the
 processing span's context; see
 [trace-context propagation](../runtime.md#trace-context-propagation).
 
-## Transactions
-
-`PulsarSink::transactional()` converts a sink into a
-`PulsarTransactionalSink`, which publishes in Pulsar transactions. The broker
-must run with `transactionCoordinatorEnabled=true`, and the cluster's
-transaction coordinator must be initialized.
-
-```rust,ignore
-use beavers::adapters::pulsar::{PulsarSink, PulsarSinkConfig};
-
-let sink = PulsarSink::<Json, Order>::new(PulsarSinkConfig::new(
-    "pulsar://localhost:6650",
-    "persistent://public/default/processed-orders",
-))
-.transactional();
-
-Subscription::forward("orders", pulsar_source, sink, handler).transactional()
-```
-
-With `Subscription::transactional()` and a `PulsarSource`, each delivery is one
-transaction:
-
-1. The sink opens a transaction with the configured `transaction_timeout`.
-2. It registers every output partition, publishes the outputs within the
-   transaction, and waits for their receipts.
-3. It registers the delivery's topic partition and subscription, and
-   acknowledges the delivery within the transaction.
-4. It commits the transaction.
-
-Consumers see the outputs only after the commit, and the acknowledgement takes
-effect at the same time. When any step fails, the sink aborts the transaction
-and the delivery stays unacknowledged, so the runtime retries it with the same
-prepared outputs. The transaction coordinator also aborts a transaction that
-remains open longer than `transaction_timeout`. Each transaction runs in its
-own task, so a cancelled commit still finishes or aborts.
-
-The source and the sink must use the same Pulsar cluster, because the sink's
-transaction coordinator commits the acknowledgement. The Pulsar protocol does
-not report a cluster identity, so before the first delivery is processed the
-sink compares its `service_url` with the source's, ignoring case and a
-trailing slash, and a mismatch stops the subscription. Configure a
-transactional pipeline's source and sink with the same service URL, even when
-another URL would reach the same cluster.
-
-Pulsar allows many open transactions per producer, so deliveries of different
-ordering scopes commit concurrently. Pulsar has no transactional producer ID
-and no producer fencing: a second instance with the same subscription is simply
-another consumer of it. Used as a plain `Sink`, a `PulsarTransactionalSink`
-publishes each output in a transaction of its own.
-
-`TransactionalSink` is implemented only for a `PulsarSource` delivery and a
-`PulsarTransactionalSink`, so pairing a Pulsar transactional sink with another
-source, or a Pulsar source with another platform's transactional sink, does not
-compile.
-
 ## Delivery guarantees
 
-Without transactions, a source ACK and a sink publication are separate broker
-operations, so a process failure between them can produce a duplicate on
-redelivery. A transactional Pulsar-to-Pulsar subscription publishes outputs and
-acknowledges the delivery atomically.
+A source ACK and a sink publication are separate broker operations, so a
+process failure between them can produce a duplicate on redelivery. The
+adapter provides no Pulsar transactions: `magnetar-driver` 1.7 mishandles
+transactional acknowledgements of batched messages and transactions after a
+broker restart, so Pulsar pipelines are at-least-once.

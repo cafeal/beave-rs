@@ -16,7 +16,6 @@ types are also re-exported at the crate root.
 | `KafkaSource<C, T>` / `KafkaSink<C, T>` | Kafka records and publishes | Durable broker pipelines (`kafka` feature) |
 | `KafkaTransactionalSink<C, T>` | Kafka publishes in producer transactions | Exactly-once Kafka-to-Kafka pipelines (`kafka` feature) |
 | `PulsarSource<C, T>` / `PulsarSink<C, T>` | Pulsar records and publishes | Durable broker pipelines (`pulsar` feature) |
-| `PulsarTransactionalSink<C, T>` | Pulsar publishes in transactions | Exactly-once Pulsar-to-Pulsar pipelines (`pulsar` feature) |
 | `HttpSource<C, T>` | HTTP `POST` requests answered on ACK | Webhooks and push ingestion (`http` feature) |
 | `HttpSink<C, T>` | HTTP requests that succeed on a `2xx` response | Delivering events to HTTP services (`http` feature) |
 
