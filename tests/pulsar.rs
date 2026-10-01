@@ -161,6 +161,17 @@ async fn put_topic_admin(topic: &str, action: &str, body: &str) -> anyhow::Resul
     Ok(())
 }
 
+/// Creates a durable subscription at the earliest position, so messages
+/// published before the source's consumer connects are still delivered to it.
+async fn create_subscription(topic: &str, subscription: &str) -> anyhow::Result<()> {
+    put_topic_admin(
+        topic,
+        &format!("subscription/{subscription}"),
+        r#"{"ledgerId":-1,"entryId":-1}"#,
+    )
+    .await
+}
+
 /// Closes the topic on its broker, so clients reconnect to it.
 async fn unload_topic(topic: &str) -> anyhow::Result<()> {
     put_topic_admin(topic, "unload", "").await
@@ -211,12 +222,8 @@ fn exclusive_source(topic: &str, subscription: &str) -> PulsarSource<Utf8, Strin
 async fn acknowledgement_is_retried_across_a_topic_unload() -> anyhow::Result<()> {
     let topic = unique_topic("beavers-pulsar-unload");
     let subscription = unique_name("beavers-pulsar-unload");
+    create_subscription(&topic, &subscription).await?;
     let mut source = exclusive_source(&topic, &subscription);
-    assert!(
-        next_message(&mut source, Duration::from_millis(500))
-            .await?
-            .is_none()
-    );
     publish_all(&topic, &["a"]).await?;
     let delivery = next_message(&mut source, Duration::from_secs(20))
         .await?
@@ -245,12 +252,9 @@ async fn acknowledgement_is_retried_across_a_topic_unload() -> anyhow::Result<()
 #[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
 async fn submissions_complete_across_topic_unloads() -> anyhow::Result<()> {
     let topic = unique_topic("beavers-pulsar-resend");
-    let mut source = exclusive_source(&topic, &unique_name("beavers-pulsar-resend"));
-    assert!(
-        next_message(&mut source, Duration::from_millis(500))
-            .await?
-            .is_none()
-    );
+    let subscription = unique_name("beavers-pulsar-resend");
+    create_subscription(&topic, &subscription).await?;
+    let mut source = exclusive_source(&topic, &subscription);
 
     let sink = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(service_url(), &topic));
     let stop = Arc::new(AtomicBool::new(false));
@@ -299,14 +303,11 @@ async fn submissions_complete_across_topic_unloads() -> anyhow::Result<()> {
 #[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
 async fn tombstones_carry_the_null_value_marker() -> anyhow::Result<()> {
     let topic = unique_topic("beavers-pulsar-tombstone");
-    let mut config = PulsarSourceConfig::new(service_url(), &topic, unique_name("tombstones"));
+    let subscription = unique_name("tombstones");
+    create_subscription(&topic, &subscription).await?;
+    let mut config = PulsarSourceConfig::new(service_url(), &topic, subscription);
     config.empty_payload_is_tombstone = false;
     let mut source = PulsarSource::<Utf8, String>::new(config);
-    assert!(
-        next_message(&mut source, Duration::from_millis(500))
-            .await?
-            .is_none()
-    );
 
     let sink = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(service_url(), &topic));
     for output in [
@@ -340,6 +341,9 @@ async fn publish_receive_and_ack_against_pulsar() -> anyhow::Result<()> {
         unique_name("beavers-pulsar-test")
     );
     let subscription = unique_name("beavers-pulsar-subscription");
+    // Create the subscription before publication so it cannot miss the
+    // message because a new subscription starts at the latest position.
+    create_subscription(&topic, &subscription).await?;
 
     let sink = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(&service_url, &topic));
     let mut source = PulsarSource::<Utf8, String>::new(PulsarSourceConfig::new(
@@ -348,8 +352,6 @@ async fn publish_receive_and_ack_against_pulsar() -> anyhow::Result<()> {
         &subscription,
     ));
 
-    // Establish the subscription before publication so a fresh subscription
-    // cannot miss the message because its initial position is latest.
     let receive_task = tokio::spawn(async move {
         let message = loop {
             match source.receive().await {
@@ -369,7 +371,6 @@ async fn publish_receive_and_ack_against_pulsar() -> anyhow::Result<()> {
         source.close().await?;
         anyhow::Ok((record, metadata))
     });
-    tokio::time::sleep(Duration::from_millis(250)).await;
 
     let mut output = PulsarPublish::new("hello pulsar".to_owned());
     output.key = Some(b"binary-key".to_vec());
