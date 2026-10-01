@@ -88,6 +88,10 @@ The example uses the default concurrency of one. Parallel handlers can publish
 in a different order. The sink retains all output without a capacity limit, so
 use it for bounded test runs rather than long-lived output storage.
 
+To feed fabricated Kafka or Pulsar records with their metadata and check which
+deliveries were acknowledged, use the `testing` feature described in the
+[testing guide](testing.md).
+
 ## StdinSource
 
 StdinSource uses a default-constructed `Decoder<T>` and reads newline-delimited

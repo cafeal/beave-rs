@@ -1,0 +1,181 @@
+use crate::{codec::Decoder, message::OrderingKey};
+
+#[cfg(feature = "kafka")]
+use crate::adapters::kafka::{KafkaMetadata, KafkaRecord, text_headers};
+#[cfg(feature = "pulsar")]
+use crate::adapters::pulsar::{PulsarMessageId, PulsarMetadata, PulsarRecord};
+#[cfg(feature = "pulsar")]
+use std::collections::HashMap;
+
+/// A received record with its payload left undecoded, as a
+/// [`TestSource`](super::TestSource) delivers it.
+///
+/// The record is also the delivery's [`SourceMessage::Raw`] form, so dead
+/// letters carry it exactly as the adapter's own raw record would.
+///
+/// [`SourceMessage::Raw`]: crate::message::SourceMessage::Raw
+pub trait TestRecord: Clone + Send + Sync + 'static {
+    /// The handler input decoded from this record, such as `KafkaRecord<T>`
+    /// for a `KafkaRecord<Vec<u8>>`.
+    type Decoded<T: Clone + Send + Sync + 'static>: Clone + Send + Sync + 'static;
+
+    /// Decode the payload with the source's codec, keeping the metadata.
+    fn decode<C, T>(&self, codec: &C) -> anyhow::Result<Self::Decoded<T>>
+    where
+        C: Decoder<T>,
+        T: Clone + Send + Sync + 'static;
+
+    /// The ordering scope the owning adapter assigns to this record.
+    fn ordering_key(&self) -> Option<OrderingKey> {
+        None
+    }
+
+    /// The trace-context fields the owning adapter reads from this record.
+    fn propagation_fields(&self) -> Vec<(&str, &str)> {
+        Vec::new()
+    }
+}
+
+/// A bare payload without record metadata. Deliveries have no ordering scope.
+impl TestRecord for Vec<u8> {
+    type Decoded<T: Clone + Send + Sync + 'static> = T;
+
+    fn decode<C, T>(&self, codec: &C) -> anyhow::Result<T>
+    where
+        C: Decoder<T>,
+        T: Clone + Send + Sync + 'static,
+    {
+        codec.decode(self)
+    }
+}
+
+/// Decodes like a [`KafkaSource`](crate::adapters::kafka::KafkaSource): a null
+/// value stays `None`. The ordering scope is the topic partition, and UTF-8
+/// headers carry trace context.
+#[cfg(feature = "kafka")]
+impl TestRecord for KafkaRecord<Vec<u8>> {
+    type Decoded<T: Clone + Send + Sync + 'static> = KafkaRecord<T>;
+
+    fn decode<C, T>(&self, codec: &C) -> anyhow::Result<KafkaRecord<T>>
+    where
+        C: Decoder<T>,
+        T: Clone + Send + Sync + 'static,
+    {
+        Ok(KafkaRecord {
+            key: self.key.clone(),
+            value: self
+                .value
+                .as_deref()
+                .map(|bytes| codec.decode(bytes))
+                .transpose()?,
+            headers: self.headers.clone(),
+            metadata: self.metadata.clone(),
+        })
+    }
+
+    fn ordering_key(&self) -> Option<OrderingKey> {
+        Some(OrderingKey::new(
+            self.metadata.topic.as_str(),
+            i64::from(self.metadata.partition),
+        ))
+    }
+
+    fn propagation_fields(&self) -> Vec<(&str, &str)> {
+        text_headers(
+            self.headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_deref())),
+        )
+    }
+}
+
+/// Decodes like a [`PulsarSource`](crate::adapters::pulsar::PulsarSource): a
+/// null value stays `None`. The ordering scope is the topic partition, as for
+/// Exclusive and Failover subscriptions, and properties carry trace context.
+#[cfg(feature = "pulsar")]
+impl TestRecord for PulsarRecord<Vec<u8>> {
+    type Decoded<T: Clone + Send + Sync + 'static> = PulsarRecord<T>;
+
+    fn decode<C, T>(&self, codec: &C) -> anyhow::Result<PulsarRecord<T>>
+    where
+        C: Decoder<T>,
+        T: Clone + Send + Sync + 'static,
+    {
+        Ok(PulsarRecord {
+            value: self
+                .value
+                .as_deref()
+                .map(|bytes| codec.decode(bytes))
+                .transpose()?,
+            key: self.key.clone(),
+            properties: self.properties.clone(),
+            event_time: self.event_time,
+            metadata: self.metadata.clone(),
+        })
+    }
+
+    fn ordering_key(&self) -> Option<OrderingKey> {
+        Some(OrderingKey::new(
+            self.metadata.topic.as_str(),
+            i64::from(self.metadata.message_id.partition),
+        ))
+    }
+
+    fn propagation_fields(&self) -> Vec<(&str, &str)> {
+        self.properties
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect()
+    }
+}
+
+/// A Kafka record at `offset` of a topic partition, without key, headers, or
+/// timestamp. Set the public fields for anything else, such as `value = None`
+/// for a tombstone.
+#[cfg(feature = "kafka")]
+pub fn kafka_record(
+    topic: impl Into<String>,
+    partition: i32,
+    offset: i64,
+    value: impl Into<Vec<u8>>,
+) -> KafkaRecord<Vec<u8>> {
+    KafkaRecord {
+        key: None,
+        value: Some(value.into()),
+        headers: Vec::new(),
+        metadata: KafkaMetadata {
+            topic: topic.into(),
+            partition,
+            offset,
+            timestamp: None,
+        },
+    }
+}
+
+/// A Pulsar message at `entry_id` of ledger 0 on a non-partitioned topic,
+/// without key, properties, or event time, published at time 0. Set the public
+/// fields for anything else, such as `metadata.message_id.partition` for a
+/// partition topic or `value = None` for a tombstone.
+#[cfg(feature = "pulsar")]
+pub fn pulsar_record(
+    topic: impl Into<String>,
+    entry_id: u64,
+    value: impl Into<Vec<u8>>,
+) -> PulsarRecord<Vec<u8>> {
+    PulsarRecord {
+        value: Some(value.into()),
+        key: None,
+        properties: HashMap::new(),
+        event_time: None,
+        metadata: PulsarMetadata {
+            topic: topic.into(),
+            message_id: PulsarMessageId {
+                ledger_id: 0,
+                entry_id,
+                partition: -1,
+                batch_index: -1,
+            },
+            publish_time: 0,
+        },
+    }
+}

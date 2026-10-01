@@ -26,6 +26,7 @@ src/
 │   ├── mod.rs             # Module declarations and public re-exports
 │   ├── state.rs           # Health handle, reports, and per-subscription state
 │   └── server.rs          # Liveness and readiness probes (`health` feature)
+├── testing/               # Test sources for fabricated records (`testing` feature)
 ├── codec/
 │   ├── mod.rs             # Decoder and Encoder contracts
 │   └── json.rs            # JSON implementation
