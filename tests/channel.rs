@@ -1,7 +1,7 @@
 use beavers::{
-    App, CancellationToken, ChannelSink, ChannelSource, Completion, Delivery, HandlerError,
-    InMemorySink, IterSource, Receive, ReceiveError, Sink, Source, SourceMessage, Subscription,
-    blocking, channel,
+    App, CancellationToken, ChannelOutput, ChannelRaw, ChannelSink, ChannelSource, Completion,
+    DeadLetter, Delivery, ErrorPolicy, HandlerError, InMemorySink, IterSource, OrderingKey,
+    Receive, ReceiveError, Sink, Source, SourceMessage, Subscription, blocking, channel,
 };
 use std::{
     collections::VecDeque,
@@ -56,6 +56,129 @@ impl Source for Held {
             None => pending().await,
         }
     }
+}
+
+/// Yields keyed deliveries whose raw form is a record name, then ends.
+struct Records(VecDeque<Delivery<i32, String>>);
+
+impl Records {
+    fn new(values: &[(i32, i64)]) -> Self {
+        Self(
+            values
+                .iter()
+                .map(|&(value, partition)| {
+                    Delivery::untracked(value)
+                        .with_ordering_key(OrderingKey::new("orders", partition))
+                        .with_raw(format!("record-{value}"))
+                })
+                .collect(),
+        )
+    }
+}
+
+impl Source for Records {
+    type Message = Delivery<i32, String>;
+
+    async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
+        Ok(match self.0.pop_front() {
+            Some(delivery) => Receive::Message(delivery),
+            None => Receive::End,
+        })
+    }
+}
+
+#[tokio::test]
+async fn deliveries_keep_the_upstream_ordering_key_and_raw_form() {
+    let (sink, mut fetched) = channel(4);
+    let run = tokio::spawn(
+        App::new()
+            .subscribe(
+                "fetch",
+                Records::new(&[(1, 0), (2, 3)]),
+                sink,
+                |n: i32| async move { Ok(n * 10) },
+            )
+            .run_until(CancellationToken::new()),
+    );
+    for (value, partition) in [(10, 0), (20, 3)] {
+        let Receive::Message(delivery) = fetched.receive().await.unwrap() else {
+            panic!("missing delivery")
+        };
+        assert_eq!(delivery.decode().unwrap(), value);
+        assert_eq!(
+            delivery.ordering_key(),
+            Some(OrderingKey::new("orders", partition))
+        );
+        let raw = delivery.raw();
+        let expected = format!("record-{}", value / 10);
+        assert_eq!(raw.downcast_ref::<String>(), Some(&expected));
+        assert_eq!(format!("{raw:?}"), format!("{expected:?}"));
+        delivery.ack().await.unwrap();
+    }
+    run.await.unwrap().unwrap();
+    assert!(matches!(fetched.receive().await.unwrap(), Receive::End));
+}
+
+#[tokio::test]
+async fn downstream_dead_letters_keep_the_first_upstream_delivery() {
+    let (to_score, fetched) = channel(4);
+    let (to_store, scored) = channel(4);
+    let dead_letters = InMemorySink::<DeadLetter<i32, ChannelRaw>>::default();
+    App::new()
+        .subscribe(
+            "fetch",
+            Records::new(&[(1, 0), (2, 1)]),
+            to_score,
+            |n: i32| async move { Ok(n * 10) },
+        )
+        .subscribe(
+            "score",
+            fetched,
+            to_store,
+            |n: i32| async move { Ok(n + 1) },
+        )
+        .subscription(
+            Subscription::new(
+                "store",
+                scored,
+                InMemorySink::default(),
+                |n: i32| async move {
+                    if n == 21 {
+                        return Err(HandlerError::Reject(anyhow::anyhow!("invalid")));
+                    }
+                    Ok(n)
+                },
+            )
+            .dlq(dead_letters.clone())
+            .error_policy(ErrorPolicy::dead_letter_all()),
+        )
+        .run_until(CancellationToken::new())
+        .await
+        .unwrap();
+    let [dead_letter] = &dead_letters.values()[..] else {
+        panic!("expected one dead letter")
+    };
+    assert_eq!(dead_letter.input, Some(21));
+    assert_eq!(
+        dead_letter.raw.downcast_ref::<String>().map(String::as_str),
+        Some("record-2")
+    );
+    let json = serde_json::to_value(dead_letter).unwrap();
+    assert_eq!(json["raw"], "record-2");
+}
+
+#[tokio::test]
+async fn values_from_application_code_have_no_upstream_delivery() {
+    let (sender, mut input) = ChannelSource::bounded(1);
+    sender.send(1).await.unwrap();
+    let Receive::Message(delivery) = input.receive().await.unwrap() else {
+        panic!("missing delivery")
+    };
+    assert_eq!(delivery.ordering_key(), None);
+    let raw = delivery.raw();
+    assert!(raw.is_empty());
+    assert_eq!(raw.downcast_ref::<()>(), None);
+    assert_eq!(serde_json::to_value(&raw).unwrap(), serde_json::Value::Null);
 }
 
 #[tokio::test]
@@ -214,7 +337,8 @@ async fn downstream_failure_leaves_upstream_unacknowledged() {
 #[tokio::test]
 async fn publish_completes_on_downstream_ack() {
     let (sink, mut source) = channel(1);
-    let publish = sink.publish(&5);
+    let value = ChannelOutput::from(5);
+    let publish = sink.publish(&value);
     tokio::pin!(publish);
     assert_pending(publish.as_mut()).await;
     let Receive::Message(delivery) = source.receive().await.unwrap() else {
@@ -229,7 +353,8 @@ async fn publish_completes_on_downstream_ack() {
 #[tokio::test]
 async fn dropped_delivery_fails_publication() {
     let (sink, mut source) = channel(1);
-    let publish = sink.publish(&5);
+    let value = ChannelOutput::from(5);
+    let publish = sink.publish(&value);
     tokio::pin!(publish);
     assert_pending(publish.as_mut()).await;
     let Receive::Message(delivery) = source.receive().await.unwrap() else {
@@ -243,11 +368,13 @@ async fn dropped_delivery_fails_publication() {
 async fn dropped_publication_revokes_and_skips_values() {
     let (sink, mut source) = channel(2);
     {
-        let publish = sink.publish(&1);
+        let value = ChannelOutput::from(1);
+        let publish = sink.publish(&value);
         tokio::pin!(publish);
         assert_pending(publish.as_mut()).await;
     }
-    let mut publish = Box::pin(sink.publish(&2));
+    let value = ChannelOutput::from(2);
+    let mut publish = Box::pin(sink.publish(&value));
     assert_pending(publish.as_mut()).await;
     // The abandoned first value is skipped.
     let Receive::Message(delivery) = source.receive().await.unwrap() else {
@@ -263,11 +390,13 @@ async fn dropped_publication_revokes_and_skips_values() {
 #[tokio::test]
 async fn publication_waiting_for_capacity_can_be_cancelled() {
     let (sink, mut source) = channel(1);
-    let first = sink.publish(&1);
+    let value = ChannelOutput::from(1);
+    let first = sink.publish(&value);
     tokio::pin!(first);
     assert_pending(first.as_mut()).await;
     {
-        let second = sink.publish(&2);
+        let value = ChannelOutput::from(2);
+        let second = sink.publish(&value);
         tokio::pin!(second);
         assert_pending(second.as_mut()).await;
     }
@@ -286,12 +415,12 @@ async fn closed_channel_rejects_publication() {
     let (sink, mut source) = channel::<i32>(1);
     sink.close().await.unwrap();
     sink.close().await.unwrap();
-    assert!(sink.publish(&1).await.is_err());
+    assert!(sink.publish(&ChannelOutput::from(1)).await.is_err());
     assert!(matches!(source.receive().await.unwrap(), Receive::End));
 
     let (sink, mut source) = channel::<i32>(1);
     source.close().await.unwrap();
-    assert!(sink.publish(&1).await.is_err());
+    assert!(sink.publish(&ChannelOutput::from(1)).await.is_err());
 }
 
 #[tokio::test]
@@ -325,9 +454,10 @@ async fn closing_one_clone_keeps_the_others_open() {
     let (sink, mut source) = channel::<i32>(1);
     let clone = sink.clone();
     sink.close().await.unwrap();
-    assert!(sink.publish(&1).await.is_err());
+    assert!(sink.publish(&ChannelOutput::from(1)).await.is_err());
     {
-        let publish = clone.publish(&2);
+        let value = ChannelOutput::from(2);
+        let publish = clone.publish(&value);
         tokio::pin!(publish);
         assert_pending(publish.as_mut()).await;
         let Receive::Message(delivery) = source.receive().await.unwrap() else {
@@ -364,34 +494,38 @@ async fn application_ends_run_an_in_process_worker() {
 #[tokio::test]
 async fn application_receiver_completes_publication_on_recv() {
     let (sink, mut results) = ChannelSink::bounded(2);
-    let mut first = Box::pin(sink.publish(&1));
+    let value = ChannelOutput::from(1);
+    let mut first = Box::pin(sink.publish(&value));
     assert_pending(first.as_mut()).await;
     {
-        let abandoned = sink.publish(&2);
+        let value = ChannelOutput::from(2);
+        let abandoned = sink.publish(&value);
         tokio::pin!(abandoned);
         assert_pending(abandoned.as_mut()).await;
     }
     assert_eq!(results.recv().await, Some(1));
     first.await.unwrap();
     // The abandoned value is skipped.
-    let third = sink.publish(&3);
+    let value = ChannelOutput::from(3);
+    let third = sink.publish(&value);
     tokio::pin!(third);
     assert_pending(third.as_mut()).await;
     assert_eq!(results.recv().await, Some(3));
     third.await.unwrap();
     sink.close().await.unwrap();
-    assert!(sink.publish(&4).await.is_err());
+    assert!(sink.publish(&4.into()).await.is_err());
     assert_eq!(results.recv().await, None);
 }
 
 #[tokio::test]
 async fn dropped_receiver_fails_buffered_publications() {
     let (sink, results) = ChannelSink::<i32>::bounded(1);
-    let mut publish = Box::pin(sink.publish(&1));
+    let value = ChannelOutput::from(1);
+    let mut publish = Box::pin(sink.publish(&value));
     assert_pending(publish.as_mut()).await;
     drop(results);
     assert!(publish.await.is_err());
-    assert!(sink.publish(&2).await.is_err());
+    assert!(sink.publish(&2.into()).await.is_err());
 }
 
 #[tokio::test]

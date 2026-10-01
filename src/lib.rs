@@ -29,8 +29,8 @@ pub mod tombstone;
 pub mod transaction;
 
 pub use adapters::{
-    ChannelReceiver, ChannelSender, ChannelSink, ChannelSource, InMemorySink, IterSource,
-    StdinSource, StdoutSink, channel,
+    ChannelOutput, ChannelRaw, ChannelReceiver, ChannelSender, ChannelSink, ChannelSource,
+    InMemorySink, IterSource, StdinSource, StdoutSink, channel,
 };
 pub use app::App;
 pub use blocking::{Blocking, BlockingPool, blocking};

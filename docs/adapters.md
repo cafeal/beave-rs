@@ -186,6 +186,8 @@ Keep these contracts explicit:
   again cannot succeed, marks the error with `PublishRejected::wrap` so the
   error policy routes the delivery instead of retrying it.
 - Broker-specific commit order and assignment validity belong to the adapter.
+- `SourceMessage::Raw` implements `Debug` and `Serialize`, so dead letters can
+  be published as they are and channels can keep it for the next stage.
 - A source with ordered delivery scopes, such as partitions, returns an
   `OrderingKey` from `SourceMessage::ordering_key`.
 - A source whose deliveries can move to another consumer returns a revocation
@@ -196,7 +198,8 @@ Keep these contracts explicit:
   receiving on shutdown or failure, before draining.
 
 `Delivery::with_ordering_key` and `Delivery::with_revocation` provide both for
-custom sources built on `Delivery<T>`.
+custom sources built on `Delivery<T>`, and `Delivery::with_raw` sets the raw
+form their dead letters carry.
 
 See [architecture](architecture.md) for ownership boundaries and the
 [runtime guide](runtime.md) for retry, failure, and shutdown behavior.

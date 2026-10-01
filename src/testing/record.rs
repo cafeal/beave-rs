@@ -1,4 +1,6 @@
 use crate::{codec::Decoder, message::OrderingKey};
+use serde::Serialize;
+use std::fmt::Debug;
 
 #[cfg(feature = "kafka")]
 use crate::adapters::kafka::{KafkaMetadata, KafkaRecord, text_headers};
@@ -14,7 +16,7 @@ use std::collections::HashMap;
 /// letters carry it exactly as the adapter's own raw record would.
 ///
 /// [`SourceMessage::Raw`]: crate::message::SourceMessage::Raw
-pub trait TestRecord: Clone + Send + Sync + 'static {
+pub trait TestRecord: Clone + Debug + Serialize + Send + Sync + 'static {
     /// The handler input decoded from this record, such as `KafkaRecord<T>`
     /// for a `KafkaRecord<Vec<u8>>`.
     type Decoded<T: Clone + Send + Sync + 'static>: Clone + Send + Sync + 'static;

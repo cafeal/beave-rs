@@ -500,11 +500,11 @@ native shape instead of passing through a universal structure:
 | Kafka | `KafkaRecord<Vec<u8>>`: value bytes, key, headers, and delivery metadata |
 | Pulsar | `PulsarRecord<Vec<u8>>`: payload bytes, key, properties, event time, and delivery metadata |
 | Stdin | `Vec<u8>`: the received line |
-| `Delivery` (`IterSource`, `Channel`) | `()`: input is already typed |
+| `Delivery` (`IterSource`) | `()`: input is already typed |
+| Channel | `ChannelRaw`: the raw form of the upstream delivery that produced the value |
 
-`DeadLetter` implements `Serialize` when its input and raw form do, so a JSON
-sink can publish it directly; this holds for Kafka and stdin sources. Pulsar
-message IDs are not serializable, so Pulsar dead letters go through `dlq_with`.
+`SourceMessage::Raw` implements `Serialize`, so `DeadLetter` implements it
+whenever its input does and a JSON sink can publish it directly.
 
 Conversion and preparation run once. Publication then retries under the
 `dlq_retry` policy. A conversion, preparation, or exhausted publication failure

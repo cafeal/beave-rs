@@ -1,6 +1,7 @@
 //! Received message ownership, decoding, ordering scope, and acknowledgement.
 use crate::shutdown::CancellationToken;
-use std::{future::Future, pin::Pin, sync::Arc};
+use serde::Serialize;
+use std::{fmt::Debug, future::Future, pin::Pin, sync::Arc};
 
 /// Identifies a source-defined ordering scope, such as a Kafka topic partition
 /// or a message key within a Pulsar topic partition.
@@ -49,8 +50,10 @@ pub trait SourceMessage: Send + 'static {
     /// and assignment validity remain the adapter's responsibility.
     fn ack(self) -> impl Future<Output = anyhow::Result<()>> + Send;
     /// Undecoded form of this delivery, copied into dead letters so failures keep the
-    /// original payload and broker metadata even when decoding failed.
-    type Raw: Send + Sync + 'static;
+    /// original payload and broker metadata even when decoding failed. It is
+    /// serializable so that dead letters can be published as they are, and so
+    /// that a [`channel`](crate::channel) can keep it for the next subscription.
+    type Raw: Debug + Serialize + Send + Sync + 'static;
     fn raw(&self) -> Self::Raw;
     /// The scope within which the source delivers in order. `None` means the
     /// delivery has no ordering relationship with other deliveries.
@@ -76,12 +79,16 @@ type AckFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
 type Acknowledge = Box<dyn FnOnce() -> AckFuture + Send>;
 
 /// Acknowledgement belongs to the delivery, not the handler's payload.
-pub struct Delivery<T> {
+///
+/// `R` is the delivery's [`Raw`](SourceMessage::Raw) form, `()` unless set with
+/// [`with_raw`](Self::with_raw).
+pub struct Delivery<T, R = ()> {
     pub value: T,
     ack: Acknowledge,
     ordering_key: Option<OrderingKey>,
     revocation: Option<CancellationToken>,
     propagation: Vec<(String, String)>,
+    raw: R,
 }
 impl<T> Delivery<T> {
     pub fn new<F, Fut>(value: T, ack: F) -> Self
@@ -95,10 +102,24 @@ impl<T> Delivery<T> {
             ordering_key: None,
             revocation: None,
             propagation: Vec::new(),
+            raw: (),
         }
     }
     pub fn untracked(value: T) -> Self {
         Self::new(value, || async { Ok(()) })
+    }
+}
+impl<T, R> Delivery<T, R> {
+    /// The form dead letters of this delivery carry as their raw delivery.
+    pub fn with_raw<U>(self, raw: U) -> Delivery<T, U> {
+        Delivery {
+            value: self.value,
+            ack: self.ack,
+            ordering_key: self.ordering_key,
+            revocation: self.revocation,
+            propagation: self.propagation,
+            raw,
+        }
     }
     pub fn with_ordering_key(mut self, key: OrderingKey) -> Self {
         self.ordering_key = Some(key);
@@ -119,14 +140,21 @@ impl<T> Delivery<T> {
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> SourceMessage for Delivery<T> {
+impl<T, R> SourceMessage for Delivery<T, R>
+where
+    T: Clone + Send + Sync + 'static,
+    R: Clone + Debug + Serialize + Send + Sync + 'static,
+{
     type Item = T;
-    /// Already typed local input has no separate undecoded form.
-    type Raw = ();
+    /// Already typed local input has no separate undecoded form unless one was
+    /// set with [`Delivery::with_raw`].
+    type Raw = R;
     fn decode(&self) -> anyhow::Result<T> {
         Ok(self.value.clone())
     }
-    fn raw(&self) {}
+    fn raw(&self) -> R {
+        self.raw.clone()
+    }
     async fn ack(self) -> anyhow::Result<()> {
         Delivery::ack(self).await
     }

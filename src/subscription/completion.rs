@@ -82,7 +82,7 @@ where
     ) -> BoxFuture<'a, anyhow::Result<Completion<M>>> {
         Box::pin(async move {
             // Preparing all outputs first means an encode failure never follows a partial publish.
-            let outputs = match prepare(&*self.0, outputs, instruments) {
+            let outputs = match prepare(&*self.0, outputs, &delivery, instruments) {
                 Ok(outputs) => outputs,
                 Err(error) => return Ok(Completion::Encode(delivery, error)),
             };
@@ -175,7 +175,7 @@ where
         instruments: &'a Instruments,
     ) -> BoxFuture<'a, anyhow::Result<Completion<M>>> {
         Box::pin(async move {
-            let outputs = match prepare(&*self.sink, outputs, instruments) {
+            let outputs = match prepare(&*self.sink, outputs, &delivery, instruments) {
                 Ok(outputs) => outputs,
                 Err(error) => return Ok(Completion::Encode(delivery, error)),
             };
@@ -218,9 +218,10 @@ where
     }
 }
 
-fn prepare<O, K: Sink<O>>(
+fn prepare<M: SourceMessage, O, K: Sink<O>>(
     sink: &K,
     outputs: Vec<O>,
+    delivery: &M,
     instruments: &Instruments,
 ) -> anyhow::Result<Vec<K::Prepared>> {
     // A delivery without outputs, such as a discarded one, records no encode stage.
@@ -231,7 +232,7 @@ fn prepare<O, K: Sink<O>>(
     let prepared = info_span!("encode").in_scope(|| {
         outputs
             .into_iter()
-            .map(|output| sink.prepare(output))
+            .map(|output| sink.prepare_from(output, delivery))
             .collect()
     });
     instruments.record(Stage::Encode, started);

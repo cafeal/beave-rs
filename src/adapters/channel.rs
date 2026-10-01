@@ -28,12 +28,17 @@
 //! # Ok(()) }
 //! ```
 use crate::{
-    message::Delivery,
+    message::{Delivery, OrderingKey, SourceMessage},
     shutdown::CancellationToken,
     sink::{Completion, Sink},
     source::{Receive, ReceiveError, Source},
 };
-use std::sync::{Mutex, PoisonError};
+use serde::{Serialize, Serializer};
+use std::{
+    any::Any,
+    fmt::{self, Debug},
+    sync::{Arc, Mutex, PoisonError},
+};
 use tokio::sync::{mpsc, oneshot};
 
 /// A value handed from an upstream publication to the downstream subscription.
@@ -43,6 +48,93 @@ struct Queued<T> {
     abandoned: CancellationToken,
     /// Trace context of the code that sent the value.
     propagation: Vec<(String, String)>,
+    origin: Origin,
+}
+
+/// What a channel delivery keeps of the upstream delivery that produced it.
+#[derive(Clone, Default)]
+struct Origin {
+    ordering_key: Option<OrderingKey>,
+    raw: ChannelRaw,
+}
+
+/// The raw form of a channel delivery: the undecoded upstream delivery whose
+/// handler produced the value, such as a `KafkaRecord<Vec<u8>>`.
+///
+/// Dead letters of a downstream subscription carry it, so they keep the
+/// original payload and broker metadata. Through several channels it stays the
+/// delivery of the first subscription. It is empty for values sent by
+/// application code through a [`ChannelSender`] or [`Sink::publish`].
+///
+/// It serializes as the upstream raw form, or as `None` when empty. Use
+/// [`downcast_ref`](Self::downcast_ref) to read it as its concrete type.
+#[derive(Clone, Default)]
+pub struct ChannelRaw(Option<Arc<dyn Raw>>);
+
+/// A type-erased [`SourceMessage::Raw`].
+trait Raw: erased_serde::Serialize + Any + Debug + Send + Sync {}
+
+impl<R: Serialize + Any + Debug + Send + Sync> Raw for R {}
+
+erased_serde::serialize_trait_object!(Raw);
+
+impl ChannelRaw {
+    fn of<R: Serialize + Debug + Send + Sync + 'static>(raw: R) -> Self {
+        match (&raw as &dyn Any).downcast_ref::<Self>() {
+            // A delivery of another channel already carries the original form.
+            Some(raw) => raw.clone(),
+            None => Self(Some(Arc::new(raw))),
+        }
+    }
+
+    /// The upstream raw form, if there is one and it is an `R`.
+    pub fn downcast_ref<R: 'static>(&self) -> Option<&R> {
+        let raw: &dyn Any = self.0.as_deref()?;
+        raw.downcast_ref()
+    }
+
+    /// Whether the value was sent without an upstream delivery.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_none()
+    }
+}
+
+impl Debug for ChannelRaw {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.0 {
+            Some(raw) => raw.fmt(f),
+            None => f.write_str("None"),
+        }
+    }
+}
+
+impl Serialize for ChannelRaw {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match &self.0 {
+            Some(raw) => raw.serialize(serializer),
+            None => serializer.serialize_none(),
+        }
+    }
+}
+
+/// A value prepared for a [`ChannelSink`], with the ordering key and raw form
+/// of the delivery that produced it.
+///
+/// Application code calling [`Sink::publish`] directly can convert a value into
+/// one without an upstream delivery, as [`Sink::prepare`] does.
+#[derive(Clone)]
+pub struct ChannelOutput<T> {
+    value: T,
+    origin: Origin,
+}
+
+impl<T> From<T> for ChannelOutput<T> {
+    fn from(value: T) -> Self {
+        Self {
+            value,
+            origin: Origin::default(),
+        }
+    }
 }
 
 /// The sender's trace context, so the receiving subscription continues its trace.
@@ -90,7 +182,11 @@ pub fn channel<T>(capacity: usize) -> (ChannelSink<T>, ChannelSource<T>) {
 /// Enqueues a value, waiting for capacity, and returns the completion that resolves
 /// when the receiving end takes responsibility for it. Dropping the completion before
 /// then abandons the value. Cancellation while waiting for capacity never enqueues it.
-async fn enqueue<T>(sender: &mpsc::Sender<Queued<T>>, value: T) -> anyhow::Result<Completion> {
+async fn enqueue<T>(
+    sender: &mpsc::Sender<Queued<T>>,
+    value: T,
+    origin: Origin,
+) -> anyhow::Result<Completion> {
     let permit = sender
         .reserve()
         .await
@@ -103,6 +199,7 @@ async fn enqueue<T>(sender: &mpsc::Sender<Queued<T>>, value: T) -> anyhow::Resul
         done,
         abandoned,
         propagation: propagation(),
+        origin,
     });
     Ok(Completion::pending(async move {
         let result = completed.await;
@@ -116,6 +213,9 @@ async fn enqueue<T>(sender: &mpsc::Sender<Queued<T>>, value: T) -> anyhow::Resul
 }
 
 /// Upstream end of a channel, used as a subscription's sink.
+///
+/// Each value keeps the ordering key and [raw form](ChannelRaw) of the delivery
+/// whose handler produced it, and the downstream delivery carries both.
 ///
 /// A subscription publishing here frees its job slot once the value is enqueued and
 /// acknowledges its input once the receiving end has taken responsibility for the
@@ -163,23 +263,38 @@ impl<T> Clone for ChannelSink<T> {
 }
 
 impl<T: Clone + Send + Sync + 'static> Sink<T> for ChannelSink<T> {
-    type Prepared = T;
+    type Prepared = ChannelOutput<T>;
 
-    fn prepare(&self, value: T) -> anyhow::Result<T> {
-        Ok(value)
+    /// A value without an upstream delivery: no ordering key and an empty raw form.
+    fn prepare(&self, value: T) -> anyhow::Result<ChannelOutput<T>> {
+        Ok(value.into())
     }
 
-    async fn publish(&self, output: &T) -> anyhow::Result<()> {
+    fn prepare_from<M: SourceMessage>(
+        &self,
+        value: T,
+        delivery: &M,
+    ) -> anyhow::Result<ChannelOutput<T>> {
+        Ok(ChannelOutput {
+            value,
+            origin: Origin {
+                ordering_key: delivery.ordering_key(),
+                raw: ChannelRaw::of(delivery.raw()),
+            },
+        })
+    }
+
+    async fn publish(&self, output: &ChannelOutput<T>) -> anyhow::Result<()> {
         self.submit(output).await?.wait().await
     }
 
     /// Returns once the value is enqueued. The completion resolves when the
     /// receiving end takes responsibility for it.
-    async fn submit(&self, output: &T) -> anyhow::Result<Completion> {
+    async fn submit(&self, output: &ChannelOutput<T>) -> anyhow::Result<Completion> {
         let sender = self
             .sender()
             .ok_or_else(|| anyhow::anyhow!("channel sink is closed"))?;
-        enqueue(&sender, output.clone()).await
+        enqueue(&sender, output.value.clone(), output.origin.clone()).await
     }
 
     /// Rejects later publications from this clone. The receiving end ends after every
@@ -251,6 +366,7 @@ impl<T> ChannelSender<T> {
             done,
             abandoned: CancellationToken::new(),
             propagation: propagation(),
+            origin: Origin::default(),
         });
         Ok(())
     }
@@ -259,11 +375,19 @@ impl<T> ChannelSender<T> {
     /// were published, or its error policy dead-lettered or discarded it. Dropping the
     /// returned future after the value was enqueued abandons the delivery.
     pub async fn send_and_wait(&self, value: T) -> anyhow::Result<()> {
-        enqueue(&self.sender, value).await?.wait().await
+        enqueue(&self.sender, value, Origin::default())
+            .await?
+            .wait()
+            .await
     }
 }
 
 /// Downstream end of a channel, used as a subscription's source.
+///
+/// Each delivery carries the ordering key of the upstream delivery that produced
+/// its value, so [`ProcessingOrder::PerKey`](crate::ProcessingOrder::PerKey)
+/// keeps the upstream order, and its [raw form](ChannelRaw) is that upstream
+/// delivery.
 ///
 /// Created by [`channel`], application shutdown does not stop this source: it keeps
 /// receiving until every upstream sink clone is closed or dropped, so values the
@@ -294,7 +418,7 @@ impl<T> ChannelSource<T> {
 }
 
 impl<T: Clone + Send + Sync + 'static> Source for ChannelSource<T> {
-    type Message = Delivery<T>;
+    type Message = Delivery<T, ChannelRaw>;
 
     async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
         loop {
@@ -310,18 +434,20 @@ impl<T: Clone + Send + Sync + 'static> Source for ChannelSource<T> {
                 done,
                 abandoned,
                 propagation,
+                origin,
             } = queued;
-            let delivery = Delivery::new(value, move || async move {
+            let mut delivery = Delivery::new(value, move || async move {
                 // A sender that is not waiting has either abandoned the value or
                 // completed at enqueue.
                 let _ = done.send(());
                 Ok(())
-            });
-            return Ok(Receive::Message(
-                delivery
-                    .with_revocation(abandoned)
-                    .with_propagation_fields(propagation),
-            ));
+            })
+            .with_revocation(abandoned)
+            .with_propagation_fields(propagation);
+            if let Some(key) = origin.ordering_key {
+                delivery = delivery.with_ordering_key(key);
+            }
+            return Ok(Receive::Message(delivery.with_raw(origin.raw)));
         }
     }
 
