@@ -1,6 +1,6 @@
 //! Per-failure outcomes for deliveries that cannot complete normally.
 use serde::Serialize;
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 /// Processing failure that an [`ErrorPolicy`] can route.
 ///
@@ -21,6 +21,38 @@ pub enum FailureKind {
     /// [`PublishRejected`](crate::sink::PublishRejected). Outputs submitted before
     /// it have completed.
     PublishRejected,
+}
+
+impl FailureKind {
+    /// The snake_case name used in metric labels, serialized dead letters, and dead-letter
+    /// headers.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Decode => "decode",
+            Self::Rejected => "rejected",
+            Self::RetryExhausted => "retry_exhausted",
+            Self::Encode => "encode",
+            Self::PublishRejected => "publish_rejected",
+        }
+    }
+}
+
+impl FromStr for FailureKind {
+    type Err = anyhow::Error;
+
+    /// Parses the name returned by [`as_str`](Self::as_str).
+    fn from_str(name: &str) -> anyhow::Result<Self> {
+        [
+            Self::Decode,
+            Self::Rejected,
+            Self::RetryExhausted,
+            Self::Encode,
+            Self::PublishRejected,
+        ]
+        .into_iter()
+        .find(|kind| kind.as_str() == name)
+        .ok_or_else(|| anyhow::anyhow!("unknown failure kind {name:?}"))
+    }
 }
 
 impl fmt::Display for FailureKind {

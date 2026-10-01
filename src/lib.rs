@@ -39,7 +39,7 @@ pub use codec::Avro;
 #[cfg(feature = "protobuf")]
 pub use codec::Protobuf;
 pub use codec::{Decoder, Encoder, Json, RawBytes, Utf8};
-pub use dead_letter::DeadLetter;
+pub use dead_letter::{DEAD_LETTER_HEADER_PREFIX, DeadLetter, DeadLetterDetails};
 pub use error_policy::{ErrorPolicy, FailureAction, FailureKind};
 pub use forward::{SamePlatform, ValueRecord};
 pub use handler::{Classify, Emit, Handler, HandlerError, Result};

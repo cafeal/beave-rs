@@ -38,7 +38,10 @@ implicitly copied into producer routing.
 The raw form of a `KafkaMessage` is a `KafkaRecord<Vec<u8>>` with the undecoded
 value bytes. Dead letters carry it, so the original value, key, headers, and
 delivery metadata survive even when decoding fails. `KafkaRecord` implements
-`Serialize` when its value does.
+`Serialize` when its value does. `KafkaPublish::from_dead_letter` forwards a
+dead letter to a Kafka topic with its original record and failure headers, and
+`KafkaDeadLetter::from_record` reads them back; see
+[forwarding dead letters](../runtime.md#forwarding-dead-letters-to-a-broker-topic).
 
 Input metadata is never inherited implicitly. The sink always publishes to its
 configured topic and lets Kafka choose a partition from the explicit key. It
@@ -90,7 +93,8 @@ Explicit output fields take precedence. The received key is used only when the
 output key is `None`; because an unset key and an intentionally absent key are
 both `None`, use `KafkaInherit::new().without_key()` to publish keyless records.
 Received headers are placed before the output's own headers, except headers
-whose name the output already sets. `without_headers()` disables header
+whose name the output already sets and dead-letter headers starting with
+`beavers-dlq-`. `without_headers()` disables header
 inheritance. The source topic, partition, offset, and timestamp are never
 inherited: the sink chooses the topic, Kafka chooses the partition and
 timestamp, and the source offset is only used for the source's own commits.

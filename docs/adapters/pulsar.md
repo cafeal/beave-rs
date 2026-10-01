@@ -60,7 +60,10 @@ See [tombstones](../runtime.md#tombstones).
 
 The raw form of a `PulsarMessage` is a `PulsarRecord<Vec<u8>>` with the
 undecoded payload bytes, or `value: None` for a tombstone. Dead letters carry it, so the original payload, key,
-properties, event time, and delivery metadata survive even when decoding fails.
+properties, event time, and delivery metadata survive even when decoding fails. `PulsarPublish::from_dead_letter`
+forwards a dead letter to a Pulsar topic with its original message and failure
+properties, and `PulsarDeadLetter::from_record` reads them back; see
+[forwarding dead letters](../runtime.md#forwarding-dead-letters-to-a-broker-topic).
 
 `receive` waits for the next message of any partition, starting with the
 partition after the one that delivered last so that a busy partition cannot
@@ -188,7 +191,8 @@ Subscription::new("orders", pulsar_source, pulsar_sink, handler)
 
 Explicit output fields take precedence. The key and event time are inherited
 only when the output leaves them `None`, and a received property is added only
-when the output does not already set that name. `without_key()`,
+when the output does not already set that name. Dead-letter properties starting
+with `beavers-dlq-` are never inherited. `without_key()`,
 `without_properties()`, and `without_event_time()` disable the corresponding
 field. The source topic, message ID, and publish time are never inherited, and
 no ordering key is derived from the input.
