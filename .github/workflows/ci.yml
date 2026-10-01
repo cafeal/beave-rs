@@ -77,3 +77,39 @@ jobs:
       - name: Broker logs
         if: failure()
         run: docker compose logs kafka pulsar
+
+  examples:
+    name: Example (${{ matrix.scenario }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scenario: kafka-orders
+            services: kafka
+          - scenario: pulsar-orders
+            services: pulsar
+          - scenario: kafka-to-pulsar
+            services: kafka pulsar
+          - scenario: kafka-to-http
+            services: kafka
+          - scenario: transform
+            services: ""
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start brokers
+        if: matrix.services != ''
+        run: docker compose up --detach ${{ matrix.services }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.scenario }}
+      - run: cargo fetch --locked
+      - name: Wait for brokers
+        if: matrix.services != ''
+        run: docker compose up --detach --wait ${{ matrix.services }}
+      - name: Run example
+        run: .github/scripts/example.sh ${{ matrix.scenario }}
+      - name: Broker logs
+        if: failure() && matrix.services != ''
+        run: docker compose logs ${{ matrix.services }}

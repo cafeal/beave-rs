@@ -1,5 +1,6 @@
-//! Server metrics recorded through the `metrics` facade, labeled by listener
-//! address so several HTTP sources in one process stay distinguishable.
+//! Server and client metrics recorded through the `metrics` facade. Server
+//! metrics are labeled by listener address and client metrics by destination
+//! URL, so several sources and sinks in one process stay distinguishable.
 use hyper::StatusCode;
 use metrics::{Gauge, Histogram, counter, gauge, histogram};
 use std::{net::SocketAddr, time::Instant};
@@ -60,5 +61,26 @@ impl Open {
 impl Drop for Open {
     fn drop(&mut self) {
         self.0.decrement(1.0);
+    }
+}
+
+/// Request metrics of one HTTP sink.
+pub(super) struct ClientMetrics {
+    url: String,
+}
+
+impl ClientMetrics {
+    pub(super) fn new(url: &str) -> Self {
+        Self {
+            url: url.to_owned(),
+        }
+    }
+
+    /// Records one attempt; `outcome` is the response status, `error`, or `timeout`.
+    pub(super) fn attempt(&self, outcome: &str, started: Instant) {
+        let labels = [("url", self.url.clone()), ("outcome", outcome.to_owned())];
+        counter!("beavers_http_client_requests_total", &labels).increment(1);
+        histogram!("beavers_http_client_request_duration_seconds", &labels)
+            .record(started.elapsed().as_secs_f64());
     }
 }

@@ -17,6 +17,10 @@ pub enum FailureKind {
     RetryExhausted,
     /// `Sink::prepare` failed for an emitted output; nothing was published.
     Encode,
+    /// The sink's destination refused an output permanently, marked with
+    /// [`PublishRejected`](crate::sink::PublishRejected). Outputs submitted before
+    /// it have completed.
+    PublishRejected,
 }
 
 impl fmt::Display for FailureKind {
@@ -26,6 +30,7 @@ impl fmt::Display for FailureKind {
             Self::Rejected => "handler rejected input",
             Self::RetryExhausted => "handler retry exhausted",
             Self::Encode => "prepare output failed",
+            Self::PublishRejected => "sink rejected output",
         })
     }
 }
@@ -44,8 +49,9 @@ pub enum FailureAction {
 
 /// Failure routing for one subscription.
 ///
-/// Defaults never lose a delivery: handler failures (rejection and retry exhaustion) are
-/// dead-lettered, and without a configured dead-letter sink they stop without ACK. Decode and
+/// Defaults never lose a delivery: handler failures (rejection and retry exhaustion) and
+/// rejected publications are dead-lettered, and without a configured dead-letter sink they
+/// stop without ACK. Decode and
 /// encode failures stop by default; choosing `DeadLetter` for them requires a dead-letter sink,
 /// and the subscription fails validation otherwise.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,6 +60,7 @@ pub struct ErrorPolicy {
     pub rejected: FailureAction,
     pub retry_exhausted: FailureAction,
     pub encode: FailureAction,
+    pub publish_rejected: FailureAction,
 }
 
 impl Default for ErrorPolicy {
@@ -63,6 +70,7 @@ impl Default for ErrorPolicy {
             rejected: FailureAction::DeadLetter,
             retry_exhausted: FailureAction::DeadLetter,
             encode: FailureAction::Stop,
+            publish_rejected: FailureAction::DeadLetter,
         }
     }
 }
@@ -75,6 +83,7 @@ impl ErrorPolicy {
             rejected: FailureAction::DeadLetter,
             retry_exhausted: FailureAction::DeadLetter,
             encode: FailureAction::DeadLetter,
+            publish_rejected: FailureAction::DeadLetter,
         }
     }
 
@@ -84,6 +93,7 @@ impl ErrorPolicy {
             FailureKind::Rejected => self.rejected,
             FailureKind::RetryExhausted => self.retry_exhausted,
             FailureKind::Encode => self.encode,
+            FailureKind::PublishRejected => self.publish_rejected,
         }
     }
 

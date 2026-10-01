@@ -51,6 +51,7 @@ variables to target other brokers:
 |---|---|---|
 | `KAFKA_BROKERS` | `localhost:9092` | Kafka examples and live tests |
 | `PULSAR_URL` | `pulsar://localhost:6650` in examples, `pulsar://127.0.0.1:6650` in tests | Pulsar examples and live tests |
+| `HTTP_SINK_URL` | `http://127.0.0.1:8090/orders` | `kafka_to_http` example |
 | `PULSAR_ADMIN_ADDR` | `127.0.0.1:8080` | Live tests that create Pulsar topics or subscriptions |
 
 ## Broker configuration
@@ -83,6 +84,8 @@ environment pointing at the broker. The credentials are for local use only.
 | `cargo pulsar-produce [count]` | `pulsar_orders` | Publishes orders, 10 by default, to Pulsar `orders` |
 | `cargo pulsar-process` | `pulsar_orders` | Pulsar `orders` → `order-events` with a `Key_Shared` subscription |
 | `cargo kafka-to-pulsar` | `kafka_to_pulsar` | Kafka `orders` → Pulsar `orders-from-kafka` |
+| `cargo http-receive` | `kafka_to_http` | HTTP server on `127.0.0.1:8090` that prints the orders it receives |
+| `cargo kafka-to-http` | `kafka_to_http` | Kafka `orders` → HTTP `POST` to `HTTP_SINK_URL` |
 
 Each alias expands to `cargo run --example <name> --features <features> --
 <command>`, and arguments after the alias are appended, as in
@@ -94,6 +97,12 @@ when the source is exhausted. The `process` commands and `kafka-to-pulsar` run
 a subscription until Ctrl-C. `process` uses `Subscription::forward`, so each
 output inherits the input's key and headers or properties.
 
+`kafka_to_http` sends each order to `HTTP_SINK_URL`, by default the
+`http-receive` server, with an `idempotency-key` header built from the record's
+topic, partition, and offset. Stop `http-receive` while `kafka-to-http` runs to
+see the sink retry, stop after its publish retries, and resume from the
+uncommitted offset on the next run.
+
 `kafka_to_pulsar` maps metadata explicitly with `MapMetadata`: the Kafka key
 becomes the Pulsar key and Kafka headers with UTF-8 values become Pulsar
 properties. It skips Kafka tombstones with `Tombstones::skip()`.
@@ -103,6 +112,12 @@ no committed offset, and the Pulsar example uses the subscription created by
 `pulsar-init`, so orders produced before a first `process` run are consumed.
 Run a `process` command again to see that committed or acknowledged deliveries
 are not processed twice.
+
+GitHub Actions runs each example flow in its own `Example` job, which starts
+the services the flow needs and runs `.github/scripts/example.sh`. The script
+runs the commands above and checks that 10 outputs arrive on the output topic
+or at the HTTP receiver. Run the script locally with the same scenario name, such
+as `.github/scripts/example.sh kafka-to-http`, after starting the brokers.
 
 ## Inspecting broker state
 
