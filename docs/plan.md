@@ -56,7 +56,6 @@ Potential codec work includes:
 - MessagePack support;
 - Schema Registry integration for Avro;
 - writer-schema and reader-schema resolution;
-- configured-codec injection for local stdin and stdout adapters;
 - evaluation of typed key codecs where a broker supports typed keys.
 
 Schema Registry support must keep wire framing separate from raw Avro datum
