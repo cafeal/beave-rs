@@ -952,7 +952,6 @@ futures run on the shared Tokio executor without isolation. Metadata inheritance
 is limited to same-platform middleware;
 cross-platform mappings are application-written `MapMetadata` functions.
 
-Inputs currently require `Clone + Send + Sync`. Stdin and stdout construct
-`Default` codecs internally and do not yet accept configured codec instances.
+Inputs currently require `Clone + Send + Sync`.
 See [architecture](architecture.md) for extension contracts and the
 [roadmap](plan.md#implementation-order) for the intended sequence.
