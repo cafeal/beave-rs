@@ -10,6 +10,8 @@ use std::{collections::VecDeque, marker::PhantomData, sync::Arc};
 use crate::adapters::kafka::KafkaRecord;
 #[cfg(feature = "pulsar")]
 use crate::adapters::pulsar::PulsarRecord;
+#[cfg(feature = "rabbitmq")]
+use crate::adapters::rabbitmq::RabbitMqRecord;
 
 /// A finite source of fabricated records that decodes them with a codec.
 ///
@@ -69,6 +71,10 @@ pub type KafkaTestSource<C, T> = TestSource<C, T, KafkaRecord<Vec<u8>>>;
 /// A [`TestSource`] of Pulsar messages, delivering `PulsarRecord<T>` inputs.
 #[cfg(feature = "pulsar")]
 pub type PulsarTestSource<C, T> = TestSource<C, T, PulsarRecord<Vec<u8>>>;
+
+/// A [`TestSource`] of RabbitMQ messages, delivering `RabbitMqRecord<T>` inputs.
+#[cfg(feature = "rabbitmq")]
+pub type RabbitMqTestSource<C, T> = TestSource<C, T, RabbitMqRecord<Vec<u8>>>;
 
 impl<C: Default, T, R: TestRecord> TestSource<C, T, R> {
     pub fn new(records: impl IntoIterator<Item = R>) -> Self {

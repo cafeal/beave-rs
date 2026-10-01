@@ -6,6 +6,11 @@ use std::fmt::Debug;
 use crate::adapters::kafka::{KafkaMetadata, KafkaRecord, text_headers};
 #[cfg(feature = "pulsar")]
 use crate::adapters::pulsar::{PulsarMessageId, PulsarMetadata, PulsarRecord};
+#[cfg(feature = "rabbitmq")]
+use crate::adapters::rabbitmq::{
+    RabbitMqHeaders, RabbitMqMetadata, RabbitMqProperties, RabbitMqRecord,
+    text_headers as rabbitmq_text_headers,
+};
 #[cfg(feature = "pulsar")]
 use std::collections::HashMap;
 
@@ -131,6 +136,32 @@ impl TestRecord for PulsarRecord<Vec<u8>> {
     }
 }
 
+/// Decodes like a [`RabbitMqSource`](crate::adapters::rabbitmq::RabbitMqSource).
+/// Deliveries have no ordering scope, as for a source that is not
+/// [`ordered`](crate::adapters::rabbitmq::RabbitMqSourceConfig::ordered), and
+/// string headers carry trace context.
+#[cfg(feature = "rabbitmq")]
+impl TestRecord for RabbitMqRecord<Vec<u8>> {
+    type Decoded<T: Clone + Send + Sync + 'static> = RabbitMqRecord<T>;
+
+    fn decode<C, T>(&self, codec: &C) -> anyhow::Result<RabbitMqRecord<T>>
+    where
+        C: Decoder<T>,
+        T: Clone + Send + Sync + 'static,
+    {
+        Ok(RabbitMqRecord {
+            value: codec.decode(&self.value)?,
+            headers: self.headers.clone(),
+            properties: self.properties.clone(),
+            metadata: self.metadata.clone(),
+        })
+    }
+
+    fn propagation_fields(&self) -> Vec<(&str, &str)> {
+        rabbitmq_text_headers(&self.headers)
+    }
+}
+
 /// A Kafka record at `offset` of a topic partition, without key, headers, or
 /// timestamp. Set the public fields for anything else, such as `value = None`
 /// for a tombstone.
@@ -178,6 +209,32 @@ pub fn pulsar_record(
                 batch_index: -1,
             },
             publish_time: 0,
+        },
+    }
+}
+
+/// A RabbitMQ message with `delivery_tag`, consumed from `queue` after being
+/// published to the default exchange with the queue name as its routing key,
+/// persistent and not redelivered, without headers or properties. Set the
+/// public fields for anything else.
+#[cfg(feature = "rabbitmq")]
+pub fn rabbitmq_record(
+    queue: impl Into<String>,
+    delivery_tag: u64,
+    value: impl Into<Vec<u8>>,
+) -> RabbitMqRecord<Vec<u8>> {
+    let queue = queue.into();
+    RabbitMqRecord {
+        value: value.into(),
+        headers: RabbitMqHeaders::new(),
+        properties: RabbitMqProperties::default(),
+        metadata: RabbitMqMetadata {
+            routing_key: queue.clone(),
+            queue,
+            exchange: String::new(),
+            redelivered: false,
+            persistent: true,
+            delivery_tag,
         },
     }
 }

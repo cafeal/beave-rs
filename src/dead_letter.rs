@@ -94,7 +94,10 @@ pub struct DeadLetterDetails {
     pub count: u32,
 }
 
-#[cfg_attr(not(any(feature = "kafka", feature = "pulsar")), allow(dead_code))]
+#[cfg_attr(
+    not(any(feature = "kafka", feature = "pulsar", feature = "rabbitmq")),
+    allow(dead_code)
+)]
 impl DeadLetterDetails {
     /// Details for `dead_letter`, counting one more than a `previous` dead-lettering of the
     /// same payload.
@@ -141,7 +144,10 @@ impl DeadLetterDetails {
 }
 
 /// Parses a numeric dead-letter header.
-#[cfg_attr(not(any(feature = "kafka", feature = "pulsar")), allow(dead_code))]
+#[cfg_attr(
+    not(any(feature = "kafka", feature = "pulsar", feature = "rabbitmq")),
+    allow(dead_code)
+)]
 pub(crate) fn parse_number<T>(name: &str, value: &str) -> anyhow::Result<T>
 where
     T: FromStr,

@@ -78,6 +78,22 @@ services:
       pulsar:
         condition: service_healthy
 
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test:
+        - CMD
+        - rabbitmq-diagnostics
+        - -q
+        - check_port_connectivity
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+
   # One-shot setup: creates the pulsar_orders example subscription at the
   # earliest position, so orders produced before the example's first run are
   # consumed, and creates the Pulsar Manager login admin / apachepulsar.

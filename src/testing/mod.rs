@@ -11,8 +11,12 @@ pub use record::TestRecord;
 pub use record::kafka_record;
 #[cfg(feature = "pulsar")]
 pub use record::pulsar_record;
+#[cfg(feature = "rabbitmq")]
+pub use record::rabbitmq_record;
 #[cfg(feature = "kafka")]
 pub use source::KafkaTestSource;
 #[cfg(feature = "pulsar")]
 pub use source::PulsarTestSource;
+#[cfg(feature = "rabbitmq")]
+pub use source::RabbitMqTestSource;
 pub use source::{TestMessage, TestSource};

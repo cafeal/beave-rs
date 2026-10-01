@@ -6,3 +6,6 @@ mod mapping;
 #[cfg(feature = "pulsar")]
 #[path = "metadata/pulsar.rs"]
 mod pulsar;
+#[cfg(feature = "rabbitmq")]
+#[path = "metadata/rabbitmq.rs"]
+mod rabbitmq;

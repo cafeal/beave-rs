@@ -9,14 +9,14 @@ tests only:
 beavers = { version = "0.1", features = ["testing", "kafka"] }
 ```
 
-The Kafka and Pulsar record types additionally need the `kafka` or `pulsar`
-feature, which an application testing those handlers already enables.
+The Kafka, Pulsar, and RabbitMQ record types additionally need the `kafka`,
+`pulsar`, or `rabbitmq` feature, which an application testing those handlers already enables.
 
 ## What each part covers
 
 | Need | Use |
 |---|---|
-| Feed Kafka or Pulsar records with chosen topic, partition, offset, key, headers, or properties | `KafkaTestSource<C, T>`, `PulsarTestSource<C, T>`, with `kafka_record` and `pulsar_record` |
+| Feed Kafka, Pulsar, or RabbitMQ records with chosen metadata, key, headers, or properties | `KafkaTestSource<C, T>`, `PulsarTestSource<C, T>`, `RabbitMqTestSource<C, T>`, with `kafka_record`, `pulsar_record`, and `rabbitmq_record` |
 | Feed bare payloads through a codec | `TestSource<C, T, Vec<u8>>` |
 | Check which records were acknowledged or left unacknowledged | `TestSource::deliveries()` |
 | Capture published outputs | `InMemorySink<T>` for the subscription's output type |
@@ -44,15 +44,18 @@ adapter the record type belongs to:
 | `Vec<u8>` | `T` | None | None |
 | `KafkaRecord<Vec<u8>>` | `KafkaRecord<T>` | Topic and partition | Headers with UTF-8 values |
 | `PulsarRecord<Vec<u8>>` | `PulsarRecord<T>` | Topic and partition index | Properties |
+| `RabbitMqRecord<Vec<u8>>` | `RabbitMqRecord<T>` | None | String headers |
 
 A null Kafka or Pulsar value stays `None` after decoding, as with the broker
 sources. The Pulsar ordering key is the partition scope of Exclusive and
 Failover subscriptions; the Key_Shared and Shared scopes of a real
-`PulsarSource` are not reproduced.
+`PulsarSource` are not reproduced. RabbitMQ deliveries have no ordering key, as
+for a source that is not configured as ordered.
 
 `new(records)` uses a default-constructed codec; `with_codec(records, codec)`
 accepts a configured one. `kafka_record(topic, partition, offset, value)` and
-`pulsar_record(topic, entry_id, value)` build records with empty optional
+`pulsar_record(topic, entry_id, value)`, and
+`rabbitmq_record(queue, delivery_tag, value)` build records with empty optional
 fields. Set the public fields for keys, headers, properties, timestamps, a
 partition topic's index, or a null value.
 
