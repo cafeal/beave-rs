@@ -154,6 +154,11 @@ completes and its response is sent.
 then waits until open connections have answered their current request.
 Dropping the source also stops the listener.
 
+Behind a load balancer, serve [health checks](../runtime.md#health-checks)
+with the `health` feature. Readiness fails as soon as shutdown starts, so a
+Kubernetes Service stops routing new requests to an instance before its source
+refuses them.
+
 ## Metrics
 
 The server records these metrics through the `metrics` facade, alongside the

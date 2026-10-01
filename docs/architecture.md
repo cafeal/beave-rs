@@ -22,6 +22,10 @@ src/
 ├── propagation.rs         # Trace-context carrier contract for outputs
 ├── telemetry.rs           # OpenTelemetry propagation (`opentelemetry` feature)
 ├── shutdown.rs            # Cancellation and process signals
+├── health/
+│   ├── mod.rs             # Module declarations and public re-exports
+│   ├── state.rs           # Health handle, reports, and per-subscription state
+│   └── server.rs          # Liveness and readiness probes (`health` feature)
 ├── testing/               # Test sources for fabricated records (`testing` feature)
 ├── codec/
 │   ├── mod.rs             # Decoder and Encoder contracts
