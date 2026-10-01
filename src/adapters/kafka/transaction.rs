@@ -8,7 +8,7 @@ use super::{
 use crate::{
     codec::{Decoder, Encoder},
     sink::Sink,
-    transaction::TransactionalSink,
+    transaction::{TransactionEntry, TransactionalSink},
 };
 use anyhow::Context as _;
 use rdkafka::{
@@ -20,6 +20,7 @@ use rdkafka::{
     util::Timeout,
 };
 use std::{
+    collections::BTreeMap,
     marker::PhantomData,
     sync::{
         Arc, Mutex,
@@ -91,7 +92,7 @@ impl<C, T> KafkaTransactionalSink<C, T> {
     async fn transact(
         &self,
         outputs: Vec<KafkaPrepared>,
-        offset: Option<SourceOffset>,
+        offsets: Option<SourceOffsets>,
     ) -> anyhow::Result<()> {
         let config = self.config.clone();
         let state = self.state.clone();
@@ -104,11 +105,11 @@ impl<C, T> KafkaTransactionalSink<C, T> {
             if slot.is_none() {
                 *slot = Some(connect(config.clone()).await?);
             }
-            if let Some(offset) = &offset {
-                offset.ensure_assigned()?;
+            if let Some(offsets) = &offsets {
+                offsets.ensure_assigned()?;
             }
             let producer = slot.clone().expect("connected producer");
-            let result = run(&producer, &config, &outputs, offset).await;
+            let result = run(&producer, &config, &outputs, offsets).await;
             if let Err(error) = &result
                 && !recover(&producer, config.sink.transaction_timeout, error).await
             {
@@ -199,55 +200,80 @@ where
 
     async fn commit(
         &self,
-        delivery: &KafkaMessage<D, U>,
-        outputs: &[Self::Prepared],
+        batch: &[TransactionEntry<'_, KafkaMessage<D, U>, Self::Prepared>],
     ) -> anyhow::Result<()> {
-        self.transact(outputs.to_vec(), Some(SourceOffset::new(delivery)))
-            .await
+        let outputs = batch
+            .iter()
+            .flat_map(|entry| entry.outputs.iter().cloned())
+            .collect();
+        let offsets = SourceOffsets::new(batch.iter().map(|entry| entry.delivery))?;
+        self.transact(outputs, offsets).await
     }
 }
 
-/// The consumer position a transaction commits for one delivery.
-struct SourceOffset {
+/// The consumer positions a transaction commits for a batch of deliveries.
+struct SourceOffsets {
     consumer: Arc<KafkaConsumer>,
     progress: Arc<Mutex<Progress>>,
     transactions: TransactionGate,
-    generation: u64,
-    partition: Partition,
-    offset: i64,
+    /// The assignment generation of every delivery in the batch.
+    deliveries: Vec<(u64, Partition)>,
+    /// The offset after the last delivery of each partition in the batch.
+    next: BTreeMap<Partition, (u64, i64)>,
 }
 
-impl SourceOffset {
-    fn new<D, U>(delivery: &KafkaMessage<D, U>) -> Self {
-        Self {
-            consumer: delivery.consumer.clone(),
-            progress: delivery.progress.clone(),
-            transactions: delivery.transactions.clone(),
-            generation: delivery.generation,
-            partition: (delivery.raw.topic().to_owned(), delivery.raw.partition()),
-            offset: delivery.raw.offset(),
+impl SourceOffsets {
+    /// Returns `None` for an empty batch. Fails when the deliveries come from
+    /// different consumers, because a transaction commits offsets with one
+    /// consumer's group metadata here.
+    fn new<'a, D: 'a, U: 'a>(
+        deliveries: impl IntoIterator<Item = &'a KafkaMessage<D, U>>,
+    ) -> anyhow::Result<Option<Self>> {
+        let mut offsets: Option<Self> = None;
+        for delivery in deliveries {
+            let offsets = offsets.get_or_insert_with(|| Self {
+                consumer: delivery.consumer.clone(),
+                progress: delivery.progress.clone(),
+                transactions: delivery.transactions.clone(),
+                deliveries: Vec::new(),
+                next: BTreeMap::new(),
+            });
+            anyhow::ensure!(
+                Arc::ptr_eq(&offsets.consumer, &delivery.consumer),
+                "a Kafka transaction batch contains deliveries of different consumers"
+            );
+            let partition = (delivery.raw.topic().to_owned(), delivery.raw.partition());
+            let next = (delivery.generation, delivery.raw.offset() + 1);
+            offsets
+                .next
+                .entry(partition.clone())
+                .and_modify(|current| *current = (*current).max(next))
+                .or_insert(next);
+            offsets.deliveries.push((delivery.generation, partition));
         }
+        Ok(offsets)
     }
 
-    /// Fails when the delivery's partition assignment has ended.
+    /// Fails when the partition assignment of any delivery has ended.
     fn ensure_assigned(&self) -> anyhow::Result<()> {
         if self.consumer.assignment_lost() {
             self.progress.lock().unwrap().revoke_all();
             anyhow::bail!("Kafka assignment was lost");
         }
-        anyhow::ensure!(
-            self.progress
-                .lock()
-                .unwrap()
-                .is_current(self.generation, &self.partition),
-            "Kafka delivery belongs to a revoked assignment"
-        );
+        let progress = self.progress.lock().unwrap();
+        for (generation, partition) in &self.deliveries {
+            anyhow::ensure!(
+                progress.is_current(*generation, partition),
+                "Kafka delivery belongs to a revoked assignment"
+            );
+        }
         Ok(())
     }
 
-    /// Adds the offset after this delivery to the open transaction and commits
-    /// it while holding the transaction gate, so a revoke of the partition waits
-    /// until the commit finishes and later commits see the revocation.
+    /// Adds the offset after the batch's last delivery of each partition to the
+    /// open transaction and commits it while holding the transaction gate, so a
+    /// revoke waits until the commit finishes and later commits see the
+    /// revocation.
     fn commit(&self, producer: &FutureProducer, timeout: Duration) -> anyhow::Result<()> {
         let _transactions = self.transactions.lock().unwrap();
         self.ensure_assigned()?;
@@ -256,17 +282,15 @@ impl SourceOffset {
             .group_metadata()
             .context("Kafka consumer has no group metadata")?;
         let mut offsets = TopicPartitionList::new();
-        offsets.add_partition_offset(
-            &self.partition.0,
-            self.partition.1,
-            Offset::Offset(self.offset + 1),
-        )?;
+        for ((topic, partition), (_, next)) in &self.next {
+            offsets.add_partition_offset(topic, *partition, Offset::Offset(*next))?;
+        }
         producer.send_offsets_to_transaction(&offsets, &metadata, timeout)?;
         commit(producer, timeout)?;
-        self.progress
-            .lock()
-            .unwrap()
-            .committed(self.generation, &self.partition, self.offset + 1);
+        let mut progress = self.progress.lock().unwrap();
+        for (partition, (generation, next)) in &self.next {
+            progress.committed(*generation, partition, *next);
+        }
         Ok(())
     }
 }
@@ -296,7 +320,7 @@ async fn run(
     producer: &FutureProducer,
     config: &Config,
     outputs: &[KafkaPrepared],
-    offset: Option<SourceOffset>,
+    offsets: Option<SourceOffsets>,
 ) -> anyhow::Result<()> {
     producer.begin_transaction()?;
     for output in outputs {
@@ -304,8 +328,8 @@ async fn run(
     }
     let producer = producer.clone();
     let timeout = config.sink.transaction_timeout;
-    tokio::task::spawn_blocking(move || match offset {
-        Some(offset) => offset.commit(&producer, timeout),
+    tokio::task::spawn_blocking(move || match offsets {
+        Some(offsets) => offsets.commit(&producer, timeout),
         None => Ok(commit(&producer, timeout)?),
     })
     .await?

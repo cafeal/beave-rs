@@ -51,8 +51,8 @@ pub use retry::{Jitter, RetryPolicy};
 pub use shutdown::CancellationToken;
 pub use sink::{Completion, PublishRejected, Sink};
 pub use source::{Receive, ReceiveError, Source, SourceItem, SourceRaw};
-pub use subscription::{ProcessingOrder, Subscription, SubscriptionConfig};
+pub use subscription::{ProcessingOrder, Subscription, SubscriptionConfig, TransactionBatch};
 #[cfg(feature = "opentelemetry")]
 pub use telemetry::TraceContext;
 pub use tombstone::{PropagateTombstones, TombstonePublish, TombstoneRecord, Tombstones};
-pub use transaction::TransactionalSink;
+pub use transaction::{TransactionEntry, TransactionalSink};

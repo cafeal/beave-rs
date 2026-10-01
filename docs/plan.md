@@ -67,21 +67,36 @@ when the registry is unavailable.
 
 Kafka-to-Kafka transactions are described in the
 [runtime guide](runtime.md#transactions) and the
-[Kafka guide](adapters/kafka.md#transactions). Remaining work:
+[Kafka guide](adapters/kafka.md#transactions), including the
+[batching](runtime.md#batches) of deliveries into one transaction. Remaining
+work:
 
-- Batch several deliveries into one Kafka transaction. Each delivery currently
-  commits its own transaction and one producer serializes them, so throughput
-  is bounded by commit latency. A batch must close on a size or time limit,
-  commit each partition's highest contiguous offset, and abort and retry every
-  delivery in it together.
 - A commit that times out after its retriable retries has an unknown outcome.
   The transaction is then aborted or its producer replaced, and the retry can
-  duplicate outputs if the timed-out commit had in fact completed.
+  duplicate outputs if the timed-out commit had in fact completed. Batching
+  widens this to every delivery of the batch.
+- A rejected batch commit (`PublishRejected`) cannot be attributed to one
+  delivery, so it stops the subscription instead of being routed by the error
+  policy. Committing the batch's deliveries one by one would identify the
+  rejected output, but its failure routing must finish before later batches
+  commit past it.
+- The Kafka sink commits a batch of one source only; a batch with deliveries of
+  several consumers fails. Several subscriptions sharing one transactional sink
+  each form their own batches and serialize on its producer.
 
 The ignored `transactional_pipeline_commits_outputs_with_offsets` test passes
-against a single-node Kafka 3.9 broker. Failure and rebalance paths have not
-been verified against a live broker. Verify with Kafka:
+against a single-node Kafka 3.9 broker with the default `TransactionBatch`.
+Failure and rebalance paths of batched commits have not been verified against
+a live broker. Verify with Kafka:
 
+- A batch with deliveries of several partitions commits the offset after each
+  partition's last delivery, and the committed offsets match the outputs
+  visible to `read_committed` consumers.
+- Throughput and commit latency for the default `TransactionBatch` and for
+  larger batches, and a batch whose outputs approach `transaction.timeout.ms`.
+- A revoke during a batch's commit aborts it, the retry without the revoked
+  partition's deliveries commits, and the revoked records are reprocessed by the
+  next owner.
 - Outputs of an aborted transaction stay invisible to `read_committed`
   consumers, and the retried delivery commits once.
 - A revoke waits for a commit in progress, and a delivery of the revoked
@@ -200,7 +215,7 @@ message attributes) before implementation.
 | 1 | Adapter pause/resume backpressure and graceful rebalance handoff |
 | 2 | Cross-platform metadata mapping policy |
 | 3 | Observability refinements |
-| 4 | Kafka transaction batching |
+| 4 | Live verification of batched Kafka transactions |
 | 5 | NATS JetStream and AWS SQS adapters |
 | 6 | Schema Registry and additional codecs |
 

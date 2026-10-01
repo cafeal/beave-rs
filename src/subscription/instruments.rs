@@ -54,6 +54,7 @@ impl Stage {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct Instruments {
     pub(super) received: Counter,
     pub(super) acknowledged: Counter,
@@ -63,6 +64,8 @@ pub(super) struct Instruments {
     pub(super) publish_failures: Counter,
     pub(super) dead_letter_publish_failures: Counter,
     pub(super) in_flight: Gauge,
+    /// Deliveries committed by each transaction of a transactional subscription.
+    pub(super) transaction_deliveries: Histogram,
     /// Health state the runtime reports while it receives and publishes.
     pub(super) health: Arc<Tracker>,
     failures: [Counter; 5],
@@ -88,6 +91,7 @@ impl Instruments {
             publish_failures: publish_failures("output"),
             dead_letter_publish_failures: publish_failures("dead_letter"),
             in_flight: gauge!("beavers_deliveries_in_flight", "subscription" => name.clone()),
+            transaction_deliveries: histogram!("beavers_transaction_deliveries", "subscription" => name.clone()),
             health,
             failures: KINDS.map(|kind| {
                 let action = effective_action(policy, kind, has_dead_letter_sink);

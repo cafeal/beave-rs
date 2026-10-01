@@ -44,9 +44,9 @@ impl Completion {
 /// does not retry a rejected output and routes the delivery through the
 /// error policy as [`FailureKind::PublishRejected`](crate::FailureKind::PublishRejected)
 /// instead of stopping the subscription. It is recognized on errors returned by
-/// [`Sink::publish`], [`Sink::submit`], and
-/// [`TransactionalSink::commit`](crate::TransactionalSink::commit), not on a
-/// failed [`Completion`].
+/// [`Sink::publish`] and [`Sink::submit`], not on a failed [`Completion`]. A
+/// rejected [`TransactionalSink::commit`](crate::TransactionalSink::commit)
+/// fails its whole batch instead.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PublishRejected;
 

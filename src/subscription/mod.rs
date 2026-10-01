@@ -7,6 +7,7 @@ mod instruments;
 mod processing;
 mod runtime;
 mod scheduler;
+mod transaction;
 
 pub use builder::Subscription;
-pub use config::{ProcessingOrder, SubscriptionConfig};
+pub use config::{ProcessingOrder, SubscriptionConfig, TransactionBatch};

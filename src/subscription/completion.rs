@@ -1,7 +1,9 @@
 //! The final stage of a delivery: prepare outputs, publish them, and acknowledge.
 use super::{
+    config::SubscriptionConfig,
     instruments::{Instruments, Stage},
     processing::retry_publish,
+    transaction::Batcher,
 };
 use crate::{
     message::SourceMessage,
@@ -11,7 +13,12 @@ use crate::{
 };
 use anyhow::Context as _;
 use metrics::Counter;
-use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc, time::Instant};
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 use tracing::{Instrument, info_span};
 
 pub(super) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -22,6 +29,9 @@ pub(super) enum Completion<M> {
     /// Every output was submitted but some have not completed yet; the delivery is
     /// returned unacknowledged, to be acknowledged once they succeed.
     Pending(M, Vec<sink::Completion>),
+    /// The delivery joined a transaction that has not committed yet; the
+    /// completion resolves when that transaction acknowledges it.
+    Committing(sink::Completion),
     /// Preparing an output failed before anything was published; the
     /// delivery is returned unacknowledged for failure routing.
     Encode(M, anyhow::Error),
@@ -32,6 +42,9 @@ pub(super) enum Completion<M> {
 
 /// Completes deliveries of one subscription with the sink's output.
 pub(super) trait Complete<M, O>: Send + Sync + 'static {
+    /// Starts background work before the subscription receives its first
+    /// delivery.
+    fn start(&self, _config: &SubscriptionConfig, _instruments: &Instruments) {}
     /// Prepares every output, then publishes them and acknowledges `delivery`.
     /// With no outputs, only acknowledges `delivery`.
     fn complete<'a>(
@@ -123,23 +136,42 @@ where
     }
 }
 
-/// Publishes outputs and acknowledges the delivery in one sink transaction.
-pub(super) struct Transact<K, O> {
-    pub(super) sink: Arc<K>,
-    pub(super) marker: PhantomData<fn(O)>,
+/// Publishes outputs and acknowledges deliveries in batched sink transactions.
+pub(super) struct Transact<K: Sink<O>, M, O> {
+    sink: Arc<K>,
+    batcher: Mutex<Option<Batcher<M, K::Prepared>>>,
 }
 
-impl<M, O, K> Complete<M, O> for Transact<K, O>
+impl<K: Sink<O>, M, O> Transact<K, M, O> {
+    pub(super) fn new(sink: Arc<K>) -> Self {
+        Self {
+            sink,
+            batcher: Mutex::new(None),
+        }
+    }
+}
+
+impl<M, O, K> Complete<M, O> for Transact<K, M, O>
 where
     M: SourceMessage + Sync,
     O: Send + 'static,
     K: TransactionalSink<M, O>,
 {
+    fn start(&self, config: &SubscriptionConfig, instruments: &Instruments) {
+        let batcher = Batcher::spawn(
+            self.sink.clone(),
+            config.transaction_batch,
+            config.publish_retry.clone(),
+            instruments.clone(),
+        );
+        *self.batcher.lock().unwrap() = Some(batcher);
+    }
+
     fn complete<'a>(
         &'a self,
         delivery: M,
         outputs: Vec<O>,
-        policy: &'a RetryPolicy,
+        _: &'a RetryPolicy,
         instruments: &'a Instruments,
     ) -> BoxFuture<'a, anyhow::Result<Completion<M>>> {
         Box::pin(async move {
@@ -147,26 +179,15 @@ where
                 Ok(outputs) => outputs,
                 Err(error) => return Ok(Completion::Encode(delivery, error)),
             };
-            let started = Instant::now();
-            // Each retry commits a new transaction with the same prepared outputs.
-            let committed = retry_publish(
-                policy,
-                &instruments.publish_failures,
-                Some(&instruments.health),
-                || self.sink.commit(&delivery, &outputs),
-            )
-            .instrument(info_span!("commit", outputs = outputs.len()))
-            .await;
-            match committed {
-                Ok(()) => {}
-                Err(error) if PublishRejected::is(&error) => {
-                    return Ok(Completion::Rejected(delivery, error));
-                }
-                Err(error) => return Err(error),
-            }
-            instruments.record(Stage::Commit, started);
-            instruments.acknowledged.increment(1);
-            Ok(Completion::Done)
+            let enlister = self
+                .batcher
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(Batcher::enlister)
+                .context("transaction batching has not started")?;
+            let committed = enlister.enlist(delivery, outputs).await?;
+            Ok(Completion::Committing(committed))
         })
     }
 
@@ -186,7 +207,14 @@ where
     }
 
     fn close(&self) -> BoxFuture<'_, anyhow::Result<()>> {
-        Box::pin(self.sink.close())
+        Box::pin(async move {
+            let batcher = self.batcher.lock().unwrap().take();
+            let batched = match batcher {
+                Some(batcher) => batcher.close().await,
+                None => Ok(()),
+            };
+            batched.and(self.sink.close().await)
+        })
     }
 }
 

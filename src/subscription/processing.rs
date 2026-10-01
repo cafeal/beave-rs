@@ -86,6 +86,9 @@ where
                 Completion::Pending(delivery, completions) => {
                     return Ok(Some(await_completions(delivery, completions, pipeline)));
                 }
+                Completion::Committing(committed) => {
+                    return Ok(Some(await_commit(committed, pipeline)));
+                }
                 Completion::Encode(delivery, error) => {
                     let failure = Failure {
                         kind: FailureKind::Encode,
@@ -93,7 +96,7 @@ where
                         attempts,
                         input: Some(input),
                     };
-                    return route(delivery, &pipeline, failure).await.map(|()| None);
+                    return route(delivery, pipeline, failure).await;
                 }
                 Completion::Rejected(delivery, error) => {
                     let failure = Failure {
@@ -102,7 +105,7 @@ where
                         attempts,
                         input: Some(input),
                     };
-                    return route(delivery, &pipeline, failure).await.map(|()| None);
+                    return route(delivery, pipeline, failure).await;
                 }
             },
             Err(failure) => failure,
@@ -114,7 +117,7 @@ where
             input: None,
         },
     };
-    route(delivery, &pipeline, failure).await.map(|()| None)
+    route(delivery, pipeline, failure).await
 }
 
 /// The job ends before this runs and frees its slot; the acknowledgement follows
@@ -144,9 +147,32 @@ where
     })
 }
 
+/// The job ends before this runs and frees its slot; the delivery counts as
+/// acknowledged once the transaction containing it commits.
+fn await_commit<M, O>(
+    committed: crate::sink::Completion,
+    pipeline: Arc<Pipeline<M, O>>,
+) -> PendingAck
+where
+    M: SourceMessage,
+    O: Send + Sync + 'static,
+{
+    Box::pin(async move {
+        committed
+            .wait()
+            .await
+            .map_err(|error| error.context("transaction commit failed"))?;
+        pipeline.instruments.acknowledged.increment(1);
+        Ok(())
+    })
+}
+
 /// Acknowledges a delivery without output through the completion stage, so a
 /// transactional subscription commits it in a transaction as well.
-async fn acknowledge<M, O>(delivery: M, pipeline: &Pipeline<M, O>) -> anyhow::Result<()>
+async fn acknowledge<M, O>(
+    delivery: M,
+    pipeline: Arc<Pipeline<M, O>>,
+) -> anyhow::Result<Option<PendingAck>>
 where
     M: SourceMessage,
     O: Send + Sync + 'static,
@@ -161,9 +187,12 @@ where
         )
         .await?
     {
-        Completion::Done => Ok(()),
+        Completion::Done => Ok(None),
         // Without outputs nothing is submitted, so nothing can be pending.
-        Completion::Pending(delivery, _) => ack_delivery(delivery, &pipeline.instruments).await,
+        Completion::Pending(delivery, _) => ack_delivery(delivery, &pipeline.instruments)
+            .await
+            .map(|()| None),
+        Completion::Committing(committed) => Ok(Some(await_commit(committed, pipeline))),
         Completion::Encode(_, error) | Completion::Rejected(_, error) => Err(error),
     }
 }
@@ -286,11 +315,13 @@ where
     Ok(output)
 }
 
+/// Routes a failure; returns the acknowledgement still waiting for a
+/// transaction to commit, if any.
 async fn route<M, O>(
     delivery: M,
-    pipeline: &Pipeline<M, O>,
+    pipeline: Arc<Pipeline<M, O>>,
     failure: Failure<M::Item>,
-) -> anyhow::Result<()>
+) -> anyhow::Result<Option<PendingAck>>
 where
     M: SourceMessage,
     O: Send + Sync + 'static,

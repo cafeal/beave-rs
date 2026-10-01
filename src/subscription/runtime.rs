@@ -71,6 +71,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                 instruments,
             }),
         };
+        output.start(&self.config, &worker.pipeline.instruments);
         let concurrency = self.config.concurrency;
         let max_in_flight = self.config.max_in_flight;
         let mut scheduler = Scheduler::new(self.config.ordering);
