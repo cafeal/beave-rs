@@ -20,6 +20,7 @@ avro = ["dep:apache-avro"]
 protobuf = ["dep:prost"]
 kafka = ["dep:rdkafka"]
 pulsar = ["dep:magnetar", "dep:base64", "dep:bytes", "dep:futures-util"]
+rabbitmq = ["dep:lapin", "dep:futures-util"]
 opentelemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 testing = []
 http = ["dep:hyper", "dep:hyper-util", "dep:hyper-rustls", "dep:rustls", "dep:http-body-util", "dep:bytes", "tokio/net"]
@@ -34,6 +35,12 @@ package = "magnetar-driver"
 version = "1.7"
 default-features = false
 features = ["tokio", "crypto-ring"]
+optional = true
+
+[dependencies.lapin]
+version = "4.12"
+default-features = false
+features = ["tokio", "rustls--ring", "rustls-native-certs"]
 optional = true
 
 [dependencies.base64]

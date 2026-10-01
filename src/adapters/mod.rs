@@ -18,7 +18,9 @@ pub use channel::{
 pub mod http;
 #[cfg(feature = "kafka")]
 pub mod kafka;
-#[cfg(any(feature = "kafka", feature = "pulsar"))]
+#[cfg(any(feature = "kafka", feature = "pulsar", feature = "rabbitmq"))]
 mod pending;
 #[cfg(feature = "pulsar")]
 pub mod pulsar;
+#[cfg(feature = "rabbitmq")]
+pub mod rabbitmq;

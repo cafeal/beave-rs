@@ -325,6 +325,31 @@ fixed rule. Remaining decisions:
 - custom root certificates, client certificates, and HTTP/2;
 - batching several outputs into one request for destinations with bulk APIs.
 
+The [RabbitMQ adapter](adapters/rabbitmq.md) consumes one queue and publishes
+to one exchange. Remaining decisions:
+
+- sending a rejected message again on a new channel, as the Pulsar sink does,
+  instead of stopping the subscription when a channel is lost before its
+  publisher confirmation arrives;
+- whether an error policy should be able to reject a delivery
+  (`basic.reject` without requeue) so RabbitMQ's dead-letter exchange receives
+  it, instead of publishing dead letters through a sink;
+- several queues per source, consumer priorities, and RabbitMQ streams;
+- configured TLS client certificates beyond what `amqps://` URIs provide.
+
+The ignored RabbitMQ live tests cover publication with confirmations, ACK,
+redelivery after close, revocation after a connection is closed by the broker,
+unroutable messages, and a forwarding pipeline against a single RabbitMQ 4.1
+node. Verify with
+RabbitMQ:
+
+- a broker restart and a network partition, where heartbeats rather than a
+  closed socket detect the loss;
+- publisher confirmations of persistent messages on quorum queues under load,
+  and `max_pending` against RabbitMQ's flow control;
+- a single-active-consumer queue with `ordered` sources on several instances,
+  including the handover when the active consumer stops.
+
 Each broker adapter must define its native record and publish types, ACK model,
 redelivery behavior, ordering scope, cancellation behavior, connection
 lifecycle, and mapping of trace-context propagation fields (NATS headers, SQS
@@ -338,7 +363,7 @@ message attributes) before implementation.
 | 2 | Cross-platform metadata mapping policy |
 | 3 | Observability refinements |
 | 4 | Live verification of batched Kafka transactions |
-| 5 | NATS JetStream and AWS SQS adapters |
+| 5 | AWS SQS and NATS JetStream adapters |
 | 6 | Schema Registry and additional codecs |
 
 The order may change when a concrete application requires a later capability.
