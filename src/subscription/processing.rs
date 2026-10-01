@@ -8,6 +8,7 @@ use crate::{
     dead_letter::DeadLetter,
     error_policy::{ErrorPolicy, FailureAction, FailureKind},
     handler::HandlerError,
+    health::Tracker,
     message::SourceMessage,
     middleware::Flow,
     retry::RetryPolicy,
@@ -348,17 +349,20 @@ where
     }
 }
 
-/// Retries a failed publication under `policy`. A rejection is returned without
-/// retrying.
+/// Publishes with retries. With `health`, the delivery counts as retrying its
+/// publication from the first failure until it succeeds or gives up. A rejection
+/// is returned without retrying.
 pub(super) async fn retry_publish<T, F, Fut>(
     policy: &RetryPolicy,
     failures: &Counter,
+    health: Option<&Tracker>,
     mut publish: F,
 ) -> anyhow::Result<T>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = anyhow::Result<T>>,
 {
+    let mut retrying = None;
     let mut attempt = 1;
     loop {
         let result = publish().await;
@@ -373,6 +377,9 @@ where
             }
             Err(error) => {
                 debug!(attempt, error = format!("{error:#}"), "retrying publish");
+                if retrying.is_none() {
+                    retrying = health.map(Tracker::publish_retry);
+                }
                 tokio::time::sleep(policy.delay(attempt)).await;
                 attempt += 1;
             }

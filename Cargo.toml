@@ -21,6 +21,7 @@ kafka = ["dep:rdkafka"]
 pulsar = ["dep:magnetar", "dep:base64", "dep:bytes", "dep:futures-util"]
 opentelemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 http = ["dep:hyper", "dep:hyper-util", "dep:hyper-rustls", "dep:rustls", "dep:http-body-util", "dep:bytes", "tokio/net"]
+health = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "tokio/net"]
 
 [dependencies.rdkafka]
 version = "0.39"

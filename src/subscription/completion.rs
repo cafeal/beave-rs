@@ -79,7 +79,11 @@ where
                 let failures = &instruments.publish_failures;
                 let rejected = async {
                     for output in &outputs {
-                        match retry_publish(policy, failures, || self.0.submit(output)).await {
+                        match retry_publish(policy, failures, Some(&instruments.health), || {
+                            self.0.submit(output)
+                        })
+                        .await
+                        {
                             Ok(completion) => completions.push(completion),
                             Err(error) if PublishRejected::is(&error) => return Ok(Some(error)),
                             Err(error) => return Err(error),
@@ -145,9 +149,12 @@ where
             };
             let started = Instant::now();
             // Each retry commits a new transaction with the same prepared outputs.
-            let committed = retry_publish(policy, &instruments.publish_failures, || {
-                self.sink.commit(&delivery, &outputs)
-            })
+            let committed = retry_publish(
+                policy,
+                &instruments.publish_failures,
+                Some(&instruments.health),
+                || self.sink.commit(&delivery, &outputs),
+            )
             .instrument(info_span!("commit", outputs = outputs.len()))
             .await;
             match committed {
@@ -169,7 +176,7 @@ where
         policy: &'a RetryPolicy,
     ) -> BoxFuture<'a, anyhow::Result<M>> {
         Box::pin(async move {
-            retry_publish(policy, &Counter::noop(), || {
+            retry_publish(policy, &Counter::noop(), None, || {
                 self.sink.verify_source(&delivery)
             })
             .await
