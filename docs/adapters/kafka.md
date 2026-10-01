@@ -1,16 +1,20 @@
 # Kafka adapter
 
 The optional `kafka` feature provides typed Kafka source and sink adapters
-backed by `rdkafka`. Both adapters validate their configuration when first used,
-then create their Kafka clients lazily. This lets applications construct their
-pipeline before a broker is reachable.
+backed by `rdkafka`.
 
 ```toml
 beavers = { version = "0.1", features = ["kafka"] }
 ```
 
-`KafkaRecord<T>` is the decoded input, including immutable delivery metadata;
-`KafkaPublish<T>` is the user-controlled output accepted by the sink:
+## Configuration
+
+`KafkaSourceConfig` takes the bootstrap brokers, consumer group, and topics;
+`KafkaSinkConfig` takes the brokers and the topic every output is published to.
+Both accept additional librdkafka settings in `properties`. `validate` checks
+the values without contacting a broker. Both adapters validate their
+configuration when first used, then create their Kafka clients lazily, so an
+application can construct its pipeline before a broker is reachable.
 
 ```rust
 use beavers::{Utf8, adapters::kafka::{KafkaPublish, KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig}};
@@ -28,28 +32,60 @@ let sink = KafkaSink::<Utf8, String>::new(KafkaSinkConfig::new(
 let output = KafkaPublish::new("created".to_owned());
 ```
 
+## Records
+
+`KafkaRecord<T>` is the decoded input, including immutable delivery metadata;
+`KafkaPublish<T>` is the user-controlled output accepted by the sink.
 The value is decoded and encoded by the selected codec. `key` and header values
 remain bytes. A Kafka null payload becomes `KafkaRecord { value: None, .. }`,
 which supports tombstones without inventing a sentinel value. Records decoded
 from a source carry `KafkaMetadata` with topic, partition, offset, and
-timestamp. `KafkaPublish` has no source metadata, so source location is never
-implicitly copied into producer routing.
+timestamp. `KafkaPublish` has no source metadata, so input metadata is never
+inherited implicitly. The sink always publishes to its
+configured topic and lets Kafka choose a partition from the explicit key. It
+does not copy a source partition, offset, timestamp, or topic into output.
 
 The raw form of a `KafkaMessage` is a `KafkaRecord<Vec<u8>>` with the undecoded
 value bytes. Dead letters carry it, so the original value, key, headers, and
 delivery metadata survive even when decoding fails. `KafkaRecord` implements
-`Serialize` when its value does. `KafkaPublish::from_dead_letter` forwards a
-dead letter to a Kafka topic with its original record and failure headers, and
-`KafkaDeadLetter::from_record` reads them back; see
-[forwarding dead letters](../runtime.md#forwarding-dead-letters-to-a-broker-topic).
+`Serialize` when its value does.
 
-Input metadata is never inherited implicitly. The sink always publishes to its
-configured topic and lets Kafka choose a partition from the explicit key. It
-does not copy a source partition, offset, timestamp, or topic into output.
-`prepare` encodes the nullable value, key, and headers once; publication retries
-reuse that prepared value.
+## Acknowledgements and ordering
+
+The source disables Kafka auto-commit and auto-offset-store. A successful ACK
+records a completed delivery and commits up to the first unfinished delivery
+of that topic partition, or past the last received delivery when all are
+finished. Because Kafka delivers a partition in offset order, offsets missing
+between received deliveries, such as compacted records or transaction markers,
+do not hold the commit back. A completion after an earlier in-flight offset
+cannot advance the commit. Broker commit failures leave completed local
+progress in place, so a later acknowledgement can retry the same position.
+
+Each delivery's ordering key is its topic partition. Under the default
+`ProcessingOrder::PerKey`, a subscription processes one record at a time per
+partition, in offset order, while different partitions run in parallel up to
+the subscription's `concurrency`. With `ProcessingOrder::Unordered`, records of
+one partition can complete out of order; the commit still never skips an
+unfinished record.
+
+Each partition assignment has its own generation and revocation token. When
+Kafka revokes a partition, or the adapter detects that its assignment was lost,
+the token is cancelled. The runtime abandons that partition's running and
+queued deliveries without ACK or subscription failure; handlers are not
+notified. Acknowledgements from an old generation are rejected, so they never
+commit into a newer assignment. Records of a partition that is not currently
+assigned, such as records fetched before a revoke, are skipped by `receive`.
+A publication that completed before the revoke is not undone, and the new owner
+reprocesses the record from the last committed offset.
+
+`StreamConsumer::recv` is cancellation-safe in rdkafka 0.39. Dropping a pending
+source receive does not consume a record. Dropping a received `KafkaMessage`
+does not acknowledge it.
 
 ## Publication
+
+`prepare` encodes the nullable value once; publication retries reuse that
+prepared record.
 
 `KafkaSink::submit` returns once the producer has queued the record, with a
 completion that resolves on the record's delivery report. The runtime frees the
@@ -116,33 +152,14 @@ skip, or propagate them before the handler runs; see
 `KafkaPublish::tombstone` with the received key and rejects a tombstone without
 a key.
 
-## Acknowledgements and ordering
+## Dead letters
 
-The source disables Kafka auto-commit and auto-offset-store. A successful ACK
-records a completed delivery and commits up to the first unfinished delivery
-of that topic partition, or past the last received delivery when all are
-finished. Because Kafka delivers a partition in offset order, offsets missing
-between received deliveries, such as compacted records or transaction markers,
-do not hold the commit back. A completion after an earlier in-flight offset
-cannot advance the commit. Broker commit failures leave completed local
-progress in place, so a later acknowledgement can retry the same position.
+`KafkaPublish::from_dead_letter` forwards a dead letter to a Kafka topic with
+its original record and failure headers, and `KafkaDeadLetter::from_record`
+reads them back; see
+[forwarding dead letters](../runtime.md#forwarding-dead-letters-to-a-broker-topic).
 
-Each delivery's ordering key is its topic partition. Under the default
-`ProcessingOrder::PerKey`, a subscription processes one record at a time per
-partition, in offset order, while different partitions run in parallel up to
-the subscription's `concurrency`. With `ProcessingOrder::Unordered`, records of
-one partition can complete out of order; the commit still never skips an
-unfinished record.
-
-Each partition assignment has its own generation and revocation token. When
-Kafka revokes a partition, or the adapter detects that its assignment was lost,
-the token is cancelled. The runtime abandons that partition's running and
-queued deliveries without ACK or subscription failure; handlers are not
-notified. Acknowledgements from an old generation are rejected, so they never
-commit into a newer assignment. Records of a partition that is not currently
-assigned, such as records fetched before a revoke, are skipped by `receive`.
-A publication that completed before the revoke is not undone, and the new owner
-reprocesses the record from the last committed offset.
+## Delivery guarantees
 
 With a `KafkaSink`, producer publication and source offset commits are separate
 operations, so a failure or rebalance between them can produce duplicates.
@@ -150,10 +167,6 @@ Because publication is pipelined, a crash can leave records whose reports had
 not arrived; their inputs are uncommitted and are reprocessed. Use
 a [transactional subscription](#transactions) to make them atomic. The adapter
 does not delay a rebalance to let in-flight work finish.
-
-`StreamConsumer::recv` is cancellation-safe in rdkafka 0.39. Dropping a pending
-source receive does not consume a record. Dropping a received `KafkaMessage`
-does not acknowledge it.
 
 ## Transactions
 

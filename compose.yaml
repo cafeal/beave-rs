@@ -1,5 +1,5 @@
 # Local development brokers for examples and ignored live tests.
-# See docs/local-brokers.md for usage.
+# See docs/development.md for usage.
 
 name: beavers
 

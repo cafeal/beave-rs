@@ -40,7 +40,10 @@ src/
 │   └── processing.rs      # Private per-message processing lifecycle
 └── adapters/
     ├── mod.rs
-    ├── channel.rs         # Chained subscriptions with deferred upstream ACK
+    ├── channel/           # Chained subscriptions with deferred upstream ACK
+    ├── kafka/, pulsar/,   # Broker adapters (optional features), each with
+    │   http/              #   config, record, source, and sink modules
+    ├── pending.rs         # Private bound on unconfirmed broker publications
     ├── iter.rs
     ├── memory.rs
     ├── stdin.rs

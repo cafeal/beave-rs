@@ -102,5 +102,10 @@ appropriate when they isolate a substantial state machine or lifecycle.
 - Documentation and comments describe current contracts, rationale that remains
   relevant, and real limitations. Do not leave review history, temporary notes,
   agent activity, or implementation worklogs in the repository.
+- Give each broker adapter guide in `docs/adapters/` these sections, in this
+  order, omitting those that do not apply: Configuration, Records,
+  Acknowledgements and ordering, Publication, Metadata inheritance, Tombstones,
+  Dead letters, and Delivery guarantees. Adapter-specific sections, such as
+  Kafka transactions, follow them.
 - Keep `docs/plan.md` focused on future work and unresolved decisions. Move
   completed designs into the durable documentation for the implemented API.

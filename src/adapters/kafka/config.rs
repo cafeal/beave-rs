@@ -1,3 +1,4 @@
+use crate::adapters::pending::PendingLimit;
 use std::{collections::HashMap, time::Duration};
 
 #[derive(Clone, Debug)]
@@ -81,11 +82,7 @@ impl KafkaSinkConfig {
             "Kafka brokers are required"
         );
         anyhow::ensure!(!self.topic.trim().is_empty(), "Kafka topic is required");
-        anyhow::ensure!(
-            (1..=tokio::sync::Semaphore::MAX_PERMITS).contains(&self.max_pending),
-            "Kafka sink max_pending must be between 1 and {}",
-            tokio::sync::Semaphore::MAX_PERMITS
-        );
+        PendingLimit::validate(self.max_pending, "Kafka")?;
         anyhow::ensure!(
             !self.properties.contains_key(TRANSACTIONAL_ID),
             "set the Kafka transactional ID with KafkaSink::transactional"

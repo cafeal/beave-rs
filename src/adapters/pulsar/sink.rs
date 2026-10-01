@@ -1,5 +1,6 @@
 use super::{config::PulsarSinkConfig, producer::Producers, record::PulsarPublish};
 use crate::{
+    adapters::pending::PendingLimit,
     codec::Encoder,
     sink::{Completion, Sink},
 };
@@ -11,7 +12,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-use tokio::sync::{OwnedRwLockReadGuard, RwLock, Semaphore};
+use tokio::sync::{OwnedRwLockReadGuard, RwLock};
 
 /// Encoded Pulsar output. Clones can be retried without rerunning the codec.
 #[derive(Clone, Debug, Default)]
@@ -81,7 +82,7 @@ pub struct PulsarSink<C, T> {
     connection: Connection,
     codec: Arc<C>,
     /// One permit per message awaiting its broker receipt.
-    pending: Arc<Semaphore>,
+    pending: PendingLimit,
     marker: PhantomData<fn(T)>,
 }
 
@@ -94,9 +95,7 @@ impl<C: Default, T> PulsarSink<C, T> {
 impl<C, T> PulsarSink<C, T> {
     pub fn with_codec(config: PulsarSinkConfig, codec: C) -> Self {
         Self {
-            pending: Arc::new(Semaphore::new(
-                config.max_pending.min(Semaphore::MAX_PERMITS),
-            )),
+            pending: PendingLimit::new(config.max_pending, "Pulsar"),
             connection: Connection::new(config),
             codec: Arc::new(codec),
             marker: PhantomData,
@@ -119,8 +118,7 @@ impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarS
     /// on its broker receipt and keeps `close` waiting until then.
     async fn submit(&self, output: &Self::Prepared) -> anyhow::Result<Completion> {
         let producers = self.connection.producers().await?;
-        let permit = (self.pending.clone().acquire_owned().await)
-            .map_err(|_| anyhow::anyhow!("Pulsar sink is closed"))?;
+        let permit = self.pending.acquire().await?;
         let receipt = producers.route(output).enqueue(output);
         Ok(Completion::pending(async move {
             let _held = (producers, permit);
