@@ -1,4 +1,5 @@
 //! Preparing output is separate from transport publication and its retries.
+use crate::message::SourceMessage;
 use std::{fmt, future::Future, pin::Pin};
 
 type CompletionFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
@@ -73,6 +74,22 @@ pub trait Sink<T>: Send + Sync + 'static {
     type Prepared: Send + Sync + 'static;
     /// Validate and encode once, before any publish attempts. No publishing here.
     fn prepare(&self, value: T) -> anyhow::Result<Self::Prepared>;
+    /// Like [`prepare`](Self::prepare), with the delivery whose handler produced
+    /// `value`. The runtime prepares a delivery's outputs with this method; dead
+    /// letters and direct callers use `prepare`.
+    ///
+    /// The default ignores the delivery. A sink overrides it when an output keeps
+    /// facts of its delivery that the handler does not see, as a
+    /// [`ChannelSink`](crate::ChannelSink) keeps the ordering key and raw form for
+    /// the next subscription.
+    fn prepare_from<M: SourceMessage>(
+        &self,
+        value: T,
+        delivery: &M,
+    ) -> anyhow::Result<Self::Prepared> {
+        let _ = delivery;
+        self.prepare(value)
+    }
     /// Success means the output reached this sink's acknowledgement boundary.
     /// Retrying the same prepared output must not rerun encoding or routing.
     /// An error marked with [`PublishRejected`] is not retried.

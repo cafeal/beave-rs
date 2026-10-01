@@ -27,8 +27,8 @@ encoded. A capacity of zero panics, following `tokio::sync::mpsc::channel`.
 Channels can be chained to build pipelines of more than two stages.
 
 Application code can also call `Sink::publish` on a `ChannelSink` created by
-`channel` directly. The call returns once the downstream subscription has
-finished the value. To use subscriptions as an in-process worker framework
+`channel` directly, with a `ChannelOutput::from(value)`. The call returns once
+the downstream subscription has finished the value. To use subscriptions as an in-process worker framework
 instead, use the [application ends](#application-ends).
 
 ## Delivery and completion
@@ -65,17 +65,48 @@ Outputs of one upstream delivery, including each value of `Emit::Many`, are
 enqueued in order, and the delivery is acknowledged after all of them complete.
 With `ProcessingOrder::PerKey`, the next delivery of a key starts once the
 previous one has enqueued its outputs, so values of one key enter the channel in
-order. Channel deliveries carry no ordering key of their own.
+order.
+
+Each channel delivery carries the ordering key of the upstream delivery that
+produced it, such as a Kafka topic partition. A downstream subscription with
+`ProcessingOrder::PerKey` therefore processes the values of one upstream key in
+order, while values of other keys run concurrently. Values sent by application
+code have no ordering key.
 
 ## Metadata and tracing
 
-A channel carries only the typed value. Broker metadata of the original
-delivery, such as Kafka keys and headers, reaches the downstream stage only when
+A downstream handler receives only the typed value. Broker metadata of the
+original delivery, such as Kafka keys and headers, reaches the handler only when
 the value contains it: an upstream handler can return a `KafkaRecord<U>`
 built from its input, and the downstream stage can then use
-`Subscription::forward` into a Kafka sink to inherit that metadata. Channel
-deliveries have no undecoded form, so downstream dead letters carry the value
-as their input and `()` as their raw delivery.
+`Subscription::forward` into a Kafka sink to inherit that metadata.
+
+The channel also keeps the upstream delivery's raw form, captured with
+`Sink::prepare_from` when the upstream subscription prepares the value. The
+downstream delivery's raw form is a `ChannelRaw` holding it, so downstream dead
+letters carry the value as their input and the original record, such as a
+`KafkaRecord<Vec<u8>>` with its payload bytes, key, headers, and offset, as
+their raw delivery. Through several channels, `ChannelRaw` stays the delivery
+of the first subscription. It serializes as that record, so a JSON dead-letter
+sink publishes it unchanged, and `ChannelRaw::downcast_ref` reads it as its
+concrete type in `dlq_with`:
+
+```rust,ignore
+type Raw = KafkaRecord<Vec<u8>>;
+
+Subscription::new("score", fetched, kafka_sink, score)
+    .dlq_with(dead_letter_sink, |dead_letter: DeadLetter<Document, ChannelRaw>| {
+        let record = dead_letter.raw.downcast_ref::<Raw>().context("no Kafka record")?;
+        Ok(KafkaPublish {
+            key: record.key.clone(),
+            value: record.value.clone(),
+            headers: vec![("error".into(), Some(dead_letter.error.into_bytes()))],
+        })
+    });
+```
+
+Values sent by application code have an empty `ChannelRaw`, which serializes
+as `None`.
 
 With the `opentelemetry` feature, the channel carries the sender's trace
 context with each value, and the downstream `message` span continues that

@@ -1,8 +1,9 @@
 use crate::propagation::PropagationCarrier;
+use serde::Serialize;
 use std::collections::HashMap;
 
 /// Read-only facts about a received message.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct PulsarMetadata {
     /// The topic the message was received from. For a partitioned topic this
     /// is the partition's topic, such as `persistent://tenant/ns/orders-partition-2`.
@@ -13,7 +14,7 @@ pub struct PulsarMetadata {
 }
 
 /// The broker-assigned position of a message.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct PulsarMessageId {
     pub ledger_id: u64,
     pub entry_id: u64,
@@ -25,7 +26,7 @@ pub struct PulsarMessageId {
 
 /// A decoded Pulsar delivery. `value` is `None` when the producer marked the
 /// message value as null, which topic compaction treats as a key deletion.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct PulsarRecord<T> {
     pub value: Option<T>,
     pub key: Option<Vec<u8>>,

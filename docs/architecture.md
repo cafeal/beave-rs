@@ -67,14 +67,17 @@ The scheduler and per-message processing implementation remain private.
 
 `Source::Message` can be an adapter-specific type. Adapters are not required to
 use a shared byte buffer or boxed ACK callback. `Delivery<T>` is a convenience
-implementation for already typed local input.
+implementation for already typed local input; `Delivery::with_raw` gives it a
+raw form other than `()`.
 
 A message can retain raw bytes and broker-specific information until processing
 finishes. The runtime calls `decode` once and passes the decoded value to the
 handler. `decode` must not publish or acknowledge. Dropping a message must never
 acknowledge it. `raw` returns the undecoded delivery, including broker metadata,
-as the adapter's `Raw` type. The runtime calls it only when a failure is routed
-to a dead-letter sink.
+as the adapter's `Raw` type, which implements `Debug` and `Serialize`. The
+runtime calls it when a failure is routed to a dead-letter sink, and a sink
+that keeps it for a later stage, such as a channel, calls it while preparing
+output.
 
 ACK consumes the message. Its adapter owns safe broker completion behavior,
 including offset ordering and assignment validity where applicable. A message
@@ -101,7 +104,11 @@ See the [codec guide](codecs.md) for serialization implementations and payload b
 
 `Sink<T>::prepare(T)` validates and encodes output without publishing it.
 `Sink<T>::Prepared` is not restricted to bytes: a broker implementation can retain
-keys, headers, and other publish fields in its own representation.
+keys, headers, and other publish fields in its own representation. The runtime
+prepares a delivery's outputs with `Sink<T>::prepare_from(T, &delivery)`, which
+calls `prepare` by default. A sink overrides it when an output keeps facts of
+the delivery that the handler does not see, as a channel keeps the ordering key
+and raw form for the next subscription.
 
 The runtime maps and prepares all outputs before submitting any of them.
 `Sink<T>::submit` returns once the sink accepts an output, with a `Completion`

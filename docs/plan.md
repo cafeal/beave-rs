@@ -118,6 +118,104 @@ repeat its transaction coordinator handshake after a broker restart, and fails
 every retry of a redelivered delivery whose original transaction committed.
 Reintroducing them needs a client that fixes these defects.
 
+Multiple sinks within one subscription remain deferred because partial publish
+success makes retry and acknowledgement behavior ambiguous. Any future design
+must define atomicity or explicit partial-failure semantics.
+
+## Failure defaults
+
+`ErrorPolicy::default()` stops the subscription without ACK on a decode or
+encode failure, and on a handler rejection or exhausted retry when no
+dead-letter sink is configured. For a durable broker source, one poison record
+then stops the application on every restart until it is handled. For a source
+fed by untrusted clients, such as the HTTP source, one bad request would stop
+the server; the HTTP source avoids this for decode failures by decoding before
+a request becomes a delivery, but handler rejections without a dead-letter sink
+still stop it. Remaining decisions:
+
+- whether the defaults stay uniform or each source declares its own, for
+  example through a capability trait, so a broker source keeps `Stop` while a
+  request-driven source defaults to discarding or rejecting the input;
+- whether a subscription without a dead-letter sink should warn or fail at
+  startup when its policy can stop on a single input;
+- the HTTP server's default limits: request and header-read timeouts, the
+  number of concurrent connections, and how many requests may wait for the
+  subscription before new ones are refused with `503`.
+
+## Concurrency and ordering
+
+Per-key scheduling bounds consumption with `max_in_flight`, but one busy
+partition can fill that bound and stop receiving for every partition. Coordinate
+runtime backpressure with adapter pause/resume capabilities, such as pausing a
+Kafka partition whose queue reaches a per-key limit, so other partitions keep
+flowing. The design must define the per-key limit, resume timing, and the pause
+state across rebalances.
+
+## Chained subscriptions
+
+`channel` chains subscriptions, as described in the
+[channel adapter guide](adapters/channel.md). Remaining decisions:
+
+- fan-out to several downstream subscriptions, which needs a completion rule
+  for one upstream value observed by several stages;
+- startup validation that both ends of a channel are registered in the same
+  `App`, since an unregistered upstream leaves the downstream subscription
+  waiting for `Receive::End` during shutdown.
+
+Upstream revocation and redelivery through a channel are covered by local tests
+only. Verify with Kafka that a partition revocation during a downstream stage
+abandons the downstream work and that the next owner reprocesses it.
+
+## Pipelined broker publication
+
+Kafka and Pulsar sinks accept a record when the producer queues it and complete
+it on the delivery report or broker receipt, as described in the
+[Kafka](adapters/kafka.md#publication) and
+[Pulsar](adapters/pulsar.md#publication) guides. Remaining decisions:
+
+- A failed Kafka delivery report, or a Pulsar receipt that still fails after
+  the sink's `send_retry`, stops the subscription, because the failure usually
+  means the producer cannot recover. The runtime could instead publish the
+  prepared output again under `publish_retry`, at the cost of reordering it
+  behind later outputs.
+- `max_pending` bounds each sink separately. Several subscriptions sharing one
+  sink share its bound, and a subscription cannot reserve part of it.
+
+Only the offline acceptance bound of the Kafka sink is covered by default tests.
+The ignored live tests check that completions resolve on delivery and that
+`max_pending` holds. Verify with the brokers:
+
+- Kafka with `enable.idempotence=false` and retried produce requests: outputs of
+  one key can reorder; confirm that `enable.idempotence=true` keeps them in
+  submission order.
+- A partition revocation while completions are pending abandons their
+  acknowledgements, and the new owner reprocesses those records.
+- Shutdown with pending completions drains them before the sink closes, within
+  the subscription's shutdown timeout.
+
+## Kafka rebalance behavior
+
+Revoked partitions currently abandon in-flight work immediately. Evaluate an
+optional graceful handoff that delays revoke completion for a bounded time so
+work in flight can finish and commit, reducing duplicates for the next owner.
+
+Partition scheduling and revocation are covered by unit and runtime tests but
+have not been verified against a live broker. Verify with Kafka:
+
+- `receive` skips records of partitions the adapter does not consider assigned.
+  This assumes rdkafka always runs `post_rebalance` with the assignment before
+  it returns the first record of a newly assigned partition. If that does not
+  hold, the source silently skips every record of that partition.
+- Eager and cooperative (`partition.assignment.strategy=cooperative-sticky`)
+  rebalances both cancel the revoked partitions' tokens and reassign cleanly.
+- After `assignment_lost`, all tokens are cancelled and the next assignment
+  resumes processing.
+- A revoked delivery's in-flight commit does not affect the next assignment.
+- Commits advance past offset gaps on a compacted topic and on a topic written
+  by transactional producers (`isolation.level=read_committed`, including
+  aborted transactions). This assumes the consumer returns a partition's
+  records in strictly increasing offset order within an assignment.
+
 Verify with Pulsar that Failover and Key_Shared deliveries carry the partition
 index and ordering key expected by the adapter.
 
