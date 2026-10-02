@@ -15,7 +15,12 @@ number:
 | Bug fix | `0.x.y` → `0.x.(y+1)` | `x.y.z` → `x.y.(z+1)` |
 
 A dependency requirement of `beavers = "0.1"` therefore never picks up a
-breaking change. The first published release is `0.1.0`.
+breaking change.
+
+Version `0.0.1` is a placeholder published only to reserve the crate name on
+crates.io; it is not intended for use. Cargo treats every `0.0.x` version as
+incompatible with every other, so applications should wait for `0.1.0`, the
+first release intended for use.
 
 Pre-release versions such as `0.2.0-rc.1` may be published to let applications
 try a breaking release before it becomes the default.

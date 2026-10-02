@@ -1,7 +1,7 @@
 # Local development brokers
 
 `compose.yaml` at the repository root starts single-node Kafka, Apache Pulsar,
-and RabbitMQ brokers with web consoles for each. Use it to run the broker examples, the
+and RabbitMQ brokers and an ElasticMQ SQS emulator, with web consoles for each. Use it to run the broker examples, the
 ignored live tests, and manual experiments. It requires Docker with Compose v2.
 
 ## Quick start
@@ -24,7 +24,7 @@ aliases cannot start Docker, so the brokers are always started and stopped with
 | Command | Effect |
 |---|---|
 | `docker compose up -d --wait` | Starts every service and returns when the brokers pass their health checks |
-| `docker compose up -d --wait kafka pulsar rabbitmq` | Starts only the brokers, without the separate web consoles |
+| `docker compose up -d --wait kafka pulsar rabbitmq elasticmq` | Starts only the brokers, without the separate web consoles |
 | `docker compose ps --all` | Shows the state of each service, including the finished `pulsar-init` |
 | `docker compose logs -f pulsar` | Follows the logs of one service |
 | `docker compose down` | Stops and removes the containers |
@@ -45,6 +45,8 @@ topic, offset, and subscription; the next `up` starts from empty brokers.
 | Pulsar Manager | <http://localhost:9527> | Tenants, topics, and subscriptions; log in as `admin` / `apachepulsar` |
 | RabbitMQ | `amqp://guest:guest@localhost:5672/%2f` | RabbitMQ 4.1 |
 | RabbitMQ management | <http://localhost:15672> | Queues, exchanges, connections, and the management HTTP API; log in as `guest` / `guest` |
+| ElasticMQ | <http://localhost:9324> | SQS-compatible API; queue URLs look like `http://localhost:9324/000000000000/orders` |
+| ElasticMQ UI | <http://localhost:9325> | Queues and their message counts |
 
 The examples and live tests use these addresses by default. Set these
 variables to target other brokers:
@@ -57,6 +59,7 @@ variables to target other brokers:
 | `PULSAR_ADMIN_ADDR` | `127.0.0.1:8080` | Live tests that create Pulsar topics or subscriptions |
 | `RABBITMQ_URL` | `amqp://guest:guest@127.0.0.1:5672/%2f` | RabbitMQ live tests |
 | `RABBITMQ_MANAGEMENT_ADDR` | `127.0.0.1:15672` | RabbitMQ live tests that declare queues or close connections |
+| `SQS_ENDPOINT` | `http://127.0.0.1:9324` | SQS live tests |
 
 ## Broker configuration
 
@@ -80,6 +83,13 @@ environment pointing at the broker. The credentials are for local use only.
 RabbitMQ runs with its management plugin and the default `guest` user, which
 the broker accepts from the host through the published port. It starts without
 queues; the live tests declare their own through the management API.
+
+ElasticMQ implements the SQS API in memory and accepts any credentials and
+region. Point `SqsSourceConfig::endpoint_url` and `SqsSinkConfig::endpoint_url`
+at it. It starts without queues; create one with the AWS CLI
+(`aws --endpoint-url http://localhost:9324 sqs create-queue --queue-name orders`)
+or the query API, as the live tests do. It does not reproduce every AWS limit
+and behavior, so verify production settings against SQS itself.
 
 ## Examples
 
@@ -143,12 +153,12 @@ docker compose exec pulsar bin/pulsar-admin topics stats \
 
 ## Live tests
 
-The Kafka, Pulsar, and RabbitMQ adapter tests in `tests/kafka.rs`,
-`tests/pulsar.rs`, and `tests/rabbitmq.rs` and the end-to-end pipeline tests in `tests/pipelines.rs` are ignored by
+The Kafka, Pulsar, RabbitMQ, and SQS adapter tests in `tests/kafka.rs`,
+`tests/pulsar.rs`, `tests/rabbitmq.rs`, and `tests/sqs.rs` and the end-to-end pipeline tests in `tests/pipelines.rs` are ignored by
 default. With the brokers running:
 
 ```sh
-cargo test-live             # cargo test --features kafka,pulsar,rabbitmq -- --ignored
+cargo test-live             # cargo test --features kafka,pulsar,rabbitmq,sqs -- --ignored
 cargo test-live pipeline    # only tests whose name contains "pipeline"
 ```
 
@@ -161,14 +171,14 @@ producing input.
 
 Every live test uses unique topic, group, subscription, and queue names, so the
 tests can run repeatedly without resetting the brokers. GitHub Actions runs them
-in the `Live broker tests` job, which starts the `kafka`, `pulsar`, and
-`rabbitmq` services from
+in the `Live broker tests` job, which starts the `kafka`, `pulsar`,
+`rabbitmq`, and `elasticmq` services from
 `compose.yaml` and runs `cargo test --all-features -- --ignored`.
 
 ## Troubleshooting
 
 - **A port is already in use.** The environment publishes ports 9092, 6650,
-  8080, 8081, 9527, 5672, and 15672. Stop the conflicting process, or change the host side
+  8080, 8081, 9527, 5672, 15672, 9324, and 9325. Stop the conflicting process, or change the host side
   of the mapping in `compose.yaml`; the Kafka port must stay 9092 unless the
   advertised `HOST` listener changes with it.
 - **An example or test waits without output.** The brokers are probably not
