@@ -10,6 +10,7 @@
   - [Kafka](adapters/kafka.md)
   - [Pulsar](adapters/pulsar.md)
   - [RabbitMQ](adapters/rabbitmq.md)
+  - [Amazon SQS](adapters/sqs.md)
   - [HTTP](adapters/http.md)
 - [Codecs](codecs.md)
   - [Raw bytes and UTF-8](codecs/raw-utf8.md)
