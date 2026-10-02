@@ -1,5 +1,6 @@
 use super::{Decoder, Encoder};
 
+/// JSON codec for any type implementing `serde` traits.
 #[derive(Default)]
 pub struct Json;
 impl<T: serde::de::DeserializeOwned> Decoder<T> for Json {

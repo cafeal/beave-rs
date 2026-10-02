@@ -1,5 +1,8 @@
 //! HTTP adapter: an HTTP/1.1 server whose requests become deliveries, and a
 //! client sink that sends each output as a request.
+//!
+//! Enabled by the `http` Cargo feature. See `docs/adapters/http.md` for the
+//! response, delivery, and publication contracts.
 
 mod config;
 mod metrics;

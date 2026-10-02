@@ -1,16 +1,22 @@
 use crate::adapters::pending::PendingLimit;
 use std::{collections::HashMap, time::Duration};
 
+/// Configuration for a [`KafkaSource`](super::KafkaSource).
 #[derive(Clone, Debug)]
 pub struct KafkaSourceConfig {
+    /// Bootstrap servers, set as librdkafka `bootstrap.servers`.
     pub brokers: String,
+    /// Consumer group ID, set as librdkafka `group.id`.
     pub group_id: String,
+    /// Topics the consumer subscribes to.
     pub topics: Vec<String>,
-    /// Additional librdkafka settings. Offset storage and commits are always disabled.
+    /// Additional librdkafka consumer settings. Automatic offset storage and
+    /// commits are always disabled; the source commits acknowledged offsets.
     pub properties: HashMap<String, String>,
 }
 
 impl KafkaSourceConfig {
+    /// Creates a configuration with the required values and no additional properties.
     pub fn new(
         brokers: impl Into<String>,
         group_id: impl Into<String>,
@@ -24,6 +30,10 @@ impl KafkaSourceConfig {
         }
     }
 
+    /// Checks the configuration without network access.
+    ///
+    /// Fails when the brokers, group ID, or topic list is empty, a topic name is
+    /// blank, or a property has an empty name or a value containing a NUL byte.
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.brokers.trim().is_empty(),
@@ -47,9 +57,12 @@ impl KafkaSourceConfig {
     }
 }
 
+/// Configuration for a [`KafkaSink`](super::KafkaSink).
 #[derive(Clone, Debug)]
 pub struct KafkaSinkConfig {
+    /// Bootstrap servers, set as librdkafka `bootstrap.servers`.
     pub brokers: String,
+    /// Topic every record is published to.
     pub topic: String,
     /// Additional librdkafka producer settings.
     pub properties: HashMap<String, String>,
@@ -65,6 +78,10 @@ pub struct KafkaSinkConfig {
 }
 
 impl KafkaSinkConfig {
+    /// Creates a configuration with the required values.
+    ///
+    /// Defaults: no additional properties, `max_pending` of 1000, a 30 second
+    /// `close_timeout`, and a 60 second `transaction_timeout`.
     pub fn new(brokers: impl Into<String>, topic: impl Into<String>) -> Self {
         Self {
             brokers: brokers.into(),
@@ -76,6 +93,12 @@ impl KafkaSinkConfig {
         }
     }
 
+    /// Checks the configuration without network access.
+    ///
+    /// Fails when the brokers or topic is empty, `max_pending` is zero or larger
+    /// than the semaphore limit, `transactional.id` is set as a property (use
+    /// [`KafkaSink::transactional`](super::KafkaSink::transactional)), or a
+    /// property has an empty name or a value containing a NUL byte.
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.brokers.trim().is_empty(),

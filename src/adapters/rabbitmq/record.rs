@@ -10,27 +10,44 @@ use std::collections::BTreeMap;
 /// `String` is published as a long string and `Bytes` as a byte array.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum RabbitMqValue {
+    /// A field without a value.
     Void,
+    /// A boolean.
     Bool(bool),
+    /// A signed 8-bit integer (short-short int).
     I8(i8),
+    /// An unsigned 8-bit integer (short-short uint).
     U8(u8),
+    /// A signed 16-bit integer (short int).
     I16(i16),
+    /// An unsigned 16-bit integer (short uint).
     U16(u16),
+    /// A signed 32-bit integer (long int).
     I32(i32),
+    /// An unsigned 32-bit integer (long uint).
     U32(u32),
+    /// A signed 64-bit integer (long-long int).
     I64(i64),
+    /// A 32-bit float.
     F32(f32),
+    /// A 64-bit float.
     F64(f64),
     /// `value` divided by 10 to the power of `scale`.
     Decimal {
+        /// Number of decimal places.
         scale: u8,
+        /// Unscaled value.
         value: u32,
     },
+    /// A UTF-8 string, read from a short or long string.
     String(String),
+    /// A byte array, or a long string that is not UTF-8.
     Bytes(Vec<u8>),
     /// Seconds since the Unix epoch.
     Timestamp(u64),
+    /// A field array.
     Array(Vec<RabbitMqValue>),
+    /// A nested field table, by name.
     Table(BTreeMap<String, RabbitMqValue>),
 }
 
@@ -79,13 +96,20 @@ pub type RabbitMqHeaders = BTreeMap<String, RabbitMqValue>;
 /// bytes by the protocol.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct RabbitMqProperties {
+    /// MIME type of the body, such as `application/json`.
     pub content_type: Option<String>,
+    /// Encoding of the body, such as `gzip`.
     pub content_encoding: Option<String>,
+    /// Message priority, honored by queues declared with a maximum priority.
     pub priority: Option<u8>,
+    /// Application correlation identifier, such as the ID of a request being
+    /// answered.
     pub correlation_id: Option<String>,
+    /// Name of the queue a reply should be sent to.
     pub reply_to: Option<String>,
     /// Per-message TTL in milliseconds, as text.
     pub expiration: Option<String>,
+    /// Application message identifier.
     pub message_id: Option<String>,
     /// Seconds since the Unix epoch.
     pub timestamp: Option<u64>,
@@ -93,6 +117,7 @@ pub struct RabbitMqProperties {
     pub kind: Option<String>,
     /// Checked by RabbitMQ against the publishing connection's user.
     pub user_id: Option<String>,
+    /// Identifier of the publishing application.
     pub app_id: Option<String>,
 }
 
@@ -117,13 +142,18 @@ pub struct RabbitMqMetadata {
 /// A decoded RabbitMQ delivery. AMQP has no null body, so the value is always present.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct RabbitMqRecord<T> {
+    /// Body decoded by the source codec.
     pub value: T,
+    /// The AMQP `headers` table.
     pub headers: RabbitMqHeaders,
+    /// Basic properties of the message.
     pub properties: RabbitMqProperties,
+    /// Queue, exchange, routing key, and delivery facts of the message.
     pub metadata: RabbitMqMetadata,
 }
 
 impl<T> RabbitMqRecord<T> {
+    /// Queue, exchange, routing key, and delivery facts of the message.
     pub fn metadata(&self) -> &RabbitMqMetadata {
         &self.metadata
     }
@@ -132,14 +162,19 @@ impl<T> RabbitMqRecord<T> {
 /// User-controlled RabbitMQ output. The exchange comes from the sink configuration.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RabbitMqPublish<T> {
+    /// Body encoded by the sink codec.
     pub value: T,
     /// Overrides the sink's configured routing key.
     pub routing_key: Option<String>,
+    /// The AMQP `headers` table.
     pub headers: RabbitMqHeaders,
+    /// Basic properties of the message.
     pub properties: RabbitMqProperties,
 }
 
 impl<T> RabbitMqPublish<T> {
+    /// Creates an output with `value`, the configured routing key, and no
+    /// headers or properties.
     pub fn new(value: T) -> Self {
         Self {
             value,
@@ -149,6 +184,7 @@ impl<T> RabbitMqPublish<T> {
         }
     }
 
+    /// Sets a routing key that overrides the sink's configured one.
     pub fn with_routing_key(mut self, routing_key: impl Into<String>) -> Self {
         self.routing_key = Some(routing_key.into());
         self

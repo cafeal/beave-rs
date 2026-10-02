@@ -35,7 +35,9 @@ impl SubscriptionStatus {
 /// Health of one subscription at the time of the report.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SubscriptionReport {
+    /// Subscription name.
     pub name: String,
+    /// Lifecycle stage.
     pub status: SubscriptionStatus,
     /// Consecutive failed receives since the last successful one.
     pub receive_failures: usize,
@@ -62,6 +64,7 @@ pub struct HealthReport {
     /// Shutdown was requested by a signal, the cancellation token passed to
     /// [`App::run_until`](crate::App::run_until), or a subscription failure.
     pub shutting_down: bool,
+    /// One report per registered subscription, in registration order.
     pub subscriptions: Vec<SubscriptionReport>,
 }
 
@@ -79,6 +82,7 @@ struct Registry {
 }
 
 impl Health {
+    /// Snapshot of the application's current health.
     pub fn report(&self) -> HealthReport {
         let subscriptions: Vec<_> = self
             .0
@@ -102,10 +106,12 @@ impl Health {
         }
     }
 
+    /// Whether no subscription has failed; see [`HealthReport::live`].
     pub fn is_live(&self) -> bool {
         self.report().live
     }
 
+    /// Whether the application is ready; see [`HealthReport::ready`].
     pub fn is_ready(&self) -> bool {
         self.report().ready
     }

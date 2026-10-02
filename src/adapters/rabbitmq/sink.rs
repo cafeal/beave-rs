@@ -35,10 +35,13 @@ pub struct RabbitMqPrepared {
 }
 
 impl RabbitMqPrepared {
+    /// Routing key the message is published with: the output's own or the
+    /// configured one.
     pub fn routing_key(&self) -> &str {
         self.routing_key.as_str()
     }
 
+    /// Encoded message body.
     pub fn payload(&self) -> &[u8] {
         &self.payload
     }
@@ -87,12 +90,20 @@ impl<C, T> Clone for RabbitMqSink<C, T> {
 }
 
 impl<C: Default, T> RabbitMqSink<C, T> {
+    /// Creates a sink that encodes with the codec's default value.
+    ///
+    /// The connection is opened on the first publication, which also validates
+    /// the configuration.
     pub fn new(config: RabbitMqSinkConfig) -> Self {
         Self::with_codec(config, C::default())
     }
 }
 
 impl<C, T> RabbitMqSink<C, T> {
+    /// Creates a sink that encodes with `codec`.
+    ///
+    /// The connection is opened on the first publication, which also validates
+    /// the configuration.
     pub fn with_codec(config: RabbitMqSinkConfig, codec: C) -> Self {
         Self {
             codec: Arc::new(codec),

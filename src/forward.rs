@@ -7,7 +7,9 @@ use crate::{handler::Result, middleware::Middleware};
 /// can be represented as `Value`, such as a Kafka null value. A value-only
 /// handler is not invoked for such a record.
 pub trait ValueRecord: Clone + Send + Sync + 'static {
+    /// Payload type passed to value-only handlers.
     type Value: Send + 'static;
+    /// The record's payload.
     fn value(&self) -> Result<Self::Value>;
 }
 
@@ -19,7 +21,10 @@ pub trait ValueRecord: Clone + Send + Sync + 'static {
 /// `Inherit::default()` as the first middleware, so the metadata policy is
 /// chosen by the platform rather than by the handler.
 pub trait SamePlatform<U>: ValueRecord {
+    /// The platform's publish type.
     type Publish: Send + Sync + 'static;
+    /// Middleware that copies the platform's default metadata from the record to the output.
     type Inherit: Middleware<Self, Self::Publish> + Default;
+    /// Build a publish carrying `value` and no metadata of its own.
     fn publish(value: U) -> Self::Publish;
 }

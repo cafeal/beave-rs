@@ -33,11 +33,13 @@ impl KafkaInherit {
         }
     }
 
+    /// Stops inheriting the received key, so outputs keep their own key.
     pub fn without_key(mut self) -> Self {
         self.key = false;
         self
     }
 
+    /// Stops inheriting received headers, so outputs keep only their own headers.
     pub fn without_headers(mut self) -> Self {
         self.headers = false;
         self

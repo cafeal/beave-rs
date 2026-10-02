@@ -50,10 +50,12 @@ where
     I: Send + Sync,
     O: Send,
 {
+    /// Inspect, transform, or intercept the input before the handler runs.
     fn pre_handler(&self, input: I) -> impl Future<Output = Result<Flow<I, O>>> + Send {
         async { Ok(Flow::Continue(input)) }
     }
 
+    /// Adjust one output, such as its metadata, before the sink prepares it.
     fn post_handler(&self, _input: &I, output: O) -> impl Future<Output = Result<O>> + Send {
         async { Ok(output) }
     }
@@ -75,6 +77,7 @@ impl<F, I, O> MapMetadata<F, I, O>
 where
     F: Fn(&I, O) -> Result<O>,
 {
+    /// Middleware whose `post_handler` applies `map`.
     pub fn new(map: F) -> Self {
         Self {
             map,

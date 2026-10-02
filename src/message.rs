@@ -29,12 +29,15 @@ impl OrderingKey {
         self.key = Some(key.into());
         self
     }
+    /// Name of the scope, such as a topic.
     pub fn scope(&self) -> &str {
         &self.scope
     }
+    /// Index within the scope, such as a partition number.
     pub fn index(&self) -> i64 {
         self.index
     }
+    /// Message key the scope is narrowed to, if any.
     pub fn key(&self) -> Option<&[u8]> {
         self.key.as_deref()
     }
@@ -44,7 +47,9 @@ impl OrderingKey {
 /// Decode must not acknowledge or publish. Dropping a message must never ACK it.
 /// Implementations may retain raw bytes and broker-specific metadata internally.
 pub trait SourceMessage: Send + 'static {
+    /// Decoded value passed to the handler.
     type Item: Clone + Send + Sync + 'static;
+    /// Decode the payload. Called once per delivery, before any handler attempt.
     fn decode(&self) -> anyhow::Result<Self::Item>;
     /// Success means the adapter safely recorded completion. Broker commit ordering
     /// and assignment validity remain the adapter's responsibility.
@@ -54,6 +59,7 @@ pub trait SourceMessage: Send + 'static {
     /// serializable so that dead letters can be published as they are, and so
     /// that a [`channel`](crate::channel) can keep it for the next subscription.
     type Raw: Debug + Serialize + Send + Sync + 'static;
+    /// Copy of the undecoded delivery.
     fn raw(&self) -> Self::Raw;
     /// The scope within which the source delivers in order. `None` means the
     /// delivery has no ordering relationship with other deliveries.
@@ -83,6 +89,7 @@ type Acknowledge = Box<dyn FnOnce() -> AckFuture + Send>;
 /// `R` is the delivery's [`Raw`](SourceMessage::Raw) form, `()` unless set with
 /// [`with_raw`](Self::with_raw).
 pub struct Delivery<T, R = ()> {
+    /// The delivered value, passed to the handler as is.
     pub value: T,
     ack: Acknowledge,
     ordering_key: Option<OrderingKey>,
@@ -91,6 +98,7 @@ pub struct Delivery<T, R = ()> {
     raw: R,
 }
 impl<T> Delivery<T> {
+    /// A delivery whose acknowledgement runs `ack`.
     pub fn new<F, Fut>(value: T, ack: F) -> Self
     where
         F: FnOnce() -> Fut + Send + 'static,
@@ -105,6 +113,7 @@ impl<T> Delivery<T> {
             raw: (),
         }
     }
+    /// A delivery whose acknowledgement does nothing.
     pub fn untracked(value: T) -> Self {
         Self::new(value, || async { Ok(()) })
     }
@@ -121,10 +130,12 @@ impl<T, R> Delivery<T, R> {
             raw,
         }
     }
+    /// Set the ordering scope reported by [`SourceMessage::ordering_key`].
     pub fn with_ordering_key(mut self, key: OrderingKey) -> Self {
         self.ordering_key = Some(key);
         self
     }
+    /// Set the token reported by [`SourceMessage::revocation`].
     pub fn with_revocation(mut self, token: CancellationToken) -> Self {
         self.revocation = Some(token);
         self
@@ -135,6 +146,7 @@ impl<T, R> Delivery<T, R> {
         self.propagation = fields;
         self
     }
+    /// Run the acknowledgement.
     pub async fn ack(self) -> anyhow::Result<()> {
         (self.ack)().await
     }
