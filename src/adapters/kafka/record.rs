@@ -4,22 +4,32 @@ use serde::Serialize;
 /// Read-only delivery location; never copied into producer routing implicitly.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct KafkaMetadata {
+    /// Topic the record was read from.
     pub topic: String,
+    /// Partition the record was read from.
     pub partition: i32,
+    /// Offset of the record within its partition.
     pub offset: i64,
+    /// Record timestamp in milliseconds since the Unix epoch, or `None` when
+    /// the broker reports no timestamp.
     pub timestamp: Option<i64>,
 }
 
 /// A decoded Kafka delivery, including nullable values and source metadata.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct KafkaRecord<T> {
+    /// Record key bytes, or `None` for a keyless record.
     pub key: Option<Vec<u8>>,
+    /// Value decoded by the source codec, or `None` for a Kafka null payload.
     pub value: Option<T>,
+    /// Headers in record order; a header value may be null.
     pub headers: Vec<(String, Option<Vec<u8>>)>,
+    /// Location the record was read from.
     pub metadata: KafkaMetadata,
 }
 
 impl<T> KafkaRecord<T> {
+    /// Location the record was read from.
     pub fn metadata(&self) -> &KafkaMetadata {
         &self.metadata
     }
@@ -38,12 +48,17 @@ pub(crate) fn text_headers<'a>(
 /// User-controlled Kafka output. Source topic, partition, offset, and timestamp are excluded.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KafkaPublish<T> {
+    /// Record key bytes, which Kafka uses to choose the partition, or `None`
+    /// for a keyless record.
     pub key: Option<Vec<u8>>,
+    /// Value encoded by the sink codec, or `None` to publish a null payload.
     pub value: Option<T>,
+    /// Headers in publication order; a header value may be null.
     pub headers: Vec<(String, Option<Vec<u8>>)>,
 }
 
 impl<T> KafkaPublish<T> {
+    /// Creates a keyless record with `value` and no headers.
     pub fn new(value: T) -> Self {
         Self {
             key: None,
@@ -52,6 +67,7 @@ impl<T> KafkaPublish<T> {
         }
     }
 
+    /// Creates a tombstone: a record with `key`, a null value, and no headers.
     pub fn tombstone(key: Vec<u8>) -> Self {
         Self {
             key: Some(key),

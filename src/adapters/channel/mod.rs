@@ -1,5 +1,7 @@
 //! Bounded, typed, process-local connection between subscriptions.
 //!
+//! Always available; no Cargo feature is required.
+//!
 //! [`channel`] connects the sink of one subscription to the source of the next, so a
 //! pipeline can split I/O-bound and CPU-bound stages into subscriptions with their
 //! own concurrency, retries, and error policies, for example an async handler that

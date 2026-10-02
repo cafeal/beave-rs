@@ -6,7 +6,9 @@ use std::{fmt, sync::Arc, time::Duration};
 /// Static credentials sent with Pulsar's `CONNECT` command.
 #[derive(Clone)]
 pub struct PulsarAuthentication {
+    /// Pulsar authentication method name, such as `token`.
     pub name: String,
+    /// Credential bytes for the method. They are omitted from `Debug` output.
     pub data: Vec<u8>,
 }
 
@@ -19,6 +21,7 @@ impl fmt::Debug for PulsarAuthentication {
 }
 
 impl PulsarAuthentication {
+    /// Token authentication with a JWT, using the `token` method.
     pub fn token(token: impl Into<Vec<u8>>) -> Self {
         Self {
             name: "token".into(),
@@ -53,10 +56,14 @@ impl AuthProvider for PulsarAuthentication {
 /// How the broker distributes a subscription's messages among its consumers.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PulsarSubscriptionType {
+    /// Only one consumer may attach to the subscription.
     Exclusive,
+    /// Messages are distributed among all consumers. The default.
     #[default]
     Shared,
+    /// One active consumer per partition; others take over when it disconnects.
     Failover,
+    /// Messages with the same key or ordering key go to the same consumer.
     KeyShared,
 }
 
@@ -71,12 +78,19 @@ impl From<PulsarSubscriptionType> for SubType {
     }
 }
 
+/// Configuration for a [`PulsarSource`](super::PulsarSource).
 #[derive(Clone, Debug)]
 pub struct PulsarSourceConfig {
+    /// Broker service URL, using the `pulsar://` or `pulsar+ssl://` scheme.
     pub service_url: String,
+    /// Topic to consume. A partitioned topic is consumed through one consumer
+    /// per partition.
     pub topic: String,
+    /// Subscription name shared by every consumer of this source.
     pub subscription: String,
+    /// How the broker distributes messages among the subscription's consumers.
     pub subscription_type: PulsarSubscriptionType,
+    /// Static credentials, or `None` for an unauthenticated broker.
     pub authentication: Option<PulsarAuthentication>,
     /// Messages each partition's consumer prefetches from the broker.
     pub buffer_size: usize,
@@ -90,6 +104,12 @@ pub struct PulsarSourceConfig {
 }
 
 impl PulsarSourceConfig {
+    /// Creates a configuration with the required values.
+    ///
+    /// Defaults: a [`Shared`](PulsarSubscriptionType::Shared) subscription, no
+    /// authentication, a `buffer_size` of 100, empty payloads treated as
+    /// tombstones, and an `ack_retry` of 5 attempts with delays from 100 ms up
+    /// to 2 s.
     pub fn new(
         service_url: impl Into<String>,
         topic: impl Into<String>,
@@ -112,6 +132,12 @@ impl PulsarSourceConfig {
         }
     }
 
+    /// Checks the configuration without network access.
+    ///
+    /// Fails when the service URL is empty, contains whitespace, or does not
+    /// use `pulsar://` or `pulsar+ssl://`, when the topic or subscription is
+    /// empty, when `buffer_size` is zero, or when `ack_retry` or the
+    /// authentication is invalid.
     pub fn validate(&self) -> anyhow::Result<()> {
         validate_endpoint(&self.service_url, &self.topic)?;
         anyhow::ensure!(
@@ -130,11 +156,17 @@ impl PulsarSourceConfig {
     }
 }
 
+/// Configuration for a [`PulsarSink`](super::PulsarSink).
 #[derive(Clone, Debug)]
 pub struct PulsarSinkConfig {
+    /// Broker service URL, using the `pulsar://` or `pulsar+ssl://` scheme.
     pub service_url: String,
+    /// Topic every message is published to.
     pub topic: String,
+    /// Name given to each partition's producer, or `None` to let the broker
+    /// assign one.
     pub producer_name: Option<String>,
+    /// Static credentials, or `None` for an unauthenticated broker.
     pub authentication: Option<PulsarAuthentication>,
     /// Maximum number of messages queued by `submit` whose broker receipt has
     /// not arrived. `submit` waits while this many are outstanding.
@@ -146,6 +178,10 @@ pub struct PulsarSinkConfig {
 }
 
 impl PulsarSinkConfig {
+    /// Creates a configuration with the required values.
+    ///
+    /// Defaults: no producer name or authentication, a `max_pending` of 1000,
+    /// and a `send_retry` of 10 attempts with delays from 100 ms up to 5 s.
     pub fn new(service_url: impl Into<String>, topic: impl Into<String>) -> Self {
         Self {
             service_url: service_url.into(),
@@ -162,6 +198,12 @@ impl PulsarSinkConfig {
         }
     }
 
+    /// Checks the configuration without network access.
+    ///
+    /// Fails when the service URL is empty, contains whitespace, or does not
+    /// use `pulsar://` or `pulsar+ssl://`, when the topic or a set producer
+    /// name is empty, when `max_pending` is zero or too large, or when
+    /// `send_retry` or the authentication is invalid.
     pub fn validate(&self) -> anyhow::Result<()> {
         validate_endpoint(&self.service_url, &self.topic)?;
         if let Some(authentication) = &self.authentication {

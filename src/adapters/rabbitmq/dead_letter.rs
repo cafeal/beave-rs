@@ -10,9 +10,11 @@ const ORIGIN_ROUTING_KEY: &str = "beavers-dlq-origin-routing-key";
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RabbitMqOrigin {
+    /// The queue the payload was consumed from.
     pub queue: String,
     /// The exchange the payload was published to; empty for the default exchange.
     pub exchange: String,
+    /// The routing key the payload was published with.
     pub routing_key: String,
 }
 
@@ -24,7 +26,9 @@ pub struct RabbitMqOrigin {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RabbitMqDeadLetter {
+    /// Failure details of the most recent dead-lettering.
     pub details: DeadLetterDetails,
+    /// Where the payload was received before it was first dead-lettered.
     pub origin: RabbitMqOrigin,
 }
 

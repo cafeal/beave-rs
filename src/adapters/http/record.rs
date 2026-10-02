@@ -17,14 +17,17 @@ pub struct HttpRecord<T> {
     pub path: String,
     /// Query string without the leading `?`.
     pub query: Option<String>,
-    /// Header names are lowercase. Repeated headers keep one entry per value,
+    /// Request headers with lowercase names. Repeated headers keep one entry per value,
     /// in received order.
     pub headers: Vec<(String, Vec<u8>)>,
+    /// Request body decoded by the source codec.
     pub body: T,
+    /// Connection details of the request.
     pub metadata: HttpMetadata,
 }
 
 impl<T> HttpRecord<T> {
+    /// Connection details of the request.
     pub fn metadata(&self) -> &HttpMetadata {
         &self.metadata
     }
@@ -47,10 +50,12 @@ pub struct HttpPublish<T> {
     /// One request header per entry. A name set here replaces every
     /// configured header of that name.
     pub headers: Vec<(String, Vec<u8>)>,
+    /// Request body, encoded by the sink codec.
     pub body: T,
 }
 
 impl<T> HttpPublish<T> {
+    /// Creates an output with `body` and no headers of its own.
     pub fn new(body: T) -> Self {
         Self {
             headers: Vec::new(),

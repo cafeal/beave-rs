@@ -21,6 +21,7 @@ pub enum ResponseTiming {
     Receive,
 }
 
+/// Configuration for an [`HttpSource`](super::HttpSource).
 #[derive(Clone, Debug)]
 pub struct HttpSourceConfig {
     /// Address the server listens on. Port 0 selects a free port, which
@@ -29,10 +30,13 @@ pub struct HttpSourceConfig {
     /// Larger request bodies are answered with `413 Payload Too Large` without
     /// becoming deliveries.
     pub max_body_bytes: usize,
+    /// When a received request is answered. Defaults to [`ResponseTiming::Ack`].
     pub response: ResponseTiming,
 }
 
 impl HttpSourceConfig {
+    /// Creates a configuration for `bind` with a 1 MiB body limit and
+    /// [`ResponseTiming::Ack`].
     pub fn new(bind: SocketAddr) -> Self {
         Self {
             bind,
@@ -41,6 +45,8 @@ impl HttpSourceConfig {
         }
     }
 
+    /// Checks the configuration without binding the address; fails when
+    /// `max_body_bytes` is zero.
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.max_body_bytes > 0,
@@ -56,9 +62,12 @@ const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// Request method of an [`HttpSink`](super::HttpSink).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum HttpMethod {
+    /// `POST`, the default.
     #[default]
     Post,
+    /// `PUT`.
     Put,
+    /// `PATCH`.
     Patch,
 }
 
@@ -72,14 +81,17 @@ impl HttpMethod {
     }
 }
 
+/// Configuration for an [`HttpSink`](super::HttpSink).
 #[derive(Clone, Debug)]
 pub struct HttpSinkConfig {
     /// Absolute `http` or `https` URL every output is sent to. Credentials
     /// belong in `headers`, not in the URL.
     pub url: String,
+    /// Request method. Defaults to [`HttpMethod::Post`].
     pub method: HttpMethod,
     /// Headers sent with every request, such as `content-type` or
-    /// `authorization`. Headers of an output are added after them.
+    /// `authorization`. A header name set on an output replaces every
+    /// configured header of that name.
     pub headers: Vec<(String, String)>,
     /// Maximum time for one attempt, from connecting until the response body
     /// is read. An attempt that times out is retried.
@@ -87,6 +99,8 @@ pub struct HttpSinkConfig {
 }
 
 impl HttpSinkConfig {
+    /// Creates a configuration for `url` with [`HttpMethod::Post`], no headers,
+    /// and a 30 second timeout.
     pub fn new(url: impl Into<String>) -> Self {
         Self {
             url: url.into(),
@@ -96,6 +110,11 @@ impl HttpSinkConfig {
         }
     }
 
+    /// Checks the configuration without connecting.
+    ///
+    /// Fails for a URL without a host, a scheme other than `http` or `https`,
+    /// credentials in the URL, an invalid header name or value, or a zero
+    /// timeout.
     pub fn validate(&self) -> anyhow::Result<()> {
         self.uri()?;
         for (name, value) in &self.headers {

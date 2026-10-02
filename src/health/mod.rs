@@ -1,6 +1,6 @@
 //! Liveness and readiness of an application's subscriptions, readable through
 //! [`Health`] and, with the `health` feature, served over HTTP by
-//! [`HealthServer`].
+//! `HealthServer`.
 
 #[cfg(feature = "health")]
 mod server;

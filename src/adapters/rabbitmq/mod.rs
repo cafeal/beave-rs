@@ -1,4 +1,7 @@
 //! RabbitMQ (AMQP 0-9-1) source and sink adapters.
+//!
+//! Enabled by the `rabbitmq` Cargo feature. See `docs/adapters/rabbitmq.md` for
+//! acknowledgements, publisher confirms, and delivery guarantees.
 
 mod config;
 mod connection;

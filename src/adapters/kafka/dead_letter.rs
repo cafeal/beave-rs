@@ -15,6 +15,7 @@ const ORIGIN_TIMESTAMP: &str = "beavers-dlq-origin-timestamp";
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct KafkaDeadLetter {
+    /// Failure details of the most recent dead-lettering.
     pub details: DeadLetterDetails,
     /// Where the payload was received before it was first dead-lettered. The timestamp is
     /// that record's timestamp; the dead-letter record's own timestamp is when it was

@@ -16,12 +16,15 @@ use std::str::FromStr;
 pub struct DeadLetter<I, R> {
     /// Name of the subscription that produced the dead letter.
     pub subscription: String,
+    /// Which routable failure produced the dead letter.
     pub failure: FailureKind,
     /// Error message including its context chain.
     pub error: String,
     /// Handler attempts made before the failure; zero for decode failures.
     pub attempts: usize,
+    /// Decoded handler input; `None` after a decode failure.
     pub input: Option<I>,
+    /// Undecoded delivery as received from the source.
     pub raw: R,
 }
 
@@ -85,6 +88,7 @@ const COUNT: &str = "beavers-dlq-count";
 pub struct DeadLetterDetails {
     /// Name of the subscription that dead-lettered the payload most recently.
     pub subscription: String,
+    /// Which routable failure dead-lettered the payload most recently.
     pub failure: FailureKind,
     /// Error message including its context chain.
     pub error: String,

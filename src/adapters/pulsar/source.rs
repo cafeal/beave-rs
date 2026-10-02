@@ -47,12 +47,20 @@ struct Connection {
 }
 
 impl<C: Default, T> PulsarSource<C, T> {
+    /// Creates a source that decodes with the codec's default value.
+    ///
+    /// The client and consumers are created on the first receive, which also
+    /// validates the configuration.
     pub fn new(config: PulsarSourceConfig) -> Self {
         Self::with_codec(config, C::default())
     }
 }
 
 impl<C, T> PulsarSource<C, T> {
+    /// Creates a source that decodes with `codec`.
+    ///
+    /// The client and consumers are created on the first receive, which also
+    /// validates the configuration.
     pub fn with_codec(config: PulsarSourceConfig, codec: C) -> Self {
         Self {
             config,

@@ -155,10 +155,12 @@ impl BlockingPool {
         }
     }
 
+    /// Number of worker threads.
     pub fn workers(&self) -> usize {
         self.inner.workers
     }
 
+    /// Number of jobs that can wait for a worker before submission waits.
     pub fn queue_capacity(&self) -> usize {
         self.inner.queue_capacity
     }

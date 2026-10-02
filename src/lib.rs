@@ -1,8 +1,73 @@
 //! Typed message processing with explicit delivery and shutdown semantics.
 //!
-//! Contracts live in [`source`], [`sink`], [`handler`], and [`codec`].
-//! [`subscription`] owns processing; [`app`] supervises subscriptions.
-//! Built-in local transports live in [`adapters`].
+//! Application code is a typed `Input → Output` [`Handler`]. The framework owns everything
+//! around it: receiving from a [`Source`], decoding, retries, concurrency, ordering,
+//! publishing to a [`Sink`], acknowledgement, dead letters, and graceful shutdown.
+//!
+//! ```text
+//! Source → Subscription → Handler → Sink
+//! ```
+//!
+//! # Quick start
+//!
+//! ```
+//! use beavers::{App, IterSource, Json, Result, StdoutSink};
+//!
+//! async fn double(value: u64) -> Result<u64> {
+//!     Ok(value * 2)
+//! }
+//!
+//! #[tokio::main]
+//! async fn main() -> anyhow::Result<()> {
+//!     App::new()
+//!         .subscribe("double", IterSource::new([1, 2, 3]), StdoutSink::<Json>::new(), double)
+//!         .run()
+//!         .await
+//! }
+//! ```
+//!
+//! # Concepts
+//!
+//! - A [`Source`] receives deliveries; each delivery ([`SourceMessage`]) owns its
+//!   acknowledgement and is acknowledged only after its outputs are published.
+//! - A [`Handler`] turns a decoded input into an output, or into zero or many outputs with
+//!   [`Emit`]. Its errors are classified with [`HandlerError`] and [`Classify`].
+//! - A [`Sink`] prepares an output once and publishes it, with retries.
+//! - A [`Subscription`] connects one source, handler, and sink with [`Middleware`], a
+//!   dead-letter sink, an [`ErrorPolicy`], and a [`SubscriptionConfig`].
+//! - An [`App`] runs subscriptions together and shuts them down on SIGINT or SIGTERM.
+//! - [`Decoder`] and [`Encoder`] implementations such as [`Json`] convert payloads.
+//!
+//! Delivery is at least once. Duplicates are possible after a failure or a broker
+//! rebalance; Kafka-to-Kafka subscriptions can use [`TransactionalSink`] instead.
+//!
+//! # Cargo features
+//!
+//! | Feature | Enables |
+//! |---|---|
+//! | `kafka` | Kafka source and sink in `adapters::kafka` |
+//! | `pulsar` | Apache Pulsar source and sink in `adapters::pulsar` |
+//! | `rabbitmq` | RabbitMQ source and sink in `adapters::rabbitmq` |
+//! | `sqs` | Amazon SQS source and sink in `adapters::sqs` |
+//! | `http` | HTTP source and sink in `adapters::http` |
+//! | `avro` | The `Avro` codec |
+//! | `protobuf` | The `Protobuf` codec |
+//! | `opentelemetry` | Trace-context propagation with `TraceContext` |
+//! | `health` | `/livez` and `/readyz` endpoints in [`health`] |
+//! | `testing` | Fabricated broker records for handler tests in `testing` |
+//!
+//! No feature is enabled by default.
+//!
+//! # Guides
+//!
+//! - [Runtime behavior and configuration](https://github.com/cafeal/beave-rs/blob/main/docs/runtime.md)
+//! - [Adapters and delivery semantics](https://github.com/cafeal/beave-rs/blob/main/docs/adapters.md)
+//! - [Codecs](https://github.com/cafeal/beave-rs/blob/main/docs/codecs.md)
+//! - [Architecture and trait contracts](https://github.com/cafeal/beave-rs/blob/main/docs/architecture.md)
+//! - [Testing](https://github.com/cafeal/beave-rs/blob/main/docs/testing.md)
+//! - [Versioning and releases](https://github.com/cafeal/beave-rs/blob/main/docs/releasing.md)
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 pub mod adapters;
 pub mod app;

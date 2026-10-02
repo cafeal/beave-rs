@@ -25,6 +25,7 @@ impl<C: Default, T> Default for StdinSource<C, T> {
     }
 }
 impl<C: Default, T> StdinSource<C, T> {
+    /// Creates a source that decodes lines with the codec's default value.
     pub fn new() -> Self {
         Self::with_codec(C::default())
     }

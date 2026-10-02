@@ -27,6 +27,10 @@ pub(super) type DeadLetterRoute<I, R> = Arc<
     dyn Fn(DeadLetter<I, R>, RetryPolicy, Counter) -> BoxFuture<anyhow::Result<()>> + Send + Sync,
 >;
 
+/// One source, handler, and sink processed together, with its middleware, dead-letter sink,
+/// and [`SubscriptionConfig`].
+///
+/// Register it on an [`App`](crate::App) with [`App::subscription`](crate::App::subscription).
 pub struct Subscription<S: Source, K, O> {
     pub(super) name: String,
     pub(super) source: S,
@@ -120,36 +124,44 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         .middleware(<SourceItem<S> as SamePlatform<U>>::Inherit::default())
     }
 
+    /// Maximum number of deliveries processed at the same time. Defaults to 1.
     pub fn concurrency(mut self, value: usize) -> Self {
         self.config.concurrency = value;
         self
     }
 
+    /// Maximum number of received but unfinished deliveries. Defaults to 64.
     pub fn max_in_flight(mut self, value: usize) -> Self {
         self.config.max_in_flight = value;
         self
     }
 
+    /// How deliveries that share an ordering key are scheduled. Defaults to
+    /// [`ProcessingOrder::PerKey`].
     pub fn ordering(mut self, order: ProcessingOrder) -> Self {
         self.config.ordering = order;
         self
     }
 
+    /// Retry policy for handler attempts after [`HandlerError::Retry`](crate::HandlerError::Retry).
     pub fn retry(mut self, policy: RetryPolicy) -> Self {
         self.config.handler_retry = policy;
         self
     }
 
+    /// Retry policy for failed receives.
     pub fn receive_retry(mut self, policy: RetryPolicy) -> Self {
         self.config.receive_retry = policy;
         self
     }
 
+    /// Retry policy for output publication.
     pub fn publish_retry(mut self, policy: RetryPolicy) -> Self {
         self.config.publish_retry = policy;
         self
     }
 
+    /// Bound on draining outstanding deliveries when the subscription stops. Defaults to 30 s.
     pub fn drain_timeout(mut self, duration: Duration) -> Self {
         self.config.drain_timeout = duration;
         self
@@ -216,11 +228,13 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         self
     }
 
+    /// Replace the whole configuration, including settings made by earlier builder calls.
     pub fn config(mut self, config: SubscriptionConfig) -> Self {
         self.config = config;
         self
     }
 
+    /// The subscription name.
     pub fn name(&self) -> &str {
         &self.name
     }

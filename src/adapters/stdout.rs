@@ -12,6 +12,7 @@ impl<C: Default> Default for StdoutSink<C> {
     }
 }
 impl<C: Default> StdoutSink<C> {
+    /// Creates a sink that encodes with the codec's default value.
     pub fn new() -> Self {
         Self::with_codec(C::default())
     }

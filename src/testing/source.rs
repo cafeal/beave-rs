@@ -83,12 +83,15 @@ pub type RabbitMqTestSource<C, T> = TestSource<C, T, RabbitMqRecord<Vec<u8>>>;
 pub type SqsTestSource<C, T> = TestSource<C, T, SqsRecord<Vec<u8>>>;
 
 impl<C: Default, T, R: TestRecord> TestSource<C, T, R> {
+    /// A source that delivers `records` in order, decoding them with the codec's default
+    /// value, and then ends.
     pub fn new(records: impl IntoIterator<Item = R>) -> Self {
         Self::with_codec(records, C::default())
     }
 }
 
 impl<C, T, R: TestRecord> TestSource<C, T, R> {
+    /// A source that delivers `records` in order, decoding them with `codec`, and then ends.
     pub fn with_codec(records: impl IntoIterator<Item = R>, codec: C) -> Self {
         let records: Vec<R> = records.into_iter().collect();
         Self {

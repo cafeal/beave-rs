@@ -30,6 +30,7 @@ pub struct TransactionBatch {
 }
 
 impl TransactionBatch {
+    /// Batches of at most `max_deliveries` deliveries that wait at most `max_linger`.
     pub fn new(max_deliveries: usize, max_linger: Duration) -> Self {
         Self {
             max_deliveries,
@@ -57,6 +58,10 @@ impl Default for TransactionBatch {
     }
 }
 
+/// Concurrency, ordering, retry, and failure settings of one subscription.
+///
+/// Set fields directly or through the matching [`Subscription`](crate::Subscription) builder
+/// methods. Invalid values fail validation before the application starts.
 #[derive(Clone, Debug)]
 pub struct SubscriptionConfig {
     /// Maximum number of deliveries processed at the same time.
@@ -64,12 +69,21 @@ pub struct SubscriptionConfig {
     /// Maximum number of received deliveries that are unfinished, including
     /// deliveries waiting behind an earlier delivery with the same ordering key.
     pub max_in_flight: usize,
+    /// How deliveries that share an ordering key are scheduled.
     pub ordering: ProcessingOrder,
+    /// Retries of the handler after [`HandlerError::Retry`](crate::HandlerError::Retry).
     pub handler_retry: RetryPolicy,
+    /// Retries of [`Source::receive`](crate::Source::receive) after
+    /// [`ReceiveError::Retry`](crate::ReceiveError::Retry).
     pub receive_retry: RetryPolicy,
+    /// Retries of output publication.
     pub publish_retry: RetryPolicy,
+    /// Retries of dead-letter publication.
     pub dead_letter_retry: RetryPolicy,
+    /// What happens to a delivery after a routable failure.
     pub error_policy: ErrorPolicy,
+    /// Bound on draining outstanding deliveries when the subscription stops. Closing the
+    /// source and sinks afterwards has a separate timeout of the same duration.
     pub drain_timeout: Duration,
     /// Batching of a [transactional](crate::Subscription::transactional)
     /// subscription's commits; ignored by other subscriptions.

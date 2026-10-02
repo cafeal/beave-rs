@@ -6,12 +6,20 @@ use std::{
     time::Duration,
 };
 
+/// Capped exponential backoff with a bounded number of attempts.
+///
+/// The delay before retry `n` is `initial_delay * 2^(n - 1)`, capped at `max_delay`, and
+/// then randomized by `jitter`. The default makes three attempts starting at 100 ms, capped
+/// at 5 s, without jitter.
 #[derive(Clone, Debug)]
 pub struct RetryPolicy {
     /// Includes the initial attempt; must be at least one.
     pub max_attempts: usize,
+    /// Delay before the first retry.
     pub initial_delay: Duration,
+    /// Upper bound of the exponential delay, applied before jitter.
     pub max_delay: Duration,
+    /// Randomization applied to each delay.
     pub jitter: Jitter,
 }
 

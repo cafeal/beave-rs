@@ -1,4 +1,7 @@
-//! Kafka source and sink adapters.
+//! Kafka source and sink adapters built on `rdkafka`.
+//!
+//! Enabled by the `kafka` Cargo feature. See `docs/adapters/kafka.md` for offset
+//! commits, transactions, and delivery guarantees.
 
 mod config;
 mod dead_letter;

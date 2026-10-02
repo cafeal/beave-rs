@@ -1,12 +1,19 @@
 //! Handler results, error classification, and output cardinality.
 use std::{future::Future, result::Result as StdResult};
 
+/// Result returned by handlers and middleware.
 pub type Result<T> = StdResult<T, HandlerError>;
 
+/// Zero, one, or many outputs produced from one input by an emitting handler.
+///
+/// The input is acknowledged only after every emitted output is published.
 #[derive(Debug)]
 pub enum Emit<T> {
+    /// Produce no output; the input is acknowledged without publishing.
     None,
+    /// Produce exactly one output.
     One(T),
+    /// Produce each value as a separate output, in order.
     Many(Vec<T>),
 }
 impl<T> Emit<T> {
@@ -19,10 +26,19 @@ impl<T> Emit<T> {
     }
 }
 
+/// How the runtime treats a failed delivery.
+///
+/// The subscription's error policy decides the final outcome; see
+/// [`ErrorPolicy`](crate::ErrorPolicy).
 #[derive(Debug)]
 pub enum HandlerError {
+    /// A transient failure: rerun the handler under its retry policy. A failure on the last
+    /// permitted attempt is routed as [`FailureKind::RetryExhausted`](crate::FailureKind).
     Retry(anyhow::Error),
+    /// The input cannot be processed: route it as [`FailureKind::Rejected`](crate::FailureKind)
+    /// without retrying, which dead-letters it by default.
     Reject(anyhow::Error),
+    /// An unrecoverable failure: stop the subscription without acknowledging the input.
     Fatal(anyhow::Error),
 }
 /// Ordinary errors propagated with `?` reject the input: it is dead-lettered without handler
@@ -71,7 +87,9 @@ impl<T, E: Into<anyhow::Error>> Classify<T> for StdResult<T, E> {
 /// Async domain transformation. Ordinary async functions and closures implement this.
 /// Use `Emit<T>` as the output with `Subscription::new_emitting` for 0/1/N output.
 pub trait Handler<I>: Send + Sync + 'static {
+    /// Value published to the sink for each successfully handled input.
     type Output: Send + Sync + 'static;
+    /// Process one decoded input.
     fn handle(&self, input: I) -> impl Future<Output = Result<Self::Output>> + Send;
 }
 impl<I, O, F, Fut> Handler<I> for F

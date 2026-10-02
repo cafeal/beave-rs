@@ -41,6 +41,7 @@ pub struct HttpPrepared {
 }
 
 impl HttpPrepared {
+    /// Encoded request body.
     pub fn body(&self) -> &[u8] {
         &self.body
     }
@@ -98,6 +99,7 @@ impl<C, T> Clone for HttpSink<C, T> {
 }
 
 impl<C: Default, T> HttpSink<C, T> {
+    /// Creates a sink with the default codec; see [`HttpSink::with_codec`].
     pub fn new(config: HttpSinkConfig) -> anyhow::Result<Self> {
         Self::with_codec(config, C::default())
     }
