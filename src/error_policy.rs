@@ -88,10 +88,15 @@ pub enum FailureAction {
 /// and the subscription fails validation otherwise.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ErrorPolicy {
+    /// Action after [`FailureKind::Decode`]. Defaults to [`FailureAction::Stop`].
     pub decode: FailureAction,
+    /// Action after [`FailureKind::Rejected`]. Defaults to [`FailureAction::DeadLetter`].
     pub rejected: FailureAction,
+    /// Action after [`FailureKind::RetryExhausted`]. Defaults to [`FailureAction::DeadLetter`].
     pub retry_exhausted: FailureAction,
+    /// Action after [`FailureKind::Encode`]. Defaults to [`FailureAction::Stop`].
     pub encode: FailureAction,
+    /// Action after [`FailureKind::PublishRejected`]. Defaults to [`FailureAction::DeadLetter`].
     pub publish_rejected: FailureAction,
 }
 
@@ -119,6 +124,7 @@ impl ErrorPolicy {
         }
     }
 
+    /// The configured action for `kind`.
     pub fn action(&self, kind: FailureKind) -> FailureAction {
         match kind {
             FailureKind::Decode => self.decode,

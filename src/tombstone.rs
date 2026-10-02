@@ -8,6 +8,7 @@ use crate::{
 
 /// A received record type that can carry a tombstone.
 pub trait TombstoneRecord {
+    /// Whether the record's value is null.
     fn is_tombstone(&self) -> bool;
 }
 
@@ -39,18 +40,21 @@ pub struct Tombstones {
 }
 
 impl Tombstones {
+    /// Route tombstones as rejected inputs.
     pub fn reject() -> Self {
         Self {
             policy: Policy::Reject,
         }
     }
 
+    /// Acknowledge tombstones without output.
     pub fn skip() -> Self {
         Self {
             policy: Policy::Skip,
         }
     }
 
+    /// Publish a tombstone for the same key.
     pub fn propagate() -> PropagateTombstones {
         PropagateTombstones
     }

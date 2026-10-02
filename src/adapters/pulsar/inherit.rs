@@ -32,16 +32,20 @@ impl PulsarInherit {
         }
     }
 
+    /// Stops inheriting the received key, so outputs keep their own key.
     pub fn without_key(mut self) -> Self {
         self.key = false;
         self
     }
 
+    /// Stops inheriting received properties, so outputs keep only their own
+    /// properties.
     pub fn without_properties(mut self) -> Self {
         self.properties = false;
         self
     }
 
+    /// Stops inheriting the received event time, so outputs keep their own.
     pub fn without_event_time(mut self) -> Self {
         self.event_time = false;
         self

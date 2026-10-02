@@ -29,6 +29,8 @@ fn redacted(uri: &str) -> String {
     }
 }
 
+/// Configuration for a [`RabbitMqSource`](super::RabbitMqSource).
+///
 /// `Debug` output hides the password of the URI.
 #[derive(Clone)]
 pub struct RabbitMqSourceConfig {
@@ -48,6 +50,7 @@ pub struct RabbitMqSourceConfig {
 }
 
 impl RabbitMqSourceConfig {
+    /// Creates a configuration with a `prefetch` of 100 and `ordered` disabled.
     pub fn new(uri: impl Into<String>, queue: impl Into<String>) -> Self {
         Self {
             uri: uri.into(),
@@ -57,6 +60,11 @@ impl RabbitMqSourceConfig {
         }
     }
 
+    /// Checks the configuration without connecting.
+    ///
+    /// Fails when the URI does not parse or does not use `amqp://` or
+    /// `amqps://`, when the queue name is empty or longer than 255 bytes, or
+    /// when `prefetch` is zero.
     pub fn validate(&self) -> anyhow::Result<()> {
         validate_uri(&self.uri)?;
         anyhow::ensure!(!self.queue.trim().is_empty(), "RabbitMQ queue is required");
@@ -80,6 +88,8 @@ impl fmt::Debug for RabbitMqSourceConfig {
     }
 }
 
+/// Configuration for a [`RabbitMqSink`](super::RabbitMqSink).
+///
 /// `Debug` output hides the password of the URI.
 #[derive(Clone)]
 pub struct RabbitMqSinkConfig {
@@ -104,6 +114,8 @@ pub struct RabbitMqSinkConfig {
 }
 
 impl RabbitMqSinkConfig {
+    /// Creates a configuration with `persistent` and `mandatory` enabled and a
+    /// `max_pending` of 1000.
     pub fn new(
         uri: impl Into<String>,
         exchange: impl Into<String>,
@@ -119,6 +131,11 @@ impl RabbitMqSinkConfig {
         }
     }
 
+    /// Checks the configuration without connecting.
+    ///
+    /// Fails when the URI does not parse or does not use `amqp://` or
+    /// `amqps://`, when the exchange name or routing key is longer than 255
+    /// bytes, or when `max_pending` is zero or too large.
     pub fn validate(&self) -> anyhow::Result<()> {
         validate_uri(&self.uri)?;
         short_string("exchange name", &self.exchange)?;

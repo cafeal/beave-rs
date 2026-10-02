@@ -26,10 +26,12 @@ impl Completion {
         Self(Some(Box::pin(future)))
     }
 
+    /// Whether the output already reached the acknowledgement boundary.
     pub fn is_done(&self) -> bool {
         self.0.is_none()
     }
 
+    /// Wait until the output reaches the acknowledgement boundary.
     pub async fn wait(self) -> anyhow::Result<()> {
         match self.0 {
             Some(future) => future.await,
@@ -71,6 +73,7 @@ impl fmt::Display for PublishRejected {
 
 /// Sink metadata belongs in `T` or `Prepared`, not in a universal broker envelope.
 pub trait Sink<T>: Send + Sync + 'static {
+    /// Encoded and routed output, ready to publish.
     type Prepared: Send + Sync + 'static;
     /// Validate and encode once, before any publish attempts. No publishing here.
     fn prepare(&self, value: T) -> anyhow::Result<Self::Prepared>;
@@ -116,6 +119,7 @@ pub trait Sink<T>: Send + Sync + 'static {
             Ok(Completion::done())
         }
     }
+    /// Flush and release the sink after the subscription has stopped publishing to it.
     fn close(&self) -> impl Future<Output = anyhow::Result<()>> + Send {
         async { Ok(()) }
     }

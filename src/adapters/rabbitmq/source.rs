@@ -51,12 +51,20 @@ impl Session {
 }
 
 impl<C: Default, T> RabbitMqSource<C, T> {
+    /// Creates a source that decodes with the codec's default value.
+    ///
+    /// The connection is opened on the first receive, which also validates the
+    /// configuration.
     pub fn new(config: RabbitMqSourceConfig) -> Self {
         Self::with_codec(config, C::default())
     }
 }
 
 impl<C, T> RabbitMqSource<C, T> {
+    /// Creates a source that decodes with `codec`.
+    ///
+    /// The connection is opened on the first receive, which also validates the
+    /// configuration.
     pub fn with_codec(config: RabbitMqSourceConfig, codec: C) -> Self {
         Self {
             config,

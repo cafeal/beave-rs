@@ -50,7 +50,9 @@ pub trait TransactionalSink<M: SourceMessage, T>: Sink<T> {
 /// One delivery committed by [`TransactionalSink::commit`], with the prepared
 /// outputs published in the same transaction.
 pub struct TransactionEntry<'a, M, P> {
+    /// The source delivery acknowledged by the transaction.
     pub delivery: &'a M,
+    /// The delivery's prepared outputs, in emission order.
     pub outputs: &'a [P],
 }
 

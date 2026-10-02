@@ -23,8 +23,11 @@ use std::{
 /// An encoded Kafka record. Preparing a value performs all codec work once.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KafkaPrepared {
+    /// Record key bytes, or `None` for a keyless record.
     pub key: Option<Vec<u8>>,
+    /// Encoded value bytes, or `None` for a null payload.
     pub value: Option<Vec<u8>>,
+    /// Headers in publication order; a header value may be null.
     pub headers: Vec<(String, Option<Vec<u8>>)>,
 }
 
@@ -56,12 +59,20 @@ impl<C, T> Clone for KafkaSink<C, T> {
 }
 
 impl<C: Default, T> KafkaSink<C, T> {
+    /// Creates a sink that encodes with the codec's default value.
+    ///
+    /// The producer is created on the first publication, which also validates
+    /// the configuration.
     pub fn new(config: KafkaSinkConfig) -> Self {
         Self::with_codec(config, C::default())
     }
 }
 
 impl<C, T> KafkaSink<C, T> {
+    /// Creates a sink that encodes with `codec`.
+    ///
+    /// The producer is created on the first publication, which also validates
+    /// the configuration.
     pub fn with_codec(config: KafkaSinkConfig, codec: C) -> Self {
         Self {
             codec: Arc::new(codec),

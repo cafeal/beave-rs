@@ -15,6 +15,7 @@ const ORIGIN_PUBLISH_TIME: &str = "beavers-dlq-origin-publish-time";
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PulsarDeadLetter {
+    /// Failure details of the most recent dead-lettering.
     pub details: DeadLetterDetails,
     /// Where the payload was received before it was first dead-lettered. The publish time is
     /// that message's; the dead-letter message's own publish time is when it was

@@ -7,11 +7,17 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+/// A source that delivers the items of an iterator in order and ends when it
+/// is exhausted.
+///
+/// Acknowledging a delivery increments a shared counter, which makes the
+/// source useful for tests and examples.
 pub struct IterSource<T> {
     items: Box<dyn Iterator<Item = T> + Send>,
     acknowledgements: Arc<AtomicUsize>,
 }
 impl<T> IterSource<T> {
+    /// Creates a source that delivers each item of `items`.
     pub fn new<I: IntoIterator<Item = T>>(items: I) -> Self
     where
         I::IntoIter: Send + 'static,
@@ -21,6 +27,7 @@ impl<T> IterSource<T> {
             acknowledgements: Arc::default(),
         }
     }
+    /// Shared counter of acknowledged deliveries, incremented on each ACK.
     pub fn acknowledgements(&self) -> Arc<AtomicUsize> {
         self.acknowledgements.clone()
     }

@@ -16,6 +16,22 @@ type Runner = Box<
     dyn FnOnce(CancellationToken) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>
         + Send,
 >;
+/// A set of subscriptions that run, fail, and shut down together.
+///
+/// ```no_run
+/// use beavers::{App, IterSource, Json, Result, StdoutSink};
+///
+/// async fn double(value: u64) -> Result<u64> {
+///     Ok(value * 2)
+/// }
+///
+/// # async fn run() -> anyhow::Result<()> {
+/// App::new()
+///     .subscribe("double", IterSource::new([1, 2, 3]), StdoutSink::<Json>::new(), double)
+///     .run()
+///     .await
+/// # }
+/// ```
 #[derive(Default)]
 pub struct App {
     subscriptions: Vec<Runner>,
@@ -26,9 +42,13 @@ pub struct App {
     health_server: Option<HealthServer>,
 }
 impl App {
+    /// An application without subscriptions.
     pub fn new() -> Self {
         Self::default()
     }
+    /// Add a subscription with the default [`SubscriptionConfig`](crate::SubscriptionConfig).
+    ///
+    /// Use [`subscription`](Self::subscription) to register a configured [`Subscription`].
     pub fn subscribe<S, K, H, O>(
         self,
         name: impl Into<String>,
@@ -44,6 +64,10 @@ impl App {
     {
         self.subscription(Subscription::new(name, source, sink, handler))
     }
+    /// Add a configured subscription.
+    ///
+    /// Subscription names must be unique. Invalid configuration is reported when the
+    /// application starts running.
     pub fn subscription<S, K, O>(mut self, subscription: Subscription<S, K, O>) -> Self
     where
         S: Source,
@@ -76,6 +100,10 @@ impl App {
         self.health_server = Some(server);
         self
     }
+    /// Run every subscription until all of them finish or `shutdown` is cancelled.
+    ///
+    /// A subscription failure cancels `shutdown`, so the others drain and stop; the first
+    /// failure is returned after every subscription has finished.
     pub async fn run_until(self, shutdown: CancellationToken) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.validation.is_empty(),
@@ -112,6 +140,8 @@ impl App {
             None => Ok(()),
         }
     }
+    /// Run every subscription until all of them finish, one fails, or the process receives
+    /// SIGINT or SIGTERM.
     pub async fn run(self) -> anyhow::Result<()> {
         let token = CancellationToken::new();
         let run = self.run_until(token.clone());

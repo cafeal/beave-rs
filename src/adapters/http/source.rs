@@ -50,12 +50,18 @@ pub struct HttpSource<C, T> {
 }
 
 impl<C: Default, T> HttpSource<C, T> {
+    /// Validates `config` and binds the listener, using the codec's default value.
+    ///
+    /// Fails when the configuration is invalid or the address cannot be bound.
     pub fn new(config: HttpSourceConfig) -> anyhow::Result<Self> {
         Self::with_codec(config, C::default())
     }
 }
 
 impl<C, T> HttpSource<C, T> {
+    /// Validates `config` and binds the listener, decoding bodies with `codec`.
+    ///
+    /// Fails when the configuration is invalid or the address cannot be bound.
     pub fn with_codec(config: HttpSourceConfig, codec: C) -> anyhow::Result<Self> {
         config.validate()?;
         let listener = net::TcpListener::bind(config.bind)?;

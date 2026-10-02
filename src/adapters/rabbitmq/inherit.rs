@@ -33,11 +33,14 @@ impl RabbitMqInherit {
         }
     }
 
+    /// Stops inheriting received headers, so outputs keep only their own headers.
     pub fn without_headers(mut self) -> Self {
         self.headers = false;
         self
     }
 
+    /// Stops inheriting received properties, so outputs keep only their own
+    /// properties.
     pub fn without_properties(mut self) -> Self {
         self.properties = false;
         self

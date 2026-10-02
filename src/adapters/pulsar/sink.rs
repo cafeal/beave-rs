@@ -19,9 +19,13 @@ use tokio::sync::{OwnedRwLockReadGuard, RwLock};
 pub struct PulsarPrepared {
     /// `None` publishes a null value.
     pub value: Option<Vec<u8>>,
+    /// User properties of the message.
     pub properties: HashMap<String, String>,
+    /// Message key bytes, or `None` for a keyless message.
     pub key: Option<Vec<u8>>,
+    /// Ordering key for `KeyShared` subscriptions, or `None`.
     pub ordering_key: Option<Vec<u8>>,
+    /// Event time, conventionally milliseconds since the Unix epoch, or `None`.
     pub event_time: Option<u64>,
 }
 
@@ -87,12 +91,20 @@ pub struct PulsarSink<C, T> {
 }
 
 impl<C: Default, T> PulsarSink<C, T> {
+    /// Creates a sink that encodes with the codec's default value.
+    ///
+    /// The producers are created on the first publication, which also
+    /// validates the configuration.
     pub fn new(config: PulsarSinkConfig) -> Self {
         Self::with_codec(config, C::default())
     }
 }
 
 impl<C, T> PulsarSink<C, T> {
+    /// Creates a sink that encodes with `codec`.
+    ///
+    /// The producers are created on the first publication, which also
+    /// validates the configuration.
     pub fn with_codec(config: PulsarSinkConfig, codec: C) -> Self {
         Self {
             pending: PendingLimit::new(config.max_pending, "Pulsar"),

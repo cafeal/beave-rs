@@ -22,6 +22,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 pub struct TraceContext;
 
 impl TraceContext {
+    /// The trace-context injection middleware.
     pub fn new() -> Self {
         Self
     }

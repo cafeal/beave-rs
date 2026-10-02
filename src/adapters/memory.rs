@@ -1,6 +1,10 @@
 use crate::sink::Sink;
 use std::sync::{Arc, Mutex};
 
+/// A sink that collects published values in memory, in publication order.
+///
+/// Clones share the same storage, so a clone kept by a test can read what the
+/// subscription published.
 pub struct InMemorySink<T>(Arc<Mutex<Vec<T>>>);
 impl<T> Clone for InMemorySink<T> {
     fn clone(&self) -> Self {
@@ -13,6 +17,7 @@ impl<T> Default for InMemorySink<T> {
     }
 }
 impl<T: Clone> InMemorySink<T> {
+    /// A copy of the values published so far.
     pub fn values(&self) -> Vec<T> {
         self.0.lock().unwrap().clone()
     }

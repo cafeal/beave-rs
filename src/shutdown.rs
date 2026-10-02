@@ -9,15 +9,19 @@ impl Default for CancellationToken {
     }
 }
 impl CancellationToken {
+    /// A token that is not cancelled.
     pub fn new() -> Self {
         Self(tokio::sync::watch::channel(false).0)
     }
+    /// Cancel this token and every clone of it. Cancelling again has no effect.
     pub fn cancel(&self) {
         self.0.send_replace(true);
     }
+    /// Whether the token has been cancelled.
     pub fn is_cancelled(&self) -> bool {
         *self.0.borrow()
     }
+    /// Wait until the token is cancelled.
     pub async fn cancelled(&self) {
         let mut receiver = self.0.subscribe();
         let _ = receiver.wait_for(|cancelled| *cancelled).await;

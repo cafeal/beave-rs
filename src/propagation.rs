@@ -11,5 +11,6 @@
 /// same name, so injected trace context supersedes context copied from the
 /// input by inheritance middleware.
 pub trait PropagationCarrier {
+    /// Set the field `name` to `value`.
     fn set_propagation_field(&mut self, name: &str, value: String);
 }

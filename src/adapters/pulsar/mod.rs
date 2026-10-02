@@ -1,4 +1,7 @@
 //! Apache Pulsar source and sink adapters.
+//!
+//! Enabled by the `pulsar` Cargo feature. See `docs/adapters/pulsar.md` for
+//! subscriptions, acknowledgements, and delivery guarantees.
 
 mod client;
 mod config;
