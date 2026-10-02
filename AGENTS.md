@@ -25,8 +25,13 @@ unresolved design decisions.
    cargo test --offline --all-features
    cargo clippy --offline --all-features --all-targets -- -D warnings
    cargo doc --offline --all-features --no-deps
-   git diff --check
+   cargo deny check
+   typos
    ```
+
+   Install the last two tools with `cargo install --locked cargo-deny typos-cli`.
+   `deny.toml` lists the allowed dependency licenses and `_typos.toml` holds the
+   spelling exceptions.
 
 Live Kafka and Pulsar tests remain ignored by default. Start the local brokers
 with `docker compose up -d --wait` when Docker is available, run

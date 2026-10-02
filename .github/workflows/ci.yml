@@ -74,15 +74,19 @@ jobs:
       - name: Build the crate from its package
         run: cargo package --locked
 
-  whitespace:
-    name: Whitespace
+  deny:
+    name: Dependencies
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Check for whitespace errors
-        run: git diff --check "$(git hash-object -t tree /dev/null)" HEAD
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  typos:
+    name: Spelling
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crate-ci/typos@v1.50.3
 
   live:
     name: Live broker tests
