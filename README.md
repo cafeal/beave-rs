@@ -8,8 +8,11 @@
 A lightweight Rust message processing framework built around typed handlers.
 
 ```text
-Source → Subscription → Handler → Sink
+Source → Handler → Sink
 ```
+
+A `Subscription` connects one source, one handler, and one sink, and an `App`
+runs any number of subscriptions.
 
 The current implementation includes local adapters, a bounded in-process
 channel that chains subscriptions with end-to-end acknowledgement, optional

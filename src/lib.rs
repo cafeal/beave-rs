@@ -5,8 +5,11 @@
 //! publishing to a [`Sink`], acknowledgement, dead letters, and graceful shutdown.
 //!
 //! ```text
-//! Source → Subscription → Handler → Sink
+//! Source → Handler → Sink
 //! ```
+//!
+//! A [`Subscription`] connects one source, one handler, and one sink, and an [`App`] runs any
+//! number of subscriptions.
 //!
 //! # Quick start
 //!
