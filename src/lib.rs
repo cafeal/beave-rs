@@ -5,11 +5,14 @@
 //! publishing to a [`Sink`], acknowledgement, dead letters, and graceful shutdown.
 //!
 //! ```text
-//! Source → Handler → Sink
+//! App
+//! ├── Subscription: Kafka source  → handler → Kafka sink
+//! ├── Subscription: Pulsar source → handler → HTTP sink
+//! └── Subscription: SQS source    → handler → RabbitMQ sink
 //! ```
 //!
-//! A [`Subscription`] connects one source, one handler, and one sink, and an [`App`] runs any
-//! number of subscriptions.
+//! Each [`Subscription`] connects one source, one handler, and one sink. An [`App`] runs any
+//! number of subscriptions side by side and shuts them down together.
 //!
 //! # Quick start
 //!
