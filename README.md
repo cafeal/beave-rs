@@ -62,6 +62,7 @@ every example, console, and alias.
 - [Runtime behavior, configuration, and limitations](docs/runtime.md)
 - [Design plan and roadmap](docs/plan.md)
 - [Local development brokers](docs/development.md)
+- [Versioning and releases](docs/releasing.md)
 
 The runtime emits `tracing` spans and `metrics` counters and histograms for
 every delivery stage. The optional `opentelemetry` feature propagates trace
@@ -77,6 +78,8 @@ worker pool through `blocking(sync_handler)`; see
 [blocking handlers](docs/runtime.md#blocking-handlers).
 
 ## Development
+
+The minimum supported Rust version is 1.91.
 
 ```sh
 cargo fmt --check

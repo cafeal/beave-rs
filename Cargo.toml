@@ -2,8 +2,26 @@
 name = "beavers"
 version = "0.1.0"
 edition = "2024"
-description = "Typed message processing with explicit delivery semantics"
+rust-version = "1.91"
+description = "Typed message processing for Kafka, Pulsar, RabbitMQ, and HTTP with explicit delivery semantics"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/cafeal/beave-rs"
+documentation = "https://docs.rs/beavers"
+readme = "README.md"
+keywords = ["kafka", "pulsar", "rabbitmq", "messaging", "stream"]
+categories = ["asynchronous", "network-programming"]
+include = [
+    "/src",
+    "/examples",
+    "/tests",
+    "/docs",
+    "/README.md",
+    "/LICENSE-APACHE",
+    "/LICENSE-MIT",
+]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 anyhow = "1"
