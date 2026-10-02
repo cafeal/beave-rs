@@ -74,12 +74,14 @@ impl Drop for Keeper {
 }
 
 impl<C: Default, T> SqsSource<C, T> {
+    /// A source with a default-constructed codec.
     pub fn new(config: SqsSourceConfig) -> Self {
         Self::with_codec(config, C::default())
     }
 }
 
 impl<C, T> SqsSource<C, T> {
+    /// A source that uses an existing codec instance, such as a configured `Avro` codec.
     pub fn with_codec(config: SqsSourceConfig, codec: C) -> Self {
         Self {
             config,

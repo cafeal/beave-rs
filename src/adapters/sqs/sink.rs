@@ -46,6 +46,7 @@ pub struct SqsPrepared {
 }
 
 impl SqsPrepared {
+    /// The encoded message body.
     pub fn body(&self) -> &str {
         &self.body
     }
@@ -86,12 +87,14 @@ impl<C, T> Clone for SqsSink<C, T> {
 }
 
 impl<C: Default, T> SqsSink<C, T> {
+    /// A sink with a default-constructed codec.
     pub fn new(config: SqsSinkConfig) -> Self {
         Self::with_codec(config, C::default())
     }
 }
 
 impl<C, T> SqsSink<C, T> {
+    /// A sink that uses an existing codec instance, such as a configured `Avro` codec.
     pub fn with_codec(config: SqsSinkConfig, codec: C) -> Self {
         Self {
             config,

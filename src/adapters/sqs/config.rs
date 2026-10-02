@@ -9,12 +9,16 @@ pub(super) const MAX_VISIBILITY: Duration = Duration::from_secs(12 * 60 * 60);
 /// container or instance metadata.
 #[derive(Clone)]
 pub struct SqsCredentials {
+    /// The AWS access key ID.
     pub access_key_id: String,
+    /// The secret access key.
     pub secret_access_key: String,
+    /// The session token of temporary credentials.
     pub session_token: Option<String>,
 }
 
 impl SqsCredentials {
+    /// Long-term credentials without a session token.
     pub fn new(access_key_id: impl Into<String>, secret_access_key: impl Into<String>) -> Self {
         Self {
             access_key_id: access_key_id.into(),
@@ -74,6 +78,7 @@ impl Endpoint<'_> {
     }
 }
 
+/// Configuration of an [`SqsSource`](crate::adapters::sqs::SqsSource).
 #[derive(Clone, Debug)]
 pub struct SqsSourceConfig {
     /// The queue to consume, such as
@@ -83,6 +88,7 @@ pub struct SqsSourceConfig {
     pub region: Option<String>,
     /// Endpoint replacing the regional SQS endpoint, such as a local emulator.
     pub endpoint_url: Option<String>,
+    /// Static credentials; unset uses the default credential provider chain.
     pub credentials: Option<SqsCredentials>,
     /// Messages one `ReceiveMessage` call returns at most, from 1 to 10.
     pub max_messages: i32,
@@ -97,6 +103,7 @@ pub struct SqsSourceConfig {
 }
 
 impl SqsSourceConfig {
+    /// A configuration for `queue_url` with the default settings.
     pub fn new(queue_url: impl Into<String>) -> Self {
         Self {
             queue_url: queue_url.into(),
@@ -124,6 +131,7 @@ impl SqsSourceConfig {
         }
     }
 
+    /// Checks the settings without contacting SQS.
     pub fn validate(&self) -> anyhow::Result<()> {
         self.endpoint().validate()?;
         anyhow::ensure!(
@@ -142,6 +150,7 @@ impl SqsSourceConfig {
     }
 }
 
+/// Configuration of an [`SqsSink`](crate::adapters::sqs::SqsSink).
 #[derive(Clone, Debug)]
 pub struct SqsSinkConfig {
     /// The queue every output is sent to.
@@ -150,10 +159,12 @@ pub struct SqsSinkConfig {
     pub region: Option<String>,
     /// Endpoint replacing the regional SQS endpoint, such as a local emulator.
     pub endpoint_url: Option<String>,
+    /// Static credentials; unset uses the default credential provider chain.
     pub credentials: Option<SqsCredentials>,
 }
 
 impl SqsSinkConfig {
+    /// A configuration for `queue_url` with the default settings.
     pub fn new(queue_url: impl Into<String>) -> Self {
         Self {
             queue_url: queue_url.into(),
@@ -172,6 +183,7 @@ impl SqsSinkConfig {
         }
     }
 
+    /// Checks the settings without contacting SQS.
     pub fn validate(&self) -> anyhow::Result<()> {
         self.endpoint().validate()
     }

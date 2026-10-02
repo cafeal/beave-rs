@@ -30,6 +30,7 @@ impl SqsInherit {
         }
     }
 
+    /// Does not inherit message attributes.
     pub fn without_attributes(mut self) -> Self {
         self.attributes = false;
         self

@@ -14,7 +14,9 @@ const ORIGIN_MESSAGE_ID: &str = "beavers-dlq-origin-message-id";
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SqsOrigin {
+    /// The queue the payload was first received from.
     pub queue_url: String,
+    /// The message ID of that first receipt.
     pub message_id: String,
 }
 
@@ -27,7 +29,9 @@ pub struct SqsOrigin {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SqsDeadLetter {
+    /// The latest failure and how often the payload was dead-lettered.
     pub details: DeadLetterDetails,
+    /// Where the payload was first received.
     pub origin: SqsOrigin,
 }
 
