@@ -3,7 +3,7 @@
 [![crates.io](https://img.shields.io/crates/v/beavers.svg)](https://crates.io/crates/beavers)
 [![docs.rs](https://img.shields.io/docsrs/beavers)](https://docs.rs/beavers)
 [![CI](https://github.com/cafeal/beave-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/cafeal/beave-rs/actions/workflows/ci.yml)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
 
 A lightweight Rust message processing framework built around typed handlers.
 
@@ -164,11 +164,6 @@ runs them locally while the brokers are up.
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
-[MIT license](LICENSE-MIT) at your option.
-
-Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in this crate by you, as defined in the Apache-2.0 license, shall
-be dual licensed as above, without any additional terms or conditions.
+Licensed under the [MIT license](LICENSE-MIT).
 
 **Let application code process events. Let beave.rs manage the flow.**
