@@ -387,8 +387,6 @@ the first crates.io release:
 - Review the public API: internal types leaking through public signatures,
   `#[non_exhaustive]` on configuration structs and enums that are expected to
   grow, and names that should change before `0.1.0`.
-- Complete the rustdoc: crate-level overview, examples on the main entry
-  points, feature labels on docs.rs, and the `missing_docs` lint.
 - After the first release, add `cargo-semver-checks` to CI and switch the
   release workflow from the API token to crates.io trusted publishing.
 - Create the project icon and character, and a GitHub Pages site.
