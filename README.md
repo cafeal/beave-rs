@@ -34,6 +34,7 @@ application uses:
 | `kafka` | Kafka source and sink |
 | `pulsar` | Apache Pulsar source and sink |
 | `rabbitmq` | RabbitMQ source and sink |
+| `sqs` | Amazon SQS source and sink |
 | `http` | HTTP source and sink |
 | `avro` | Avro codec |
 | `protobuf` | Protobuf codec |

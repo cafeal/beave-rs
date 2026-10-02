@@ -48,6 +48,7 @@
 //! | `kafka` | Kafka source and sink in `adapters::kafka` |
 //! | `pulsar` | Apache Pulsar source and sink in `adapters::pulsar` |
 //! | `rabbitmq` | RabbitMQ source and sink in `adapters::rabbitmq` |
+//! | `sqs` | Amazon SQS source and sink in `adapters::sqs` |
 //! | `http` | HTTP source and sink in `adapters::http` |
 //! | `avro` | The `Avro` codec |
 //! | `protobuf` | The `Protobuf` codec |

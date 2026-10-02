@@ -1,7 +1,7 @@
 //! Local transports and optional broker adapters.
 //!
 //! The local transports and [`channel`] are always available. The `http`,
-//! `kafka`, `pulsar`, and `rabbitmq` modules are enabled by Cargo features
+//! `kafka`, `pulsar`, `rabbitmq`, and `sqs` modules are enabled by Cargo features
 //! of the same names.
 mod iter;
 mod memory;
