@@ -1,47 +1,93 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="680" height="270" viewBox="0 0 680 270" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="330" viewBox="0 0 760 330" fill="none">
   <title>An App runs several subscriptions, each connecting a source, a handler, and a sink</title>
   <style>
-    .app { fill: #f6f8fa; stroke: #8c959f; }
-    .label { fill: #24292f; }
-    .muted { fill: #57606a; }
-    .source { fill: #ddf4ff; stroke: #0969da; }
-    .handler { fill: #fff8c5; stroke: #9a6700; }
-    .sink { fill: #dafbe1; stroke: #1a7f37; }
-    .arrow { stroke: #57606a; }
-    .head { fill: #57606a; }
+    text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .frame { fill: #ffffff; stroke: #e4e4e7; }
+    .grid { fill: #e4e4e7; }
+    .node { fill: #ffffff; stroke: #d4d4d8; }
+    .handler { fill: #18181b; }
+    .handler-text { fill: #fafafa; }
+    .title { fill: #18181b; }
+    .kind { fill: #a1a1aa; }
+    .name { fill: #18181b; }
+    .sub { fill: #a1a1aa; }
+    .wire { stroke: #d4d4d8; }
+    .pulse { fill: #f97316; }
+    .badge { fill: #fff7ed; stroke: #fed7aa; }
+    .badge-text { fill: #c2410c; }
     @media (prefers-color-scheme: dark) {
-      .app { fill: #161b22; stroke: #6e7681; }
-      .label { fill: #e6edf3; }
-      .muted { fill: #8d96a0; }
-      .source { fill: #0c2d6b; stroke: #4493f8; }
-      .handler { fill: #3b2300; stroke: #d29922; }
-      .sink { fill: #04260f; stroke: #3fb950; }
-      .arrow { stroke: #8d96a0; }
-      .head { fill: #8d96a0; }
+      .frame { fill: #0a0a0b; stroke: #27272a; }
+      .grid { fill: #1f1f23; }
+      .node { fill: #111113; stroke: #2e2e33; }
+      .handler { fill: #fafafa; }
+      .handler-text { fill: #09090b; }
+      .title { fill: #fafafa; }
+      .kind { fill: #71717a; }
+      .name { fill: #fafafa; }
+      .sub { fill: #71717a; }
+      .wire { stroke: #2e2e33; }
+      .badge { fill: #1c1008; stroke: #7c2d12; }
+      .badge-text { fill: #fb923c; }
     }
+    .pulse { animation: flow 2.4s linear infinite; }
+    .d1 { animation-delay: -0.8s; }
+    .d2 { animation-delay: -1.6s; }
+    @keyframes flow {
+      0% { transform: translateX(0); opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { transform: translateX(var(--d)); opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) { .pulse { animation: none; opacity: 0; } }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-      <path class="head" d="M0,0 L10,5 L0,10 z"/>
-    </marker>
+    <pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse">
+      <circle class="grid" cx="1" cy="1" r="1"/>
+    </pattern>
   </defs>
-  <rect class="app" x="10" y="10" width="660" height="250" rx="12" stroke-width="1.5"/>
-  <text class="label" x="30" y="40" font-weight="600" font-size="16">App</text>
-  <g id="row">
-    <text class="muted" x="30" y="92" font-size="12">Subscription</text>
-    <rect class="source" x="130" y="70" width="140" height="36" rx="8" stroke-width="1.5"/>
-    <rect class="handler" x="320" y="70" width="120" height="36" rx="18" stroke-width="1.5"/>
-    <rect class="sink" x="490" y="70" width="150" height="36" rx="8" stroke-width="1.5"/>
-    <line class="arrow" x1="270" y1="88" x2="318" y2="88" stroke-width="1.5" marker-end="url(#arrow)"/>
-    <line class="arrow" x1="440" y1="88" x2="488" y2="88" stroke-width="1.5" marker-end="url(#arrow)"/>
-    <text class="label" x="380" y="93" text-anchor="middle">handler</text>
-  </g>
-  <text class="label" x="200" y="93" text-anchor="middle">Kafka source</text>
-  <text class="label" x="565" y="93" text-anchor="middle">Kafka sink</text>
-  <use href="#row" y="70"/>
-  <text class="label" x="200" y="163" text-anchor="middle">Pulsar source</text>
-  <text class="label" x="565" y="163" text-anchor="middle">HTTP sink</text>
-  <use href="#row" y="140"/>
-  <text class="label" x="200" y="233" text-anchor="middle">SQS source</text>
-  <text class="label" x="565" y="233" text-anchor="middle">RabbitMQ sink</text>
+  <rect class="frame" x="0.5" y="0.5" width="759" height="329" rx="16"/>
+  <rect x="1" y="1" width="758" height="328" rx="16" fill="url(#dots)" opacity="0.6"/>
+  <text class="title" x="32" y="46" font-size="15" font-weight="600">App</text>
+  <rect class="badge" x="70" y="30" width="118" height="22" rx="11"/>
+  <text class="badge-text mono" x="129" y="45" font-size="11" text-anchor="middle">3 subscriptions</text>
+  <text class="sub mono" x="32" y="116" font-size="11">orders</text>
+  <line class="wire" x1="300" y1="112" x2="372" y2="112" stroke-width="1.5"/>
+  <line class="wire" x1="488" y1="112" x2="560" y2="112" stroke-width="1.5"/>
+  <circle class="pulse" cx="300" cy="112" r="3" style="--d:72px"/>
+  <circle class="pulse" cx="488" cy="112" r="3" style="--d:72px"/>
+  <rect class="node" x="150" y="86" width="150" height="52" rx="10"/>
+  <text class="kind mono" x="166" y="107" font-size="10" letter-spacing="0.08em">SOURCE</text>
+  <text class="name" x="166" y="126" font-size="14" font-weight="500">Kafka</text>
+  <rect class="handler" x="372" y="94" width="116" height="36" rx="18"/>
+  <text class="handler-text mono" x="430.0" y="116" font-size="12" text-anchor="middle">handler</text>
+  <rect class="node" x="560" y="86" width="168" height="52" rx="10"/>
+  <text class="kind mono" x="576" y="107" font-size="10" letter-spacing="0.08em">SINK</text>
+  <text class="name" x="576" y="126" font-size="14" font-weight="500">Kafka</text>
+  <text class="sub mono" x="32" y="194" font-size="11">events</text>
+  <line class="wire" x1="300" y1="190" x2="372" y2="190" stroke-width="1.5"/>
+  <line class="wire" x1="488" y1="190" x2="560" y2="190" stroke-width="1.5"/>
+  <circle class="pulse d1" cx="300" cy="190" r="3" style="--d:72px"/>
+  <circle class="pulse d1" cx="488" cy="190" r="3" style="--d:72px"/>
+  <rect class="node" x="150" y="164" width="150" height="52" rx="10"/>
+  <text class="kind mono" x="166" y="185" font-size="10" letter-spacing="0.08em">SOURCE</text>
+  <text class="name" x="166" y="204" font-size="14" font-weight="500">Pulsar</text>
+  <rect class="handler" x="372" y="172" width="116" height="36" rx="18"/>
+  <text class="handler-text mono" x="430.0" y="194" font-size="12" text-anchor="middle">handler</text>
+  <rect class="node" x="560" y="164" width="168" height="52" rx="10"/>
+  <text class="kind mono" x="576" y="185" font-size="10" letter-spacing="0.08em">SINK</text>
+  <text class="name" x="576" y="204" font-size="14" font-weight="500">HTTP</text>
+  <text class="sub mono" x="32" y="272" font-size="11">jobs</text>
+  <line class="wire" x1="300" y1="268" x2="372" y2="268" stroke-width="1.5"/>
+  <line class="wire" x1="488" y1="268" x2="560" y2="268" stroke-width="1.5"/>
+  <circle class="pulse d2" cx="300" cy="268" r="3" style="--d:72px"/>
+  <circle class="pulse d2" cx="488" cy="268" r="3" style="--d:72px"/>
+  <rect class="node" x="150" y="242" width="150" height="52" rx="10"/>
+  <text class="kind mono" x="166" y="263" font-size="10" letter-spacing="0.08em">SOURCE</text>
+  <text class="name" x="166" y="282" font-size="14" font-weight="500">SQS</text>
+  <rect class="handler" x="372" y="250" width="116" height="36" rx="18"/>
+  <text class="handler-text mono" x="430.0" y="272" font-size="12" text-anchor="middle">handler</text>
+  <rect class="node" x="560" y="242" width="168" height="52" rx="10"/>
+  <text class="kind mono" x="576" y="263" font-size="10" letter-spacing="0.08em">SINK</text>
+  <text class="name" x="576" y="282" font-size="14" font-weight="500">RabbitMQ</text>
 </svg>

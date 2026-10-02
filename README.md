@@ -8,7 +8,7 @@
 A lightweight Rust message processing framework built around typed handlers.
 
 <p align="center">
-  <img src="docs/assets/overview.svg" width="680" alt="An App running three subscriptions: Kafka source to handler to Kafka sink, Pulsar source to handler to HTTP sink, and SQS source to handler to RabbitMQ sink">
+  <img src="docs/assets/overview.svg" width="760" alt="An App running three subscriptions: Kafka source to handler to Kafka sink, Pulsar source to handler to HTTP sink, and SQS source to handler to RabbitMQ sink">
 </p>
 
 Each `Subscription` connects one source, one handler, and one sink. An `App`
