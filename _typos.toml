@@ -1,0 +1,3 @@
+[default]
+# Trace and span IDs in tests are hexadecimal strings, not words.
+extend-ignore-re = ["\\b[0-9a-f]{16,}\\b"]
