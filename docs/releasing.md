@@ -68,9 +68,15 @@ what applications must change.
    start a new empty `Unreleased` section.
 3. Set `version` in `Cargo.toml` and run `cargo check` to update `Cargo.lock`.
 4. Merge these changes to `main` and wait for CI, including the package check.
-5. From an up-to-date `main`, run `cargo publish`.
-6. Tag the published commit as `vX.Y.Z`, push the tag, and create a GitHub
-   release whose notes are the version's changelog section.
+5. Run the `Release` workflow on `main` from the Actions tab. It refuses a
+   version that already has a tag or is already on crates.io, runs
+   `cargo publish`, tags the commit as `vX.Y.Z`, and creates a GitHub release
+   whose notes are the version's changelog section.
+
+The workflow publishes with the `CARGO_REGISTRY_TOKEN` secret, a crates.io API
+token with the `publish-new` and `publish-update` scopes. Store it in the
+`crates-io` environment of the repository, or as a repository secret, and add
+required reviewers to that environment to make each release wait for approval.
 
 A published version cannot be replaced. If a release is broken, yank it with
 `cargo yank --version X.Y.Z` and publish a fixed patch release.
