@@ -28,3 +28,5 @@ mod pending;
 pub mod pulsar;
 #[cfg(feature = "rabbitmq")]
 pub mod rabbitmq;
+#[cfg(feature = "sqs")]
+pub mod sqs;

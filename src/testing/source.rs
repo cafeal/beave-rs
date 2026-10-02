@@ -12,6 +12,8 @@ use crate::adapters::kafka::KafkaRecord;
 use crate::adapters::pulsar::PulsarRecord;
 #[cfg(feature = "rabbitmq")]
 use crate::adapters::rabbitmq::RabbitMqRecord;
+#[cfg(feature = "sqs")]
+use crate::adapters::sqs::SqsRecord;
 
 /// A finite source of fabricated records that decodes them with a codec.
 ///
@@ -75,6 +77,10 @@ pub type PulsarTestSource<C, T> = TestSource<C, T, PulsarRecord<Vec<u8>>>;
 /// A [`TestSource`] of RabbitMQ messages, delivering `RabbitMqRecord<T>` inputs.
 #[cfg(feature = "rabbitmq")]
 pub type RabbitMqTestSource<C, T> = TestSource<C, T, RabbitMqRecord<Vec<u8>>>;
+
+/// A [`TestSource`] of SQS messages, delivering `SqsRecord<T>` inputs.
+#[cfg(feature = "sqs")]
+pub type SqsTestSource<C, T> = TestSource<C, T, SqsRecord<Vec<u8>>>;
 
 impl<C: Default, T, R: TestRecord> TestSource<C, T, R> {
     /// A source that delivers `records` in order, decoding them with the codec's default

@@ -99,7 +99,12 @@ pub struct DeadLetterDetails {
 }
 
 #[cfg_attr(
-    not(any(feature = "kafka", feature = "pulsar", feature = "rabbitmq")),
+    not(any(
+        feature = "kafka",
+        feature = "pulsar",
+        feature = "rabbitmq",
+        feature = "sqs"
+    )),
     allow(dead_code)
 )]
 impl DeadLetterDetails {
@@ -149,7 +154,12 @@ impl DeadLetterDetails {
 
 /// Parses a numeric dead-letter header.
 #[cfg_attr(
-    not(any(feature = "kafka", feature = "pulsar", feature = "rabbitmq")),
+    not(any(
+        feature = "kafka",
+        feature = "pulsar",
+        feature = "rabbitmq",
+        feature = "sqs"
+    )),
     allow(dead_code)
 )]
 pub(crate) fn parse_number<T>(name: &str, value: &str) -> anyhow::Result<T>

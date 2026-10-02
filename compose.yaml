@@ -94,6 +94,21 @@ services:
       retries: 30
       start_period: 10s
 
+  # SQS-compatible queue server; the live tests create their own queues.
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.6.14
+    ports:
+      - "9324:9324"
+      - "9325:9325"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O /dev/null 'http://localhost:9324/?Action=ListQueues' || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
   # One-shot setup: creates the pulsar_orders example subscription at the
   # earliest position, so orders produced before the example's first run are
   # consumed, and creates the Pulsar Manager login admin / apachepulsar.

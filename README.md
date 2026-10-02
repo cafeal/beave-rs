@@ -13,9 +13,9 @@ Source → Subscription → Handler → Sink
 
 The current implementation includes local adapters, a bounded in-process
 channel that chains subscriptions with end-to-end acknowledgement, optional
-Kafka, Apache Pulsar, and RabbitMQ adapters, an optional HTTP source and sink,
-typed codecs, bounded concurrency, retries, and graceful shutdown. NATS
-JetStream and SQS remain on the roadmap.
+Kafka, Apache Pulsar, RabbitMQ, and Amazon SQS adapters, an optional HTTP source
+and sink, typed codecs, bounded concurrency, retries, and graceful shutdown.
+NATS JetStream remains on the roadmap.
 
 ## Installation
 
@@ -141,7 +141,7 @@ context through Kafka headers and Pulsar properties. See
 The optional `health` feature serves `/livez` and `/readyz` for Kubernetes
 probes; see [health checks](docs/runtime.md#health-checks).
 
-Kafka, Pulsar, RabbitMQ, and HTTP are optional Cargo features. See the [adapter guide](docs/adapters.md)
+Kafka, Pulsar, RabbitMQ, SQS, and HTTP are optional Cargo features. See the [adapter guide](docs/adapters.md)
 for feature flags and delivery semantics. Synchronous handlers run on a bounded
 worker pool through `blocking(sync_handler)`; see
 [blocking handlers](docs/runtime.md#blocking-handlers).
@@ -157,8 +157,8 @@ cargo doc --all-features --no-deps
 ```
 
 GitHub Actions runs these checks on every pull
-request and on pushes to `main`. Live Kafka, Pulsar, and RabbitMQ tests are ignored by
-default; CI runs them against the Docker Compose brokers, and `cargo test-live`
+request and on pushes to `main`. Live Kafka, Pulsar, RabbitMQ, and SQS tests are ignored
+by default; CI runs them against the Docker Compose brokers, and `cargo test-live`
 runs them locally while the brokers are up.
 
 ## License
