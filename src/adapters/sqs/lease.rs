@@ -118,7 +118,8 @@ impl Leases {
     }
 }
 
-/// Extends due leases and releases abandoned messages until `stop` is cancelled.
+/// Extends due leases and releases abandoned messages until `stop` is
+/// cancelled, then releases the messages abandoned before it.
 pub(super) async fn keep(
     client: Client,
     queue_url: String,
@@ -129,7 +130,14 @@ pub(super) async fn keep(
     let mut ticks = tokio::time::interval(leases.interval());
     loop {
         tokio::select! {
-            _ = stop.cancelled() => return,
+            _ = stop.cancelled() => {
+                let mut handles = Vec::new();
+                while let Ok(handle) = released.try_recv() {
+                    handles.push(handle);
+                }
+                release(&client, &queue_url, &handles).await;
+                return;
+            }
             _ = ticks.tick() => {
                 let due = leases.due(Instant::now());
                 for chunk in due.chunks(BATCH) {

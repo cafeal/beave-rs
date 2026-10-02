@@ -44,12 +44,33 @@ struct Connection {
     client: Client,
     leases: Arc<Leases>,
     released: mpsc::UnboundedSender<Arc<str>>,
-    keeper: CancellationToken,
+    keeper: Keeper,
     buffered: VecDeque<Received>,
     /// The `ReceiveMessage` call in progress. It runs as its own task, so a
     /// cancelled `receive` leaves it running and the next `receive` takes its
     /// messages.
     polling: Option<JoinHandle<anyhow::Result<Vec<Received>>>>,
+}
+
+/// The task that extends leases and releases abandoned messages. Dropping it
+/// stops the task.
+struct Keeper {
+    stop: CancellationToken,
+    task: JoinHandle<()>,
+}
+
+impl Keeper {
+    /// Stops the task once it has released the messages abandoned so far.
+    async fn stop(mut self) {
+        self.stop.cancel();
+        let _ = (&mut self.task).await;
+    }
+}
+
+impl Drop for Keeper {
+    fn drop(&mut self) {
+        self.stop.cancel();
+    }
 }
 
 impl<C: Default, T> SqsSource<C, T> {
@@ -73,19 +94,19 @@ impl<C, T> SqsSource<C, T> {
         let client = client(&self.config.endpoint()).await;
         let leases = Arc::new(Leases::new(self.config.visibility_timeout));
         let (released, releases) = mpsc::unbounded_channel();
-        let keeper = CancellationToken::new();
-        tokio::spawn(keep(
+        let stop = CancellationToken::new();
+        let task = tokio::spawn(keep(
             client.clone(),
             self.config.queue_url.clone(),
             leases.clone(),
             releases,
-            keeper.clone(),
+            stop.clone(),
         ));
         Connection {
             client,
             leases,
             released,
-            keeper,
+            keeper: Keeper { stop, task },
             buffered: VecDeque::new(),
             polling: None,
         }
@@ -166,15 +187,13 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for SqsSource<C, T>
         let Some(connection) = self.connection.take() else {
             return Ok(());
         };
-        connection.keeper.cancel();
         if let Some(polling) = connection.polling {
+            // A call that already returned keeps its messages' leases, so
+            // they are released below with the others.
             polling.abort();
-            if let Ok(Ok(messages)) = polling.await {
-                for received in messages {
-                    connection.leases.remove(received.lease);
-                }
-            }
+            let _ = polling.await;
         }
+        connection.keeper.stop().await;
         let handles = connection.leases.drain();
         release(&connection.client, &self.config.queue_url, &handles).await;
         Ok(())
