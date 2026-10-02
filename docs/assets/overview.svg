@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="270" viewBox="0 0 680 270" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14">
+  <title>An App runs several subscriptions, each connecting a source, a handler, and a sink</title>
+  <style>
+    .app { fill: #f6f8fa; stroke: #8c959f; }
+    .label { fill: #24292f; }
+    .muted { fill: #57606a; }
+    .source { fill: #ddf4ff; stroke: #0969da; }
+    .handler { fill: #fff8c5; stroke: #9a6700; }
+    .sink { fill: #dafbe1; stroke: #1a7f37; }
+    .arrow { stroke: #57606a; }
+    .head { fill: #57606a; }
+    @media (prefers-color-scheme: dark) {
+      .app { fill: #161b22; stroke: #6e7681; }
+      .label { fill: #e6edf3; }
+      .muted { fill: #8d96a0; }
+      .source { fill: #0c2d6b; stroke: #4493f8; }
+      .handler { fill: #3b2300; stroke: #d29922; }
+      .sink { fill: #04260f; stroke: #3fb950; }
+      .arrow { stroke: #8d96a0; }
+      .head { fill: #8d96a0; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path class="head" d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+  <rect class="app" x="10" y="10" width="660" height="250" rx="12" stroke-width="1.5"/>
+  <text class="label" x="30" y="40" font-weight="600" font-size="16">App</text>
+  <g id="row">
+    <text class="muted" x="30" y="92" font-size="12">Subscription</text>
+    <rect class="source" x="130" y="70" width="140" height="36" rx="8" stroke-width="1.5"/>
+    <rect class="handler" x="320" y="70" width="120" height="36" rx="18" stroke-width="1.5"/>
+    <rect class="sink" x="490" y="70" width="150" height="36" rx="8" stroke-width="1.5"/>
+    <line class="arrow" x1="270" y1="88" x2="318" y2="88" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line class="arrow" x1="440" y1="88" x2="488" y2="88" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text class="label" x="380" y="93" text-anchor="middle">handler</text>
+  </g>
+  <text class="label" x="200" y="93" text-anchor="middle">Kafka source</text>
+  <text class="label" x="565" y="93" text-anchor="middle">Kafka sink</text>
+  <use href="#row" y="70"/>
+  <text class="label" x="200" y="163" text-anchor="middle">Pulsar source</text>
+  <text class="label" x="565" y="163" text-anchor="middle">HTTP sink</text>
+  <use href="#row" y="140"/>
+  <text class="label" x="200" y="233" text-anchor="middle">SQS source</text>
+  <text class="label" x="565" y="233" text-anchor="middle">RabbitMQ sink</text>
+</svg>
