@@ -55,6 +55,9 @@ every example, console, and alias.
 
 ## Documentation
 
+The guides and the API reference are published at
+<https://cafeal.github.io/beave-rs/>.
+
 - [Documentation index](docs/README.md)
 - [Adapters and usage examples](docs/adapters.md)
 - [Codecs and serialization](docs/codecs.md)

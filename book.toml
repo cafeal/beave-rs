@@ -1,0 +1,17 @@
+[book]
+title = "beave.rs"
+description = "Typed message processing for Kafka, Pulsar, RabbitMQ, and HTTP with explicit delivery semantics"
+authors = ["The beave.rs contributors"]
+language = "en"
+src = "docs"
+
+[build]
+build-dir = "target/book"
+
+[output.html]
+site-url = "/beave-rs/"
+git-repository-url = "https://github.com/cafeal/beave-rs"
+edit-url-template = "https://github.com/cafeal/beave-rs/edit/main/{path}"
+
+[output.html.playground]
+runnable = false

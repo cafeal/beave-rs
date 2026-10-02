@@ -84,7 +84,7 @@ The second StdinSource type argument is the decoded input type, inferred here as
 Order. Input values also need the runtime's `Clone + Send + Sync + 'static`
 bounds; those are not additional requirements of the JSON format.
 
-The [transform example](../examples/transform.rs) provides this pipeline. Feed it
+The [transform example](https://github.com/cafeal/beave-rs/blob/main/examples/transform.rs) provides this pipeline. Feed it
 one order object per line:
 
 ```sh

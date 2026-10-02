@@ -122,7 +122,7 @@ async fn main() -> anyhow::Result<()> {
 ```
 
 For this example, feed one JSON number per line. For the repository's
-[transform example](../examples/transform.rs), feed order objects instead:
+[transform example](https://github.com/cafeal/beave-rs/blob/main/examples/transform.rs), feed order objects instead:
 
 ```sh
 printf '%s\n' '{"id":10}' '{"id":20}' | cargo run --example transform -- --stdin
