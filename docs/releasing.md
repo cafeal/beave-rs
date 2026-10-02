@@ -1,6 +1,6 @@
 # Versioning and releases
 
-beave.rs is published on crates.io as the `beavers` crate. Releases follow
+beave-rs is published on crates.io as the `beavers` crate. Releases follow
 [Semantic Versioning](https://semver.org/) as Cargo interprets it.
 
 ## Version numbers

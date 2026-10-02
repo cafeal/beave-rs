@@ -1,4 +1,4 @@
-# beave.rs — Design plan
+# beave-rs — Design plan
 
 This document contains planned work and unresolved design decisions. Current
 behavior belongs in the [architecture](architecture.md), [runtime](runtime.md),
@@ -8,7 +8,7 @@ contract in the appropriate guide.
 
 ## Direction
 
-Beavers is a lightweight Rust message-processing framework for Kafka, Pulsar,
+beave-rs is a lightweight Rust message-processing framework for Kafka, Pulsar,
 NATS JetStream, SQS, and other transports:
 
 ```text
@@ -423,6 +423,6 @@ in the relevant durable documentation.
 
 ## Core philosophy
 
-Application code should process events. Beavers should manage the surrounding
+Application code should process events. beave-rs should manage the surrounding
 flow without promising capabilities that the underlying platform cannot
 provide.

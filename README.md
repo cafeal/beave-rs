@@ -1,4 +1,4 @@
-# beave.rs
+# beave-rs
 
 [![crates.io](https://img.shields.io/crates/v/beavers.svg)](https://crates.io/crates/beavers)
 [![docs.rs](https://img.shields.io/docsrs/beavers)](https://docs.rs/beavers)
@@ -169,4 +169,4 @@ runs them locally while the brokers are up.
 
 Licensed under the [MIT license](LICENSE-MIT).
 
-**Let application code process events. Let beave.rs manage the flow.**
+**Let application code process events. Let beave-rs manage the flow.**
