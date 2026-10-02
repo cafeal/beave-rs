@@ -52,3 +52,35 @@ The minimum supported Rust version (MSRV) is declared as `rust-version` in
 allowed in a minor release before 1.0 and is called out in the release notes.
 The MSRV is not raised merely to adopt newer language features; it follows the
 requirements of the broker client dependencies.
+
+## Changelog
+
+`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Every pull request that changes behavior visible to applications adds an entry
+under `Unreleased`, in the `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`,
+or `Security` section. Breaking changes are marked with **Breaking** and say
+what applications must change.
+
+## Release procedure
+
+1. Choose the version from the changes under `Unreleased` and the table above.
+2. Rename `Unreleased` in `CHANGELOG.md` to the version and release date, and
+   start a new empty `Unreleased` section.
+3. Set `version` in `Cargo.toml` and run `cargo check` to update `Cargo.lock`.
+4. Merge these changes to `main` and wait for CI, including the package check.
+5. Run the `Release` workflow on `main` from the Actions tab. It refuses a
+   version that already has a tag or is already on crates.io, runs
+   `cargo publish`, tags the commit as `vX.Y.Z`, and creates a GitHub release
+   whose notes are the version's changelog section.
+
+The workflow publishes with the `CARGO_REGISTRY_TOKEN` secret, a crates.io API
+token with the `publish-new` and `publish-update` scopes, limited to the
+`beavers` crate once it exists and given an expiry date. Store it as a secret of
+the `crates-io` environment, restrict that environment's deployment branches to
+`main`, and add required reviewers so that each release waits for approval.
+Pull requests from forks never receive the secret. The release job does not
+restore build caches, so a cache written by another workflow cannot affect the
+published crate.
+
+A published version cannot be replaced. If a release is broken, yank it with
+`cargo yank --version X.Y.Z` and publish a fixed patch release.
