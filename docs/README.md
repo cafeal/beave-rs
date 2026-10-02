@@ -9,6 +9,7 @@
 | [Runtime](runtime.md) | Implemented APIs, processing behavior, configuration, and limitations |
 | [Design plan](plan.md) | Product goals, agreed design direction, future work, and open questions |
 | [Local development brokers](development.md) | Docker Compose Kafka, Pulsar, RabbitMQ, and ElasticMQ brokers, web consoles, broker examples, and live tests |
+| [Versioning and releases](releasing.md) | Version numbers, the compatibility contract, and the minimum supported Rust version |
 
 The runtime guide describes what works today. The design plan includes future
 APIs and capabilities; its examples are conceptual unless explicitly identified

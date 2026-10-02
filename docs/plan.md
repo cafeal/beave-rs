@@ -378,6 +378,24 @@ redelivery behavior, ordering scope, cancellation behavior, connection
 lifecycle, and mapping of trace-context propagation fields (NATS headers)
 before implementation.
 
+## Release preparation
+
+The crate is published as `beavers`; versioning and the compatibility contract
+are described in [versioning and releases](releasing.md). Remaining work before
+the first crates.io release:
+
+- Review the public API: internal types leaking through public signatures,
+  `#[non_exhaustive]` on configuration structs and enums that are expected to
+  grow, and names that should change before `0.1.0`.
+- Complete the rustdoc: crate-level overview, examples on the main entry
+  points, feature labels on docs.rs, and the `missing_docs` lint.
+- Keep a changelog and decide on release automation.
+- Add pre-publish CI checks: `cargo publish --dry-run` and, after the first
+  release, `cargo-semver-checks`.
+- Create the project icon and character, and a GitHub Pages site.
+- Publish `0.0.1` to reserve the crate name, then `0.1.0` as the first release
+  intended for use.
+
 ## Implementation order
 
 | Priority | Scope |
