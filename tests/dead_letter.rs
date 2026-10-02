@@ -9,3 +9,6 @@ mod pulsar;
 #[cfg(feature = "rabbitmq")]
 #[path = "dead_letter/rabbitmq.rs"]
 mod rabbitmq;
+#[cfg(feature = "sqs")]
+#[path = "dead_letter/sqs.rs"]
+mod sqs;
