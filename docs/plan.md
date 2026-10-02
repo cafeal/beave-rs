@@ -365,9 +365,8 @@ the first crates.io release:
   grow, and names that should change before `0.1.0`.
 - Complete the rustdoc: crate-level overview, examples on the main entry
   points, feature labels on docs.rs, and the `missing_docs` lint.
-- Keep a changelog and decide on release automation.
-- Add pre-publish CI checks: `cargo publish --dry-run` and, after the first
-  release, `cargo-semver-checks`.
+- After the first release, add `cargo-semver-checks` to CI and decide whether
+  to automate releases, for example with release-plz.
 - Create the project icon and character, and a GitHub Pages site.
 - Publish `0.1.0` to crates.io.
 

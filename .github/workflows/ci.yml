@@ -64,6 +64,16 @@ jobs:
       - name: Check (all features)
         run: cargo check --offline --locked --all-features --all-targets
 
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the crate from its package
+        run: cargo package --locked
+
   whitespace:
     name: Whitespace
     runs-on: ubuntu-latest
