@@ -9,7 +9,7 @@ project follows the versioning policy in
 
 ### Added
 
-- Typed `Source → Subscription → Handler → Sink` processing with at-least-once
+- Typed `Source → Handler → Sink` subscriptions with at-least-once
   delivery: bounded concurrency, per-key ordering, independent receive,
   handler, publish, and dead-letter retry policies, and graceful shutdown.
 - Error classification with `HandlerError` and `Classify`, routing through

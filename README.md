@@ -7,9 +7,12 @@
 
 A lightweight Rust message processing framework built around typed handlers.
 
-```text
-Source → Subscription → Handler → Sink
-```
+<p align="center">
+  <img src="docs/assets/overview.svg" width="760" alt="An App running three subscriptions: Kafka source to handler to Kafka sink, Pulsar source to handler to HTTP sink, and SQS source to handler to RabbitMQ sink">
+</p>
+
+Each `Subscription` connects one source, one handler, and one sink. An `App`
+runs any number of subscriptions side by side and shuts them down together.
 
 The current implementation includes local adapters, a bounded in-process
 channel that chains subscriptions with end-to-end acknowledgement, optional

@@ -12,8 +12,10 @@ beave-rs is a lightweight Rust message-processing framework for Kafka, Pulsar,
 NATS JetStream, SQS, and other transports:
 
 ```text
-Source → Subscription → Handler → Sink
+Source → Handler → Sink
 ```
+
+A `Subscription` connects one source, one handler, and one sink.
 
 Application code should primarily contain typed `Input → Output` handlers. The
 framework should own connectivity, serialization, acknowledgements, retries,
