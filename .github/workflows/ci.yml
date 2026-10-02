@@ -63,20 +63,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Start Kafka, Pulsar, and RabbitMQ
-        run: docker compose up --detach kafka pulsar rabbitmq
+      - name: Start Kafka, Pulsar, RabbitMQ, and ElasticMQ
+        run: docker compose up --detach kafka pulsar rabbitmq elasticmq
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo fetch --locked
       - name: Build tests
         run: cargo test --offline --locked --all-features --no-run
       - name: Wait for brokers
-        run: docker compose up --detach --wait kafka pulsar rabbitmq
+        run: docker compose up --detach --wait kafka pulsar rabbitmq elasticmq
       - name: Test against live brokers
         run: cargo test --offline --locked --all-features -- --ignored
       - name: Broker logs
         if: failure()
-        run: docker compose logs kafka pulsar rabbitmq
+        run: docker compose logs kafka pulsar rabbitmq elasticmq
 
   examples:
     name: Example (${{ matrix.scenario }})
