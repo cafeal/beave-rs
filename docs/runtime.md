@@ -30,8 +30,7 @@ App::new()
 ```
 
 Every subscription has a required name, passed as the first argument of
-`Subscription::new`, `new_emitting`, `forward`, `forward_emitting`, and
-`App::subscribe`. The name appears in subscription errors, dead letters, spans,
+`Subscription::new`, `Subscription::new_emitting`, and `App::subscribe`. The name appears in subscription errors, dead letters, spans,
 and metric labels, so it must be non-empty and unique within an `App`; an empty
 or duplicate name fails validation before any subscription starts.
 
@@ -150,7 +149,7 @@ first delivery: verify_source(delivery)
 ```
 
 ```rust,ignore
-Subscription::forward("orders", kafka_source, kafka_transactional_sink, handler)
+Subscription::new("orders", kafka_source, kafka_transactional_sink, handler)
     .transactional()
     .transaction_batch(TransactionBatch::new(100, Duration::from_millis(10)))
 ```
@@ -315,37 +314,63 @@ facts such as offsets, partitions, message IDs, routing keys, or broker
 timestamps. See the [Kafka](adapters/kafka.md#metadata-inheritance),
 [Pulsar](adapters/pulsar.md#metadata-inheritance),
 [RabbitMQ](adapters/rabbitmq.md#metadata-inheritance), and
-[SQS](adapters/sqs.md#metadata-inheritance) guides. A subscription
-registered with `Subscription::new` carries no received metadata into outputs
-unless middleware maps it.
+[SQS](adapters/sqs.md#metadata-inheritance) guides. A handler that
+returns the sink's publish record carries no received metadata into outputs
+unless middleware maps it; a handler that returns a plain value inherits the
+platform's defaults, as described in [handler shapes](#handler-shapes).
 
-## Same-platform forwarding
+## Handler shapes
 
-When the source and sink use the same platform's record and publish types,
-`Subscription::forward` accepts a handler that works only with values:
+`App::subscribe`, `Subscription::new`, and `Subscription::new_emitting` accept
+a handler that takes either the received record or its value, and returns
+either the sink's output type or a plain value. The shape is chosen at compile
+time from the handler's signature:
 
 ```rust,ignore
-Subscription::forward("orders", kafka_source, kafka_sink, |order: Order| async move {
-    Ok(enrich(order))
-})
+// Value in, value out: the output inherits the input's key and headers.
+async fn enrich(order: Order) -> Result<Order> { .. }
+// Record in, value out: read the metadata, keep the default inheritance.
+async fn route(record: KafkaRecord<Order>) -> Result<Order> { .. }
+// Value in, publish record out: the handler sets every output field.
+async fn rekey(order: Order) -> Result<KafkaPublish<Order>> { .. }
+// Record in, publish record out: the handler controls everything.
+async fn custom(record: KafkaRecord<Order>) -> Result<KafkaPublish<Order>> { .. }
+
+App::new()
+    .subscribe("enrich", kafka_source, kafka_sink, enrich)
 ```
 
-The handler receives the record value and returns the output value. The runtime
-builds the platform's publish record from each output value and registers that
-platform's default inheritance as the first middleware, so outputs keep the
-input metadata without the handler handling it. `forward_emitting` is the
-`Emit` counterpart; every emitted value inherits from the same input. Further
-`.middleware(...)` registrations run after the default inheritance.
+| Input | Handler parameter | Requirement |
+|---|---|---|
+| `ByRecord` | `SourceItem<S>`, such as `KafkaRecord<T>` or an `IterSource` item | none |
+| `ByValue` | the record's value, `T` | the record implements `ValueRecord` |
 
-The pairing is checked at compile time through the `ValueRecord` and
-`SamePlatform` traits, which an adapter implements for its record type. Kafka
-uses `KafkaInherit::new()`, Pulsar uses `PulsarInherit::new()`, RabbitMQ
-uses `RabbitMqInherit::new()`, and SQS uses `SqsInherit::new()`. A record
-whose value cannot be represented as a plain value, such as a Kafka null value,
-is rejected without invoking the handler and routed by the error policy as a
-`Rejected` failure. Register `Tombstones` to choose
-another policy, or use `Subscription::new` with a record handler to customize
-inheritance.
+| Output | Handler result | Published as |
+|---|---|---|
+| `ByRecord` | the sink's type, such as `KafkaPublish<T>` | returned |
+| `ByValue` | a plain value `U` | the source platform's publish record built from `U`, after the platform's default inheritance |
+
+A value output requires the source record to implement `SamePlatform<U>` and
+the sink to accept that platform's publish type, so a Kafka value cannot be
+sent to a Pulsar sink without a record handler and an explicit mapping. The
+runtime registers the platform's default inheritance as the first middleware
+for a value output, so outputs keep the input metadata without the handler
+handling it; further `.middleware(...)` registrations run after it. Every value
+emitted through `new_emitting` inherits from the same input. A publish record
+output carries no received metadata unless middleware maps it.
+
+Kafka uses `KafkaInherit::new()`, Pulsar uses `PulsarInherit::new()`,
+RabbitMQ uses `RabbitMqInherit::new()`, and SQS uses `SqsInherit::new()`. A
+record whose value cannot be represented as a plain value, such as a Kafka null
+value, is rejected without invoking a value handler and routed by the error
+policy as a `Rejected` failure. Register `Tombstones` to choose another policy,
+or take the record to handle it.
+
+The shape is inferred from types, so a closure's parameter must be annotated,
+and a sink whose item type is generic, such as `InMemorySink::default()`, may
+need its item type spelled out when a value and a publish record would both
+fit it. Sources whose item is not a platform record, such as `IterSource<T>`
+or `ChannelSource<T>`, accept only record-shaped handlers taking `T`.
 
 ## Tombstones
 
@@ -358,7 +383,7 @@ with `value: None`.
 Register `Tombstones` to decide their handling before the handler runs:
 
 ```rust,ignore
-Subscription::forward("orders", kafka_source, kafka_sink, handler)
+Subscription::new("orders", kafka_source, kafka_sink, handler)
     .middleware(Tombstones::propagate())
 ```
 
@@ -867,7 +892,7 @@ use beavers::TraceContext;
 opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
 // Install a tracing subscriber with a tracing-opentelemetry layer.
 
-Subscription::forward("orders", kafka_source, kafka_sink, handler)
+Subscription::new("orders", kafka_source, kafka_sink, handler)
     .middleware(TraceContext::new())
 ```
 
@@ -877,7 +902,7 @@ the received context, and the processing step is invisible to the trace. With
 `TraceContext` registered after the inheritance middleware, the injected
 context replaces the inherited one, so downstream consumers continue the trace
 as children of the processing step. Middleware runs in registration order, and
-`Subscription::forward` registers the inheritance middleware first.
+a handler returning a plain value registers the inheritance middleware first.
 
 ## Health checks
 

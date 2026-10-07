@@ -157,9 +157,9 @@ an output cannot route back to the queue it came from unless the sink is
 configured to. `without_headers()` and `without_properties()` disable either
 part.
 
-`Subscription::forward` applies `RabbitMqInherit::new()` automatically for a
-value-only handler between a RabbitMQ source and sink. See the
-[runtime guide](../runtime.md#same-platform-forwarding). Register
+A handler that returns a plain value between a RabbitMQ source and sink gets
+`RabbitMqInherit::new()` automatically. See the
+[runtime guide](../runtime.md#handler-shapes). Register
 `TraceContext` after `RabbitMqInherit` to replace inherited trace-context
 headers; the source reads trace context from string headers.
 

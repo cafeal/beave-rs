@@ -33,6 +33,7 @@ src/
 ├── subscription/
 │   ├── mod.rs             # Module declarations and public re-exports
 │   ├── builder.rs         # Subscription type and builder API
+│   ├── handler.rs         # Handler shapes: IntoHandler, ByRecord, and ByValue
 │   ├── config.rs          # Runtime configuration and validation
 │   ├── runtime.rs         # Private receive loop, draining, and cleanup
 │   ├── scheduler.rs       # Private ordering-key queues

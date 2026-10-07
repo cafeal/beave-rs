@@ -18,7 +18,7 @@ async fn main() -> anyhow::Result<()> {
         App::new()
             .subscribe(
                 "orders",
-                StdinSource::<Json, _>::new(),
+                StdinSource::<Json, Order>::new(),
                 StdoutSink::<Json>::new(),
                 handler,
             )

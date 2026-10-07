@@ -126,10 +126,10 @@ leaves it `None`, for pipelines between FIFO queues. The message ID,
 deduplication ID, and delay are never inherited. `without_attributes()`
 disables attribute inheritance.
 
-`Subscription::forward` applies `SqsInherit::new()` automatically for a
-value-only handler between an SQS source and sink; register
+A handler that returns a plain value between an SQS source and sink gets
+`SqsInherit::new()` automatically; register
 `SqsInherit::new().with_message_group()` explicitly to forward groups. See the
-[runtime guide](../runtime.md#same-platform-forwarding). Register
+[runtime guide](../runtime.md#handler-shapes). Register
 `TraceContext` after `SqsInherit` to replace inherited trace-context
 attributes; the source reads trace context from string attributes.
 

@@ -98,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
             println!("consuming {ORDERS} and publishing to {EVENTS}; press Ctrl-C to stop");
             App::new()
                 .subscription(
-                    Subscription::forward(
+                    Subscription::new(
                         "process-orders",
                         PulsarSource::<Json, Order>::new(source),
                         PulsarSink::<Json, OrderEvent>::new(PulsarSinkConfig::new(

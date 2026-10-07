@@ -2,12 +2,11 @@
 #[cfg(feature = "health")]
 use crate::health::HealthServer;
 use crate::{
-    handler::Handler,
     health::Health,
     shutdown::{CancellationToken, termination_signal},
     sink::Sink,
-    source::{Source, SourceItem},
-    subscription::Subscription,
+    source::Source,
+    subscription::{IntoHandler, One, Subscription},
 };
 use std::{collections::HashSet, future::Future, pin::Pin};
 use tokio::task::JoinSet;
@@ -49,7 +48,10 @@ impl App {
     /// Add a subscription with the default [`SubscriptionConfig`](crate::SubscriptionConfig).
     ///
     /// Use [`subscription`](Self::subscription) to register a configured [`Subscription`].
-    pub fn subscribe<S, K, H, O>(
+    ///
+    /// The handler takes the received record or its value and returns the sink's
+    /// output type or a plain value; see [`IntoHandler`] for the accepted shapes.
+    pub fn subscribe<S, K, H, In, Out>(
         self,
         name: impl Into<String>,
         source: S,
@@ -58,9 +60,8 @@ impl App {
     ) -> Self
     where
         S: Source,
-        K: Sink<O>,
-        H: Handler<SourceItem<S>, Output = O>,
-        O: Send + Sync + 'static,
+        H: IntoHandler<S, K, (In, Out, One)>,
+        K: Sink<H::Output>,
     {
         self.subscription(Subscription::new(name, source, sink, handler))
     }

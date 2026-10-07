@@ -17,9 +17,9 @@ pub trait ValueRecord: Clone + Send + Sync + 'static {
 /// default metadata inheritance.
 ///
 /// Implemented by an adapter's record type for that adapter's publish type.
-/// `Subscription::forward` builds each output with `publish` and registers
-/// `Inherit::default()` as the first middleware, so the metadata policy is
-/// chosen by the platform rather than by the handler.
+/// A [`ByValue`](crate::ByValue) handler output is built with `publish`, and
+/// `Inherit::default()` is registered as the first middleware, so the metadata
+/// policy is chosen by the platform rather than by the handler.
 pub trait SamePlatform<U>: ValueRecord {
     /// The platform's publish type.
     type Publish: Send + Sync + 'static;

@@ -51,7 +51,7 @@ async fn dead_letter(name: &str, records: Vec<KafkaRecord<Vec<u8>>>) -> Vec<Kafk
             Subscription::new(
                 name,
                 KafkaTestSource::<Json, u32>::new(records),
-                InMemorySink::default(),
+                InMemorySink::<u32>::default(),
                 reject_odd,
             )
             .dlq_with(dlq.clone(), |dead| Ok(KafkaPublish::from_dead_letter(dead)))

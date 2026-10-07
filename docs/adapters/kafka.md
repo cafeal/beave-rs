@@ -135,9 +135,9 @@ inheritance. The source topic, partition, offset, and timestamp are never
 inherited: the sink chooses the topic, Kafka chooses the partition and
 timestamp, and the source offset is only used for the source's own commits.
 
-`Subscription::forward` applies `KafkaInherit::new()` automatically for a
-value-only handler between a Kafka source and sink. See the
-[runtime guide](../runtime.md#same-platform-forwarding).
+A handler that returns a plain value between a Kafka source and sink gets
+`KafkaInherit::new()` automatically. See the
+[runtime guide](../runtime.md#handler-shapes).
 
 Inherited headers include trace-context headers such as `traceparent`. Register
 `TraceContext` after `KafkaInherit` to replace them with the processing span's
@@ -198,7 +198,7 @@ let sink = KafkaSink::<Utf8, String>::new(KafkaSinkConfig::new(
     "processed-orders",
 ))
 .transactional("orders-workers-1");
-let subscription = Subscription::forward("orders", source, sink, |order: String| async move {
+let subscription = Subscription::new("orders", source, sink, |order: String| async move {
     Ok(order.to_uppercase())
 })
 .transactional();
