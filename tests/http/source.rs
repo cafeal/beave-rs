@@ -1,7 +1,7 @@
 use super::fixtures::{labels, snapshotter};
 use beavers::{
-    App, CancellationToken, DeadLetter, FailureKind, HandlerError, InMemorySink, Json, Receive,
-    Source, SourceMessage, Subscription, Utf8,
+    App, BoxError, CancellationToken, DeadLetter, Error, FailureKind, HandlerError, InMemorySink,
+    Json, Receive, Source, SourceMessage, Subscription, Utf8,
     adapters::http::{HttpRecord, HttpSource, HttpSourceConfig, ResponseTiming},
 };
 use metrics_util::debugging::DebugValue;
@@ -52,7 +52,7 @@ async fn post(addr: SocketAddr, body: &[u8]) -> u16 {
     request(addr, "POST", "/", &[], body).await
 }
 
-fn run(app: App, shutdown: &CancellationToken) -> JoinHandle<anyhow::Result<()>> {
+fn run(app: App, shutdown: &CancellationToken) -> JoinHandle<Result<(), Error>> {
     tokio::spawn(app.run_until(shutdown.clone()))
 }
 
@@ -118,7 +118,7 @@ async fn delivery_dropped_without_ack_is_answered_with_service_unavailable() {
             source,
             InMemorySink::<String>::default(),
             |_: HttpRecord<String>| async move {
-                Err::<String, _>(HandlerError::Reject(anyhow::anyhow!("refused")))
+                Err::<String, _>(HandlerError::Reject(BoxError::from("refused")))
             },
         ),
         &shutdown,
@@ -167,7 +167,7 @@ async fn dead_letter_keeps_the_raw_request() {
                 source,
                 InMemorySink::<String>::default(),
                 |_: HttpRecord<String>| async move {
-                    Err::<String, _>(HandlerError::Reject(anyhow::anyhow!("refused")))
+                    Err::<String, _>(HandlerError::Reject(BoxError::from("refused")))
                 },
             )
             .dlq(dlq.clone()),

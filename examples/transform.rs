@@ -23,7 +23,8 @@ async fn main() -> anyhow::Result<()> {
                 handler,
             )
             .run()
-            .await
+            .await?;
+        Ok(())
     } else {
         App::new()
             .subscribe(
@@ -33,6 +34,7 @@ async fn main() -> anyhow::Result<()> {
                 handler,
             )
             .run()
-            .await
+            .await?;
+        Ok(())
     }
 }

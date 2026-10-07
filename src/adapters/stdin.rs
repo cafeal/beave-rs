@@ -1,6 +1,7 @@
 use crate::message::SourceMessage;
 use crate::{
     codec::Decoder,
+    error::BoxError,
     source::{Receive, ReceiveError, Source},
 };
 use std::{
@@ -80,7 +81,7 @@ impl<T: Clone + Send + Sync + 'static, C: Decoder<T>> Source for StdinSource<C, 
             None => Ok(Receive::End),
         }
     }
-    async fn close(&mut self) -> anyhow::Result<()> {
+    async fn close(&mut self) -> Result<(), BoxError> {
         if let Some(receiver) = &mut self.receiver {
             receiver.close();
         }
@@ -108,10 +109,10 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for StdinMes
     type Item = T;
     /// The received line without its line ending.
     type Raw = Vec<u8>;
-    fn decode(&self) -> anyhow::Result<T> {
+    fn decode(&self) -> Result<T, BoxError> {
         self.codec.decode(&self.bytes)
     }
-    async fn ack(self) -> anyhow::Result<()> {
+    async fn ack(self) -> Result<(), BoxError> {
         Ok(())
     }
     fn raw(&self) -> Vec<u8> {

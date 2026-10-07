@@ -1,9 +1,9 @@
 use super::{config::HttpSinkConfig, metrics::ClientMetrics, record::HttpPublish};
 use crate::{
     codec::Encoder,
+    error::{BoxError, Context, Error, ensure},
     sink::{PublishRejected, Sink},
 };
-use anyhow::Context as _;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::{
@@ -100,21 +100,21 @@ impl<C, T> Clone for HttpSink<C, T> {
 
 impl<C: Default, T> HttpSink<C, T> {
     /// Creates a sink with the default codec; see [`HttpSink::with_codec`].
-    pub fn new(config: HttpSinkConfig) -> anyhow::Result<Self> {
+    pub fn new(config: HttpSinkConfig) -> Result<Self, Error> {
         Self::with_codec(config, C::default())
     }
 }
 
 impl<C, T> HttpSink<C, T> {
     /// Validates the configuration. The client connects on the first publish.
-    pub fn with_codec(config: HttpSinkConfig, codec: C) -> anyhow::Result<Self> {
+    pub fn with_codec(config: HttpSinkConfig, codec: C) -> Result<Self, Error> {
         config.validate()?;
         let uri = config.uri()?;
         let mut headers = HeaderMap::new();
         for (name, value) in &config.headers {
             headers.append(
-                HeaderName::from_bytes(name.as_bytes())?,
-                HeaderValue::from_str(value)?,
+                HeaderName::from_bytes(name.as_bytes()).expect("validated header name"),
+                HeaderValue::from_str(value).expect("validated header value"),
             );
         }
         let location = format!(
@@ -142,9 +142,10 @@ impl<C, T> HttpSink<C, T> {
         })
     }
 
-    fn client(&self) -> anyhow::Result<HttpClient> {
-        anyhow::ensure!(
+    fn client(&self) -> Result<HttpClient, BoxError> {
+        ensure!(
             !self.state.closed.load(Ordering::Acquire),
+            Error::closed,
             "HTTP sink is closed"
         );
         let mut slot = self.state.client.lock().unwrap();
@@ -155,7 +156,7 @@ impl<C, T> HttpSink<C, T> {
         Ok(slot.as_ref().unwrap().clone())
     }
 
-    async fn send(&self, client: HttpClient, output: &HttpPrepared) -> anyhow::Result<()> {
+    async fn send(&self, client: HttpClient, output: &HttpPrepared) -> Result<(), BoxError> {
         let mut request = Request::new(Full::new(output.body.clone()));
         *request.method_mut() = self.target.method.clone();
         *request.uri_mut() = self.target.uri.clone();
@@ -169,21 +170,23 @@ impl<C, T> HttpSink<C, T> {
             } else {
                 ERROR_BODY_EXCERPT
             };
-            anyhow::Ok((parts.status, read_body(body, keep).await))
+            Ok::<_, BoxError>((parts.status, read_body(body, keep).await))
         };
         let (status, body) = match tokio::time::timeout(self.config.timeout, exchange).await {
             Ok(Ok(response)) => response,
             Ok(Err(error)) => {
                 self.metrics.attempt("error", started);
-                return Err(error.context(format!("HTTP {} failed", self.target.display)));
+                return Err(
+                    Error::wrap(format!("HTTP {} failed", self.target.display), error).into(),
+                );
             }
             Err(_) => {
                 self.metrics.attempt("timeout", started);
-                anyhow::bail!(
+                return Err(Error::msg(format!(
                     "HTTP {} timed out after {:?}",
-                    self.target.display,
-                    self.config.timeout
-                );
+                    self.target.display, self.config.timeout
+                ))
+                .into());
             }
         };
         self.metrics.attempt(status.as_str(), started);
@@ -193,12 +196,15 @@ impl<C, T> HttpSink<C, T> {
         let excerpt = String::from_utf8_lossy(&body);
         let excerpt = excerpt.trim();
         let error = if excerpt.is_empty() {
-            anyhow::anyhow!("HTTP {} answered {status}", self.target.display)
+            Error::msg(format!("HTTP {} answered {status}", self.target.display))
         } else {
-            anyhow::anyhow!("HTTP {} answered {status}: {excerpt}", self.target.display)
+            Error::msg(format!(
+                "HTTP {} answered {status}: {excerpt}",
+                self.target.display
+            ))
         };
         if retryable(status) {
-            Err(error)
+            Err(error.into())
         } else {
             Err(PublishRejected::wrap(error))
         }
@@ -212,15 +218,16 @@ where
 {
     type Prepared = HttpPrepared;
 
-    fn prepare(&self, record: HttpPublish<T>) -> anyhow::Result<Self::Prepared> {
+    fn prepare(&self, record: HttpPublish<T>) -> Result<Self::Prepared, BoxError> {
         let body = Bytes::from(self.codec.encode(&record.body)?);
         let mut headers = self.target.headers.clone();
         let mut replaced = HashSet::new();
         for (name, value) in record.headers {
             let name = HeaderName::from_bytes(name.as_bytes())
-                .with_context(|| format!("invalid HTTP header name {name:?}"))?;
-            let value = HeaderValue::from_bytes(&value)
-                .with_context(|| format!("invalid value for HTTP header {name:?}"))?;
+                .map_err(|_| Error::invalid_record(format!("invalid HTTP header name {name:?}")))?;
+            let value = HeaderValue::from_bytes(&value).map_err(|_| {
+                Error::invalid_record(format!("invalid value for HTTP header {name:?}"))
+            })?;
             if replaced.insert(name.clone()) {
                 headers.remove(&name);
             }
@@ -232,14 +239,14 @@ where
     /// Succeeds once the destination answers with a `2xx` status. Dropping the
     /// future abandons the request; the destination may still have processed
     /// it, so a retried output can arrive twice.
-    async fn publish(&self, output: &Self::Prepared) -> anyhow::Result<()> {
+    async fn publish(&self, output: &Self::Prepared) -> Result<(), BoxError> {
         let client = self.client()?;
         self.send(client, output).await
     }
 
     /// Refuses further publications. Idle connections close once no request
     /// in progress holds the client.
-    async fn close(&self) -> anyhow::Result<()> {
+    async fn close(&self) -> Result<(), BoxError> {
         self.state.closed.store(true, Ordering::Release);
         self.state.client.lock().unwrap().take();
         Ok(())
@@ -268,7 +275,7 @@ async fn read_body(mut body: Incoming, keep: usize) -> Vec<u8> {
 
 /// Verifies `https` servers against the platform's root certificates, which
 /// are loaded only when the URL uses `https`.
-fn connector(https: bool) -> anyhow::Result<HttpsConnector<HttpConnector>> {
+fn connector(https: bool) -> Result<HttpsConnector<HttpConnector>, BoxError> {
     let provider = Arc::new(ring::default_provider());
     let builder = HttpsConnectorBuilder::new();
     let builder = if https {

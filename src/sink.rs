@@ -1,8 +1,9 @@
 //! Preparing output is separate from transport publication and its retries.
+use crate::error::{BoxError, causes};
 use crate::message::SourceMessage;
-use std::{fmt, future::Future, pin::Pin};
+use std::{error::Error as StdError, fmt, future::Future, pin::Pin};
 
-type CompletionFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
+type CompletionFuture = Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send>>;
 
 /// The outstanding part of a submitted publication, returned by [`Sink::submit`].
 ///
@@ -21,7 +22,7 @@ impl Completion {
     /// The output reaches the acknowledgement boundary when `future` succeeds.
     pub fn pending<F>(future: F) -> Self
     where
-        F: Future<Output = anyhow::Result<()>> + Send + 'static,
+        F: Future<Output = Result<(), BoxError>> + Send + 'static,
     {
         Self(Some(Box::pin(future)))
     }
@@ -32,7 +33,7 @@ impl Completion {
     }
 
     /// Wait until the output reaches the acknowledgement boundary.
-    pub async fn wait(self) -> anyhow::Result<()> {
+    pub async fn wait(self) -> Result<(), BoxError> {
         match self.0 {
             Some(future) => future.await,
             None => Ok(()),
@@ -43,25 +44,25 @@ impl Completion {
 /// Marks a publication error as a permanent refusal of the output by its
 /// destination, such as an HTTP `400 Bad Request`.
 ///
-/// A sink attaches it as context with [`PublishRejected::wrap`]. The runtime
+/// A sink marks an error with [`PublishRejected::wrap`]. The runtime
 /// does not retry a rejected output and routes the delivery through the
 /// error policy as [`FailureKind::PublishRejected`](crate::FailureKind::PublishRejected)
 /// instead of stopping the subscription. It is recognized on errors returned by
 /// [`Sink::publish`] and [`Sink::submit`], not on a failed [`Completion`]. A
 /// rejected [`TransactionalSink::commit`](crate::TransactionalSink::commit)
 /// fails its whole batch instead.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PublishRejected;
+#[derive(Debug)]
+pub struct PublishRejected(BoxError);
 
 impl PublishRejected {
-    /// Marks `error` as a rejection, keeping it as the displayed cause.
-    pub fn wrap(error: anyhow::Error) -> anyhow::Error {
-        error.context(Self)
+    /// Marks `error` as a rejection, keeping it as the cause.
+    pub fn wrap(error: impl Into<BoxError>) -> BoxError {
+        Box::new(Self(error.into()))
     }
 
-    /// Whether `error` or a context it was wrapped in marks a rejection.
-    pub fn is(error: &anyhow::Error) -> bool {
-        error.downcast_ref::<Self>().is_some()
+    /// Whether `error` or one of its causes marks a rejection.
+    pub fn is(error: &(dyn StdError + 'static)) -> bool {
+        causes(error).any(|cause| cause.is::<Self>())
     }
 }
 
@@ -71,12 +72,18 @@ impl fmt::Display for PublishRejected {
     }
 }
 
+impl StdError for PublishRejected {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        Some(self.0.as_ref())
+    }
+}
+
 /// Sink metadata belongs in `T` or `Prepared`, not in a universal broker envelope.
 pub trait Sink<T>: Send + Sync + 'static {
     /// Encoded and routed output, ready to publish.
     type Prepared: Send + Sync + 'static;
     /// Validate and encode once, before any publish attempts. No publishing here.
-    fn prepare(&self, value: T) -> anyhow::Result<Self::Prepared>;
+    fn prepare(&self, value: T) -> Result<Self::Prepared, BoxError>;
     /// Like [`prepare`](Self::prepare), with the delivery whose handler produced
     /// `value`. The runtime prepares a delivery's outputs with this method; dead
     /// letters and direct callers use `prepare`.
@@ -89,14 +96,15 @@ pub trait Sink<T>: Send + Sync + 'static {
         &self,
         value: T,
         delivery: &M,
-    ) -> anyhow::Result<Self::Prepared> {
+    ) -> Result<Self::Prepared, BoxError> {
         let _ = delivery;
         self.prepare(value)
     }
     /// Success means the output reached this sink's acknowledgement boundary.
     /// Retrying the same prepared output must not rerun encoding or routing.
     /// An error marked with [`PublishRejected`] is not retried.
-    fn publish(&self, output: &Self::Prepared) -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn publish(&self, output: &Self::Prepared)
+    -> impl Future<Output = Result<(), BoxError>> + Send;
     /// Hand the output to the sink and return once the sink has accepted it, with
     /// the [`Completion`] that resolves at the acknowledgement boundary. The runtime
     /// submits outputs, frees the job's concurrency slot, and acknowledges the input
@@ -113,14 +121,14 @@ pub trait Sink<T>: Send + Sync + 'static {
     fn submit(
         &self,
         output: &Self::Prepared,
-    ) -> impl Future<Output = anyhow::Result<Completion>> + Send {
+    ) -> impl Future<Output = Result<Completion, BoxError>> + Send {
         async move {
             self.publish(output).await?;
             Ok(Completion::done())
         }
     }
     /// Flush and release the sink after the subscription has stopped publishing to it.
-    fn close(&self) -> impl Future<Output = anyhow::Result<()>> + Send {
+    fn close(&self) -> impl Future<Output = Result<(), BoxError>> + Send {
         async { Ok(()) }
     }
 }

@@ -1,5 +1,6 @@
 //! Values in flight between the two ends of a channel and their completion.
 use super::{record::ChannelRaw, sink::ChannelSink, source::ChannelSource};
+use crate::error::Error;
 use crate::{message::OrderingKey, shutdown::CancellationToken, sink::Completion};
 use tokio::sync::{mpsc, oneshot};
 
@@ -69,11 +70,11 @@ pub(super) async fn enqueue<T>(
     sender: &mpsc::Sender<Queued<T>>,
     value: T,
     origin: Origin,
-) -> anyhow::Result<Completion> {
+) -> Result<Completion, Error> {
     let permit = sender
         .reserve()
         .await
-        .map_err(|_| anyhow::anyhow!("channel receiving end has stopped"))?;
+        .map_err(|_| Error::closed("channel receiving end has stopped"))?;
     let (done, completed) = oneshot::channel();
     let abandoned = CancellationToken::new();
     let guard = AbandonOnDrop(Some(abandoned.clone()));
@@ -88,9 +89,10 @@ pub(super) async fn enqueue<T>(
         let result = completed.await;
         guard.disarm();
         result.map_err(|_| {
-            anyhow::anyhow!(
-                "channel receiving end stopped before taking responsibility for the value"
+            Error::closed(
+                "channel receiving end stopped before taking responsibility for the value",
             )
+            .into()
         })
     }))
 }

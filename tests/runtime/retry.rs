@@ -1,7 +1,7 @@
 use super::fixtures::{Flaky, ScriptedSource, fast};
 use beavers::{
-    App, CancellationToken, HandlerError, InMemorySink, IterSource, MapMetadata, RetryPolicy,
-    Subscription,
+    App, BoxError, CancellationToken, HandlerError, InMemorySink, IterSource, MapMetadata,
+    RetryPolicy, Subscription,
 };
 use std::{
     sync::{
@@ -188,7 +188,7 @@ async fn handler_retry_is_explicit() {
                     let attempt = counter.fetch_add(1, Ordering::SeqCst);
                     async move {
                         if attempt < 2 {
-                            Err(HandlerError::Retry(anyhow::anyhow!("again")))
+                            Err(HandlerError::Retry(BoxError::from("again")))
                         } else {
                             Ok(n)
                         }

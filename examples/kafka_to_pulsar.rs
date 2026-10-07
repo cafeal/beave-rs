@@ -84,5 +84,6 @@ async fn main() -> anyhow::Result<()> {
             .middleware(MapMetadata::new(map_metadata)),
         )
         .run()
-        .await
+        .await?;
+    Ok(())
 }

@@ -1,7 +1,8 @@
 #![cfg(feature = "sqs")]
 
 use beavers::{
-    App, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage, Subscription, Utf8,
+    App, BoxError, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage,
+    Subscription, Utf8,
     adapters::sqs::{
         SqsAttributeValue, SqsCredentials, SqsMessage, SqsPublish, SqsSink, SqsSinkConfig,
         SqsSource, SqsSourceConfig,
@@ -63,7 +64,7 @@ fn endpoint() -> String {
 }
 
 /// Creates a queue through the query API and returns its URL.
-async fn create_queue(prefix: &str, fifo: bool) -> anyhow::Result<String> {
+async fn create_queue(prefix: &str, fifo: bool) -> Result<String, BoxError> {
     let mut path = format!("/?Action=CreateQueue&QueueName={}", unique_name(prefix));
     if fifo {
         path.push_str(".fifo&Attribute.1.Name=FifoQueue&Attribute.1.Value=true");
@@ -80,7 +81,7 @@ async fn create_queue(prefix: &str, fifo: bool) -> anyhow::Result<String> {
         .split_once("<QueueUrl>")
         .and_then(|(_, rest)| rest.split_once("</QueueUrl>"))
         .map(|(url, _)| url.to_owned())
-        .ok_or_else(|| anyhow::anyhow!("CreateQueue failed: {response}"))?;
+        .ok_or_else(|| BoxError::from(format!("CreateQueue failed: {response}")))?;
     Ok(url)
 }
 
@@ -109,7 +110,7 @@ fn sink(queue_url: &str) -> SqsSink<Utf8, String> {
     SqsSink::new(config)
 }
 
-async fn send(sink: &SqsSink<Utf8, String>, output: SqsPublish<String>) -> anyhow::Result<()> {
+async fn send(sink: &SqsSink<Utf8, String>, output: SqsPublish<String>) -> Result<(), BoxError> {
     let prepared = sink.prepare(output)?;
     tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
         .await
@@ -120,20 +121,20 @@ async fn send(sink: &SqsSink<Utf8, String>, output: SqsPublish<String>) -> anyho
 async fn next_message(
     source: &mut SqsSource<Utf8, String>,
     timeout: Duration,
-) -> anyhow::Result<Option<SqsMessage<Utf8, String>>> {
+) -> Result<Option<SqsMessage<Utf8, String>>, BoxError> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         match tokio::time::timeout(remaining, source.receive()).await {
             Err(_) => return Ok(None),
             Ok(Ok(Receive::Message(message))) => return Ok(Some(message)),
-            Ok(Ok(Receive::End)) => anyhow::bail!("SQS source ended"),
+            Ok(Ok(Receive::End)) => return Err("SQS source ended".into()),
             Ok(Err(ReceiveError::Retry(error))) => {
                 eprintln!("retrying SQS receive: {error:#}");
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
             Ok(Err(ReceiveError::Fatal(error))) => {
-                anyhow::bail!("SQS receive failed: {error:#}")
+                return Err(format!("SQS receive failed: {error}").into());
             }
         }
     }
@@ -141,7 +142,7 @@ async fn next_message(
 
 #[tokio::test]
 #[ignore = "requires an SQS endpoint; run with cargo test --features sqs -- --ignored"]
-async fn send_receive_and_delete_against_sqs() -> anyhow::Result<()> {
+async fn send_receive_and_delete_against_sqs() -> Result<(), BoxError> {
     let queue = create_queue("beavers-sqs-test", false).await?;
     let sink = sink(&queue);
     let mut output = SqsPublish::new("hello sqs".to_owned());
@@ -193,7 +194,7 @@ async fn send_receive_and_delete_against_sqs() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires an SQS endpoint; run with cargo test --features sqs -- --ignored"]
-async fn visibility_is_extended_while_a_delivery_is_held() -> anyhow::Result<()> {
+async fn visibility_is_extended_while_a_delivery_is_held() -> Result<(), BoxError> {
     let queue = create_queue("beavers-sqs-visibility", false).await?;
     send(&sink(&queue), SqsPublish::new("slow".to_owned())).await?;
 
@@ -220,7 +221,7 @@ async fn visibility_is_extended_while_a_delivery_is_held() -> anyhow::Result<()>
 
 #[tokio::test]
 #[ignore = "requires an SQS endpoint; run with cargo test --features sqs -- --ignored"]
-async fn dropped_and_closed_deliveries_become_visible_again() -> anyhow::Result<()> {
+async fn dropped_and_closed_deliveries_become_visible_again() -> Result<(), BoxError> {
     let queue = create_queue("beavers-sqs-release", false).await?;
     send(&sink(&queue), SqsPublish::new("order".to_owned())).await?;
 
@@ -250,7 +251,7 @@ async fn dropped_and_closed_deliveries_become_visible_again() -> anyhow::Result<
 
 #[tokio::test]
 #[ignore = "requires an SQS endpoint; run with cargo test --features sqs -- --ignored"]
-async fn fifo_messages_are_ordered_by_their_group() -> anyhow::Result<()> {
+async fn fifo_messages_are_ordered_by_their_group() -> Result<(), BoxError> {
     let queue = create_queue("beavers-sqs-fifo", true).await?;
     let sink = sink(&queue);
     for value in ["a1", "a2"] {
@@ -280,7 +281,7 @@ async fn fifo_messages_are_ordered_by_their_group() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires an SQS endpoint; run with cargo test --features sqs -- --ignored"]
-async fn pipeline_forwards_attributes_and_deletes_every_input() -> anyhow::Result<()> {
+async fn pipeline_forwards_attributes_and_deletes_every_input() -> Result<(), BoxError> {
     let input = create_queue("beavers-sqs-input", false).await?;
     let output = create_queue("beavers-sqs-output", false).await?;
     let producer = sink(&input);

@@ -1,5 +1,6 @@
 //! Conversions between record fields and SQS API types.
 use super::record::{SqsAttributeValue, SqsAttributes};
+use crate::error::BoxError;
 use aws_sdk_sqs::{primitives::Blob, types::MessageAttributeValue};
 use std::collections::HashMap;
 
@@ -28,7 +29,7 @@ pub(super) fn attributes_from_sqs(
 
 pub(super) fn attributes_to_sqs(
     attributes: &SqsAttributes,
-) -> anyhow::Result<HashMap<String, MessageAttributeValue>> {
+) -> Result<HashMap<String, MessageAttributeValue>, BoxError> {
     attributes
         .iter()
         .map(|(name, value)| {

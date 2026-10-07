@@ -1,6 +1,6 @@
 use beavers::{
-    App, DeadLetter, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json, OrderingKey,
-    Receive, Source, SourceMessage, Subscription,
+    App, BoxError, DeadLetter, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json,
+    OrderingKey, Receive, Source, SourceMessage, Subscription,
     adapters::kafka::{KafkaInherit, KafkaMetadata, KafkaPublish, KafkaRecord},
     testing::{KafkaTestSource, kafka_record},
 };
@@ -118,7 +118,7 @@ async fn dead_letters_keep_the_raw_kafka_record() {
                 |record: KafkaRecord<u32>| async move {
                     let value = record.value.unwrap_or_default();
                     if value % 2 == 1 {
-                        return Err(HandlerError::Reject(anyhow::anyhow!("odd")));
+                        return Err(HandlerError::Reject(BoxError::from("odd")));
                     }
                     Ok(KafkaPublish::new(value))
                 },

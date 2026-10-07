@@ -100,7 +100,8 @@ async fn main() -> anyhow::Result<()> {
                     .concurrency(3),
                 )
                 .run()
-                .await
+                .await?;
+            Ok(())
         }
         Some(other) => {
             anyhow::bail!("unknown command {other:?}; use `produce [count]` or `process`")

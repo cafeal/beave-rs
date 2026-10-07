@@ -1,7 +1,7 @@
 //! Dead letters forwarded to an SQS queue with their original message.
 use super::record::{SqsAttributeValue, SqsAttributes, SqsPublish, SqsRecord};
 use crate::dead_letter::{DEAD_LETTER_HEADER_PREFIX, DeadLetter, DeadLetterDetails};
-use anyhow::Context as _;
+use crate::error::Error;
 use std::collections::BTreeMap;
 
 /// The one attribute that holds every failure detail, because SQS accepts at
@@ -38,23 +38,26 @@ pub struct SqsDeadLetter {
 impl SqsDeadLetter {
     /// Reads the details attribute. Returns `None` for a record without it and an error
     /// when it is not a JSON object of strings or lacks a detail.
-    pub fn from_record<T>(record: &SqsRecord<T>) -> anyhow::Result<Option<Self>> {
+    pub fn from_record<T>(record: &SqsRecord<T>) -> Result<Option<Self>, Error> {
         let Some(value) = record.attributes.get(DETAILS) else {
             return Ok(None);
         };
-        let text = value
-            .as_str()
-            .with_context(|| format!("dead-letter attribute {DETAILS} is not a string"))?;
-        let fields: BTreeMap<String, String> = serde_json::from_str(text)
-            .with_context(|| format!("dead-letter attribute {DETAILS} is malformed"))?;
+        let text = value.as_str().ok_or_else(|| {
+            Error::invalid_record(format!("dead-letter attribute {DETAILS} is not a string"))
+        })?;
+        let fields: BTreeMap<String, String> = serde_json::from_str(text).map_err(|error| {
+            Error::invalid_record(format!(
+                "dead-letter attribute {DETAILS} is malformed: {error}"
+            ))
+        })?;
         let field = |name: &str| Ok(fields.get(name).map(String::as_str));
-        let details = DeadLetterDetails::parse(field)?
-            .with_context(|| format!("dead-letter attribute {DETAILS} has no failure"))?;
+        let details = DeadLetterDetails::parse(field)?.ok_or_else(|| {
+            Error::invalid_record(format!("dead-letter attribute {DETAILS} has no failure"))
+        })?;
         let required = |name: &str| {
-            fields
-                .get(name)
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("dead-letter detail {name} is missing"))
+            fields.get(name).cloned().ok_or_else(|| {
+                Error::invalid_record(format!("dead-letter detail {name} is missing"))
+            })
         };
         Ok(Some(Self {
             details,

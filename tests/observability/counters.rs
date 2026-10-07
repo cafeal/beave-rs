@@ -1,6 +1,7 @@
 use super::fixtures::{FieldSource, Value, counter, install_metrics, series};
 use beavers::{
-    App, ErrorPolicy, FailureAction, HandlerError, InMemorySink, RetryPolicy, Sink, Subscription,
+    App, BoxError, ErrorPolicy, FailureAction, HandlerError, InMemorySink, RetryPolicy, Sink,
+    Subscription,
 };
 use std::{
     sync::atomic::{AtomicUsize, Ordering},
@@ -30,7 +31,7 @@ async fn failures_are_counted_by_kind_and_action() {
                 sink.clone(),
                 |n: i32| async move {
                     if n < 0 {
-                        return Err(HandlerError::Reject(anyhow::anyhow!("negative")));
+                        return Err(HandlerError::Reject(BoxError::from("negative")));
                     }
                     Ok(n)
                 },
@@ -77,7 +78,7 @@ async fn dead_letter_action_without_sink_is_reported_as_stop() {
             name,
             FieldSource::text(&["1"]),
             InMemorySink::default(),
-            |_: i32| async move { Err::<i32, _>(HandlerError::Reject(anyhow::anyhow!("no"))) },
+            |_: i32| async move { Err::<i32, _>(HandlerError::Reject(BoxError::from("no"))) },
         ))
         .run()
         .await;
@@ -107,12 +108,14 @@ struct FailTwice(AtomicUsize);
 impl Sink<i32> for FailTwice {
     type Prepared = i32;
 
-    fn prepare(&self, value: i32) -> anyhow::Result<i32> {
+    fn prepare(&self, value: i32) -> Result<i32, BoxError> {
         Ok(value)
     }
 
-    async fn publish(&self, _: &i32) -> anyhow::Result<()> {
-        anyhow::ensure!(self.0.fetch_add(1, Ordering::SeqCst) >= 2, "offline");
+    async fn publish(&self, _: &i32) -> Result<(), BoxError> {
+        if !(self.0.fetch_add(1, Ordering::SeqCst) >= 2) {
+            return Err("offline".into());
+        };
         Ok(())
     }
 }
@@ -133,7 +136,7 @@ async fn retries_and_stage_durations_are_recorded() {
                     let calls = handler_calls.clone();
                     async move {
                         if calls.fetch_add(1, Ordering::SeqCst) == 0 {
-                            return Err(HandlerError::Retry(anyhow::anyhow!("busy")));
+                            return Err(HandlerError::Retry(BoxError::from("busy")));
                         }
                         Ok(n)
                     }

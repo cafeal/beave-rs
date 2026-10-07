@@ -2,6 +2,7 @@ use super::{config::PulsarSinkConfig, producer::Producers, record::PulsarPublish
 use crate::{
     adapters::pending::PendingLimit,
     codec::Encoder,
+    error::{BoxError, Error, ensure},
     sink::{Completion, Sink},
 };
 use std::{
@@ -49,19 +50,21 @@ impl Connection {
     /// the publication that holds it has finished.
     pub(super) async fn producers(
         &self,
-    ) -> anyhow::Result<OwnedRwLockReadGuard<Option<Producers>, Producers>> {
+    ) -> Result<OwnedRwLockReadGuard<Option<Producers>, Producers>, BoxError> {
         loop {
             let producers = self.producers.clone().read_owned().await;
-            anyhow::ensure!(
+            ensure!(
                 !self.closed.load(Ordering::Acquire),
+                Error::closed,
                 "Pulsar sink is closed"
             );
             if let Ok(producers) = OwnedRwLockReadGuard::try_map(producers, Option::as_ref) {
                 return Ok(producers);
             }
             let mut producers = self.producers.write().await;
-            anyhow::ensure!(
+            ensure!(
                 !self.closed.load(Ordering::Acquire),
+                Error::closed,
                 "Pulsar sink is closed"
             );
             if producers.is_none() {
@@ -70,7 +73,7 @@ impl Connection {
         }
     }
 
-    pub(super) async fn close(&self) -> anyhow::Result<()> {
+    pub(super) async fn close(&self) -> Result<(), BoxError> {
         self.closed.store(true, Ordering::Release);
         let producers = self.producers.write().await.take();
         match producers {
@@ -118,17 +121,17 @@ impl<C, T> PulsarSink<C, T> {
 impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarSink<C, T> {
     type Prepared = PulsarPrepared;
 
-    fn prepare(&self, output: PulsarPublish<T>) -> anyhow::Result<Self::Prepared> {
+    fn prepare(&self, output: PulsarPublish<T>) -> Result<Self::Prepared, BoxError> {
         prepare(&*self.codec, output)
     }
 
-    async fn publish(&self, output: &Self::Prepared) -> anyhow::Result<()> {
+    async fn publish(&self, output: &Self::Prepared) -> Result<(), BoxError> {
         self.submit(output).await?.wait().await
     }
 
     /// Returns once a producer has queued the message. The completion resolves
     /// on its broker receipt and keeps `close` waiting until then.
-    async fn submit(&self, output: &Self::Prepared) -> anyhow::Result<Completion> {
+    async fn submit(&self, output: &Self::Prepared) -> Result<Completion, BoxError> {
         let producers = self.connection.producers().await?;
         let permit = self.pending.acquire().await?;
         let receipt = producers.route(output).enqueue(output);
@@ -138,7 +141,7 @@ impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarS
         }))
     }
 
-    async fn close(&self) -> anyhow::Result<()> {
+    async fn close(&self) -> Result<(), BoxError> {
         self.pending.close();
         self.connection.close().await
     }
@@ -147,7 +150,7 @@ impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarS
 pub(super) fn prepare<C: Encoder<T>, T>(
     codec: &C,
     output: PulsarPublish<T>,
-) -> anyhow::Result<PulsarPrepared> {
+) -> Result<PulsarPrepared, BoxError> {
     Ok(PulsarPrepared {
         value: output
             .value

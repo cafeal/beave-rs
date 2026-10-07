@@ -7,11 +7,11 @@ use super::{
 };
 use crate::{
     codec::Decoder,
+    error::{BoxError, Error},
     message::{OrderingKey, SourceMessage},
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
 };
-use anyhow::Context as _;
 use aws_sdk_sqs::{
     Client,
     error::{DisplayErrorContext, ProvideErrorMetadata},
@@ -49,7 +49,7 @@ struct Connection {
     /// The `ReceiveMessage` call in progress. It runs as its own task, so a
     /// cancelled `receive` leaves it running and the next `receive` takes its
     /// messages.
-    polling: Option<JoinHandle<anyhow::Result<Vec<Received>>>>,
+    polling: Option<JoinHandle<Result<Vec<Received>, BoxError>>>,
 }
 
 /// The task that extends leases and releases abandoned messages. Dropping it
@@ -115,7 +115,7 @@ impl<C, T> SqsSource<C, T> {
     }
 
     /// Starts a `ReceiveMessage` call whose messages get leases as they arrive.
-    fn poll(&self, connection: &Connection) -> JoinHandle<anyhow::Result<Vec<Received>>> {
+    fn poll(&self, connection: &Connection) -> JoinHandle<Result<Vec<Received>, BoxError>> {
         let request = connection
             .client
             .receive_message()
@@ -128,11 +128,12 @@ impl<C, T> SqsSource<C, T> {
         let leases = connection.leases.clone();
         tokio::spawn(async move {
             let requested = Instant::now();
-            let output = request
-                .send()
-                .await
-                .map_err(|error| anyhow::anyhow!("{}", DisplayErrorContext(&error)))
-                .context("receiving from SQS")?;
+            let output = request.send().await.map_err(|error| {
+                Error::msg(format!(
+                    "receiving from SQS: {}",
+                    DisplayErrorContext(&error)
+                ))
+            })?;
             Ok(output
                 .messages
                 .unwrap_or_default()
@@ -158,7 +159,9 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for SqsSource<C, T>
             return Ok(Receive::End);
         }
         if self.connection.is_none() {
-            self.config.validate().map_err(ReceiveError::Fatal)?;
+            self.config
+                .validate()
+                .map_err(|error| ReceiveError::Fatal(error.into()))?;
             self.connection = Some(self.connect().await);
         }
         loop {
@@ -184,7 +187,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for SqsSource<C, T>
 
     /// Stops extending visibility and makes the messages that were received
     /// but not acknowledged visible again.
-    async fn close(&mut self) -> anyhow::Result<()> {
+    async fn close(&mut self) -> Result<(), BoxError> {
         self.closed = true;
         let Some(connection) = self.connection.take() else {
             return Ok(());
@@ -273,7 +276,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for SqsMessa
     type Item = SqsRecord<T>;
     type Raw = SqsRecord<Vec<u8>>;
 
-    fn decode(&self) -> anyhow::Result<Self::Item> {
+    fn decode(&self) -> Result<Self::Item, BoxError> {
         self.record(|bytes| self.codec.decode(bytes))
     }
 
@@ -285,11 +288,14 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for SqsMessa
     /// Deletes the message, retrying under `ack_retry`. A message whose lease
     /// ended, because its visibility could not be extended in time, is revoked
     /// instead: SQS may already have handed it to another consumer.
-    async fn ack(mut self) -> anyhow::Result<()> {
+    async fn ack(mut self) -> Result<(), BoxError> {
         self.acknowledged = true;
         let Some(receipt_handle) = self.leases.remove(self.lease) else {
             self.revoked.cancel();
-            anyhow::bail!("SQS visibility of the message expired before the acknowledgement");
+            return Err(Error::msg(
+                "SQS visibility of the message expired before the acknowledgement",
+            )
+            .into());
         };
         let mut attempt = 0;
         loop {
@@ -309,8 +315,11 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for SqsMessa
                 self.revoked.cancel();
             }
             if self.revoked.is_cancelled() || attempt >= self.ack_retry.max_attempts {
-                return Err(anyhow::anyhow!("{}", DisplayErrorContext(&error)))
-                    .context("deleting an SQS message");
+                return Err(Error::msg(format!(
+                    "deleting an SQS message: {}",
+                    DisplayErrorContext(&error)
+                ))
+                .into());
             }
             tokio::time::sleep(self.ack_retry.delay(attempt)).await;
         }

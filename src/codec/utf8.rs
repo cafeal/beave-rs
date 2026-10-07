@@ -1,4 +1,5 @@
 use super::{Decoder, Encoder};
+use crate::error::BoxError;
 use std::str::from_utf8;
 
 /// A codec for strings containing valid UTF-8.
@@ -6,13 +7,13 @@ use std::str::from_utf8;
 pub struct Utf8;
 
 impl Decoder<String> for Utf8 {
-    fn decode(&self, bytes: &[u8]) -> anyhow::Result<String> {
+    fn decode(&self, bytes: &[u8]) -> Result<String, BoxError> {
         Ok(from_utf8(bytes)?.to_owned())
     }
 }
 
 impl Encoder<String> for Utf8 {
-    fn encode(&self, value: &String) -> anyhow::Result<Vec<u8>> {
+    fn encode(&self, value: &String) -> Result<Vec<u8>, BoxError> {
         Ok(value.as_bytes().to_vec())
     }
 }

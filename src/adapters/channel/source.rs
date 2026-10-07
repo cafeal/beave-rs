@@ -4,6 +4,7 @@ use super::{
     record::ChannelRaw,
 };
 use crate::{
+    error::{BoxError, Error},
     message::Delivery,
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
@@ -27,12 +28,12 @@ impl<T> Clone for ChannelSender<T> {
 impl<T> ChannelSender<T> {
     /// Enqueue a value, waiting for capacity. Returns once the value is buffered.
     /// Cancellation while waiting for capacity never enqueues it.
-    pub async fn send(&self, value: T) -> anyhow::Result<()> {
+    pub async fn send(&self, value: T) -> Result<(), Error> {
         let permit = self
             .sender
             .reserve()
             .await
-            .map_err(|_| anyhow::anyhow!("channel receiving end has stopped"))?;
+            .map_err(|_| Error::closed("channel receiving end has stopped"))?;
         // Nobody waits for completion, so the value can never be abandoned.
         let (done, _) = oneshot::channel();
         permit.send(Queued {
@@ -48,11 +49,12 @@ impl<T> ChannelSender<T> {
     /// Enqueue a value and wait until the subscription acknowledges it: its outputs
     /// were published, or its error policy dead-lettered or discarded it. Dropping the
     /// returned future after the value was enqueued abandons the delivery.
-    pub async fn send_and_wait(&self, value: T) -> anyhow::Result<()> {
+    pub async fn send_and_wait(&self, value: T) -> Result<(), Error> {
         enqueue(&self.sender, value, Origin::default())
             .await?
             .wait()
             .await
+            .map_err(|error| Error::unbox(error, "channel delivery failed"))
     }
 }
 
@@ -130,7 +132,7 @@ impl<T: Clone + Send + Sync + 'static> Source for ChannelSource<T> {
     }
 
     /// Reject new values; buffered values remain available until the source is dropped.
-    async fn close(&mut self) -> anyhow::Result<()> {
+    async fn close(&mut self) -> Result<(), BoxError> {
         self.receiver.close();
         Ok(())
     }

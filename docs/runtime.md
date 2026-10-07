@@ -445,12 +445,14 @@ the jobs each subscription submits.
 
 ## Errors and retries
 
-`beavers::Result<T>` uses `HandlerError`. Ordinary errors propagated with `?`
-become `Reject`: the handler is not retried, and the input is dead-lettered by
-default. The runtime cannot tell a transient failure from a deterministic one,
-so the handler requests other outcomes at the call site with the `Classify`
-extension trait. `.reject()?` states the default explicitly, `.retry()?` reruns
-the handler under its retry policy and dead-letters the input once that is
+`beavers::Result<T>` uses `HandlerError`, whose variants hold a `BoxError`.
+Ordinary errors propagated with `?`, from any `std::error::Error + Send + Sync`
+type, `String`, `&str`, or `anyhow::Error`, become `Reject`: the handler is not
+retried, and the input is dead-lettered by default. The runtime cannot tell a
+transient failure from a deterministic one, so the handler requests other
+outcomes at the call site with the `Classify` extension trait. `.reject()?`
+states the default explicitly, `.retry()?` reruns the handler under its retry
+policy and dead-letters the input once that is
 exhausted; `.fatal()?` stops the subscription:
 
 ```rust,ignore
@@ -608,7 +610,7 @@ let source = KafkaSource::<Json, Order>::new(KafkaSourceConfig::new(
 Subscription::new("orders-redrive", source, sink, |record: KafkaRecord<Order>| async move {
     let dead_letter = KafkaDeadLetter::from_record(&record).reject()?;
     if dead_letter.is_some_and(|dead| dead.details.count >= 3) {
-        return Err(HandlerError::Fatal(anyhow::anyhow!("dead-lettered too often")));
+        return Err(HandlerError::Fatal("dead-lettered too often".into()));
     }
     handle(record).await
 })

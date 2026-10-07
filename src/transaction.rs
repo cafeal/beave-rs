@@ -1,5 +1,5 @@
 //! Atomic publication and acknowledgement for compatible source and sink pairs.
-use crate::{message::SourceMessage, sink::Sink};
+use crate::{error::BoxError, message::SourceMessage, sink::Sink};
 use std::future::Future;
 
 /// A sink that can publish a delivery's outputs and acknowledge that delivery
@@ -23,7 +23,7 @@ pub trait TransactionalSink<M: SourceMessage, T>: Sink<T> {
     /// subscription before processing that delivery, retrying under the
     /// subscription's `publish_retry` policy. A failure stops the subscription
     /// without processing or acknowledging anything.
-    fn verify_source(&self, delivery: &M) -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn verify_source(&self, delivery: &M) -> impl Future<Output = Result<(), BoxError>> + Send;
 
     /// Publishes the outputs of every entry and acknowledges every entry's
     /// delivery in one transaction: either all outputs become visible together
@@ -44,7 +44,7 @@ pub trait TransactionalSink<M: SourceMessage, T>: Sink<T> {
     fn commit(
         &self,
         batch: &[TransactionEntry<'_, M, Self::Prepared>],
-    ) -> impl Future<Output = anyhow::Result<()>> + Send;
+    ) -> impl Future<Output = Result<(), BoxError>> + Send;
 }
 
 /// One delivery committed by [`TransactionalSink::commit`], with the prepared

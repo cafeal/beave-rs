@@ -7,10 +7,10 @@ use super::{
 };
 use crate::{
     codec::{Decoder, Encoder},
+    error::{BoxError, Context, Error, causes, ensure},
     sink::Sink,
     transaction::{TransactionEntry, TransactionalSink},
 };
-use anyhow::Context as _;
 use rdkafka::{
     ClientConfig, Offset, TopicPartitionList,
     consumer::Consumer,
@@ -93,13 +93,14 @@ impl<C, T> KafkaTransactionalSink<C, T> {
         &self,
         outputs: Vec<KafkaPrepared>,
         offsets: Option<SourceOffsets>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), BoxError> {
         let config = self.config.clone();
         let state = self.state.clone();
         tokio::spawn(async move {
             let mut slot = state.producer.lock().await;
-            anyhow::ensure!(
+            ensure!(
                 !state.closed.load(Ordering::Acquire),
+                Error::closed,
                 "Kafka sink is closed"
             );
             if slot.is_none() {
@@ -128,7 +129,7 @@ impl<C, T> KafkaTransactionalSink<C, T> {
     /// coordinator of the producer's cluster. The sink's cluster is read with a
     /// separate non-transactional client, so a mismatch is reported before the
     /// transactional producer initializes.
-    async fn verify_cluster(&self, consumer: Arc<KafkaConsumer>) -> anyhow::Result<()> {
+    async fn verify_cluster(&self, consumer: Arc<KafkaConsumer>) -> Result<(), BoxError> {
         let config = self.config.clone();
         tokio::task::spawn_blocking(move || {
             config.sink.validate()?;
@@ -148,8 +149,9 @@ impl<C, T> KafkaTransactionalSink<C, T> {
                 .client()
                 .fetch_cluster_id(timeout)
                 .context("Kafka source did not report its cluster ID")?;
-            anyhow::ensure!(
+            ensure!(
                 source == sink,
+                Error::config,
                 "Kafka source cluster {source} differs from sink cluster {sink}; \
                  a transactional sink must connect to the source's cluster"
             );
@@ -166,15 +168,15 @@ where
 {
     type Prepared = KafkaPrepared;
 
-    fn prepare(&self, record: KafkaPublish<T>) -> anyhow::Result<Self::Prepared> {
+    fn prepare(&self, record: KafkaPublish<T>) -> Result<Self::Prepared, BoxError> {
         prepare(&*self.codec, record)
     }
 
-    async fn publish(&self, output: &Self::Prepared) -> anyhow::Result<()> {
+    async fn publish(&self, output: &Self::Prepared) -> Result<(), BoxError> {
         self.transact(vec![output.clone()], None).await
     }
 
-    async fn close(&self) -> anyhow::Result<()> {
+    async fn close(&self) -> Result<(), BoxError> {
         self.state.closed.store(true, Ordering::Release);
         // Waits for a running transaction to finish.
         let producer = self.state.producer.lock().await.take();
@@ -194,14 +196,14 @@ where
     D: Decoder<U> + Send + Sync + 'static,
     U: Clone + Send + Sync + 'static,
 {
-    async fn verify_source(&self, delivery: &KafkaMessage<D, U>) -> anyhow::Result<()> {
+    async fn verify_source(&self, delivery: &KafkaMessage<D, U>) -> Result<(), BoxError> {
         self.verify_cluster(delivery.consumer.clone()).await
     }
 
     async fn commit(
         &self,
         batch: &[TransactionEntry<'_, KafkaMessage<D, U>, Self::Prepared>],
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), BoxError> {
         let outputs = batch
             .iter()
             .flat_map(|entry| entry.outputs.iter().cloned())
@@ -228,7 +230,7 @@ impl SourceOffsets {
     /// consumer's group metadata here.
     fn new<'a, D: 'a, U: 'a>(
         deliveries: impl IntoIterator<Item = &'a KafkaMessage<D, U>>,
-    ) -> anyhow::Result<Option<Self>> {
+    ) -> Result<Option<Self>, BoxError> {
         let mut offsets: Option<Self> = None;
         for delivery in deliveries {
             let offsets = offsets.get_or_insert_with(|| Self {
@@ -238,8 +240,9 @@ impl SourceOffsets {
                 deliveries: Vec::new(),
                 next: BTreeMap::new(),
             });
-            anyhow::ensure!(
+            ensure!(
                 Arc::ptr_eq(&offsets.consumer, &delivery.consumer),
+                Error::msg,
                 "a Kafka transaction batch contains deliveries of different consumers"
             );
             let partition = (delivery.raw.topic().to_owned(), delivery.raw.partition());
@@ -255,15 +258,16 @@ impl SourceOffsets {
     }
 
     /// Fails when the partition assignment of any delivery has ended.
-    fn ensure_assigned(&self) -> anyhow::Result<()> {
+    fn ensure_assigned(&self) -> Result<(), BoxError> {
         if self.consumer.assignment_lost() {
             self.progress.lock().unwrap().revoke_all();
-            anyhow::bail!("Kafka assignment was lost");
+            return Err(Error::msg("Kafka assignment was lost").into());
         }
         let progress = self.progress.lock().unwrap();
         for (generation, partition) in &self.deliveries {
-            anyhow::ensure!(
+            ensure!(
                 progress.is_current(*generation, partition),
+                Error::msg,
                 "Kafka delivery belongs to a revoked assignment"
             );
         }
@@ -274,7 +278,7 @@ impl SourceOffsets {
     /// open transaction and commits it while holding the transaction gate, so a
     /// revoke waits until the commit finishes and later commits see the
     /// revocation.
-    fn commit(&self, producer: &FutureProducer, timeout: Duration) -> anyhow::Result<()> {
+    fn commit(&self, producer: &FutureProducer, timeout: Duration) -> Result<(), BoxError> {
         let _transactions = self.transactions.lock().unwrap();
         self.ensure_assigned()?;
         let metadata = self
@@ -295,10 +299,11 @@ impl SourceOffsets {
     }
 }
 
-async fn connect(config: Arc<Config>) -> anyhow::Result<FutureProducer> {
+async fn connect(config: Arc<Config>) -> Result<FutureProducer, BoxError> {
     config.sink.validate()?;
-    anyhow::ensure!(
+    ensure!(
         !config.transactional_id.trim().is_empty(),
+        Error::config,
         "Kafka transactional ID is required"
     );
     tokio::task::spawn_blocking(move || {
@@ -311,7 +316,7 @@ async fn connect(config: Arc<Config>) -> anyhow::Result<FutureProducer> {
             .set("transactional.id", &config.transactional_id);
         let producer: FutureProducer = client.create()?;
         producer.init_transactions(config.sink.transaction_timeout)?;
-        anyhow::Ok(producer)
+        Ok::<_, BoxError>(producer)
     })
     .await?
 }
@@ -321,7 +326,7 @@ async fn run(
     config: &Config,
     outputs: &[KafkaPrepared],
     offsets: Option<SourceOffsets>,
-) -> anyhow::Result<()> {
+) -> Result<(), BoxError> {
     producer.begin_transaction()?;
     for output in outputs {
         send(producer, &config.sink.topic, output).await?;
@@ -351,9 +356,8 @@ fn commit(producer: &FutureProducer, timeout: Duration) -> KafkaResult<()> {
 
 /// Aborts the failed transaction. Returns `false` when the producer cannot
 /// continue and must be replaced.
-async fn recover(producer: &FutureProducer, timeout: Duration, error: &anyhow::Error) -> bool {
-    let fatal = error
-        .chain()
+async fn recover(producer: &FutureProducer, timeout: Duration, error: &BoxError) -> bool {
+    let fatal = causes(error.as_ref())
         .filter_map(|cause| cause.downcast_ref::<KafkaError>())
         .any(|error| matches!(error, KafkaError::Transaction(error) if error.is_fatal()));
     if fatal {

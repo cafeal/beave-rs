@@ -5,7 +5,7 @@ use std::io::Cursor;
 use apache_avro::{
     Schema, from_value, reader::datum::GenericDatumReader, writer::datum::GenericDatumWriter,
 };
-use beavers::{Avro, Decoder, Encoder};
+use beavers::{Avro, BoxError, Decoder, Encoder};
 use serde::{Deserialize, Serialize};
 
 const EVENT_SCHEMA: &str = r#"
@@ -87,12 +87,12 @@ fn uses_raw_datum_api_without_container_framing() {
 fn malformed_and_truncated_input_is_rejected() {
     let codec = Avro::new(EVENT_SCHEMA).unwrap();
 
-    let malformed: anyhow::Result<Event> = codec.decode(&[0x80]);
+    let malformed: Result<Event, BoxError> = codec.decode(&[0x80]);
     assert!(malformed.is_err());
 
     let encoded = codec.encode(&event()).unwrap();
     let truncated = &encoded[..encoded.len() - 1];
-    let result: anyhow::Result<Event> = codec.decode(truncated);
+    let result: Result<Event, BoxError> = codec.decode(truncated);
     assert!(result.is_err());
 }
 
@@ -102,7 +102,7 @@ fn trailing_bytes_are_rejected() {
     let mut encoded = codec.encode(&event()).unwrap();
     encoded.push(0);
 
-    let result: anyhow::Result<Event> = codec.decode(&encoded);
+    let result: Result<Event, BoxError> = codec.decode(&encoded);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("trailing"));
 }

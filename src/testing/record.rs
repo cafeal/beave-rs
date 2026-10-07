@@ -1,3 +1,4 @@
+use crate::error::BoxError;
 use crate::{codec::Decoder, message::OrderingKey};
 use serde::Serialize;
 use std::fmt::Debug;
@@ -29,7 +30,7 @@ pub trait TestRecord: Clone + Debug + Serialize + Send + Sync + 'static {
     type Decoded<T: Clone + Send + Sync + 'static>: Clone + Send + Sync + 'static;
 
     /// Decode the payload with the source's codec, keeping the metadata.
-    fn decode<C, T>(&self, codec: &C) -> anyhow::Result<Self::Decoded<T>>
+    fn decode<C, T>(&self, codec: &C) -> Result<Self::Decoded<T>, BoxError>
     where
         C: Decoder<T>,
         T: Clone + Send + Sync + 'static;
@@ -49,7 +50,7 @@ pub trait TestRecord: Clone + Debug + Serialize + Send + Sync + 'static {
 impl TestRecord for Vec<u8> {
     type Decoded<T: Clone + Send + Sync + 'static> = T;
 
-    fn decode<C, T>(&self, codec: &C) -> anyhow::Result<T>
+    fn decode<C, T>(&self, codec: &C) -> Result<T, BoxError>
     where
         C: Decoder<T>,
         T: Clone + Send + Sync + 'static,
@@ -65,7 +66,7 @@ impl TestRecord for Vec<u8> {
 impl TestRecord for KafkaRecord<Vec<u8>> {
     type Decoded<T: Clone + Send + Sync + 'static> = KafkaRecord<T>;
 
-    fn decode<C, T>(&self, codec: &C) -> anyhow::Result<KafkaRecord<T>>
+    fn decode<C, T>(&self, codec: &C) -> Result<KafkaRecord<T>, BoxError>
     where
         C: Decoder<T>,
         T: Clone + Send + Sync + 'static,
@@ -105,7 +106,7 @@ impl TestRecord for KafkaRecord<Vec<u8>> {
 impl TestRecord for PulsarRecord<Vec<u8>> {
     type Decoded<T: Clone + Send + Sync + 'static> = PulsarRecord<T>;
 
-    fn decode<C, T>(&self, codec: &C) -> anyhow::Result<PulsarRecord<T>>
+    fn decode<C, T>(&self, codec: &C) -> Result<PulsarRecord<T>, BoxError>
     where
         C: Decoder<T>,
         T: Clone + Send + Sync + 'static,
@@ -146,7 +147,7 @@ impl TestRecord for PulsarRecord<Vec<u8>> {
 impl TestRecord for RabbitMqRecord<Vec<u8>> {
     type Decoded<T: Clone + Send + Sync + 'static> = RabbitMqRecord<T>;
 
-    fn decode<C, T>(&self, codec: &C) -> anyhow::Result<RabbitMqRecord<T>>
+    fn decode<C, T>(&self, codec: &C) -> Result<RabbitMqRecord<T>, BoxError>
     where
         C: Decoder<T>,
         T: Clone + Send + Sync + 'static,
@@ -171,7 +172,7 @@ impl TestRecord for RabbitMqRecord<Vec<u8>> {
 impl TestRecord for SqsRecord<Vec<u8>> {
     type Decoded<T: Clone + Send + Sync + 'static> = SqsRecord<T>;
 
-    fn decode<C, T>(&self, codec: &C) -> anyhow::Result<SqsRecord<T>>
+    fn decode<C, T>(&self, codec: &C) -> Result<SqsRecord<T>, BoxError>
     where
         C: Decoder<T>,
         T: Clone + Send + Sync + 'static,

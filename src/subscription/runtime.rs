@@ -6,6 +6,7 @@ use super::{
     scheduler::Scheduler,
 };
 use crate::{
+    error::{BoxContext, BoxError, Error, chain},
     health::{SubscriptionStatus, Tracker},
     message::{OrderingKey, SourceMessage},
     shutdown::CancellationToken,
@@ -20,17 +21,17 @@ use tokio::{
 use tracing::{Instrument, debug, error, info, info_span, warn};
 
 /// A finished job's ordering key and the acknowledgement still waiting for its outputs.
-type Jobs = JoinSet<anyhow::Result<(Option<OrderingKey>, Option<PendingAck>)>>;
+type Jobs = JoinSet<Result<(Option<OrderingKey>, Option<PendingAck>), BoxError>>;
 /// Acknowledgements waiting for submitted outputs to complete, outside job slots and
 /// `max_in_flight`; sinks bound them by applying backpressure in `submit`.
-type Acks = JoinSet<anyhow::Result<()>>;
+type Acks = JoinSet<Result<(), BoxError>>;
 
 impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     pub(crate) async fn run(
         self,
         shutdown: CancellationToken,
         health: Arc<Tracker>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         let span = info_span!("subscription", subscription = %self.name);
         let result = self
             .execute(shutdown, health.clone())
@@ -47,7 +48,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         mut self,
         shutdown: CancellationToken,
         health: Arc<Tracker>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         info!("subscription started");
         health.set_status(SubscriptionStatus::Running);
         let instruments = Instruments::new(
@@ -139,7 +140,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                             health.receive_failed(failures);
                             if failures >= self.config.receive_retry.max_attempts { failure = Some(error.context("receive retry exhausted")); shutdown.cancel(); break; }
                             let delay = self.config.receive_retry.delay(failures);
-                            warn!(attempt = failures, ?delay, error = format!("{error:#}"), "retrying receive");
+                            warn!(attempt = failures, ?delay, error = chain(error.as_ref()), "retrying receive");
                             next_receive = Instant::now() + delay;
                         }
                         Err(ReceiveError::Fatal(error)) => {
@@ -185,7 +186,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             while jobs.join_next().await.is_some() {}
             while acks.join_next().await.is_some() {}
             failure.get_or_insert_with(|| {
-                anyhow::anyhow!("drain timeout; unfinished deliveries were not acknowledged")
+                Error::timeout("drain timeout; unfinished deliveries were not acknowledged").into()
             });
             shutdown.cancel();
         }
@@ -207,15 +208,18 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                 failure.get_or_insert(e);
             }
             Err(_) => {
-                failure.get_or_insert_with(|| anyhow::anyhow!("close timeout"));
+                failure.get_or_insert_with(|| Error::timeout("close timeout").into());
             }
         }
         in_flight.set(0.0);
         match failure {
             Some(failure) => {
                 shutdown.cancel();
-                error!(error = format!("{failure:#}"), "subscription failed");
-                Err(failure.context(self.name))
+                error!(error = chain(failure.as_ref()), "subscription failed");
+                Err(Error::Subscription {
+                    name: self.name,
+                    source: failure,
+                })
             }
             None => {
                 info!("subscription stopped");
@@ -269,10 +273,10 @@ impl<M: SourceMessage, O: Send + Sync + 'static> Worker<M, O> {
 /// another consumer now; its outcome, including an ACK rejected because of the
 /// revocation, is not a failure. Returns `None` when the work was abandoned.
 async fn abandon_on_revocation<T, M: SourceMessage, O>(
-    work: impl Future<Output = anyhow::Result<T>>,
+    work: impl Future<Output = Result<T, BoxError>>,
     revocation: Option<CancellationToken>,
     pipeline: &Pipeline<M, O>,
-) -> anyhow::Result<Option<T>> {
+) -> Result<Option<T>, BoxError> {
     let Some(revoked) = revocation else {
         return work.await.map(Some);
     };
@@ -289,6 +293,6 @@ async fn abandon_on_revocation<T, M: SourceMessage, O>(
     Ok(None)
 }
 
-fn flatten<T>(result: StdResult<anyhow::Result<T>, JoinError>) -> anyhow::Result<T> {
+fn flatten<T>(result: StdResult<Result<T, BoxError>, JoinError>) -> Result<T, BoxError> {
     result?
 }

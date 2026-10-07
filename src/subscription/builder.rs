@@ -8,6 +8,7 @@ use super::{
 };
 use crate::{
     dead_letter::DeadLetter,
+    error::{BoxContext, BoxError, Error, ensure},
     error_policy::ErrorPolicy,
     handler::{Emit, Handler},
     middleware::Middleware,
@@ -24,8 +25,9 @@ pub(super) type BoxHandler<I, O> =
     Arc<dyn Fn(I) -> BoxFuture<crate::handler::Result<Emit<O>>> + Send + Sync>;
 pub(super) type Mapper<I, O> = Arc<dyn DynMiddleware<I, O>>;
 pub(super) type DeadLetterRoute<I, R> = Arc<
-    dyn Fn(DeadLetter<I, R>, RetryPolicy, Counter) -> BoxFuture<anyhow::Result<()>> + Send + Sync,
+    dyn Fn(DeadLetter<I, R>, RetryPolicy, Counter) -> BoxFuture<Result<(), BoxError>> + Send + Sync,
 >;
+type CloseDeadLetter = Arc<dyn Fn() -> BoxFuture<Result<(), BoxError>> + Send + Sync>;
 
 /// One source, handler, and sink processed together, with its middleware, dead-letter sink,
 /// and [`SubscriptionConfig`].
@@ -40,7 +42,7 @@ pub struct Subscription<S: Source, K, O> {
     pub(super) handler: BoxHandler<SourceItem<S>, O>,
     pub(super) dlq: Option<DeadLetterRoute<SourceItem<S>, SourceRaw<S>>>,
     pub(super) middleware: Vec<Mapper<SourceItem<S>, O>>,
-    pub(super) close_dlq: Option<Arc<dyn Fn() -> BoxFuture<anyhow::Result<()>> + Send + Sync>>,
+    pub(super) close_dlq: Option<CloseDeadLetter>,
     pub(super) config: SubscriptionConfig,
 }
 
@@ -145,7 +147,10 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     pub fn dlq_with<D, T, F>(mut self, sink: D, convert: F) -> Self
     where
         D: Sink<T>,
-        F: Fn(DeadLetter<SourceItem<S>, SourceRaw<S>>) -> anyhow::Result<T> + Send + Sync + 'static,
+        F: Fn(DeadLetter<SourceItem<S>, SourceRaw<S>>) -> Result<T, BoxError>
+            + Send
+            + Sync
+            + 'static,
     {
         let sink = Arc::new(sink);
         let convert = Arc::new(convert);
@@ -239,14 +244,16 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         self
     }
 
-    pub(crate) fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
+    pub(crate) fn validate(&self) -> Result<(), Error> {
+        ensure!(
             !self.name.trim().is_empty(),
+            Error::config,
             "subscription name must not be empty"
         );
         self.config.validate()?;
-        anyhow::ensure!(
+        ensure!(
             !self.transactional || self.config.ordering == ProcessingOrder::PerKey,
+            Error::config,
             "transactional subscriptions require ProcessingOrder::PerKey"
         );
         self.config.error_policy.validate(self.dlq.is_some())

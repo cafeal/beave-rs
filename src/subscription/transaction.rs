@@ -4,6 +4,7 @@ use super::{
     instruments::{Instruments, Stage},
 };
 use crate::{
+    error::{BoxContext, BoxError, Error, chain},
     message::SourceMessage,
     retry::RetryPolicy,
     shutdown::CancellationToken,
@@ -24,7 +25,7 @@ struct Entry<M, P> {
     outputs: Vec<P>,
     revocation: Option<CancellationToken>,
     enlisted: Instant,
-    done: oneshot::Sender<anyhow::Result<()>>,
+    done: oneshot::Sender<Result<(), BoxError>>,
 }
 
 impl<M, P> Entry<M, P> {
@@ -95,7 +96,7 @@ where
 
     /// Commits the deliveries already enlisted and stops once every enlister
     /// is dropped.
-    pub(super) async fn close(self) -> anyhow::Result<()> {
+    pub(super) async fn close(self) -> Result<(), BoxError> {
         drop(self.entries);
         Ok(self.task.await?)
     }
@@ -108,7 +109,7 @@ impl<M: SourceMessage, P> Enlister<M, P> {
         &self,
         delivery: M,
         outputs: Vec<P>,
-    ) -> anyhow::Result<sink::Completion> {
+    ) -> Result<sink::Completion, BoxError> {
         let (done, committed) = oneshot::channel();
         let entry = Entry {
             revocation: delivery.revocation(),
@@ -120,11 +121,11 @@ impl<M: SourceMessage, P> Enlister<M, P> {
         self.0
             .send(entry)
             .await
-            .map_err(|_| anyhow::anyhow!("transaction batching has stopped"))?;
+            .map_err(|_| Error::closed("transaction batching has stopped"))?;
         Ok(sink::Completion::pending(async move {
             committed
                 .await
-                .unwrap_or_else(|_| Err(anyhow::anyhow!("transaction batch was abandoned")))
+                .unwrap_or_else(|_| Err(Error::msg("transaction batch was abandoned").into()))
         }))
     }
 }
@@ -165,11 +166,11 @@ where
             if failure.is_none()
                 && let Err(error) = self.commit(&mut members).await
             {
-                failure = Some(format!("{error:#}"));
+                failure = Some(chain(error.as_ref()));
             }
             for member in members {
                 let result = match &failure {
-                    Some(error) => Err(anyhow::anyhow!("{error}")),
+                    Some(error) => Err(Error::msg(error.clone()).into()),
                     None => Ok(()),
                 };
                 let _ = member.done.send(result);
@@ -183,7 +184,7 @@ where
     /// and without counting against the policy. A rejection is not retried:
     /// it cannot be attributed to one delivery of the batch, so it fails the
     /// whole batch.
-    async fn commit<M>(&self, members: &mut Vec<Entry<M, K::Prepared>>) -> anyhow::Result<()>
+    async fn commit<M>(&self, members: &mut Vec<Entry<M, K::Prepared>>) -> Result<(), BoxError>
     where
         M: SourceMessage + Sync,
         K: TransactionalSink<M, O>,
@@ -221,12 +222,12 @@ where
                 Err(error) => error,
             };
             self.instruments.publish_failures.increment(1);
-            if PublishRejected::is(&error) {
+            if PublishRejected::is(error.as_ref()) {
                 return Err(error.context("a transaction batch cannot route a rejected output"));
             }
             if members.iter().any(Entry::abandoned) {
                 debug!(
-                    error = format!("{error:#}"),
+                    error = chain(error.as_ref()),
                     "retrying commit without revoked deliveries"
                 );
                 continue;
@@ -234,7 +235,7 @@ where
             if attempt >= self.policy.max_attempts {
                 return Err(error.context("publish retry exhausted"));
             }
-            debug!(attempt, error = format!("{error:#}"), "retrying commit");
+            debug!(attempt, error = chain(error.as_ref()), "retrying commit");
             if retrying.is_none() {
                 retrying = Some(self.instruments.health.publish_retry());
             }

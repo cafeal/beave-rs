@@ -7,8 +7,8 @@
 #![cfg(all(feature = "kafka", feature = "pulsar"))]
 
 use beavers::{
-    App, CancellationToken, IterSource, Json, MapMetadata, Receive, ReceiveError, Result, Source,
-    SourceMessage, Subscription,
+    App, CancellationToken, Error, IterSource, Json, MapMetadata, Receive, ReceiveError, Result,
+    Source, SourceMessage, Subscription,
     adapters::{
         kafka::{
             KafkaPublish, KafkaRecord, KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig,
@@ -28,6 +28,7 @@ use std::{
     collections::BTreeSet,
     env,
     future::Future,
+    result::Result as StdResult,
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -91,13 +92,13 @@ async fn ship(order: Order) -> Result<Shipment> {
 }
 
 /// Runs an application until the returned token is cancelled.
-fn spawn_app(app: App) -> (CancellationToken, JoinHandle<anyhow::Result<()>>) {
+fn spawn_app(app: App) -> (CancellationToken, JoinHandle<StdResult<(), Error>>) {
     let shutdown = CancellationToken::new();
     let handle = tokio::spawn(app.run_until(shutdown.clone()));
     (shutdown, handle)
 }
 
-async fn stop_app(shutdown: CancellationToken, handle: JoinHandle<anyhow::Result<()>>) {
+async fn stop_app(shutdown: CancellationToken, handle: JoinHandle<StdResult<(), Error>>) {
     shutdown.cancel();
     timeout(DEADLINE, handle)
         .await

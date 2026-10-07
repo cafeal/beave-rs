@@ -1,3 +1,4 @@
+use crate::error::BoxError;
 use crate::{codec::Encoder, sink::Sink};
 use tokio::io::AsyncWriteExt;
 
@@ -28,12 +29,12 @@ impl<C> StdoutSink<C> {
 }
 impl<T: Sync, C: Encoder<T>> Sink<T> for StdoutSink<C> {
     type Prepared = Vec<u8>;
-    fn prepare(&self, value: T) -> anyhow::Result<Vec<u8>> {
+    fn prepare(&self, value: T) -> Result<Vec<u8>, BoxError> {
         let mut bytes = self.codec.encode(&value)?;
         bytes.push(b'\n');
         Ok(bytes)
     }
-    async fn publish(&self, bytes: &Vec<u8>) -> anyhow::Result<()> {
+    async fn publish(&self, bytes: &Vec<u8>) -> Result<(), BoxError> {
         let mut writer = self.writer.lock().await;
         writer.write_all(bytes).await?;
         writer.flush().await?;

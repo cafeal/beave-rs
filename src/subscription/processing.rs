@@ -6,6 +6,7 @@ use super::{
 };
 use crate::{
     dead_letter::DeadLetter,
+    error::{BoxContext, BoxError, chain},
     error_policy::{ErrorPolicy, FailureAction, FailureKind},
     handler::HandlerError,
     health::Tracker,
@@ -33,18 +34,18 @@ pub(super) struct Pipeline<M: SourceMessage, O> {
 }
 
 /// Waits for submitted outputs to complete, then acknowledges the delivery.
-pub(super) type PendingAck = BoxFuture<'static, anyhow::Result<()>>;
+pub(super) type PendingAck = BoxFuture<'static, Result<(), BoxError>>;
 
 /// A routable failure; `input` is absent only when decoding failed.
 struct Failure<I> {
     kind: FailureKind,
-    error: anyhow::Error,
+    error: BoxError,
     attempts: usize,
     input: Option<I>,
 }
 
 /// Outputs to complete, or a failure to route; errors stop the subscription.
-type Handled<I, O> = anyhow::Result<Result<Outputs<I, O>, Failure<I>>>;
+type Handled<I, O> = Result<Result<Outputs<I, O>, Failure<I>>, BoxError>;
 
 /// Outputs ready for the completion stage, with what failure routing needs.
 struct Outputs<I, O> {
@@ -58,7 +59,7 @@ struct Outputs<I, O> {
 pub(super) async fn process<M, O>(
     delivery: M,
     pipeline: Arc<Pipeline<M, O>>,
-) -> anyhow::Result<Option<PendingAck>>
+) -> Result<Option<PendingAck>, BoxError>
 where
     M: SourceMessage,
     O: Send + Sync + 'static,
@@ -137,7 +138,7 @@ where
             for completion in completions {
                 completion.wait().await?;
             }
-            anyhow::Ok(())
+            Ok::<_, BoxError>(())
         }
         .instrument(info_span!("complete"))
         .await
@@ -172,7 +173,7 @@ where
 async fn acknowledge<M, O>(
     delivery: M,
     pipeline: Arc<Pipeline<M, O>>,
-) -> anyhow::Result<Option<PendingAck>>
+) -> Result<Option<PendingAck>, BoxError>
 where
     M: SourceMessage,
     O: Send + Sync + 'static,
@@ -244,7 +245,7 @@ where
                 pipeline.instruments.handler_retries.increment(1);
                 debug!(
                     attempt = attempts,
-                    error = format!("{error:#}"),
+                    error = chain(error.as_ref()),
                     "retrying handler"
                 );
                 tokio::time::sleep(policy.delay(attempts)).await;
@@ -321,7 +322,7 @@ async fn route<M, O>(
     delivery: M,
     pipeline: Arc<Pipeline<M, O>>,
     failure: Failure<M::Item>,
-) -> anyhow::Result<Option<PendingAck>>
+) -> Result<Option<PendingAck>, BoxError>
 where
     M: SourceMessage,
     O: Send + Sync + 'static,
@@ -335,12 +336,12 @@ where
     let instruments = &pipeline.instruments;
     instruments.failure(kind).increment(1);
     match pipeline.error_policy.action(kind) {
-        FailureAction::Stop => Err(error.context(kind)),
+        FailureAction::Stop => Err(error.context(kind.to_string())),
         FailureAction::Discard => {
             warn!(
                 failure = %kind,
                 attempts,
-                error = format!("{error:#}"),
+                error = chain(error.as_ref()),
                 "discarding delivery"
             );
             acknowledge(delivery, pipeline).await
@@ -348,7 +349,7 @@ where
         FailureAction::DeadLetter => {
             let Some(dlq) = &pipeline.dlq else {
                 return Err(error
-                    .context(kind)
+                    .context(kind.to_string())
                     .context("no dead-letter sink configured"));
             };
             let dead_letter = DeadLetter::new(
@@ -372,7 +373,7 @@ where
             warn!(
                 failure = %kind,
                 attempts,
-                error = format!("{error:#}"),
+                error = chain(error.as_ref()),
                 "dead-lettered delivery"
             );
             acknowledge(delivery, pipeline).await
@@ -388,10 +389,10 @@ pub(super) async fn retry_publish<T, F, Fut>(
     failures: &Counter,
     health: Option<&Tracker>,
     mut publish: F,
-) -> anyhow::Result<T>
+) -> Result<T, BoxError>
 where
     F: FnMut() -> Fut,
-    Fut: Future<Output = anyhow::Result<T>>,
+    Fut: Future<Output = Result<T, BoxError>>,
 {
     let mut retrying = None;
     let mut attempt = 1;
@@ -402,12 +403,12 @@ where
         }
         match result {
             Ok(value) => return Ok(value),
-            Err(error) if PublishRejected::is(&error) => return Err(error),
+            Err(error) if PublishRejected::is(error.as_ref()) => return Err(error),
             Err(error) if attempt >= policy.max_attempts => {
                 return Err(error.context("publish retry exhausted"));
             }
             Err(error) => {
-                debug!(attempt, error = format!("{error:#}"), "retrying publish");
+                debug!(attempt, error = chain(error.as_ref()), "retrying publish");
                 if retrying.is_none() {
                     retrying = health.map(Tracker::publish_retry);
                 }
