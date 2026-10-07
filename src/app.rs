@@ -8,8 +8,9 @@ use crate::{
     source::Source,
     subscription::{IntoHandler, One, Subscription},
 };
-use std::{collections::HashSet, future::Future, pin::Pin};
+use std::{collections::HashSet, future::Future, pin::Pin, time::Duration};
 use tokio::task::JoinSet;
+use tracing::warn;
 
 type Runner = Box<
     dyn FnOnce(CancellationToken) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>
@@ -37,6 +38,7 @@ pub struct App {
     names: HashSet<String>,
     validation: Vec<String>,
     health: Health,
+    exit_delay: Duration,
     #[cfg(feature = "health")]
     health_server: Option<HealthServer>,
 }
@@ -101,11 +103,34 @@ impl App {
         self.health_server = Some(server);
         self
     }
+    /// How long to wait after a subscription failure, once every subscription has
+    /// finished, before returning the failure.
+    ///
+    /// The health server keeps answering during the delay, with `/livez` reporting
+    /// `503`, and the process keeps serving whatever metrics exporter it installed,
+    /// so probes and a final scrape observe the failure before the process exits.
+    /// [`run`](Self::run) ends the delay early when the process receives SIGINT or
+    /// SIGTERM. Defaults to zero, which returns the failure immediately. The delay
+    /// does not apply when every subscription finishes without an error.
+    pub fn exit_delay(mut self, delay: Duration) -> Self {
+        self.exit_delay = delay;
+        self
+    }
     /// Run every subscription until all of them finish or `shutdown` is cancelled.
     ///
     /// A subscription failure cancels `shutdown`, so the others drain and stop; the first
-    /// failure is returned after every subscription has finished.
+    /// failure is returned after every subscription has finished and the
+    /// [exit delay](Self::exit_delay) has elapsed.
     pub async fn run_until(self, shutdown: CancellationToken) -> anyhow::Result<()> {
+        self.run_with(shutdown, CancellationToken::new()).await
+    }
+    /// Runs like [`run_until`](Self::run_until); cancelling `interrupt` skips or ends
+    /// the exit delay.
+    async fn run_with(
+        self,
+        shutdown: CancellationToken,
+        interrupt: CancellationToken,
+    ) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.validation.is_empty(),
             "invalid subscription configuration: {}",
@@ -129,6 +154,20 @@ impl App {
                 failure.get_or_insert(error);
             }
         }
+        if let Some(error) = &failure
+            && !self.exit_delay.is_zero()
+            && !interrupt.is_cancelled()
+        {
+            warn!(
+                error = format!("{error:#}"),
+                delay = ?self.exit_delay,
+                "subscription failed; delaying exit"
+            );
+            tokio::select! {
+                _ = tokio::time::sleep(self.exit_delay) => {}
+                _ = interrupt.cancelled() => {}
+            }
+        }
         #[cfg(feature = "health")]
         if let Some((stop, task)) = health_server {
             stop.cancel();
@@ -143,13 +182,22 @@ impl App {
     }
     /// Run every subscription until all of them finish, one fails, or the process receives
     /// SIGINT or SIGTERM.
+    ///
+    /// A signal skips the [exit delay](Self::exit_delay), or ends it if it has started.
     pub async fn run(self) -> anyhow::Result<()> {
         let token = CancellationToken::new();
-        let run = self.run_until(token.clone());
+        let interrupt = CancellationToken::new();
+        let run = self.run_with(token.clone(), interrupt.clone());
         tokio::pin!(run);
         tokio::select! {
             result = &mut run => result,
-            signal = termination_signal() => { token.cancel(); let result = run.await; signal?; result }
+            signal = termination_signal() => {
+                token.cancel();
+                interrupt.cancel();
+                let result = run.await;
+                signal?;
+                result
+            }
         }
     }
 }
