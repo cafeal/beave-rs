@@ -16,20 +16,42 @@
 //!
 //! # Quick start
 //!
-//! ```
-//! use beavers::{App, IterSource, Json, Result, StdoutSink};
+//! Summarize each article on a Kafka topic with an LLM and publish the summaries to
+//! another topic. The handler sees only the decoded value; a transient API failure is
+//! retried, and each offset is committed after its summary is published.
 //!
-//! async fn double(value: u64) -> Result<u64> {
-//!     Ok(value * 2)
+//! ```no_run
+//! # #[cfg(feature = "kafka")]
+//! # mod example {
+//! use beavers::{
+//!     App, Classify, Result, Utf8,
+//!     adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
+//! };
+//!
+//! async fn summarize(article: String) -> Result<String> {
+//!     let summary = call_llm(&format!("Summarize: {article}")).await.retry()?;
+//!     Ok(summary)
 //! }
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
+//!     let articles = KafkaSource::<Utf8, _>::new(KafkaSourceConfig::new(
+//!         "localhost:9092",
+//!         "summarizer",
+//!         ["articles"],
+//!     ));
+//!     let summaries = KafkaSink::<Utf8, _>::new(KafkaSinkConfig::new("localhost:9092", "summaries"));
+//!
 //!     App::new()
-//!         .subscribe("double", IterSource::new([1, 2, 3]), StdoutSink::<Json>::new(), double)
+//!         .subscribe("summarize", articles, summaries, summarize)
 //!         .run()
 //!         .await
 //! }
+//! # async fn call_llm(prompt: &str) -> anyhow::Result<String> {
+//! #     Ok(prompt.to_owned())
+//! # }
+//! # }
+//! # fn main() {}
 //! ```
 //!
 //! # Concepts

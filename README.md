@@ -14,11 +14,22 @@ A lightweight Rust message processing framework built around typed handlers.
 Each `Subscription` connects one source, one handler, and one sink. An `App`
 runs any number of subscriptions side by side and shuts them down together.
 
-The current implementation includes local adapters, a bounded in-process
-channel that chains subscriptions with end-to-end acknowledgement, optional
-Kafka, Apache Pulsar, RabbitMQ, and Amazon SQS adapters, an optional HTTP source
-and sink, typed codecs, bounded concurrency, retries, and graceful shutdown.
-NATS JetStream remains on the roadmap.
+- **Typed handlers** — write `async fn(Input) -> Result<Output>`; decoding,
+  publishing, and acknowledgement are handled for you.
+- **At-least-once delivery** — an input is acknowledged only after its output
+  is published.
+- **Explicit failure handling** — classify errors as retry, reject
+  (dead-letter), or fatal; retries back off.
+- **Concurrency with ordering** — bounded concurrency, per-key ordering, and a
+  worker pool for blocking handlers.
+- **Pipelines** — chain subscriptions through in-process channels with
+  end-to-end acknowledgement.
+- **Adapters** — Kafka, Apache Pulsar, RabbitMQ, Amazon SQS, and HTTP; JSON,
+  Avro, and Protobuf codecs.
+- **Operations** — graceful shutdown, `tracing` spans, `metrics`,
+  OpenTelemetry trace propagation, and `/livez` and `/readyz` probes.
+
+> beave-rs is pre-release. The API may change until 0.1.0.
 
 ## Installation
 
@@ -26,7 +37,6 @@ NATS JetStream remains on the roadmap.
 cargo add beavers --features kafka
 cargo add tokio --features macros,rt-multi-thread
 cargo add anyhow
-cargo add serde --features derive
 ```
 
 No Cargo feature is enabled by default. Enable the adapters and codecs the
@@ -47,74 +57,37 @@ application uses:
 
 ## Quick start
 
-```rust
-use beavers::{App, IterSource, Json, Result, StdoutSink};
-
-async fn double(value: u64) -> Result<u64> {
-    Ok(value * 2)
-}
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    App::new()
-        .subscribe("double", IterSource::new([1, 2, 3]), StdoutSink::<Json>::new(), double)
-        .run()
-        .await
-}
-```
-
-Run the included example from this repository:
-
-```sh
-cargo run --example transform
-printf '%s\n' '{"id":10}' '{"id":20}' | cargo run --example transform -- --stdin
-```
-
-The example writes one JSON event per line, such as `{"order_id":10}`.
-
-A Kafka subscription has the same shape. The handler sees only the decoded
-value; the framework commits each offset after the output is published:
+Summarize each article on a Kafka topic with an LLM and publish the summaries
+to another topic:
 
 ```rust
 use beavers::{
-    App, Json, Result, Subscription,
+    App, Classify, Result, Utf8,
     adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Deserialize)]
-struct Order {
-    id: u64,
-    amount_cents: u64,
-}
-
-#[derive(Serialize)]
-struct Invoice {
-    order_id: u64,
-    amount_cents: u64,
-}
-
-async fn invoice(order: Order) -> Result<Invoice> {
-    Ok(Invoice { order_id: order.id, amount_cents: order.amount_cents })
+async fn summarize(article: String) -> Result<String> {
+    let summary = call_llm(&format!("Summarize: {article}")).await.retry()?;
+    Ok(summary)
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let source = KafkaSource::<Json, Order>::new(KafkaSourceConfig::new(
-        "localhost:9092",
-        "invoicing",
-        ["orders"],
-    ));
-    let sink = KafkaSink::<Json, Invoice>::new(KafkaSinkConfig::new("localhost:9092", "invoices"));
+    let articles = KafkaSource::<Utf8, _>::new(KafkaSourceConfig::new("localhost:9092", "summarizer", ["articles"]));
+    let summaries = KafkaSink::<Utf8, _>::new(KafkaSinkConfig::new("localhost:9092", "summaries"));
+
     App::new()
-        .subscription(Subscription::new("invoice", source, sink, invoice).concurrency(4))
+        .subscribe("summarize", articles, summaries, summarize)
         .run()
         .await
 }
 ```
 
-Kafka and Pulsar examples run against local brokers started with Docker
-Compose, which also provides web consoles for both brokers:
+The handler sees only the decoded value. A transient API failure is retried
+with backoff, and each offset is committed after its summary is published.
+
+The repository's examples run against local brokers started with Docker
+Compose, which also provides web consoles for Kafka and Pulsar:
 
 ```sh
 docker compose up -d --wait
@@ -123,9 +96,9 @@ cargo kafka-process   # Ctrl-C to stop
 docker compose down
 ```
 
-`cargo kafka-produce` and the other broker commands are Cargo aliases defined in
-`.cargo/config.toml`. See [local development brokers](docs/development.md) for
-every example, console, and alias.
+To try the API without a broker, run `cargo run --example transform`. See
+[local development brokers](docs/development.md) for every example, console,
+and Cargo alias.
 
 ## Documentation
 
@@ -138,35 +111,12 @@ every example, console, and alias.
 - [Local development brokers](docs/development.md)
 - [Versioning and releases](docs/releasing.md)
 
-The runtime emits `tracing` spans and `metrics` counters and histograms for
-every delivery stage. The optional `opentelemetry` feature propagates trace
-context through Kafka headers and Pulsar properties. See
-[observability](docs/runtime.md#observability).
-
-The optional `health` feature serves `/livez` and `/readyz` for Kubernetes
-probes; see [health checks](docs/runtime.md#health-checks).
-
-Kafka, Pulsar, RabbitMQ, SQS, and HTTP are optional Cargo features. See the [adapter guide](docs/adapters.md)
-for feature flags and delivery semantics. Synchronous handlers run on a bounded
-worker pool through `blocking(sync_handler)`; see
-[blocking handlers](docs/runtime.md#blocking-handlers).
-
 ## Development
 
-The minimum supported Rust version is 1.94.1.
-
-```sh
-cargo fmt --check
-cargo test
-cargo test --all-features
-cargo clippy --all-features --all-targets -- -D warnings
-cargo doc --all-features --no-deps
-```
-
-GitHub Actions runs these checks on every pull
-request and on pushes to `main`. Live Kafka, Pulsar, RabbitMQ, and SQS tests are ignored
-by default; CI runs them against the Docker Compose brokers, and `cargo test-live`
-runs them locally while the brokers are up.
+The minimum supported Rust version is 1.94.1. See
+[local development brokers](docs/development.md) for the local Kafka, Pulsar,
+RabbitMQ, and SQS environment and the live tests, and
+[AGENTS.md](AGENTS.md) for the checks every change must pass.
 
 ## License
 
