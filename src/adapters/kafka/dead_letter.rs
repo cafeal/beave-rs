@@ -1,6 +1,7 @@
 //! Dead letters forwarded to a Kafka topic with their original record.
 use super::record::{KafkaMetadata, KafkaPublish, KafkaRecord};
 use crate::dead_letter::{DEAD_LETTER_HEADER_PREFIX, DeadLetter, DeadLetterDetails, parse_number};
+use crate::error::Error;
 
 const ORIGIN_TOPIC: &str = "beavers-dlq-origin-topic";
 const ORIGIN_PARTITION: &str = "beavers-dlq-origin-partition";
@@ -26,13 +27,15 @@ pub struct KafkaDeadLetter {
 impl KafkaDeadLetter {
     /// Reads dead-letter headers. Returns `None` for a record without them and an error when
     /// they are incomplete or malformed. When a header repeats, the last value is used.
-    pub fn from_record<T>(record: &KafkaRecord<T>) -> anyhow::Result<Option<Self>> {
+    pub fn from_record<T>(record: &KafkaRecord<T>) -> Result<Option<Self>, Error> {
         let field = |name: &str| header(&record.headers, name);
         let Some(details) = DeadLetterDetails::parse(field)? else {
             return Ok(None);
         };
         let required = |name: &str| {
-            field(name)?.ok_or_else(|| anyhow::anyhow!("dead-letter header {name} is missing"))
+            field(name)?.ok_or_else(|| {
+                Error::invalid_record(format!("dead-letter header {name} is missing"))
+            })
         };
         Ok(Some(Self {
             details,
@@ -100,14 +103,14 @@ impl KafkaPublish<Vec<u8>> {
 fn header<'a>(
     headers: &'a [(String, Option<Vec<u8>>)],
     name: &str,
-) -> anyhow::Result<Option<&'a str>> {
+) -> Result<Option<&'a str>, Error> {
     let Some((_, value)) = headers.iter().rev().find(|(header, _)| header == name) else {
         return Ok(None);
     };
     let value = value
         .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("dead-letter header {name} has no value"))?;
+        .ok_or_else(|| Error::invalid_record(format!("dead-letter header {name} has no value")))?;
     std::str::from_utf8(value)
         .map(Some)
-        .map_err(|_| anyhow::anyhow!("dead-letter header {name} is not UTF-8"))
+        .map_err(|_| Error::invalid_record(format!("dead-letter header {name} is not UTF-8")))
 }

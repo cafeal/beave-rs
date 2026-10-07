@@ -20,7 +20,7 @@ use beavers::{Decoder, Encoder, Protobuf};
 let codec = Protobuf;
 let bytes = codec.encode(&event)?;
 let decoded: Event = codec.decode(&bytes)?;
-# Ok::<(), anyhow::Error>(())
+# Ok::<(), beavers::BoxError>(())
 ```
 
 `Protobuf` does not add a length delimiter, envelope, or other framing. The

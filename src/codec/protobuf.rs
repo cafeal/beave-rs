@@ -1,4 +1,5 @@
 use super::{Decoder, Encoder};
+use crate::error::BoxError;
 
 /// A codec for raw Protocol Buffers messages.
 ///
@@ -11,7 +12,7 @@ impl<T> Decoder<T> for Protobuf
 where
     T: prost::Message + Default,
 {
-    fn decode(&self, bytes: &[u8]) -> anyhow::Result<T> {
+    fn decode(&self, bytes: &[u8]) -> Result<T, BoxError> {
         Ok(T::decode(bytes)?)
     }
 }
@@ -20,7 +21,7 @@ impl<T> Encoder<T> for Protobuf
 where
     T: prost::Message,
 {
-    fn encode(&self, value: &T) -> anyhow::Result<Vec<u8>> {
+    fn encode(&self, value: &T) -> Result<Vec<u8>, BoxError> {
         Ok(value.encode_to_vec())
     }
 }

@@ -1,4 +1,5 @@
 //! Handler results, error classification, and output cardinality.
+use crate::error::BoxError;
 use std::{future::Future, result::Result as StdResult};
 
 /// Result returned by handlers and middleware.
@@ -43,16 +44,16 @@ impl<T> Emit<T> {
 pub enum HandlerError {
     /// A transient failure: rerun the handler under its retry policy. A failure on the last
     /// permitted attempt is routed as [`FailureKind::RetryExhausted`](crate::FailureKind).
-    Retry(anyhow::Error),
+    Retry(BoxError),
     /// The input cannot be processed: route it as [`FailureKind::Rejected`](crate::FailureKind)
     /// without retrying, which dead-letters it by default.
-    Reject(anyhow::Error),
+    Reject(BoxError),
     /// An unrecoverable failure: stop the subscription without acknowledging the input.
-    Fatal(anyhow::Error),
+    Fatal(BoxError),
 }
 /// Ordinary errors propagated with `?` reject the input: it is dead-lettered without handler
 /// retries under the default error policy. Use [`Classify`] to request a retry or to stop.
-impl<E: Into<anyhow::Error>> From<E> for HandlerError {
+impl<E: Into<BoxError>> From<E> for HandlerError {
     fn from(error: E) -> Self {
         Self::Reject(error.into())
     }
@@ -79,7 +80,7 @@ pub trait Classify<T> {
     fn fatal(self) -> Result<T>;
 }
 
-impl<T, E: Into<anyhow::Error>> Classify<T> for StdResult<T, E> {
+impl<T, E: Into<BoxError>> Classify<T> for StdResult<T, E> {
     fn reject(self) -> Result<T> {
         self.map_err(|error| HandlerError::Reject(error.into()))
     }

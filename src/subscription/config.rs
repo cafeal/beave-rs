@@ -1,4 +1,5 @@
 //! Runtime policy belongs to the subscription, not the transport adapters.
+use crate::error::{Error, ensure};
 use crate::{error_policy::ErrorPolicy, retry::RetryPolicy};
 use std::time::Duration;
 
@@ -43,9 +44,10 @@ impl TransactionBatch {
         Self::new(1, Duration::ZERO)
     }
 
-    pub(crate) fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
+    pub(crate) fn validate(&self) -> Result<(), Error> {
+        ensure!(
             self.max_deliveries > 0,
+            Error::config,
             "transaction batch size must be positive"
         );
         Ok(())
@@ -106,9 +108,10 @@ impl Default for SubscriptionConfig {
     }
 }
 impl SubscriptionConfig {
-    pub(crate) fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
+    pub(crate) fn validate(&self) -> Result<(), Error> {
+        ensure!(
             self.concurrency > 0 && self.max_in_flight > 0,
+            Error::config,
             "concurrency and max_in_flight must be positive"
         );
         self.handler_retry.validate()?;

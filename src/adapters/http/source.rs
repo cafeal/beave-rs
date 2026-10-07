@@ -6,13 +6,14 @@ use super::{
 };
 use crate::{
     codec::Decoder,
+    error::{BoxError, Context, Error},
     message::SourceMessage,
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
 };
 use hyper::StatusCode;
 use std::{
-    mem,
+    io, mem,
     net::{self, SocketAddr},
     sync::Arc,
 };
@@ -53,7 +54,7 @@ impl<C: Default, T> HttpSource<C, T> {
     /// Validates `config` and binds the listener, using the codec's default value.
     ///
     /// Fails when the configuration is invalid or the address cannot be bound.
-    pub fn new(config: HttpSourceConfig) -> anyhow::Result<Self> {
+    pub fn new(config: HttpSourceConfig) -> Result<Self, Error> {
         Self::with_codec(config, C::default())
     }
 }
@@ -62,12 +63,18 @@ impl<C, T> HttpSource<C, T> {
     /// Validates `config` and binds the listener, decoding bodies with `codec`.
     ///
     /// Fails when the configuration is invalid or the address cannot be bound.
-    pub fn with_codec(config: HttpSourceConfig, codec: C) -> anyhow::Result<Self> {
+    pub fn with_codec(config: HttpSourceConfig, codec: C) -> Result<Self, Error> {
         config.validate()?;
-        let listener = net::TcpListener::bind(config.bind)?;
-        listener.set_nonblocking(true)?;
+        let bind = || -> io::Result<(net::TcpListener, SocketAddr)> {
+            let listener = net::TcpListener::bind(config.bind)?;
+            listener.set_nonblocking(true)?;
+            let local_addr = listener.local_addr()?;
+            Ok((listener, local_addr))
+        };
+        let (listener, local_addr) =
+            bind().with_context(|| format!("binding the HTTP source to {}", config.bind))?;
         Ok(Self {
-            local_addr: listener.local_addr()?,
+            local_addr,
             config,
             codec: Arc::new(codec),
             state: State::Bound(listener),
@@ -148,7 +155,7 @@ where
 
     /// Stops receiving as [`stop_receiving`](Source::stop_receiving) does, then
     /// waits until open connections finish their current request.
-    async fn close(&mut self) -> anyhow::Result<()> {
+    async fn close(&mut self) -> Result<(), BoxError> {
         self.shutdown.cancel();
         if let State::Serving { requests, server } = mem::replace(&mut self.state, State::Closed) {
             drop(requests);
@@ -179,7 +186,7 @@ impl<T: Clone + Send + Sync + 'static> SourceMessage for HttpMessage<T> {
     type Raw = HttpRecord<Vec<u8>>;
 
     /// The body was decoded when the request arrived, so this never fails.
-    fn decode(&self) -> anyhow::Result<HttpRecord<T>> {
+    fn decode(&self) -> Result<HttpRecord<T>, BoxError> {
         Ok(HttpRecord {
             path: self.raw.path.clone(),
             query: self.raw.query.clone(),
@@ -191,7 +198,7 @@ impl<T: Clone + Send + Sync + 'static> SourceMessage for HttpMessage<T> {
 
     /// With [`ResponseTiming::Ack`], answers `200 OK`. A client that
     /// disconnected before the response still counts as acknowledged.
-    async fn ack(self) -> anyhow::Result<()> {
+    async fn ack(self) -> Result<(), BoxError> {
         if let Some(respond) = self.respond {
             let _ = respond.send(StatusCode::OK);
         }

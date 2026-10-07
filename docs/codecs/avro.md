@@ -36,7 +36,7 @@ struct Order {
 let codec = Avro::new(SCHEMA)?;
 let bytes = codec.encode(&Order { id: 7, comment: None })?;
 let order: Order = codec.decode(&bytes)?;
-# Ok::<(), anyhow::Error>(())
+# Ok::<(), beavers::BoxError>(())
 ```
 
 Each payload is exactly one raw Avro datum. `Avro` does not add an object

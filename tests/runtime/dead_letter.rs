@@ -1,7 +1,7 @@
 use super::fixtures::{Flaky, RefuseNegative, RejectNegative, TextSource, fast};
 use beavers::{
-    App, Classify, DeadLetter, Emit, ErrorPolicy, FailureAction, FailureKind, HandlerError,
-    InMemorySink, IterSource, RetryPolicy, Subscription,
+    App, BoxError, Classify, DeadLetter, Emit, ErrorPolicy, FailureAction, FailureKind,
+    HandlerError, InMemorySink, IterSource, RetryPolicy, Subscription,
 };
 use std::sync::{
     Arc,
@@ -125,7 +125,7 @@ async fn retry_exhaustion_can_stop() {
                 "retry_exhaustion_can_stop",
                 source,
                 InMemorySink::default(),
-                |_: i32| async { Err::<i32, _>(HandlerError::Retry(anyhow::anyhow!("busy"))) },
+                |_: i32| async { Err::<i32, _>(HandlerError::Retry(BoxError::from("busy"))) },
             )
             .retry(fast())
             .dlq(dlq.clone())
@@ -208,7 +208,7 @@ async fn dead_letter_retry_is_independent_of_publish_retry() {
                 "dead_letter_retry_is_independent_of_publish_retry",
                 source,
                 InMemorySink::<i32>::default(),
-                |_| async { Err(HandlerError::Reject(anyhow::anyhow!("reject"))) },
+                |_| async { Err(HandlerError::Reject(BoxError::from("reject"))) },
             )
             .dlq_with(dlq, |letter| Ok(letter.input.unwrap()))
             .publish_retry(RetryPolicy {
@@ -235,9 +235,9 @@ async fn dead_letter_conversion_failure_does_not_ack() {
                 "dead_letter_conversion_failure_does_not_ack",
                 source,
                 InMemorySink::<i32>::default(),
-                |_| async { Err(HandlerError::Reject(anyhow::anyhow!("reject"))) },
+                |_| async { Err(HandlerError::Reject(BoxError::from("reject"))) },
             )
-            .dlq_with(dlq.clone(), |_| anyhow::bail!("unsupported")),
+            .dlq_with(dlq.clone(), |_| Err("unsupported".into())),
         )
         .run()
         .await

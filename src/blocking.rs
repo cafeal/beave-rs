@@ -19,12 +19,14 @@
 //! );
 //! # drop(app);
 //! ```
+use crate::error::{Context, Error, ensure};
 use crate::handler::{Handler, HandlerError, Result};
 use std::{
     any::Any,
     future::Future,
     num::NonZeroUsize,
     panic::{AssertUnwindSafe, catch_unwind},
+    result::Result as StdResult,
     sync::{Arc, Mutex, PoisonError},
     thread,
 };
@@ -85,9 +87,9 @@ where
             }))
             .await?;
             result_rx.await.unwrap_or_else(|_| {
-                Err(HandlerError::Fatal(anyhow::anyhow!(
-                    "blocking worker dropped the job"
-                )))
+                Err(HandlerError::Fatal(
+                    Error::msg("blocking worker dropped the job").into(),
+                ))
             })
         }
     }
@@ -119,19 +121,21 @@ impl Default for BlockingPool {
 
 impl BlockingPool {
     /// A pool with `workers` threads and a queue of `workers` jobs.
-    pub fn new(workers: usize) -> anyhow::Result<Self> {
+    pub fn new(workers: usize) -> StdResult<Self, Error> {
         Self::with_queue_capacity(workers, workers)
     }
 
     /// A pool with `workers` threads and room for `queue_capacity` jobs waiting for a
     /// thread. Submitting to a full queue waits asynchronously for space.
-    pub fn with_queue_capacity(workers: usize, queue_capacity: usize) -> anyhow::Result<Self> {
-        anyhow::ensure!(
+    pub fn with_queue_capacity(workers: usize, queue_capacity: usize) -> StdResult<Self, Error> {
+        ensure!(
             workers > 0,
+            Error::config,
             "blocking pool workers must be greater than zero"
         );
-        anyhow::ensure!(
+        ensure!(
             queue_capacity > 0,
+            Error::config,
             "blocking pool queue capacity must be greater than zero"
         );
         Ok(Self::from_sizes(workers, queue_capacity))
@@ -166,15 +170,16 @@ impl BlockingPool {
     }
 
     async fn submit(&self, job: Job) -> Result<()> {
-        let queue = self.queue().map_err(HandlerError::Fatal)?;
-        queue
-            .send(job)
-            .await
-            .map_err(|_| HandlerError::Fatal(anyhow::anyhow!("blocking pool workers have stopped")))
+        let queue = self
+            .queue()
+            .map_err(|error| HandlerError::Fatal(error.into()))?;
+        queue.send(job).await.map_err(|_| {
+            HandlerError::Fatal(Error::closed("blocking pool workers have stopped").into())
+        })
     }
 
     /// Returns the job queue, starting the worker threads on first use.
-    fn queue(&self) -> anyhow::Result<mpsc::Sender<Job>> {
+    fn queue(&self) -> StdResult<mpsc::Sender<Job>, Error> {
         let mut queue = self
             .inner
             .queue
@@ -190,9 +195,7 @@ impl BlockingPool {
             thread::Builder::new()
                 .name(format!("beavers-blocking-{index}"))
                 .spawn(move || work(&receiver))
-                .map_err(|error| {
-                    anyhow::Error::new(error).context("failed to start a blocking worker")
-                })?;
+                .context("failed to start a blocking worker")?;
         }
         *queue = Some(sender.clone());
         Ok(sender)
@@ -219,7 +222,7 @@ fn panicked(panic: Box<dyn Any + Send>) -> HandlerError {
         .map(|message| message.to_string())
         .or_else(|| panic.downcast_ref::<String>().cloned())
         .unwrap_or_else(|| "non-string panic payload".to_string());
-    HandlerError::Fatal(anyhow::anyhow!("blocking handler panicked: {message}"))
+    HandlerError::Fatal(Error::msg(format!("blocking handler panicked: {message}")).into())
 }
 
 #[cfg(test)]

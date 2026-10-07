@@ -1,5 +1,6 @@
 //! HTTP/1.1 server answering Kubernetes-style liveness and readiness probes.
 use super::state::{Health, HealthReport};
+use crate::error::{Context, Error};
 use crate::shutdown::CancellationToken;
 use bytes::Bytes;
 use http_body_util::Full;
@@ -10,6 +11,7 @@ use hyper::{
 use hyper_util::{rt::TokioIo, server::graceful::GracefulShutdown};
 use std::{
     convert::Infallible,
+    io,
     net::{self, SocketAddr},
     time::Duration,
 };
@@ -39,13 +41,16 @@ pub struct HealthServer {
 
 impl HealthServer {
     /// Binds the listener. Port 0 selects a free port.
-    pub fn bind(addr: SocketAddr) -> anyhow::Result<Self> {
-        let listener = net::TcpListener::bind(addr)?;
-        listener.set_nonblocking(true)?;
-        Ok(Self {
-            local_addr: listener.local_addr()?,
-            listener,
-        })
+    pub fn bind(addr: SocketAddr) -> Result<Self, Error> {
+        let bind = || -> io::Result<Self> {
+            let listener = net::TcpListener::bind(addr)?;
+            listener.set_nonblocking(true)?;
+            Ok(Self {
+                local_addr: listener.local_addr()?,
+                listener,
+            })
+        };
+        bind().with_context(|| format!("binding the health server to {addr}"))
     }
 
     /// The bound address, including the port chosen for port 0.
@@ -55,8 +60,9 @@ impl HealthServer {
 
     /// Serves probes until `stop` is cancelled, then waits for open
     /// connections to finish their current request.
-    pub(crate) async fn serve(self, health: Health, stop: CancellationToken) -> anyhow::Result<()> {
-        let listener = TcpListener::from_std(self.listener)?;
+    pub(crate) async fn serve(self, health: Health, stop: CancellationToken) -> Result<(), Error> {
+        let listener =
+            TcpListener::from_std(self.listener).context("starting the health server")?;
         let graceful = GracefulShutdown::new();
         loop {
             let stream = tokio::select! {

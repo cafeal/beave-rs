@@ -1,4 +1,5 @@
 use super::config::PulsarAuthentication;
+use crate::error::BoxError;
 use magnetar::{PulsarClient, proto::SupervisorConfig};
 use std::sync::Arc;
 use tokio::runtime::Handle;
@@ -8,7 +9,7 @@ use tokio::runtime::Handle;
 pub(super) async fn connect(
     service_url: &str,
     authentication: Option<&PulsarAuthentication>,
-) -> anyhow::Result<PulsarClient> {
+) -> Result<PulsarClient, BoxError> {
     let mut builder = PulsarClient::builder()
         .service_url(service_url)
         .enable_reconnect(SupervisorConfig::default());
@@ -23,7 +24,7 @@ pub(super) async fn connect(
 pub(super) async fn partition_topics(
     client: &PulsarClient,
     topic: &str,
-) -> anyhow::Result<Vec<String>> {
+) -> Result<Vec<String>, BoxError> {
     let partitions = client.partitions_for_topic(topic).await?;
     Ok(if partitions == 0 {
         vec![topic.to_owned()]

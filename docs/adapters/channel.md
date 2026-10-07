@@ -155,7 +155,7 @@ without an external broker:
 use beavers::{App, CancellationToken, ChannelSink, ChannelSource};
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<(), beavers::BoxError> {
     let (sender, input) = ChannelSource::bounded(16);
     let (output, mut results) = ChannelSink::bounded(16);
     let worker = tokio::spawn(

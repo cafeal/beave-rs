@@ -36,7 +36,6 @@ runs any number of subscriptions side by side and shuts them down together.
 ```sh
 cargo add beavers --features kafka
 cargo add tokio --features macros,rt-multi-thread
-cargo add anyhow
 ```
 
 No Cargo feature is enabled by default. Enable the adapters and codecs the
@@ -62,17 +61,17 @@ to another topic:
 
 ```rust
 use beavers::{
-    App, Classify, Result, Utf8,
+    App, Classify, Utf8,
     adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
 };
 
-async fn summarize(article: String) -> Result<String> {
+async fn summarize(article: String) -> beavers::Result<String> {
     let summary = call_llm(&format!("Summarize: {article}")).await.retry()?;
     Ok(summary)
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<(), beavers::Error> {
     let articles = KafkaSource::<Utf8, _>::new(KafkaSourceConfig::new("localhost:9092", "summarizer", ["articles"]));
     let summaries = KafkaSink::<Utf8, _>::new(KafkaSinkConfig::new("localhost:9092", "summaries"));
 

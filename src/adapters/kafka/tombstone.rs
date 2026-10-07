@@ -1,5 +1,6 @@
 use super::record::{KafkaPublish, KafkaRecord};
 use crate::{
+    error::Error,
     handler::{HandlerError, Result},
     tombstone::{TombstonePublish, TombstoneRecord},
 };
@@ -13,7 +14,9 @@ impl<T> TombstoneRecord for KafkaRecord<T> {
 impl<I, O> TombstonePublish<KafkaRecord<I>> for KafkaPublish<O> {
     fn tombstone(input: &KafkaRecord<I>) -> Result<Self> {
         let key = input.key.clone().ok_or_else(|| {
-            HandlerError::Reject(anyhow::anyhow!("Kafka tombstone has no key to propagate"))
+            HandlerError::Reject(
+                Error::invalid_record("Kafka tombstone has no key to propagate").into(),
+            )
         })?;
         Ok(Self::tombstone(key))
     }

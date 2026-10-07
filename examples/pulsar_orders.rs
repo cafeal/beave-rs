@@ -15,14 +15,14 @@
 //! environment creates the `beavers-examples` subscription at the earliest
 //! position, so orders produced before the first `process` run are consumed.
 use beavers::{
-    App, IterSource, Json, Result, Subscription,
+    App, BoxError, IterSource, Json, Result, Subscription,
     adapters::pulsar::{
         PulsarPublish, PulsarSink, PulsarSinkConfig, PulsarSource, PulsarSourceConfig,
         PulsarSubscriptionType,
     },
 };
 use serde::{Deserialize, Serialize};
-use std::env;
+use std::{env, result::Result as StdResult};
 
 const ORDERS: &str = "persistent://public/default/orders";
 const EVENTS: &str = "persistent://public/default/order-events";
@@ -65,7 +65,7 @@ async fn to_event(order: Order) -> Result<OrderEvent> {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> StdResult<(), BoxError> {
     let service_url = env::var("PULSAR_URL").unwrap_or_else(|_| "pulsar://localhost:6650".into());
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
@@ -110,10 +110,11 @@ async fn main() -> anyhow::Result<()> {
                     .concurrency(3),
                 )
                 .run()
-                .await
+                .await?;
+            Ok(())
         }
         Some(other) => {
-            anyhow::bail!("unknown command {other:?}; use `produce [count]` or `process`")
+            Err(format!("unknown command {other:?}; use `produce [count]` or `process`").into())
         }
     }
 }

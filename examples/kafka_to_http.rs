@@ -12,14 +12,14 @@
 //! the offset only after the server answered with a success status. Set
 //! `KAFKA_BROKERS` or `HTTP_SINK_URL` to use other addresses.
 use beavers::{
-    App, InMemorySink, Json, Result, Subscription,
+    App, BoxError, InMemorySink, Json, Result, Subscription,
     adapters::{
         http::{HttpPublish, HttpRecord, HttpSink, HttpSinkConfig, HttpSource, HttpSourceConfig},
         kafka::{KafkaRecord, KafkaSource, KafkaSourceConfig},
     },
 };
 use serde::{Deserialize, Serialize};
-use std::env;
+use std::{env, result::Result as StdResult};
 
 const ORDERS: &str = "orders";
 
@@ -32,9 +32,7 @@ struct Order {
 
 async fn to_request(record: KafkaRecord<Order>) -> Result<HttpPublish<Order>> {
     let metadata = record.metadata().clone();
-    let order = record
-        .value
-        .ok_or_else(|| anyhow::anyhow!("tombstones are not forwarded"))?;
+    let order = record.value.ok_or("tombstones are not forwarded")?;
     let key = format!(
         "{}-{}-{}",
         metadata.topic, metadata.partition, metadata.offset
@@ -52,7 +50,7 @@ async fn print(record: HttpRecord<Order>) -> Result<()> {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> StdResult<(), BoxError> {
     match env::args().nth(1).as_deref() {
         Some("receive") => {
             let source =
@@ -66,7 +64,8 @@ async fn main() -> anyhow::Result<()> {
                     print,
                 )
                 .run()
-                .await
+                .await?;
+            Ok(())
         }
         Some("forward") | None => {
             let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
@@ -91,10 +90,9 @@ async fn main() -> anyhow::Result<()> {
                     .concurrency(3),
                 )
                 .run()
-                .await
+                .await?;
+            Ok(())
         }
-        Some(other) => {
-            anyhow::bail!("unknown command {other:?}; use `receive` or `forward`")
-        }
+        Some(other) => Err(format!("unknown command {other:?}; use `receive` or `forward`").into()),
     }
 }

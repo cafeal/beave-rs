@@ -1,4 +1,6 @@
 //! Cooperative cancellation and process termination signals.
+use crate::error::{Context, Error};
+use std::io;
 
 /// Cloneable cooperative shutdown signal.
 #[derive(Clone)]
@@ -28,7 +30,13 @@ impl CancellationToken {
     }
 }
 
-pub(crate) async fn termination_signal() -> anyhow::Result<()> {
+pub(crate) async fn termination_signal() -> Result<(), Error> {
+    wait_for_signal()
+        .await
+        .context("listening for termination signals")
+}
+
+async fn wait_for_signal() -> io::Result<()> {
     #[cfg(unix)]
     {
         let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;

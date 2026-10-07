@@ -1,4 +1,5 @@
 //! Per-failure outcomes for deliveries that cannot complete normally.
+use crate::error::{Error, ensure};
 use serde::Serialize;
 use std::{fmt, str::FromStr};
 
@@ -38,10 +39,10 @@ impl FailureKind {
 }
 
 impl FromStr for FailureKind {
-    type Err = anyhow::Error;
+    type Err = Error;
 
     /// Parses the name returned by [`as_str`](Self::as_str).
-    fn from_str(name: &str) -> anyhow::Result<Self> {
+    fn from_str(name: &str) -> Result<Self, Error> {
         [
             Self::Decode,
             Self::Rejected,
@@ -51,7 +52,7 @@ impl FromStr for FailureKind {
         ]
         .into_iter()
         .find(|kind| kind.as_str() == name)
-        .ok_or_else(|| anyhow::anyhow!("unknown failure kind {name:?}"))
+        .ok_or_else(|| Error::invalid_record(format!("unknown failure kind {name:?}")))
     }
 }
 
@@ -135,13 +136,14 @@ impl ErrorPolicy {
         }
     }
 
-    pub(crate) fn validate(&self, has_dead_letter_sink: bool) -> anyhow::Result<()> {
+    pub(crate) fn validate(&self, has_dead_letter_sink: bool) -> Result<(), Error> {
         if has_dead_letter_sink {
             return Ok(());
         }
         for kind in [FailureKind::Decode, FailureKind::Encode] {
-            anyhow::ensure!(
+            ensure!(
                 self.action(kind) != FailureAction::DeadLetter,
+                Error::config,
                 "error policy dead-letters {kind:?} failures but no dead-letter sink is configured"
             );
         }

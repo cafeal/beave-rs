@@ -1,7 +1,8 @@
 #![cfg(feature = "rabbitmq")]
 
 use beavers::{
-    App, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage, Subscription, Utf8,
+    App, BoxError, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage,
+    Subscription, Utf8,
     adapters::rabbitmq::{
         RabbitMqMessage, RabbitMqPublish, RabbitMqSink, RabbitMqSinkConfig, RabbitMqSource,
         RabbitMqSourceConfig, RabbitMqValue,
@@ -54,7 +55,7 @@ fn uri() -> String {
 
 /// Sends a request to the management HTTP API at `RABBITMQ_MANAGEMENT_ADDR`
 /// (default: `127.0.0.1:15672`) as `guest` and returns the response body.
-async fn management(method: &str, path: &str, body: &str) -> anyhow::Result<String> {
+async fn management(method: &str, path: &str, body: &str) -> Result<String, BoxError> {
     let address = env::var("RABBITMQ_MANAGEMENT_ADDR").unwrap_or_else(|_| "127.0.0.1:15672".into());
     let request = format!(
         "{method} {path} HTTP/1.0\r\nHost: {address}\r\nAuthorization: Basic Z3Vlc3Q6Z3Vlc3Q=\r\n\
@@ -66,15 +67,14 @@ async fn management(method: &str, path: &str, body: &str) -> anyhow::Result<Stri
     let mut response = String::new();
     stream.read_to_string(&mut response).await?;
     let status = response.split(' ').nth(1).unwrap_or_default();
-    anyhow::ensure!(
-        status.starts_with('2'),
-        "{method} {path} failed: {response}"
-    );
+    if !(status.starts_with('2')) {
+        return Err(format!("{method} {path} failed: {response}").into());
+    };
     let body = response.split_once("\r\n\r\n").map_or("", |(_, body)| body);
     Ok(body.to_owned())
 }
 
-async fn declare_queue(prefix: &str) -> anyhow::Result<String> {
+async fn declare_queue(prefix: &str) -> Result<String, BoxError> {
     let queue = unique_name(prefix);
     management(
         "PUT",
@@ -86,7 +86,7 @@ async fn declare_queue(prefix: &str) -> anyhow::Result<String> {
 }
 
 /// Closes every broker connection whose name is `name`.
-async fn close_connections(name: &str) -> anyhow::Result<usize> {
+async fn close_connections(name: &str) -> Result<usize, BoxError> {
     let connections: serde_json::Value = serde_json::from_str(
         &management(
             "GET",
@@ -127,25 +127,25 @@ fn queue_sink(queue: &str) -> RabbitMqSink<Utf8, String> {
 async fn next_message(
     source: &mut RabbitMqSource<Utf8, String>,
     timeout: Duration,
-) -> anyhow::Result<Option<RabbitMqMessage<Utf8, String>>> {
+) -> Result<Option<RabbitMqMessage<Utf8, String>>, BoxError> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         match tokio::time::timeout(remaining, source.receive()).await {
             Err(_) => return Ok(None),
             Ok(Ok(Receive::Message(message))) => return Ok(Some(message)),
-            Ok(Ok(Receive::End)) => anyhow::bail!("RabbitMQ source ended"),
+            Ok(Ok(Receive::End)) => return Err("RabbitMQ source ended".into()),
             Ok(Err(ReceiveError::Retry(_))) => {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
             Ok(Err(ReceiveError::Fatal(error))) => {
-                anyhow::bail!("RabbitMQ receive failed: {error:#}")
+                return Err(format!("RabbitMQ receive failed: {error}").into());
             }
         }
     }
 }
 
-async fn publish(sink: &RabbitMqSink<Utf8, String>, value: &str) -> anyhow::Result<()> {
+async fn publish(sink: &RabbitMqSink<Utf8, String>, value: &str) -> Result<(), BoxError> {
     let prepared = sink.prepare(RabbitMqPublish::new(value.to_owned()))?;
     tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
         .await
@@ -154,7 +154,7 @@ async fn publish(sink: &RabbitMqSink<Utf8, String>, value: &str) -> anyhow::Resu
 
 #[tokio::test]
 #[ignore = "requires a RabbitMQ broker; run with cargo test --features rabbitmq -- --ignored"]
-async fn publish_receive_and_ack_against_rabbitmq() -> anyhow::Result<()> {
+async fn publish_receive_and_ack_against_rabbitmq() -> Result<(), BoxError> {
     let queue = declare_queue("beavers-rabbitmq-test").await?;
     let sink = queue_sink(&queue);
     let mut output = RabbitMqPublish::new("hello rabbitmq".to_owned());
@@ -204,7 +204,7 @@ async fn publish_receive_and_ack_against_rabbitmq() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a RabbitMQ broker; run with cargo test --features rabbitmq -- --ignored"]
-async fn unacknowledged_messages_are_redelivered_after_close() -> anyhow::Result<()> {
+async fn unacknowledged_messages_are_redelivered_after_close() -> Result<(), BoxError> {
     let queue = declare_queue("beavers-rabbitmq-redeliver").await?;
     let sink = queue_sink(&queue);
     publish(&sink, "order").await?;
@@ -231,7 +231,7 @@ async fn unacknowledged_messages_are_redelivered_after_close() -> anyhow::Result
 
 #[tokio::test]
 #[ignore = "requires a RabbitMQ broker; run with cargo test --features rabbitmq -- --ignored"]
-async fn a_lost_connection_revokes_its_deliveries() -> anyhow::Result<()> {
+async fn a_lost_connection_revokes_its_deliveries() -> Result<(), BoxError> {
     let queue = declare_queue("beavers-rabbitmq-revoke").await?;
     let sink = queue_sink(&queue);
     publish(&sink, "order").await?;
@@ -250,10 +250,9 @@ async fn a_lost_connection_revokes_its_deliveries() -> anyhow::Result<()> {
     let name = format!("beavers source {queue}");
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     while close_connections(&name).await? == 0 {
-        anyhow::ensure!(
-            tokio::time::Instant::now() < deadline,
-            "the source's connection was not listed"
-        );
+        if !(tokio::time::Instant::now() < deadline) {
+            return Err("the source's connection was not listed".into());
+        };
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
@@ -272,7 +271,7 @@ async fn a_lost_connection_revokes_its_deliveries() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a RabbitMQ broker; run with cargo test --features rabbitmq -- --ignored"]
-async fn unroutable_messages_fail_their_completion() -> anyhow::Result<()> {
+async fn unroutable_messages_fail_their_completion() -> Result<(), BoxError> {
     let sink = RabbitMqSink::<Utf8, String>::new(RabbitMqSinkConfig::new(
         uri(),
         "amq.direct",
@@ -292,7 +291,7 @@ async fn unroutable_messages_fail_their_completion() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires a RabbitMQ broker; run with cargo test --features rabbitmq -- --ignored"]
-async fn submitted_messages_complete_on_their_confirmations() -> anyhow::Result<()> {
+async fn submitted_messages_complete_on_their_confirmations() -> Result<(), BoxError> {
     let queue = declare_queue("beavers-rabbitmq-submit").await?;
     let mut config = RabbitMqSinkConfig::new(uri(), "", &queue);
     config.max_pending = 2;
@@ -323,7 +322,7 @@ async fn submitted_messages_complete_on_their_confirmations() -> anyhow::Result<
 
 #[tokio::test]
 #[ignore = "requires a RabbitMQ broker; run with cargo test --features rabbitmq -- --ignored"]
-async fn pipeline_forwards_headers_and_acknowledges_every_input() -> anyhow::Result<()> {
+async fn pipeline_forwards_headers_and_acknowledges_every_input() -> Result<(), BoxError> {
     let input = declare_queue("beavers-rabbitmq-input").await?;
     let output = declare_queue("beavers-rabbitmq-output").await?;
     let producer = queue_sink(&input);

@@ -3,9 +3,9 @@ use super::{
 };
 use crate::{
     codec::Encoder,
+    error::{BoxError, Context, Error, ensure},
     sink::{PublishRejected, Sink},
 };
-use anyhow::Context as _;
 use aws_sdk_sqs::{
     Client,
     error::{DisplayErrorContext, ProvideErrorMetadata},
@@ -105,12 +105,16 @@ impl<C, T> SqsSink<C, T> {
         }
     }
 
-    async fn client(&self) -> anyhow::Result<&Client> {
-        anyhow::ensure!(!self.closed.load(Ordering::Acquire), "SQS sink is closed");
+    async fn client(&self) -> Result<&Client, BoxError> {
+        ensure!(
+            !self.closed.load(Ordering::Acquire),
+            Error::closed,
+            "SQS sink is closed"
+        );
         self.client
             .get_or_try_init(|| async {
                 self.config.validate()?;
-                anyhow::Ok(client(&self.config.endpoint()).await)
+                Ok::<_, BoxError>(client(&self.config.endpoint()).await)
             })
             .await
     }
@@ -125,23 +129,26 @@ where
 
     /// Encodes the value as the message body, which SQS requires to be text.
     /// A codec whose output is not UTF-8, such as Protobuf, fails here.
-    fn prepare(&self, output: SqsPublish<T>) -> anyhow::Result<Self::Prepared> {
+    fn prepare(&self, output: SqsPublish<T>) -> Result<Self::Prepared, BoxError> {
         let body = String::from_utf8(self.codec.encode(&output.value)?)
             .context("SQS message bodies must be UTF-8 text")?;
         let fifo = self.config.endpoint().is_fifo();
         if fifo {
-            anyhow::ensure!(
+            ensure!(
                 output.message_group_id.is_some(),
+                Error::invalid_record,
                 "messages sent to an SQS FIFO queue need a message group ID"
             );
-            anyhow::ensure!(
+            ensure!(
                 output.delay.is_none(),
+                Error::invalid_record,
                 "SQS FIFO queues accept no per-message delay"
             );
         }
         if let Some(delay) = output.delay {
-            anyhow::ensure!(
+            ensure!(
                 delay <= MAX_DELAY,
+                Error::invalid_record,
                 "SQS message delay must be at most 15 minutes"
             );
         }
@@ -154,7 +161,7 @@ where
         })
     }
 
-    async fn publish(&self, output: &Self::Prepared) -> anyhow::Result<()> {
+    async fn publish(&self, output: &Self::Prepared) -> Result<(), BoxError> {
         let client = self.client().await?;
         let result = client
             .send_message()
@@ -172,18 +179,17 @@ where
             Ok(_) => Ok(()),
             Err(error) => {
                 let rejected = error.code().is_some_and(|code| REJECTED.contains(&code));
-                let error =
-                    anyhow::anyhow!("{}", DisplayErrorContext(&error)).context("sending to SQS");
+                let error = Error::msg(format!("sending to SQS: {}", DisplayErrorContext(&error)));
                 Err(if rejected {
                     PublishRejected::wrap(error)
                 } else {
-                    error
+                    error.into()
                 })
             }
         }
     }
 
-    async fn close(&self) -> anyhow::Result<()> {
+    async fn close(&self) -> Result<(), BoxError> {
         self.closed.store(true, Ordering::Release);
         Ok(())
     }

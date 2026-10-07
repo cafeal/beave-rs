@@ -1,4 +1,5 @@
 //! Serialization contracts and built-in codecs.
+use crate::error::BoxError;
 
 mod json;
 pub use json::Json;
@@ -9,13 +10,13 @@ pub use json::Json;
 /// the subscription by default.
 pub trait Decoder<T>: Send + Sync + 'static {
     /// Decode one payload.
-    fn decode(&self, bytes: &[u8]) -> anyhow::Result<T>;
+    fn decode(&self, bytes: &[u8]) -> Result<T, BoxError>;
 }
 
 /// Converts a typed value into a payload for publication.
 pub trait Encoder<T>: Send + Sync + 'static {
     /// Encode one value.
-    fn encode(&self, value: &T) -> anyhow::Result<Vec<u8>>;
+    fn encode(&self, value: &T) -> Result<Vec<u8>, BoxError>;
 }
 
 #[cfg(feature = "avro")]

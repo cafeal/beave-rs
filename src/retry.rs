@@ -1,5 +1,6 @@
 //! Bounded exponential-backoff policy shared by independent retry domains.
 
+use crate::error::{Error, ensure};
 use std::{
     collections::hash_map::RandomState,
     hash::{BuildHasher, Hasher},
@@ -60,8 +61,12 @@ impl RetryPolicy {
         }
     }
 
-    pub(crate) fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(self.max_attempts > 0, "max_attempts must be positive");
+    pub(crate) fn validate(&self) -> Result<(), Error> {
+        ensure!(
+            self.max_attempts > 0,
+            Error::config,
+            "max_attempts must be positive"
+        );
         Ok(())
     }
 }

@@ -1,7 +1,8 @@
 use beavers::{
-    App, CancellationToken, ChannelOutput, ChannelRaw, ChannelSink, ChannelSource, Completion,
-    DeadLetter, Delivery, ErrorPolicy, HandlerError, InMemorySink, IterSource, OrderingKey,
-    Receive, ReceiveError, Sink, Source, SourceMessage, Subscription, blocking, channel,
+    App, BoxError, CancellationToken, ChannelOutput, ChannelRaw, ChannelSink, ChannelSource,
+    Completion, DeadLetter, Delivery, ErrorPolicy, HandlerError, InMemorySink, IterSource,
+    OrderingKey, Receive, ReceiveError, Sink, Source, SourceMessage, Subscription, blocking,
+    channel,
 };
 use std::{
     collections::VecDeque,
@@ -144,7 +145,7 @@ async fn downstream_dead_letters_keep_the_first_upstream_delivery() {
                 InMemorySink::default(),
                 |n: i32| async move {
                     if n == 21 {
-                        return Err(HandlerError::Reject(anyhow::anyhow!("invalid")));
+                        return Err(HandlerError::Reject(BoxError::from("invalid")));
                     }
                     Ok(n)
                 },
@@ -326,7 +327,7 @@ async fn downstream_failure_leaves_upstream_unacknowledged() {
             "score",
             fetched,
             InMemorySink::default(),
-            |_: i32| async move { Err::<i32, _>(HandlerError::Fatal(anyhow::anyhow!("broken"))) },
+            |_: i32| async move { Err::<i32, _>(HandlerError::Fatal(BoxError::from("broken"))) },
         )
         .run_until(CancellationToken::new())
         .await;
@@ -610,16 +611,16 @@ struct FailingCompletion;
 impl Sink<i32> for FailingCompletion {
     type Prepared = i32;
 
-    fn prepare(&self, value: i32) -> anyhow::Result<i32> {
+    fn prepare(&self, value: i32) -> Result<i32, BoxError> {
         Ok(value)
     }
 
-    async fn publish(&self, output: &i32) -> anyhow::Result<()> {
+    async fn publish(&self, output: &i32) -> Result<(), BoxError> {
         self.submit(output).await?.wait().await
     }
 
-    async fn submit(&self, _: &i32) -> anyhow::Result<Completion> {
-        Ok(Completion::pending(async { anyhow::bail!("lost") }))
+    async fn submit(&self, _: &i32) -> Result<Completion, BoxError> {
+        Ok(Completion::pending(async { Err("lost".into()) }))
     }
 }
 

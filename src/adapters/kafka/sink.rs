@@ -2,6 +2,7 @@ use super::{config::KafkaSinkConfig, record::KafkaPublish, transaction::KafkaTra
 use crate::{
     adapters::pending::PendingLimit,
     codec::Encoder,
+    error::{BoxError, Error, ensure},
     sink::{Completion, Sink},
 };
 use rdkafka::{
@@ -101,9 +102,10 @@ impl<C, T> KafkaSink<C, T> {
         KafkaTransactionalSink::new(self.config, transactional_id.into(), self.codec)
     }
 
-    fn producer(&self) -> anyhow::Result<FutureProducer> {
-        anyhow::ensure!(
+    fn producer(&self) -> Result<FutureProducer, BoxError> {
+        ensure!(
             !self.state.closed.load(Ordering::Acquire),
+            Error::closed,
             "Kafka sink is closed"
         );
         let mut slot = self.state.producer.lock().unwrap();
@@ -127,17 +129,17 @@ where
 {
     type Prepared = KafkaPrepared;
 
-    fn prepare(&self, record: KafkaPublish<T>) -> anyhow::Result<Self::Prepared> {
+    fn prepare(&self, record: KafkaPublish<T>) -> Result<Self::Prepared, BoxError> {
         prepare(&*self.codec, record)
     }
 
-    async fn publish(&self, output: &Self::Prepared) -> anyhow::Result<()> {
+    async fn publish(&self, output: &Self::Prepared) -> Result<(), BoxError> {
         self.submit(output).await?.wait().await
     }
 
     /// Returns once the producer has queued the record. The completion
     /// resolves on its delivery report.
-    async fn submit(&self, output: &Self::Prepared) -> anyhow::Result<Completion> {
+    async fn submit(&self, output: &Self::Prepared) -> Result<Completion, BoxError> {
         let producer = self.producer()?;
         let permit = self.state.pending.acquire().await?;
         let delivery = enqueue(&producer, &self.config.topic, output).await?;
@@ -147,7 +149,7 @@ where
         }))
     }
 
-    async fn close(&self) -> anyhow::Result<()> {
+    async fn close(&self) -> Result<(), BoxError> {
         self.state.closed.store(true, Ordering::Release);
         self.state.pending.close();
         let producer = self.state.producer.lock().unwrap().take();
@@ -162,7 +164,7 @@ where
 pub(super) fn prepare<C: Encoder<T>, T>(
     codec: &C,
     record: KafkaPublish<T>,
-) -> anyhow::Result<KafkaPrepared> {
+) -> Result<KafkaPrepared, BoxError> {
     Ok(KafkaPrepared {
         key: record.key,
         value: record
@@ -179,7 +181,7 @@ pub(super) async fn send(
     producer: &FutureProducer,
     topic: &str,
     output: &KafkaPrepared,
-) -> anyhow::Result<()> {
+) -> Result<(), BoxError> {
     delivered(enqueue(producer, topic, output).await?).await
 }
 
@@ -188,7 +190,7 @@ async fn enqueue(
     producer: &FutureProducer,
     topic: &str,
     output: &KafkaPrepared,
-) -> anyhow::Result<DeliveryFuture> {
+) -> Result<DeliveryFuture, BoxError> {
     let mut headers = OwnedHeaders::new_with_capacity(output.headers.len());
     for (key, value) in &output.headers {
         headers = headers.insert(Header {
@@ -223,10 +225,10 @@ async fn enqueue(
 /// How long to wait before retrying a record rejected by a full producer queue.
 const QUEUE_FULL_BACKOFF: Duration = Duration::from_millis(100);
 
-async fn delivered(delivery: DeliveryFuture) -> anyhow::Result<()> {
+async fn delivered(delivery: DeliveryFuture) -> Result<(), BoxError> {
     delivery
         .await
-        .map_err(|_| anyhow::anyhow!("Kafka producer closed before the delivery report"))?
+        .map_err(|_| Error::msg("Kafka producer closed before the delivery report"))?
         .map_err(|(error, _)| error)?;
     Ok(())
 }

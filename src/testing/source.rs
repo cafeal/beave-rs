@@ -1,6 +1,7 @@
 use super::{deliveries::Deliveries, record::TestRecord};
 use crate::{
     codec::Decoder,
+    error::BoxError,
     message::{OrderingKey, SourceMessage},
     source::{Receive, ReceiveError, Source},
 };
@@ -31,12 +32,12 @@ use crate::adapters::sqs::SqsRecord;
 ///
 /// async fn halve(value: u32) -> Result<u32> {
 ///     if value % 2 == 1 {
-///         return Err(HandlerError::Reject(anyhow::anyhow!("odd value")));
+///         return Err(HandlerError::Reject("odd value".into()));
 ///     }
 ///     Ok(value / 2)
 /// }
 ///
-/// # #[tokio::main] async fn main() -> anyhow::Result<()> {
+/// # #[tokio::main] async fn main() -> std::result::Result<(), beavers::Error> {
 /// let source = TestSource::<Json, u32, Vec<u8>>::new([b"4".to_vec(), b"3".to_vec(), b"x".to_vec()]);
 /// let deliveries = source.deliveries();
 /// let sink = InMemorySink::default();
@@ -151,7 +152,7 @@ where
     type Item = R::Decoded<T>;
     type Raw = R;
 
-    fn decode(&self) -> anyhow::Result<Self::Item> {
+    fn decode(&self) -> Result<Self::Item, BoxError> {
         self.record.decode(&*self.codec)
     }
 
@@ -159,7 +160,7 @@ where
         self.record.clone()
     }
 
-    async fn ack(self) -> anyhow::Result<()> {
+    async fn ack(self) -> Result<(), BoxError> {
         self.deliveries.acknowledge(self.index);
         Ok(())
     }

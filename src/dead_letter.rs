@@ -1,9 +1,11 @@
 //! Envelope published to a dead-letter sink, and the failure details broker adapters
 //! forward with the original payload.
-use crate::error_policy::FailureKind;
-use anyhow::Context;
+use crate::{
+    error::{BoxError, Error, chain},
+    error_policy::FailureKind,
+};
 use serde::Serialize;
-use std::str::FromStr;
+use std::{fmt::Display, str::FromStr};
 
 /// A delivery that could not be processed, with structured failure context.
 ///
@@ -32,7 +34,7 @@ impl<I, R> DeadLetter<I, R> {
     pub(crate) fn new(
         subscription: String,
         failure: FailureKind,
-        error: &anyhow::Error,
+        error: &BoxError,
         attempts: usize,
         input: Option<I>,
         raw: R,
@@ -40,7 +42,7 @@ impl<I, R> DeadLetter<I, R> {
         Self {
             subscription,
             failure,
-            error: format!("{error:#}"),
+            error: chain(error.as_ref()),
             attempts,
             input,
             raw,
@@ -134,13 +136,15 @@ impl DeadLetterDetails {
     /// Reads details through `field`, which returns a header value by name. Returns `None`
     /// when the failure header is absent.
     pub(crate) fn parse<'a>(
-        field: impl Fn(&str) -> anyhow::Result<Option<&'a str>>,
-    ) -> anyhow::Result<Option<Self>> {
+        field: impl Fn(&str) -> Result<Option<&'a str>, Error>,
+    ) -> Result<Option<Self>, Error> {
         let Some(failure) = field(FAILURE)? else {
             return Ok(None);
         };
         let required = |name: &str| {
-            field(name)?.ok_or_else(|| anyhow::anyhow!("dead-letter header {name} is missing"))
+            field(name)?.ok_or_else(|| {
+                Error::invalid_record(format!("dead-letter header {name} is missing"))
+            })
         };
         Ok(Some(Self {
             subscription: required(SUBSCRIPTION)?.to_owned(),
@@ -162,12 +166,14 @@ impl DeadLetterDetails {
     )),
     allow(dead_code)
 )]
-pub(crate) fn parse_number<T>(name: &str, value: &str) -> anyhow::Result<T>
+pub(crate) fn parse_number<T>(name: &str, value: &str) -> Result<T, Error>
 where
     T: FromStr,
-    T::Err: std::error::Error + Send + Sync + 'static,
+    T::Err: Display,
 {
-    value
-        .parse()
-        .with_context(|| format!("dead-letter header {name} is not a number: {value:?}"))
+    value.parse().map_err(|error| {
+        Error::invalid_record(format!(
+            "dead-letter header {name} is not a number: {value:?}: {error}"
+        ))
+    })
 }

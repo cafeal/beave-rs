@@ -1,7 +1,7 @@
 use super::fixtures::{Flaky, Waiting, fast};
 use beavers::{
-    App, DeadLetter, Emit, FailureKind, HandlerError, InMemorySink, IterSource, MapMetadata,
-    Subscription,
+    App, BoxError, DeadLetter, Emit, FailureKind, HandlerError, InMemorySink, IterSource,
+    MapMetadata, Subscription,
 };
 use std::{
     sync::{
@@ -22,7 +22,7 @@ async fn reject_goes_to_dlq_before_ack() {
                 "orders",
                 source,
                 InMemorySink::<i32>::default(),
-                |_| async { Err(HandlerError::Reject(anyhow::anyhow!("invalid"))) },
+                |_| async { Err(HandlerError::Reject(BoxError::from("invalid"))) },
             )
             .dlq(dlq.clone()),
         )
@@ -51,9 +51,9 @@ async fn rejects_without_dlq_and_fatal_leave_input_unacked() {
                     InMemorySink::<i32>::default(),
                     move |_| async move {
                         Err(if fatal {
-                            HandlerError::Fatal(anyhow::anyhow!("fatal"))
+                            HandlerError::Fatal(BoxError::from("fatal"))
                         } else {
-                            HandlerError::Reject(anyhow::anyhow!("reject"))
+                            HandlerError::Reject(BoxError::from("reject"))
                         })
                     }
                 )
@@ -78,7 +78,7 @@ async fn fatal_stops_other_subscription_waiting_for_input() {
             "failing",
             IterSource::new([1]),
             InMemorySink::<i32>::default(),
-            |_| async { Err(HandlerError::Fatal(anyhow::anyhow!("stop"))) },
+            |_| async { Err(HandlerError::Fatal(BoxError::from("stop"))) },
         );
     assert!(
         tokio::time::timeout(Duration::from_secs(1), app.run())
@@ -104,7 +104,7 @@ async fn failed_dlq_does_not_ack() {
                     "failed_dlq_does_not_ack",
                     source,
                     InMemorySink::<i32>::default(),
-                    |_| async { Err(HandlerError::Reject(anyhow::anyhow!("reject"))) }
+                    |_| async { Err(HandlerError::Reject(BoxError::from("reject"))) }
                 )
                 .dlq_with(dlq, |dead_letter| Ok(dead_letter.input.unwrap()))
                 .dlq_retry(fast())
@@ -136,7 +136,7 @@ async fn mapping_failure_does_not_rerun_handler_or_publish() {
                     }
                 )
                 .middleware(MapMetadata::new(|_, _| {
-                    Err(HandlerError::Retry(anyhow::anyhow!("mapping failed")))
+                    Err(HandlerError::Retry(BoxError::from("mapping failed")))
                 }))
             )
             .run()
@@ -164,7 +164,7 @@ async fn rejected_mapping_publishes_no_output_and_dead_letters_input() {
             )
             .middleware(MapMetadata::new(|_, n: i32| {
                 if n % 2 == 0 {
-                    Err(HandlerError::Reject(anyhow::anyhow!("unmappable")))
+                    Err(HandlerError::Reject(BoxError::from("unmappable")))
                 } else {
                     Ok(n)
                 }
@@ -196,7 +196,7 @@ async fn rejected_mapping_without_dlq_leaves_input_unacked() {
                     |n| async move { Ok(n) }
                 )
                 .middleware(MapMetadata::new(|_, _| Err(HandlerError::Reject(
-                    anyhow::anyhow!("reject")
+                    BoxError::from("reject")
                 ))))
             )
             .run()

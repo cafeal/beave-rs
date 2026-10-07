@@ -10,11 +10,11 @@
 //! `order-events` until interrupted with Ctrl-C. Set `KAFKA_BROKERS` to use a
 //! broker other than `localhost:9092`.
 use beavers::{
-    App, IterSource, Json, Result, Subscription,
+    App, BoxError, IterSource, Json, Result, Subscription,
     adapters::kafka::{KafkaPublish, KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
 };
 use serde::{Deserialize, Serialize};
-use std::env;
+use std::{env, result::Result as StdResult};
 
 const ORDERS: &str = "orders";
 const EVENTS: &str = "order-events";
@@ -56,7 +56,7 @@ async fn to_event(order: Order) -> Result<OrderEvent> {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> StdResult<(), BoxError> {
     let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
@@ -100,10 +100,11 @@ async fn main() -> anyhow::Result<()> {
                     .concurrency(3),
                 )
                 .run()
-                .await
+                .await?;
+            Ok(())
         }
         Some(other) => {
-            anyhow::bail!("unknown command {other:?}; use `produce [count]` or `process`")
+            Err(format!("unknown command {other:?}; use `produce [count]` or `process`").into())
         }
     }
 }

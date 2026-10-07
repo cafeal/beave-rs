@@ -1,6 +1,7 @@
 //! Dead letters forwarded to a Pulsar topic with their original message.
 use super::record::{PulsarMessageId, PulsarMetadata, PulsarPublish, PulsarRecord};
 use crate::dead_letter::{DEAD_LETTER_HEADER_PREFIX, DeadLetter, DeadLetterDetails, parse_number};
+use crate::error::Error;
 use std::collections::HashMap;
 
 const ORIGIN_TOPIC: &str = "beavers-dlq-origin-topic";
@@ -26,7 +27,7 @@ pub struct PulsarDeadLetter {
 impl PulsarDeadLetter {
     /// Reads dead-letter properties. Returns `None` for a message without them and an error
     /// when they are incomplete or malformed.
-    pub fn from_record<T>(record: &PulsarRecord<T>) -> anyhow::Result<Option<Self>> {
+    pub fn from_record<T>(record: &PulsarRecord<T>) -> Result<Option<Self>, Error> {
         let field = |name: &str| Ok(record.properties.get(name).map(String::as_str));
         let Some(details) = DeadLetterDetails::parse(field)? else {
             return Ok(None);
@@ -36,7 +37,9 @@ impl PulsarDeadLetter {
                 .properties
                 .get(name)
                 .map(String::as_str)
-                .ok_or_else(|| anyhow::anyhow!("dead-letter property {name} is missing"))
+                .ok_or_else(|| {
+                    Error::invalid_record(format!("dead-letter property {name} is missing"))
+                })
         };
         Ok(Some(Self {
             details,
@@ -106,10 +109,12 @@ impl PulsarPublish<Vec<u8>> {
 }
 
 /// Parses `ledger:entry:partition:batch`.
-fn parse_message_id(value: &str) -> anyhow::Result<PulsarMessageId> {
+fn parse_message_id(value: &str) -> Result<PulsarMessageId, Error> {
     let parts: Vec<_> = value.split(':').collect();
     let [ledger_id, entry_id, partition, batch_index] = parts[..] else {
-        anyhow::bail!("dead-letter property {ORIGIN_MESSAGE_ID} is malformed: {value:?}");
+        return Err(Error::invalid_record(format!(
+            "dead-letter property {ORIGIN_MESSAGE_ID} is malformed: {value:?}"
+        )));
     };
     Ok(PulsarMessageId {
         ledger_id: parse_number(ORIGIN_MESSAGE_ID, ledger_id)?,

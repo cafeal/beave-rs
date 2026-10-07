@@ -18,7 +18,7 @@
 //!     Ok(document.len())
 //! }
 //!
-//! # #[tokio::main] async fn main() -> anyhow::Result<()> {
+//! # #[tokio::main] async fn main() -> std::result::Result<(), beavers::Error> {
 //! let (to_score, fetched) = channel(16);
 //! let scores = InMemorySink::default();
 //! App::new()

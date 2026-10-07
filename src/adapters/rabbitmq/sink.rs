@@ -7,9 +7,9 @@ use super::{
 use crate::{
     adapters::pending::PendingLimit,
     codec::Encoder,
+    error::{BoxError, Context, Error, ensure},
     sink::{Completion, Sink},
 };
-use anyhow::Context as _;
 use lapin::{
     BasicProperties, Channel, Confirmation, Connection,
     options::{BasicPublishOptions, ConfirmSelectOptions},
@@ -119,10 +119,11 @@ impl<C, T> RabbitMqSink<C, T> {
 
     /// The channel to publish on, connecting on first use and again after the
     /// previous connection or channel was lost.
-    async fn channel(&self) -> anyhow::Result<Channel> {
+    async fn channel(&self) -> Result<Channel, BoxError> {
         let mut publisher = self.state.publisher.lock().await;
-        anyhow::ensure!(
+        ensure!(
             !self.state.closed.load(Ordering::Acquire),
+            Error::closed,
             "RabbitMQ sink is closed"
         );
         if let Some(current) = publisher.as_ref() {
@@ -143,7 +144,7 @@ impl<C, T> RabbitMqSink<C, T> {
             channel
                 .confirm_select(ConfirmSelectOptions::default())
                 .await?;
-            anyhow::Ok(channel)
+            Ok::<_, BoxError>(channel)
         }
         .await
         .context("opening a RabbitMQ publisher channel");
@@ -151,7 +152,7 @@ impl<C, T> RabbitMqSink<C, T> {
             Ok(channel) => channel,
             Err(error) => {
                 let _ = close(&connection).await;
-                return Err(error);
+                return Err(error.into());
             }
         };
         *publisher = Some(Publisher {
@@ -169,7 +170,7 @@ where
 {
     type Prepared = RabbitMqPrepared;
 
-    fn prepare(&self, output: RabbitMqPublish<T>) -> anyhow::Result<Self::Prepared> {
+    fn prepare(&self, output: RabbitMqPublish<T>) -> Result<Self::Prepared, BoxError> {
         let routing_key = output
             .routing_key
             .as_deref()
@@ -185,13 +186,13 @@ where
         })
     }
 
-    async fn publish(&self, output: &Self::Prepared) -> anyhow::Result<()> {
+    async fn publish(&self, output: &Self::Prepared) -> Result<(), BoxError> {
         self.submit(output).await?.wait().await
     }
 
     /// Returns once the message is written to the channel. The completion
     /// resolves on its publisher confirmation.
-    async fn submit(&self, output: &Self::Prepared) -> anyhow::Result<Completion> {
+    async fn submit(&self, output: &Self::Prepared) -> Result<Completion, BoxError> {
         let permit = self.state.pending.acquire().await?;
         let channel = self.channel().await?;
         let options = BasicPublishOptions {
@@ -220,7 +221,7 @@ where
 
     /// Stops new submissions, waits for outstanding confirmations, and closes
     /// the connection.
-    async fn close(&self) -> anyhow::Result<()> {
+    async fn close(&self) -> Result<(), BoxError> {
         self.state.closed.store(true, Ordering::Release);
         self.state.pending.close();
         let publisher = self.state.publisher.lock().await.take();
@@ -232,14 +233,16 @@ where
     }
 }
 
-fn confirmed(confirmation: Confirmation) -> anyhow::Result<()> {
+fn confirmed(confirmation: Confirmation) -> Result<(), BoxError> {
     match confirmation {
         Confirmation::Ack(None) | Confirmation::NotRequested => Ok(()),
-        Confirmation::Ack(Some(returned)) => anyhow::bail!(
+        Confirmation::Ack(Some(returned)) => Err(Error::msg(format!(
             "RabbitMQ returned an unroutable message: {} {}",
-            returned.reply_code,
-            returned.reply_text
-        ),
-        Confirmation::Nack(_) => anyhow::bail!("RabbitMQ did not accept a published message"),
+            returned.reply_code, returned.reply_text
+        ))
+        .into()),
+        Confirmation::Nack(_) => {
+            Err(Error::msg("RabbitMQ did not accept a published message").into())
+        }
     }
 }

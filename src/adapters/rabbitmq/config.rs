@@ -1,16 +1,18 @@
 use super::convert::short_string;
 use crate::adapters::pending::PendingLimit;
+use crate::error::{Error, ensure};
 use lapin::uri::AMQPUri;
 use std::fmt;
 
 /// Checks a broker connection URI without connecting.
-fn validate_uri(uri: &str) -> anyhow::Result<()> {
-    anyhow::ensure!(
+fn validate_uri(uri: &str) -> Result<(), Error> {
+    ensure!(
         uri.starts_with("amqp://") || uri.starts_with("amqps://"),
+        Error::config,
         "RabbitMQ URI must use amqp:// or amqps://"
     );
     uri.parse::<AMQPUri>()
-        .map_err(|error| anyhow::anyhow!("invalid RabbitMQ URI: {error}"))?;
+        .map_err(|error| Error::config(format!("invalid RabbitMQ URI: {error}")))?;
     Ok(())
 }
 
@@ -65,12 +67,17 @@ impl RabbitMqSourceConfig {
     /// Fails when the URI does not parse or does not use `amqp://` or
     /// `amqps://`, when the queue name is empty or longer than 255 bytes, or
     /// when `prefetch` is zero.
-    pub fn validate(&self) -> anyhow::Result<()> {
+    pub fn validate(&self) -> Result<(), Error> {
         validate_uri(&self.uri)?;
-        anyhow::ensure!(!self.queue.trim().is_empty(), "RabbitMQ queue is required");
+        ensure!(
+            !self.queue.trim().is_empty(),
+            Error::config,
+            "RabbitMQ queue is required"
+        );
         short_string("queue name", &self.queue)?;
-        anyhow::ensure!(
+        ensure!(
             self.prefetch > 0,
+            Error::config,
             "RabbitMQ prefetch must be greater than zero"
         );
         Ok(())
@@ -136,7 +143,7 @@ impl RabbitMqSinkConfig {
     /// Fails when the URI does not parse or does not use `amqp://` or
     /// `amqps://`, when the exchange name or routing key is longer than 255
     /// bytes, or when `max_pending` is zero or too large.
-    pub fn validate(&self) -> anyhow::Result<()> {
+    pub fn validate(&self) -> Result<(), Error> {
         validate_uri(&self.uri)?;
         short_string("exchange name", &self.exchange)?;
         short_string("routing key", &self.routing_key)?;

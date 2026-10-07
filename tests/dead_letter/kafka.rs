@@ -1,7 +1,6 @@
-use anyhow::Context;
 use beavers::{
-    App, ChannelRaw, DeadLetter, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json,
-    Result, Subscription,
+    App, BoxError, ChannelRaw, DeadLetter, ErrorPolicy, FailureKind, HandlerError, InMemorySink,
+    Json, Result, Subscription,
     adapters::kafka::{KafkaDeadLetter, KafkaInherit, KafkaMetadata, KafkaPublish, KafkaRecord},
     channel,
     testing::{KafkaTestSource, kafka_record},
@@ -39,7 +38,7 @@ fn received(publish: KafkaPublish<Vec<u8>>, offset: i64) -> KafkaRecord<Vec<u8>>
 async fn reject_odd(record: KafkaRecord<u32>) -> Result<u32> {
     match record.value {
         Some(value) if value % 2 == 0 => Ok(value),
-        _ => Err(HandlerError::Reject(anyhow::anyhow!("odd value"))),
+        _ => Err(HandlerError::Reject(BoxError::from("odd value"))),
     }
 }
 
@@ -185,13 +184,13 @@ async fn chained_dead_letters_forward_the_first_upstream_record() {
                 "score",
                 fetched,
                 InMemorySink::default(),
-                |_: u32| async move { Err::<u32, _>(HandlerError::Reject(anyhow::anyhow!("odd"))) },
+                |_: u32| async move { Err::<u32, _>(HandlerError::Reject(BoxError::from("odd"))) },
             )
             .dlq_with(dlq.clone(), |dead: DeadLetter<u32, ChannelRaw>| {
                 let dead = dead.try_map_raw(|raw| {
                     raw.downcast_ref::<KafkaRecord<Vec<u8>>>()
                         .cloned()
-                        .context("no Kafka record")
+                        .ok_or("no Kafka record")
                 })?;
                 Ok(KafkaPublish::from_dead_letter(dead))
             }),

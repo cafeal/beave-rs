@@ -1,6 +1,6 @@
 #![cfg(feature = "protobuf")]
 
-use beavers::{Decoder, Encoder, Protobuf};
+use beavers::{BoxError, Decoder, Encoder, Protobuf};
 use prost::Message;
 
 #[derive(Clone, PartialEq, Message)]
@@ -49,9 +49,9 @@ fn roundtrip_nested_repeated_and_empty_messages() {
 fn malformed_and_truncated_input_is_rejected() {
     let codec = Protobuf;
 
-    let malformed: anyhow::Result<Envelope> = codec.decode(&[0x80]);
+    let malformed: Result<Envelope, BoxError> = codec.decode(&[0x80]);
     assert!(malformed.is_err());
-    let truncated: anyhow::Result<Envelope> = codec.decode(&[0x1a, 0x03, b'x']);
+    let truncated: Result<Envelope, BoxError> = codec.decode(&[0x1a, 0x03, b'x']);
     assert!(truncated.is_err());
 }
 

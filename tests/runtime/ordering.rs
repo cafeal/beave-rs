@@ -204,7 +204,7 @@ async fn ack_rejected_because_of_revocation_is_not_a_failure() {
     let ack_revoked = revoked.clone();
     let delivery = Delivery::new(7, move || async move {
         ack_revoked.cancel();
-        anyhow::bail!("assignment revoked")
+        Err("assignment revoked".into())
     })
     .with_ordering_key(OrderingKey::new("events", 0))
     .with_revocation(revoked);

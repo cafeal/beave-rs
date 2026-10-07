@@ -14,6 +14,10 @@ project follows the versioning policy in
   handler, publish, and dead-letter retry policies, and graceful shutdown.
 - Error classification with `HandlerError` and `Classify`, routing through
   `ErrorPolicy`, and dead-letter sinks.
+- `beavers::Error` for errors the crate reports, such as from `App::run` and
+  configuration validation, and `BoxError` for errors returned by application
+  components such as codecs, sources, and sinks. The crate does not expose or
+  depend on `anyhow`.
 - Typed middleware, value-only forwarding between sources and sinks of one
   platform, tombstone handling, and synchronous handlers on a bounded pool.
 - Local adapters and an in-process channel that chains subscriptions with

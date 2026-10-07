@@ -1,3 +1,4 @@
+use crate::error::{Error, ensure};
 use crate::retry::RetryPolicy;
 use std::{fmt, time::Duration};
 
@@ -45,27 +46,35 @@ pub(super) struct Endpoint<'a> {
 }
 
 impl Endpoint<'_> {
-    fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
+    fn validate(&self) -> Result<(), Error> {
+        ensure!(
             self.queue_url.starts_with("https://") || self.queue_url.starts_with("http://"),
+            Error::config,
             "SQS queue URL must be an http or https URL"
         );
-        anyhow::ensure!(
+        ensure!(
             !self.queue_url.chars().any(char::is_whitespace),
+            Error::config,
             "SQS queue URL must not contain whitespace"
         );
         if let Some(region) = self.region {
-            anyhow::ensure!(!region.trim().is_empty(), "SQS region must not be empty");
+            ensure!(
+                !region.trim().is_empty(),
+                Error::config,
+                "SQS region must not be empty"
+            );
         }
         if let Some(url) = self.endpoint_url {
-            anyhow::ensure!(
+            ensure!(
                 url.starts_with("https://") || url.starts_with("http://"),
+                Error::config,
                 "SQS endpoint URL must be an http or https URL"
             );
         }
         if let Some(credentials) = self.credentials {
-            anyhow::ensure!(
+            ensure!(
                 !credentials.access_key_id.is_empty() && !credentials.secret_access_key.is_empty(),
+                Error::config,
                 "SQS credentials need an access key ID and a secret access key"
             );
         }
@@ -132,18 +141,21 @@ impl SqsSourceConfig {
     }
 
     /// Checks the settings without contacting SQS.
-    pub fn validate(&self) -> anyhow::Result<()> {
+    pub fn validate(&self) -> Result<(), Error> {
         self.endpoint().validate()?;
-        anyhow::ensure!(
+        ensure!(
             (1..=10).contains(&self.max_messages),
+            Error::config,
             "SQS max_messages must be between 1 and 10"
         );
-        anyhow::ensure!(
+        ensure!(
             self.wait_time <= Duration::from_secs(20),
+            Error::config,
             "SQS wait_time must be at most 20 seconds"
         );
-        anyhow::ensure!(
+        ensure!(
             (Duration::from_secs(1)..=MAX_VISIBILITY).contains(&self.visibility_timeout),
+            Error::config,
             "SQS visibility_timeout must be between 1 second and 12 hours"
         );
         self.ack_retry.validate()
@@ -184,7 +196,7 @@ impl SqsSinkConfig {
     }
 
     /// Checks the settings without contacting SQS.
-    pub fn validate(&self) -> anyhow::Result<()> {
+    pub fn validate(&self) -> Result<(), Error> {
         self.endpoint().validate()
     }
 }
