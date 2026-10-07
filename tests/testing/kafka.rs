@@ -107,7 +107,7 @@ async fn dead_letters_keep_the_raw_kafka_record() {
     let source =
         KafkaTestSource::<Json, u32>::new([order(42, "not json"), order(43, "5"), order(44, "6")]);
     let deliveries = source.deliveries();
-    let sink = InMemorySink::default();
+    let sink = InMemorySink::<KafkaPublish<u32>>::default();
     let dlq = InMemorySink::<DeadLetter<KafkaRecord<u32>, KafkaRecord<Vec<u8>>>>::default();
     App::new()
         .subscription(

@@ -339,7 +339,7 @@ async fn pipeline_forwards_headers_and_acknowledges_every_input() -> anyhow::Res
     producer.close().await?;
 
     let shutdown = CancellationToken::new();
-    let app = App::new().subscription(Subscription::forward(
+    let app = App::new().subscription(Subscription::new(
         "rabbitmq-pipeline",
         source(&input),
         queue_sink(&output),

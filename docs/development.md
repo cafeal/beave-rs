@@ -110,7 +110,7 @@ Each alias expands to `cargo run --example <name> --features <features> --
 The `produce` commands are ordinary beavers applications that publish an
 `IterSource` of JSON orders keyed by customer through a broker sink, and end
 when the source is exhausted. The `process` commands and `kafka-to-pulsar` run
-a subscription until Ctrl-C. `process` uses `Subscription::forward`, so each
+a subscription until Ctrl-C. `process` registers a value handler, so each
 output inherits the input's key and headers or properties.
 
 `kafka_to_http` sends each order to `HTTP_SINK_URL`, by default the

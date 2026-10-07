@@ -2,13 +2,13 @@
 use super::{
     completion::{Complete, Publish, Transact},
     config::{ProcessingOrder, SubscriptionConfig, TransactionBatch},
+    handler::{IntoHandler, Many, One},
     hooks::DynMiddleware,
     processing,
 };
 use crate::{
     dead_letter::DeadLetter,
     error_policy::ErrorPolicy,
-    forward::{SamePlatform, ValueRecord},
     handler::{Emit, Handler},
     middleware::Middleware,
     retry::RetryPolicy,
@@ -47,26 +47,34 @@ pub struct Subscription<S: Source, K, O> {
 impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     /// Registers a handler. `name` identifies the subscription in errors, dead letters,
     /// spans, and metric labels; it must be non-empty and unique within an [`App`](crate::App).
-    pub fn new<H>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
+    ///
+    /// The handler takes the received record or its value and returns the sink's
+    /// output type or a plain value; see [`IntoHandler`] for the accepted shapes.
+    pub fn new<H, In, Out>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
     where
-        H: Handler<SourceItem<S>, Output = O>,
+        H: IntoHandler<S, K, (In, Out, One), Output = O>,
     {
-        let handler = Arc::new(handler);
-        Self::new_emitting(name, source, sink, move |input| {
-            let handler = handler.clone();
-            async move { handler.handle(input).await.map(Emit::One) }
-        })
+        handler.into_subscription(name.into(), source, sink)
     }
 
-    /// Explicitly opts into 0/1/N output; a plain Vec remains one payload.
-    pub fn new_emitting<H>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
+    /// Explicitly opts into 0/1/N output: the handler returns [`Emit`]. A plain `Vec`
+    /// remains one payload. Each emitted value of a [`ByValue`](super::ByValue) output
+    /// inherits metadata from the same input record.
+    pub fn new_emitting<H, In, Out>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
+    where
+        H: IntoHandler<S, K, (In, Out, Many), Output = O>,
+    {
+        handler.into_subscription(name.into(), source, sink)
+    }
+
+    pub(super) fn with_handler<H>(name: String, source: S, sink: K, handler: H) -> Self
     where
         H: Handler<SourceItem<S>, Output = Emit<O>>,
     {
         let handler = Arc::new(handler);
         let sink = Arc::new(sink);
         Self {
-            name: name.into(),
+            name,
             source,
             output: Arc::new(Publish(sink.clone())),
             sink,
@@ -80,48 +88,6 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             middleware: vec![],
             config: SubscriptionConfig::default(),
         }
-    }
-
-    /// Registers a value-only handler between a source and sink of the same platform.
-    ///
-    /// The handler receives the record value and returns the output value. The
-    /// platform's publish record is built from that value, and the platform's
-    /// default metadata inheritance runs before any other middleware.
-    pub fn forward<H, U>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
-    where
-        SourceItem<S>: SamePlatform<U, Publish = O>,
-        H: Handler<<SourceItem<S> as ValueRecord>::Value, Output = U>,
-        U: Send + Sync + 'static,
-    {
-        let handler = Arc::new(handler);
-        Self::forward_emitting(name, source, sink, move |value| {
-            let handler = handler.clone();
-            async move { handler.handle(value).await.map(Emit::One) }
-        })
-    }
-
-    /// Value-only counterpart of `new_emitting`; each emitted value inherits
-    /// metadata from the same input record.
-    pub fn forward_emitting<H, U>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
-    where
-        SourceItem<S>: SamePlatform<U, Publish = O>,
-        H: Handler<<SourceItem<S> as ValueRecord>::Value, Output = Emit<U>>,
-        U: Send + Sync + 'static,
-    {
-        let handler = Arc::new(handler);
-        Self::new_emitting(name, source, sink, move |record: SourceItem<S>| {
-            let handler = handler.clone();
-            async move {
-                let values = handler.handle(record.value()?).await?.values();
-                Ok(Emit::Many(
-                    values
-                        .into_iter()
-                        .map(<SourceItem<S> as SamePlatform<U>>::publish)
-                        .collect(),
-                ))
-            }
-        })
-        .middleware(<SourceItem<S> as SamePlatform<U>>::Inherit::default())
     }
 
     /// Maximum number of deliveries processed at the same time. Defaults to 1.

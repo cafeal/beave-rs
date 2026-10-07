@@ -50,7 +50,7 @@ async fn dead_letter(name: &str, records: Vec<SqsRecord<Vec<u8>>>) -> Vec<SqsPub
             Subscription::new(
                 name,
                 SqsTestSource::<Json, u32>::new(records),
-                InMemorySink::default(),
+                InMemorySink::<u32>::default(),
                 reject_odd,
             )
             .dlq_with(dlq.clone(), |dead| Ok(SqsPublish::from_dead_letter(dead)))

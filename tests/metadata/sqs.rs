@@ -86,9 +86,9 @@ async fn the_message_group_is_inherited_only_when_enabled() {
 
 #[tokio::test]
 async fn value_handlers_inherit_sqs_attributes_by_default() {
-    let sink = InMemorySink::default();
+    let sink = InMemorySink::<SqsPublish<_>>::default();
     App::new()
-        .subscription(Subscription::forward(
+        .subscription(Subscription::new(
             "value_handlers_inherit_sqs_attributes_by_default",
             IterSource::new([record()]),
             sink.clone(),

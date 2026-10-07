@@ -293,7 +293,7 @@ async fn pipeline_forwards_attributes_and_deletes_every_input() -> anyhow::Resul
     }
 
     let shutdown = CancellationToken::new();
-    let app = App::new().subscription(Subscription::forward(
+    let app = App::new().subscription(Subscription::new(
         "sqs-pipeline",
         source(&input),
         sink(&output),

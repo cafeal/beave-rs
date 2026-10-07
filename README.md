@@ -107,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
     ));
     let sink = KafkaSink::<Json, Invoice>::new(KafkaSinkConfig::new("localhost:9092", "invoices"));
     App::new()
-        .subscription(Subscription::forward("invoice", source, sink, invoice).concurrency(4))
+        .subscription(Subscription::new("invoice", source, sink, invoice).concurrency(4))
         .run()
         .await
 }

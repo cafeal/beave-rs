@@ -57,7 +57,7 @@ async fn dead_letter(
             Subscription::new(
                 name,
                 RabbitMqTestSource::<Json, u32>::new(records),
-                InMemorySink::default(),
+                InMemorySink::<u32>::default(),
                 reject_odd,
             )
             .dlq_with(dlq.clone(), |dead| {
@@ -165,7 +165,7 @@ fn malformed_dead_letter_headers_are_errors() {
 #[tokio::test]
 async fn inheritance_skips_dead_letter_headers() {
     let dead = dead_letter("orders", vec![order(7, "3")]).await;
-    let sink = InMemorySink::default();
+    let sink = InMemorySink::<RabbitMqPublish<u32>>::default();
     App::new()
         .subscription(
             Subscription::new(

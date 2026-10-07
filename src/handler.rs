@@ -17,6 +17,15 @@ pub enum Emit<T> {
     Many(Vec<T>),
 }
 impl<T> Emit<T> {
+    /// Apply `f` to each output, keeping the cardinality.
+    pub fn map<U>(self, f: impl FnMut(T) -> U) -> Emit<U> {
+        let mut f = f;
+        match self {
+            Self::None => Emit::None,
+            Self::One(v) => Emit::One(f(v)),
+            Self::Many(v) => Emit::Many(v.into_iter().map(f).collect()),
+        }
+    }
     pub(crate) fn values(self) -> Vec<T> {
         match self {
             Self::None => vec![],
@@ -86,6 +95,10 @@ impl<T, E: Into<anyhow::Error>> Classify<T> for StdResult<T, E> {
 
 /// Async domain transformation. Ordinary async functions and closures implement this.
 /// Use `Emit<T>` as the output with `Subscription::new_emitting` for 0/1/N output.
+///
+/// Subscriptions accept a handler whose input is the received record or its value,
+/// and whose output is the sink's type or a plain value; see
+/// [`IntoHandler`](crate::IntoHandler).
 pub trait Handler<I>: Send + Sync + 'static {
     /// Value published to the sink for each successfully handled input.
     type Output: Send + Sync + 'static;

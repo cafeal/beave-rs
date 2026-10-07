@@ -132,7 +132,7 @@ fn uppercase_pipeline(
     KafkaTransactionalSink<Utf8, String>,
     KafkaPublish<String>,
 > {
-    Subscription::forward("uppercase", source, sink, |value: String| async move {
+    Subscription::new("uppercase", source, sink, |value: String| async move {
         Ok(value.to_uppercase())
     })
     .transactional()

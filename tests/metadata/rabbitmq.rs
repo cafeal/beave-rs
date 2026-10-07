@@ -102,9 +102,9 @@ async fn disabled_fields_are_not_inherited() {
 
 #[tokio::test]
 async fn value_handlers_inherit_rabbitmq_metadata_by_default() {
-    let sink = InMemorySink::default();
+    let sink = InMemorySink::<RabbitMqPublish<_>>::default();
     App::new()
-        .subscription(Subscription::forward(
+        .subscription(Subscription::new(
             "value_handlers_inherit_rabbitmq_metadata_by_default",
             IterSource::new([record()]),
             sink.clone(),

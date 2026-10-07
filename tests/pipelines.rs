@@ -313,7 +313,7 @@ async fn kafka_pipeline_forwards_keys_and_commits_offsets() {
         .insert("auto.offset.reset".into(), "earliest".into());
     let (shutdown, app) = spawn_app(
         App::new().subscription(
-            Subscription::forward(
+            Subscription::new(
                 "ship-orders",
                 KafkaSource::<Json, Order>::new(source),
                 KafkaSink::<Json, Shipment>::new(KafkaSinkConfig::new(kafka_brokers(), &output)),
@@ -357,7 +357,7 @@ async fn pulsar_pipeline_forwards_keys_and_acknowledges() {
 
     let (shutdown, app) = spawn_app(
         App::new().subscription(
-            Subscription::forward(
+            Subscription::new(
                 "ship-orders",
                 PulsarSource::<Json, Order>::new(PulsarSourceConfig::new(
                     pulsar_url(),

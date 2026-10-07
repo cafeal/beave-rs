@@ -91,7 +91,7 @@ async fn main() -> anyhow::Result<()> {
             println!("consuming {ORDERS} and publishing to {EVENTS}; press Ctrl-C to stop");
             App::new()
                 .subscription(
-                    Subscription::forward(
+                    Subscription::new(
                         "process-orders",
                         KafkaSource::<Json, Order>::new(source),
                         KafkaSink::<Json, OrderEvent>::new(KafkaSinkConfig::new(&brokers, EVENTS)),

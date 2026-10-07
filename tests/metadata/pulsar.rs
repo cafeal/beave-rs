@@ -89,9 +89,9 @@ async fn disabled_fields_are_not_inherited() {
 
 #[tokio::test]
 async fn value_handlers_inherit_pulsar_metadata_by_default() {
-    let sink = InMemorySink::default();
+    let sink = InMemorySink::<PulsarPublish<_>>::default();
     App::new()
-        .subscription(Subscription::forward(
+        .subscription(Subscription::new(
             "value_handlers_inherit_pulsar_metadata_by_default",
             IterSource::new([record()]),
             sink.clone(),
@@ -115,7 +115,7 @@ async fn tombstone_policies_apply_to_pulsar_null_values() {
     for (skip, published_by_dlq) in [(true, 0), (false, 1)] {
         let source = IterSource::new([tombstone.clone(), record()]);
         let acks = source.acknowledgements();
-        let sink = InMemorySink::default();
+        let sink = InMemorySink::<PulsarPublish<_>>::default();
         let dlq = InMemorySink::default();
         let policy = if skip {
             Tombstones::skip()
@@ -124,7 +124,7 @@ async fn tombstone_policies_apply_to_pulsar_null_values() {
         };
         App::new()
             .subscription(
-                Subscription::forward(
+                Subscription::new(
                     "tombstone_policies_apply_to_pulsar_null_values",
                     source,
                     sink.clone(),
@@ -146,10 +146,10 @@ async fn tombstone_policies_apply_to_pulsar_null_values() {
 async fn propagated_pulsar_tombstones_keep_the_key_and_inherited_fields() {
     let mut tombstone = record();
     tombstone.value = None;
-    let sink = InMemorySink::default();
+    let sink = InMemorySink::<PulsarPublish<_>>::default();
     App::new()
         .subscription(
-            Subscription::forward(
+            Subscription::new(
                 "propagated_pulsar_tombstones_keep_the_key_and_inherited_fields",
                 IterSource::new([tombstone.clone()]),
                 sink.clone(),

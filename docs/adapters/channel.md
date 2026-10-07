@@ -78,8 +78,8 @@ code have no ordering key.
 A downstream handler receives only the typed value. Broker metadata of the
 original delivery, such as Kafka keys and headers, reaches the handler only when
 the value contains it: an upstream handler can return a `KafkaRecord<U>`
-built from its input, and the downstream stage can then use
-`Subscription::forward` into a Kafka sink to inherit that metadata.
+built from its input, and the downstream stage can then return a plain value into a Kafka sink to
+inherit that metadata.
 
 The channel also keeps the upstream delivery's raw form, captured with
 `Sink::prepare_from` when the upstream subscription prepares the value. The
