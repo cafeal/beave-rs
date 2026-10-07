@@ -49,7 +49,7 @@ Select the codec through the adapter's type parameters. The handler determines
 the input and output payload types:
 
 ```rust
-use beavers::{App, Json, StdinSource, StdoutSink};
+use beavers::{App, Json, Result, StdinSource, StdoutSink};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize)]
@@ -62,12 +62,12 @@ struct Event {
     order_id: u64,
 }
 
-async fn handler(order: Order) -> beavers::Result<Event> {
+async fn handler(order: Order) -> Result<Event> {
     Ok(Event { order_id: order.id })
 }
 
 #[tokio::main]
-async fn main() -> Result<(), beavers::Error> {
+async fn main() -> anyhow::Result<()> {
     App::new()
         .subscribe(
             "orders",
@@ -76,7 +76,8 @@ async fn main() -> Result<(), beavers::Error> {
             handler,
         )
         .run()
-        .await
+        .await?;
+    Ok(())
 }
 ```
 
@@ -113,8 +114,9 @@ reuse cloned decoded input. The runtime prepares all emitted outputs before
 publishing any; publish retries reuse the same prepared representation and do
 not rerun encoding.
 
-Codec errors return as `BoxError`, so an implementation can propagate any error type with `?`. Neither decode nor preparation
-failures are retried, because the same bytes or value would fail again. By
+Codec errors return as `BoxError`, so an implementation can propagate any error
+type with `?`. Neither decode nor preparation failures are retried, because the
+same bytes or value would fail again. By
 default both stop processing without ACK; the subscription's
 [error policy](runtime.md#error-policy) can instead dead-letter or discard them
 as `FailureKind::Decode` and `FailureKind::Encode`. An invalid JSON line is a

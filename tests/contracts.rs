@@ -182,13 +182,15 @@ async fn app_errors_report_invalid_configuration_and_the_failed_subscription() {
 }
 
 #[tokio::test]
-async fn handler_errors_accept_std_errors_strings_and_box_errors() {
+async fn handler_errors_accept_std_errors_strings_box_errors_and_anyhow() {
     async fn handle(text: String) -> Result<i32> {
         if text.is_empty() {
             return Err("empty input".into());
         }
         let boxed: StdResult<(), BoxError> = Ok(());
         boxed?;
+        let checked: anyhow::Result<()> = Ok(());
+        checked?;
         Ok(text.parse::<i32>()?)
     }
     let sink = InMemorySink::default();

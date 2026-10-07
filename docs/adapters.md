@@ -62,15 +62,15 @@ the typed value, and publication appends a clone. Values must implement
 Use it with IterSource to exercise a complete subscription:
 
 ```rust
-use beavers::{App, InMemorySink, IterSource};
+use beavers::{App, InMemorySink, IterSource, Result};
 use std::sync::atomic::Ordering;
 
-async fn double(value: u64) -> beavers::Result<u64> {
+async fn double(value: u64) -> Result<u64> {
     Ok(value * 2)
 }
 
 #[tokio::main]
-async fn main() -> Result<(), beavers::Error> {
+async fn main() -> anyhow::Result<()> {
     let source = IterSource::new([1, 2, 3]);
     let acknowledgements = source.acknowledgements();
     let sink = InMemorySink::default();
@@ -102,14 +102,14 @@ StdinSource reads newline-delimited input. `new()` uses a default-constructed
 `DeserializeOwned`.
 
 ```rust
-use beavers::{App, Json, StdinSource, StdoutSink};
+use beavers::{App, Json, Result, StdinSource, StdoutSink};
 
-async fn double(value: u64) -> beavers::Result<u64> {
+async fn double(value: u64) -> Result<u64> {
     Ok(value * 2)
 }
 
 #[tokio::main]
-async fn main() -> Result<(), beavers::Error> {
+async fn main() -> anyhow::Result<()> {
     App::new()
         .subscribe(
             "double",
@@ -118,7 +118,8 @@ async fn main() -> Result<(), beavers::Error> {
             double,
         )
         .run()
-        .await
+        .await?;
+    Ok(())
 }
 ```
 

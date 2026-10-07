@@ -19,7 +19,7 @@ beavers = { version = "0.1", features = ["http"] }
 
 ```rust,no_run
 use beavers::{
-    App, Json, StdoutSink,
+    App, Json, Result, StdoutSink,
     adapters::http::{HttpRecord, HttpSource, HttpSourceConfig},
 };
 use serde::{Deserialize, Serialize};
@@ -29,12 +29,12 @@ struct Order {
     id: u64,
 }
 
-async fn accept(record: HttpRecord<Order>) -> beavers::Result<Order> {
+async fn accept(record: HttpRecord<Order>) -> Result<Order> {
     Ok(record.body)
 }
 
 #[tokio::main]
-async fn main() -> Result<(), beavers::BoxError> {
+async fn main() -> anyhow::Result<()> {
     let source = HttpSource::<Json, Order>::new(HttpSourceConfig::new(
         "0.0.0.0:8080".parse()?,
     ))?;
@@ -210,7 +210,7 @@ use beavers::{
 
 async fn to_request(record: KafkaRecord<Order>) -> Result<HttpPublish<Order>> {
     let metadata = record.metadata().clone();
-    let order = record.value.ok_or("tombstone")?;
+    let order = record.value.ok_or_else(|| anyhow::anyhow!("tombstone"))?;
     // A stable key lets the service recognize a redelivered event.
     let key = format!("{}-{}-{}", metadata.topic, metadata.partition, metadata.offset);
     Ok(HttpPublish::new(order).with_header("idempotency-key", key))

@@ -12,14 +12,14 @@
 //! platforms implicitly. Set `KAFKA_BROKERS` and `PULSAR_URL` to use other
 //! brokers.
 use beavers::{
-    App, Error, Json, MapMetadata, Result, Subscription, Tombstones,
+    App, Json, MapMetadata, Result, Subscription, Tombstones,
     adapters::{
         kafka::{KafkaRecord, KafkaSource, KafkaSourceConfig},
         pulsar::{PulsarPublish, PulsarSink, PulsarSinkConfig},
     },
 };
 use serde::{Deserialize, Serialize};
-use std::{env, result::Result as StdResult};
+use std::env;
 
 const KAFKA_TOPIC: &str = "orders";
 const PULSAR_TOPIC: &str = "persistent://public/default/orders-from-kafka";
@@ -39,7 +39,7 @@ async fn republish(record: KafkaRecord<Order>) -> Result<PulsarPublish<Order>> {
     );
     let order = record
         .value
-        .ok_or("tombstones are skipped before the handler")?;
+        .ok_or_else(|| anyhow::anyhow!("tombstones are skipped before the handler"))?;
     Ok(PulsarPublish::new(order))
 }
 
@@ -63,7 +63,7 @@ fn map_metadata(
 }
 
 #[tokio::main]
-async fn main() -> StdResult<(), Error> {
+async fn main() -> anyhow::Result<()> {
     let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
     let service_url = env::var("PULSAR_URL").unwrap_or_else(|_| "pulsar://localhost:6650".into());
 
@@ -84,5 +84,6 @@ async fn main() -> StdResult<(), Error> {
             .middleware(MapMetadata::new(map_metadata)),
         )
         .run()
-        .await
+        .await?;
+    Ok(())
 }
