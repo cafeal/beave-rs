@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>beave-rs: typed message processing for Rust</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers, with at-least-once delivery for Kafka, Pulsar, RabbitMQ, SQS, and HTTP.">
+  <meta name="color-scheme" content="light dark">
+  <meta property="og:title" content="beave-rs">
+  <meta property="og:description" content="Let application code process events. Let beave-rs manage the flow.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>beave-rs</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#quick-start">Quick start</a>
+        <a href="#features">Features</a>
+        <a href="https://github.com/cafeal/beave-rs/blob/main/docs/README.md">Guides</a>
+        <a href="https://docs.rs/beavers">API</a>
+        <a class="nav-gh" href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="dot" aria-hidden="true"></span>Rust message processing framework</p>
+          <h1>Let application code process events.<br><span class="accent">Let beave-rs manage the flow.</span></h1>
+          <p class="lede">Write <code>async fn(Input) -&gt; Result&lt;Output&gt;</code>. Decoding, publishing, retries, and acknowledgement happen around it, with at-least-once delivery across Kafka, Pulsar, RabbitMQ, SQS, and HTTP.</p>
+          <div class="install" role="group" aria-label="Install command">
+            <span class="prompt" aria-hidden="true">$</span>
+            <code id="install-cmd">cargo add beavers --features kafka</code>
+            <button class="copy" type="button" data-copy="install-cmd" aria-label="Copy install command">Copy</button>
+          </div>
+          <div class="cta">
+            <a class="btn btn-primary" href="#quick-start">See the quick start</a>
+            <a class="btn" href="https://docs.rs/beavers">API reference</a>
+          </div>
+          <p class="note">Pre-release. The API may change until 0.1.0.</p>
+        </div>
+        <!-- Replace this figure with the project character artwork. -->
+        <figure class="mascot-slot" aria-label="Character artwork placeholder">
+          <div class="mascot-frame">
+            <span class="mascot-label">Character artwork</span>
+            <span class="mascot-hint">site/assets/character.svg</span>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <section class="band" id="quick-start">
+      <div class="wrap split">
+        <div class="split-copy">
+          <p class="kicker">Quick start</p>
+          <h2>One handler. One source. One sink.</h2>
+          <p>Summarize each article on a Kafka topic with an LLM and publish the summaries to another topic. The handler sees only the decoded value.</p>
+          <ul class="checks">
+            <li>A transient API failure is retried with backoff.</li>
+            <li>Each offset is committed after its summary is published.</li>
+            <li>Ctrl-C drains in-flight work before the app exits.</li>
+          </ul>
+        </div>
+        <div class="code-card">
+          <div class="code-head">
+            <span class="code-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="code-file">src/main.rs</span>
+          </div>
+<pre><code><span class="k">use</span> beavers::{
+    App, Classify, Result, Utf8,
+    adapters::kafka::{
+        <span class="t">KafkaSink</span>, <span class="t">KafkaSinkConfig</span>,
+        <span class="t">KafkaSource</span>, <span class="t">KafkaSourceConfig</span>,
+    },
+};
+
+<span class="k">async fn</span> <span class="f">summarize</span>(article: <span class="t">String</span>) -&gt; <span class="t">Result</span>&lt;<span class="t">String</span>&gt; {
+    <span class="k">let</span> prompt = <span class="m">format!</span>(<span class="s">"Summarize: {article}"</span>);
+    <span class="k">let</span> summary = <span class="f">call_llm</span>(&amp;prompt).<span class="k">await</span><span class="hl">.<span class="f">retry</span>()?</span>;
+    <span class="t">Ok</span>(summary)
+}
+
+<span class="a">#[tokio::main]</span>
+<span class="k">async fn</span> <span class="f">main</span>() -&gt; anyhow::<span class="t">Result</span>&lt;()&gt; {
+    <span class="k">let</span> articles = <span class="t">KafkaSource</span>::&lt;<span class="t">Utf8</span>, _&gt;::<span class="f">new</span>(<span class="t">KafkaSourceConfig</span>::<span class="f">new</span>(
+        <span class="s">"localhost:9092"</span>,
+        <span class="s">"summarizer"</span>,
+        [<span class="s">"articles"</span>],
+    ));
+    <span class="k">let</span> summaries = <span class="t">KafkaSink</span>::&lt;<span class="t">Utf8</span>, _&gt;::<span class="f">new</span>(<span class="t">KafkaSinkConfig</span>::<span class="f">new</span>(
+        <span class="s">"localhost:9092"</span>,
+        <span class="s">"summaries"</span>,
+    ));
+
+    <span class="t">App</span>::<span class="f">new</span>()
+        .<span class="f">subscribe</span>(<span class="s">"summarize"</span>, articles, summaries, summarize)
+        .<span class="f">run</span>()
+        .<span class="k">await</span>
+}</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="band band-alt">
+      <div class="wrap center">
+        <p class="kicker">How it fits together</p>
+        <h2>An app runs many subscriptions side by side</h2>
+        <p class="sub-lede">Each subscription connects one source, one handler, and one sink. The app starts them together and shuts them down together.</p>
+        <img class="diagram" src="overview.svg" width="760" height="330" alt="An App running three subscriptions: Kafka source to handler to Kafka sink, Pulsar source to handler to HTTP sink, and SQS source to handler to RabbitMQ sink">
+      </div>
+    </section>
+
+    <section class="band" id="features">
+      <div class="wrap">
+        <p class="kicker">Features</p>
+        <h2>The plumbing you would otherwise write by hand</h2>
+        <div class="grid">
+          <article class="card">
+            <h3>Typed handlers</h3>
+            <p>Plain async functions from input to output. Codecs decode the payload before your code runs and encode the result after.</p>
+          </article>
+          <article class="card">
+            <h3>At-least-once delivery</h3>
+            <p>An input is acknowledged only after its output is published. Nothing is committed on the way in.</p>
+          </article>
+          <article class="card">
+            <h3>Explicit failures</h3>
+            <p>Classify each error as retry, reject, or fatal at the call site. Retries back off; rejects go to the dead-letter destination.</p>
+          </article>
+          <article class="card">
+            <h3>Concurrency with ordering</h3>
+            <p>Bounded concurrency, per-key ordering, and a worker pool for blocking handlers.</p>
+          </article>
+          <article class="card">
+            <h3>Pipelines</h3>
+            <p>Chain subscriptions through in-process channels. The upstream record is acknowledged when the last stage finishes.</p>
+          </article>
+          <article class="card">
+            <h3>Operations</h3>
+            <p>Graceful shutdown, <code>tracing</code> spans, <code>metrics</code>, OpenTelemetry trace propagation, and <code>/livez</code> and <code>/readyz</code> probes.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="band band-alt">
+      <div class="wrap split split-rev">
+        <div class="split-copy">
+          <p class="kicker">Errors</p>
+          <h2>Say what a failure means, where it happens</h2>
+          <p>The runtime cannot tell a transient failure from a bad input. The handler can, so it decides with one call.</p>
+          <dl class="outcomes">
+            <div><dt><span class="pill pill-retry">.retry()?</span></dt><dd>Run again under the retry policy, then dead-letter.</dd></div>
+            <div><dt><span class="pill pill-reject">.reject()?</span></dt><dd>Dead-letter now. Plain <code>?</code> does the same.</dd></div>
+            <div><dt><span class="pill pill-fatal">.fatal()?</span></dt><dd>Stop the subscription.</dd></div>
+          </dl>
+        </div>
+        <div class="code-card">
+          <div class="code-head">
+            <span class="code-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="code-file">src/orders.rs</span>
+          </div>
+<pre><code><span class="k">use</span> beavers::{Classify, <span class="t">Result</span>};
+
+<span class="k">async fn</span> <span class="f">handle</span>(order: <span class="t">Order</span>) -&gt; <span class="t">Result</span>&lt;<span class="t">Output</span>&gt; {
+    <span class="c">// invalid input: dead-letter now</span>
+    <span class="f">validate</span>(&amp;order)<span class="hl">.<span class="f">reject</span>()?</span>;
+
+    <span class="c">// transient: retry, then dead-letter</span>
+    <span class="k">let</span> user = db
+        .<span class="f">find_user</span>(order.user_id)
+        .<span class="k">await</span>
+        <span class="hl">.<span class="f">retry</span>()?</span>;
+
+    <span class="t">Ok</span>(<span class="f">build_output</span>(order, user))
+}</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="band">
+      <div class="wrap">
+        <p class="kicker">Adapters and codecs</p>
+        <h2>Pick the features your application uses</h2>
+        <p class="sub-lede left">No Cargo feature is enabled by default.</p>
+        <div class="chips">
+          <div class="chip"><b>Kafka</b><code>kafka</code></div>
+          <div class="chip"><b>Apache Pulsar</b><code>pulsar</code></div>
+          <div class="chip"><b>RabbitMQ</b><code>rabbitmq</code></div>
+          <div class="chip"><b>Amazon SQS</b><code>sqs</code></div>
+          <div class="chip"><b>HTTP</b><code>http</code></div>
+          <div class="chip chip-muted"><b>JSON</b><code>built in</code></div>
+          <div class="chip chip-muted"><b>Avro</b><code>avro</code></div>
+          <div class="chip chip-muted"><b>Protobuf</b><code>protobuf</code></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="closing">
+      <div class="wrap center">
+        <h2>Start with one subscription</h2>
+        <p class="sub-lede">Run the examples against local brokers with Docker Compose, or try the API without a broker.</p>
+        <div class="install install-center" role="group" aria-label="Example command">
+          <span class="prompt" aria-hidden="true">$</span>
+          <code id="example-cmd">cargo run --example transform</code>
+          <button class="copy" type="button" data-copy="example-cmd" aria-label="Copy example command">Copy</button>
+        </div>
+        <div class="cta cta-center">
+          <a class="btn btn-primary" href="https://github.com/cafeal/beave-rs">View on GitHub</a>
+          <a class="btn" href="https://github.com/cafeal/beave-rs/blob/main/docs/README.md">Read the guides</a>
+          <a class="btn" href="https://crates.io/crates/beavers">crates.io</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <span>beave-rs · published as <code>beavers</code> · MIT license</span>
+      <span class="footer-links">
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+      </span>
+    </div>
+  </footer>
+
+  <script>
+    for (const button of document.querySelectorAll("button[data-copy]")) {
+      button.addEventListener("click", async () => {
+        const text = document.getElementById(button.dataset.copy).textContent;
+        try {
+          await navigator.clipboard.writeText(text);
+          button.textContent = "Copied";
+          setTimeout(() => { button.textContent = "Copy"; }, 1500);
+        } catch {
+          button.textContent = "Select";
+        }
+      });
+    }
+  </script>
+</body>
+</html>

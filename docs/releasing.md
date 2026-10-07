@@ -84,3 +84,22 @@ published crate.
 
 A published version cannot be replaced. If a release is broken, yank it with
 `cargo yank --version X.Y.Z` and publish a fixed patch release.
+
+## Project website
+
+The landing page in `site/` is a static HTML and CSS page with no build step.
+The `Pages` workflow copies it together with `docs/assets/overview.svg` and
+deploys it to GitHub Pages on every push to `main` that touches those files;
+pull requests only build the artifact. The repository's Pages source must be
+set to GitHub Actions.
+
+Preview the page locally by copying the diagram next to it and serving the
+directory:
+
+```sh
+cp docs/assets/overview.svg site/
+python3 -m http.server -d site
+```
+
+The character artwork slot in the hero section is a placeholder; replace the
+`mascot-slot` figure in `site/index.html` with the artwork when it exists.
