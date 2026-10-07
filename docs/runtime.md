@@ -666,6 +666,23 @@ One subscription ending normally does not stop the others. `App::run()` returns
 success after all subscriptions finish. A failure requests shutdown across the
 application, which ultimately returns an error.
 
+`App::exit_delay(Duration)` holds that error after every subscription has
+finished and before `run` or `run_until` returns it. During the delay the
+[health server](#health-checks) keeps answering, with `/livez` reporting
+`503`, and the process keeps serving its metrics exporter, so liveness probes
+and a final scrape observe the failure before the process exits. The delay
+defaults to zero, applies only to a failure, and ends early when `App::run`
+receives SIGINT or SIGTERM:
+
+```rust,ignore
+App::new()
+    .subscription(subscription)
+    .health_server(server)
+    .exit_delay(Duration::from_secs(30))
+    .run()
+    .await?;
+```
+
 SIGINT / SIGTERM or `App::run_until(CancellationToken)` stops new receives and
 starts draining running jobs. Deliveries still queued behind an ordering key are
 dropped without ACK. After `Receive::End`, queued deliveries still run. A source whose
@@ -952,7 +969,8 @@ report as a JSON body. Other paths answer `404 Not Found` and other methods
 `405 Method Not Allowed`. `HealthServer::bind` binds the listener immediately,
 so address errors surface before the application runs and `local_addr`
 reports the port chosen for port 0. The server starts with the application and
-stops after every subscription has finished. Readiness therefore turns `503`
+stops after every subscription has finished and, after a failure, the
+[exit delay](#end-of-input-and-shutdown) has elapsed. Readiness therefore turns `503`
 as soon as shutdown starts, which removes an instance serving an
 [HTTP source](adapters/http.md) from a Kubernetes Service while it drains,
 and liveness keeps answering until draining completes. Use the readiness probe

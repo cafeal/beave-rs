@@ -170,10 +170,7 @@ async fn ended_source_keeps_the_application_ready() {
 #[tokio::test]
 async fn failed_subscription_is_not_live() {
     let (subscription, input) = scripted("orders", Switch::default());
-    let app = App::new().subscription(subscription.receive_retry(RetryPolicy {
-        max_attempts: 1,
-        ..RetryPolicy::default()
-    }));
+    let app = App::new().subscription(fail_once(subscription));
     let health = app.health();
     let running = run(app, &CancellationToken::new());
 
@@ -182,6 +179,46 @@ async fn failed_subscription_is_not_live() {
     let report = health.report();
     assert!(!report.live && !report.ready && report.shutting_down);
     assert_eq!(report.subscriptions[0].status, SubscriptionStatus::Failed);
+}
+
+fn fail_once(
+    subscription: Subscription<Scripted, Switch, i32>,
+) -> Subscription<Scripted, Switch, i32> {
+    subscription.receive_retry(RetryPolicy {
+        max_attempts: 1,
+        ..RetryPolicy::default()
+    })
+}
+
+#[tokio::test(start_paused = true)]
+async fn exit_delay_holds_a_failure_before_returning() {
+    let (subscription, input) = scripted("orders", Switch::default());
+    let app = App::new()
+        .subscription(fail_once(subscription))
+        .exit_delay(Duration::from_secs(30));
+    let health = app.health();
+    let started = tokio::time::Instant::now();
+    let running = run(app, &CancellationToken::new());
+
+    input.send(None).unwrap();
+    eventually(&health, |health| !health.is_live()).await;
+    assert!(!running.is_finished());
+    assert!(running.await.unwrap().is_err());
+    assert!(started.elapsed() >= Duration::from_secs(30));
+}
+
+#[tokio::test(start_paused = true)]
+async fn exit_delay_does_not_hold_a_clean_stop() {
+    let (subscription, input) = scripted("orders", Switch::default());
+    let app = App::new()
+        .subscription(subscription)
+        .exit_delay(Duration::from_secs(30));
+    let started = tokio::time::Instant::now();
+    let running = run(app, &CancellationToken::new());
+
+    drop(input);
+    running.await.unwrap().unwrap();
+    assert!(started.elapsed() < Duration::from_secs(30));
 }
 
 #[tokio::test]
@@ -279,6 +316,27 @@ mod server {
             TcpStream::connect(addr).await.is_err(),
             "the server stops with the application"
         );
+    }
+
+    #[tokio::test]
+    async fn liveness_fails_during_the_exit_delay() {
+        let server = server();
+        let addr = server.local_addr();
+        let (subscription, input) = scripted("orders", Switch::default());
+        let app = App::new()
+            .subscription(fail_once(subscription))
+            .health_server(server)
+            .exit_delay(Duration::from_secs(60));
+        let health = app.health();
+        let running = run(app, &CancellationToken::new());
+
+        input.send(None).unwrap();
+        eventually(&health, |health| !health.is_live()).await;
+        let (status, body) = request(addr, "GET", "/livez").await;
+        assert_eq!(status, 503);
+        assert!(body.contains(r#""status":"failed""#), "{body}");
+        assert!(!running.is_finished(), "the delay holds the failure");
+        running.abort();
     }
 
     #[tokio::test]

@@ -136,7 +136,7 @@ optional = true
 metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
 opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "testing"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
-tokio = { version = "1", features = ["net"] }
+tokio = { version = "1", features = ["net", "test-util"] }
 
 [[example]]
 name = "kafka_orders"
