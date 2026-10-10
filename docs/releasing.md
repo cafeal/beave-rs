@@ -88,10 +88,16 @@ A published version cannot be replaced. If a release is broken, yank it with
 ## Project website
 
 The landing page in `site/` is a static HTML and CSS page with no build step.
-The `Pages` workflow copies it together with `docs/assets/overview.svg` and
-deploys it to GitHub Pages on every push to `main` that touches those files;
-pull requests only build the artifact. The repository's Pages source must be
-set to GitHub Actions.
+The `Pages` workflow copies it together with `docs/assets/overview.svg` to the
+`gh-pages` branch on every push to `main` that touches those files. GitHub Pages
+serves that branch, so the repository's Pages source must be set to deploy from
+the `gh-pages` branch root.
+
+A pull request that changes the site gets a preview under
+`pr-preview/pr-<number>/` on the same branch. The workflow comments the preview
+URL on the pull request and removes the preview when the pull request closes.
+Pull requests from forks are not previewed because their workflows cannot push
+to the repository.
 
 Preview the page locally by copying the diagram next to it and serving the
 directory:

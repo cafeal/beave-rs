@@ -8,45 +8,48 @@ on:
       - docs/assets/overview.svg
       - .github/workflows/pages.yml
   pull_request:
+    types: [opened, reopened, synchronize, closed]
     paths:
       - site/**
       - docs/assets/overview.svg
       - .github/workflows/pages.yml
   workflow_dispatch:
 
-permissions:
-  contents: read
-
+# Deployments and previews all push to the gh-pages branch, so they run one at a time.
 concurrency:
-  group: pages-${{ github.ref }}
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build site
+  deploy:
+    name: Deploy site
+    # Pull requests from forks cannot push to gh-pages.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - name: Assemble site
+        if: github.event.action != 'closed'
         run: |
           mkdir _site
           cp -R site/. _site/
           cp docs/assets/overview.svg _site/overview.svg
-      - uses: actions/upload-pages-artifact@v3
+          touch _site/.nojekyll
+      - name: Publish main site
+        if: github.event_name != 'pull_request'
+        uses: JamesIves/github-pages-deploy-action@v4
         with:
-          path: _site
-
-  deploy:
-    name: Deploy
-    if: github.event_name != 'pull_request'
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          folder: _site
+          branch: gh-pages
+          clean-exclude: pr-preview/
+          force: false
+      - name: Publish pull request preview
+        if: github.event_name == 'pull_request'
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: _site
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
