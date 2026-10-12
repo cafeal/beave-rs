@@ -285,6 +285,12 @@ Trace-context propagation and the
 [Prometheus export path](runtime.md#exporting-metrics-to-opentelemetry) have not
 been verified against live brokers or an OpenTelemetry Collector.
 
+The [monitoring and alerting guide](monitoring-and-alerting/README.md) has not
+been verified against live cloud accounts. In particular, check the CloudWatch
+dimension sets produced by the `awsemf` exporter, the `job` label that the
+Azure Monitor `PodMonitor` assigns, and the `customMetrics` values that the
+`azuremonitor` exporter writes after `cumulativetodelta`.
+
 ## Testing utilities
 
 The `testing` feature is described in the [testing guide](testing.md).
