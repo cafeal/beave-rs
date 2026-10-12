@@ -449,12 +449,14 @@ the jobs each subscription submits.
 
 ## Errors and retries
 
-`beavers::Result<T>` uses `HandlerError`. Ordinary errors propagated with `?`
-become `Reject`: the handler is not retried, and the input is dead-lettered by
-default. The runtime cannot tell a transient failure from a deterministic one,
-so the handler requests other outcomes at the call site with the `Classify`
-extension trait. `.reject()?` states the default explicitly, `.retry()?` reruns
-the handler under its retry policy and dead-letters the input once that is
+`beavers::Result<T>` uses `HandlerError`, whose variants hold a `BoxError`.
+Ordinary errors propagated with `?`, from any `std::error::Error + Send + Sync`
+type, `String`, `&str`, or `anyhow::Error`, become `Reject`: the handler is not
+retried, and the input is dead-lettered by default. The runtime cannot tell a
+transient failure from a deterministic one, so the handler requests other
+outcomes at the call site with the `Classify` extension trait. `.reject()?`
+states the default explicitly, `.retry()?` reruns the handler under its retry
+policy and dead-letters the input once that is
 exhausted; `.fatal()?` stops the subscription:
 
 ```rust,ignore
@@ -617,7 +619,7 @@ let source = KafkaSource::<Json, Order>::new(KafkaSourceConfig::new(
 Subscription::new("orders-redrive", source, sink, |record: KafkaRecord<Order>| async move {
     let dead_letter = KafkaDeadLetter::from_record(&record).reject()?;
     if dead_letter.is_some_and(|dead| dead.details.count >= 3) {
-        return Err(HandlerError::Fatal(anyhow::anyhow!("dead-lettered too often")));
+        return Err(HandlerError::Fatal("dead-lettered too often".into()));
     }
     handle(record).await
 })
@@ -766,49 +768,11 @@ transaction and cover the whole batch.
 
 beavers sends no notifications itself. Alert on the metrics with a monitoring
 system and let it route alerts, since per-message notifications flood a channel
-when many deliveries fail at once. Example Prometheus rules:
-
-```yaml
-groups:
-  - name: beavers
-    rules:
-      - alert: BeaversDeadLetters
-        expr: sum by (subscription) (increase(beavers_delivery_failures_total{action="dead_letter"}[10m])) > 0
-        labels:
-          severity: warning
-        annotations:
-          summary: "{{ $labels.subscription }} dead-lettered {{ $value }} deliveries in 10 minutes"
-      - alert: BeaversDecodeFailureRatio
-        expr: |
-          sum by (subscription) (rate(beavers_delivery_failures_total{failure="decode"}[5m]))
-            / sum by (subscription) (rate(beavers_deliveries_received_total[5m])) > 0.01
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "{{ $labels.subscription }} cannot decode over 1% of its input; check producers and schemas"
-      - alert: BeaversDeadLetterPublishFailing
-        expr: sum by (subscription) (increase(beavers_publish_failures_total{sink="dead_letter"}[5m])) > 0
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "{{ $labels.subscription }} cannot publish dead letters"
-      - alert: BeaversStoppedOnFailure
-        expr: sum by (subscription) (increase(beavers_delivery_failures_total{action="stop"}[15m])) > 0
-        labels:
-          severity: critical
-        annotations:
-          summary: "{{ $labels.subscription }} stopped on an unroutable failure"
-```
-
-A typical routing sends `warning` alerts to the owning team's channel and
-`critical` alerts to on-call paging, because a stopped subscription or a
-failing dead-letter sink stops consumption, while dead letters only need
-investigation. A failed subscription also makes the
-[liveness probe](#health-checks) fail. How many dead letters remain unhandled
-is a property of the dead-letter topic; measure it with the broker's own
-metrics, such as the consumer lag of a reprocessing subscription.
+when many deliveries fail at once. The
+[monitoring and alerting guide](monitoring-and-alerting/README.md) lists the
+signals worth alerting on, PromQL alert rules, and configurations for
+Kubernetes, AWS, Google Cloud, and Azure. A failed subscription also makes the
+[liveness probe](#health-checks) fail.
 
 ### Exporting metrics to OpenTelemetry
 

@@ -2,6 +2,7 @@
 //! null, which compacted topics and change-data-capture streams use to delete
 //! a key.
 use crate::{
+    error::Error,
     handler::{Emit, HandlerError, Result},
     middleware::{Flow, Middleware},
 };
@@ -70,9 +71,9 @@ where
             return Ok(Flow::Continue(input));
         }
         match self.policy {
-            Policy::Reject => Err(HandlerError::Reject(anyhow::anyhow!(
-                "tombstone rejected before the handler"
-            ))),
+            Policy::Reject => Err(HandlerError::Reject(
+                Error::invalid_record("tombstone rejected before the handler").into(),
+            )),
             Policy::Skip => Ok(Flow::Intercept(Emit::None)),
         }
     }

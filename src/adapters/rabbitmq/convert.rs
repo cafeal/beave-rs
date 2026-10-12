@@ -1,6 +1,6 @@
 //! Conversions between the adapter's record fields and AMQP protocol types.
 use super::record::{RabbitMqHeaders, RabbitMqProperties, RabbitMqValue};
-use anyhow::Context as _;
+use crate::error::{BoxError, Context, Error};
 use lapin::{
     BasicProperties,
     types::{AMQPValue, ByteArray, DecimalValue, FieldArray, FieldTable, ShortString},
@@ -9,8 +9,8 @@ use lapin::{
 /// Delivery mode of a message the broker writes to disk in durable queues.
 const PERSISTENT: u8 = 2;
 
-pub(super) fn short_string(what: &str, value: &str) -> anyhow::Result<ShortString> {
-    ShortString::try_new(value).with_context(|| format!("RabbitMQ {what} is too long"))
+pub(super) fn short_string(what: &str, value: &str) -> Result<ShortString, Error> {
+    ShortString::try_new(value).map_err(|_| Error::config(format!("RabbitMQ {what} is too long")))
 }
 
 pub(super) fn value_from_amqp(value: &AMQPValue) -> RabbitMqValue {
@@ -44,7 +44,7 @@ pub(super) fn value_from_amqp(value: &AMQPValue) -> RabbitMqValue {
     }
 }
 
-fn value_to_amqp(value: &RabbitMqValue) -> anyhow::Result<AMQPValue> {
+fn value_to_amqp(value: &RabbitMqValue) -> Result<AMQPValue, BoxError> {
     Ok(match value {
         RabbitMqValue::Void => AMQPValue::Void,
         RabbitMqValue::Bool(value) => AMQPValue::Boolean(*value),
@@ -68,7 +68,7 @@ fn value_to_amqp(value: &RabbitMqValue) -> anyhow::Result<AMQPValue> {
             values
                 .iter()
                 .map(value_to_amqp)
-                .collect::<anyhow::Result<Vec<_>>>()?,
+                .collect::<Result<Vec<_>, BoxError>>()?,
         )),
         RabbitMqValue::Table(table) => AMQPValue::FieldTable(headers_to_amqp(table)?),
     })
@@ -86,7 +86,7 @@ pub(super) fn headers_from_amqp(table: Option<&FieldTable>) -> RabbitMqHeaders {
         .unwrap_or_default()
 }
 
-pub(super) fn headers_to_amqp(headers: &RabbitMqHeaders) -> anyhow::Result<FieldTable> {
+pub(super) fn headers_to_amqp(headers: &RabbitMqHeaders) -> Result<FieldTable, BoxError> {
     let mut table = FieldTable::default();
     for (name, value) in headers {
         let value = value_to_amqp(value).with_context(|| format!("RabbitMQ header {name:?}"))?;
@@ -121,7 +121,7 @@ pub(super) fn properties_to_amqp(
     properties: &RabbitMqProperties,
     headers: &RabbitMqHeaders,
     persistent: bool,
-) -> anyhow::Result<BasicProperties> {
+) -> Result<BasicProperties, BoxError> {
     let mut amqp = BasicProperties::default();
     let text = |name: &str, value: &Option<String>| {
         value

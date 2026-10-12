@@ -119,7 +119,8 @@ async fn main() -> anyhow::Result<()> {
             double,
         )
         .run()
-        .await
+        .await?;
+    Ok(())
 }
 ```
 

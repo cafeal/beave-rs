@@ -1,6 +1,6 @@
 use beavers::{
-    App, CancellationToken, Delivery, Health, Receive, ReceiveError, RetryPolicy, Sink, Source,
-    Subscription, health::SubscriptionStatus,
+    App, BoxError, CancellationToken, Delivery, Error, Health, Receive, ReceiveError, RetryPolicy,
+    Sink, Source, Subscription, health::SubscriptionStatus,
 };
 use std::{
     sync::{
@@ -25,7 +25,7 @@ impl Source for Scripted {
     async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
         match self.0.recv().await {
             Some(Some(value)) => Ok(Receive::Message(Delivery::untracked(value))),
-            Some(None) => Err(ReceiveError::Retry(anyhow::anyhow!("broker unavailable"))),
+            Some(None) => Err(ReceiveError::Retry(BoxError::from("broker unavailable"))),
             None => Ok(Receive::End),
         }
     }
@@ -40,12 +40,14 @@ struct Switch {
 impl Sink<i32> for Switch {
     type Prepared = i32;
 
-    fn prepare(&self, value: i32) -> anyhow::Result<i32> {
+    fn prepare(&self, value: i32) -> Result<i32, BoxError> {
         Ok(value)
     }
 
-    async fn publish(&self, _: &i32) -> anyhow::Result<()> {
-        anyhow::ensure!(!self.down.load(Ordering::SeqCst), "sink unavailable");
+    async fn publish(&self, _: &i32) -> Result<(), BoxError> {
+        if !(!self.down.load(Ordering::SeqCst)) {
+            return Err("sink unavailable".into());
+        };
         Ok(())
     }
 }
@@ -83,7 +85,7 @@ fn scripted(
     (subscription, sender)
 }
 
-fn run(app: App, shutdown: &CancellationToken) -> JoinHandle<anyhow::Result<()>> {
+fn run(app: App, shutdown: &CancellationToken) -> JoinHandle<Result<(), Error>> {
     tokio::spawn(app.run_until(shutdown.clone()))
 }
 

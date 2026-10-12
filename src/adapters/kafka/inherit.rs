@@ -1,6 +1,7 @@
 use super::record::{KafkaPublish, KafkaRecord};
 use crate::{
     dead_letter::DEAD_LETTER_HEADER_PREFIX,
+    error::Error,
     forward::{SamePlatform, ValueRecord},
     handler::{HandlerError, Result},
     middleware::Middleware,
@@ -88,9 +89,9 @@ impl<T: Clone + Send + Sync + 'static> ValueRecord for KafkaRecord<T> {
     /// A Kafka null value is rejected; register `Tombstones` to choose
     /// another policy before the handler runs.
     fn value(&self) -> Result<T> {
-        self.value
-            .clone()
-            .ok_or_else(|| HandlerError::Reject(anyhow::anyhow!("Kafka record has a null value")))
+        self.value.clone().ok_or_else(|| {
+            HandlerError::Reject(Error::invalid_record("Kafka record has a null value").into())
+        })
     }
 }
 

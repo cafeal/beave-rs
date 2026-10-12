@@ -81,7 +81,8 @@ async fn main() -> anyhow::Result<()> {
     App::new()
         .subscribe("summarize", articles, summaries, summarize)
         .run()
-        .await
+        .await?;
+    Ok(())
 }
 ```
 

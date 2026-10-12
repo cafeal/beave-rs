@@ -1,4 +1,5 @@
 //! Bound on outputs a broker sink has submitted and not yet seen confirmed.
+use crate::error::{BoxError, Error, ensure};
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -20,9 +21,10 @@ impl PendingLimit {
     }
 
     /// Checks a configured `max_pending` without creating a limit.
-    pub(crate) fn validate(max_pending: usize, broker: &str) -> anyhow::Result<()> {
-        anyhow::ensure!(
+    pub(crate) fn validate(max_pending: usize, broker: &str) -> Result<(), Error> {
+        ensure!(
             (1..=Semaphore::MAX_PERMITS).contains(&max_pending),
+            Error::config,
             "{broker} sink max_pending must be between 1 and {}",
             Semaphore::MAX_PERMITS
         );
@@ -31,12 +33,12 @@ impl PendingLimit {
 
     /// Waits for a free slot, held until the returned permit is dropped. Fails
     /// once the limit is closed.
-    pub(crate) async fn acquire(&self) -> anyhow::Result<OwnedSemaphorePermit> {
+    pub(crate) async fn acquire(&self) -> Result<OwnedSemaphorePermit, BoxError> {
         self.permits
             .clone()
             .acquire_owned()
             .await
-            .map_err(|_| anyhow::anyhow!("{} sink is closed", self.broker))
+            .map_err(|_| Error::closed(format!("{} sink is closed", self.broker)).into())
     }
 
     /// Fails every current and later `acquire`.

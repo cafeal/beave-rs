@@ -15,6 +15,7 @@ src/
 ├── message.rs             # SourceMessage and Delivery ownership
 ├── sink.rs                # Prepare, publish, and close contracts
 ├── handler.rs             # Handler, Emit, HandlerError, and Result
+├── error.rs               # Error reported by the crate and BoxError
 ├── blocking.rs            # Synchronous handlers on a bounded worker pool
 ├── error_policy.rs        # FailureKind, FailureAction, and ErrorPolicy
 ├── dead_letter.rs         # DeadLetter envelope
@@ -67,6 +68,25 @@ The scheduler and per-message processing implementation remain private.
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
 | `Decoder<T>` / `Encoder<T>` | Convert serialization formats without broker operations |
 | `Sink<T>` | Prepare an associated output representation, submit or publish it, report its completion, and close resources |
+
+### Errors
+
+Operations the crate performs return `beavers::Error`: `App::run` and
+`run_until`, configuration `validate` methods, adapter and codec constructors
+such as `HttpSource::new` and `Avro::new`, `ChannelSender::send`, and
+dead-letter parsing such as `KafkaDeadLetter::from_record`. Its variants
+distinguish invalid configuration (`Config`), malformed records
+(`InvalidRecord`), closed handles (`Closed`), drain and close deadlines
+(`Timeout`), other failed operations (`Failed`), and a stopped subscription
+(`Subscription`), which carries the subscription's name and the cause.
+`Display` describes one level; `{:#}` and `Debug` include every cause.
+
+Traits an application implements, `Decoder`, `Encoder`, `Source`,
+`SourceMessage`, `Sink`, and `TransactionalSink`, return `BoxError`, a boxed
+`std::error::Error + Send + Sync`. An implementation propagates any error type
+with `?`, including `beavers::Error`, `String`, and `&str`, and the runtime adds
+context as the error moves up. Handlers return `HandlerError`, whose variants
+hold a `BoxError`; see [errors and retries](runtime.md#errors-and-retries).
 
 ### Source and message ownership
 

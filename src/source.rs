@@ -1,4 +1,5 @@
 //! Receive lifecycle and source resource ownership.
+use crate::error::BoxError;
 use crate::message::SourceMessage;
 use std::future::Future;
 
@@ -22,9 +23,9 @@ pub enum Receive<M> {
 pub enum ReceiveError {
     /// A transient failure. The subscription calls `receive` again after the receive retry
     /// delay and fails once the receive retry attempts are exhausted.
-    Retry(anyhow::Error),
+    Retry(BoxError),
     /// An unrecoverable failure that stops the subscription.
-    Fatal(anyhow::Error),
+    Fatal(BoxError),
 }
 
 /// `receive` must be cancellation-safe: dropping it must not silently lose a delivery.
@@ -49,7 +50,7 @@ pub trait Source: Send + 'static {
     /// received still complete, and `close` follows after draining.
     fn stop_receiving(&mut self) {}
     /// Release the source's resources after every received delivery has finished.
-    fn close(&mut self) -> impl Future<Output = anyhow::Result<()>> + Send {
+    fn close(&mut self) -> impl Future<Output = Result<(), BoxError>> + Send {
         async { Ok(()) }
     }
 }

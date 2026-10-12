@@ -5,6 +5,7 @@ use super::{
 };
 use crate::{
     codec::Decoder,
+    error::{BoxError, Error},
     message::{OrderingKey, SourceMessage},
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
@@ -62,7 +63,7 @@ impl<C, T> KafkaSource<C, T> {
         }
     }
 
-    fn connect(&mut self) -> anyhow::Result<()> {
+    fn connect(&mut self) -> Result<(), BoxError> {
         self.config.validate()?;
         let mut config = ClientConfig::new();
         for (key, value) in &self.config.properties {
@@ -131,7 +132,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for KafkaSource<C, 
         }
     }
 
-    async fn close(&mut self) -> anyhow::Result<()> {
+    async fn close(&mut self) -> Result<(), BoxError> {
         self.closed = true;
         {
             let _transactions = self.transactions.lock().unwrap();
@@ -190,7 +191,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for KafkaMes
     type Item = KafkaRecord<T>;
     type Raw = KafkaRecord<Vec<u8>>;
 
-    fn decode(&self) -> anyhow::Result<Self::Item> {
+    fn decode(&self) -> Result<Self::Item, BoxError> {
         self.record(|bytes| self.codec.decode(bytes))
     }
 
@@ -199,12 +200,12 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for KafkaMes
         record
     }
 
-    async fn ack(self) -> anyhow::Result<()> {
+    async fn ack(self) -> Result<(), BoxError> {
         let _commit = self.commit_gate.lock().await;
         let key = (self.raw.topic().to_owned(), self.raw.partition());
         if self.consumer.assignment_lost() {
             self.progress.lock().unwrap().revoke_all();
-            anyhow::bail!("Kafka assignment was lost");
+            return Err(Error::msg("Kafka assignment was lost").into());
         }
         let next =
             self.progress
@@ -221,7 +222,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for KafkaMes
             let mut offsets = TopicPartitionList::new();
             offsets.add_partition_offset(&commit_key.0, commit_key.1, Offset::Offset(next))?;
             consumer.commit(&offsets, CommitMode::Sync)?;
-            anyhow::Ok(())
+            Ok::<_, BoxError>(())
         })
         .await??;
 

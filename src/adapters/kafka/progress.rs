@@ -1,3 +1,4 @@
+use crate::error::{BoxError, Error, ensure};
 use crate::shutdown::CancellationToken;
 use rdkafka::{
     ClientContext,
@@ -81,17 +82,18 @@ impl Progress {
         generation: u64,
         key: &Partition,
         offset: i64,
-    ) -> anyhow::Result<Option<i64>> {
+    ) -> Result<Option<i64>, BoxError> {
         let partition = self
             .active
             .get_mut(key)
-            .ok_or_else(|| anyhow::anyhow!("Kafka delivery belongs to a revoked assignment"))?;
-        anyhow::ensure!(
+            .ok_or_else(|| Error::msg("Kafka delivery belongs to a revoked assignment"))?;
+        ensure!(
             partition.generation == generation,
+            Error::msg,
             "Kafka delivery belongs to an expired assignment"
         );
         let Some(next) = partition.next else {
-            anyhow::bail!("Kafka partition has no registered delivery");
+            return Err(Error::msg("Kafka partition has no registered delivery").into());
         };
         if offset < next {
             return Ok(None);
@@ -99,7 +101,7 @@ impl Progress {
         let done = partition
             .received
             .get_mut(&offset)
-            .ok_or_else(|| anyhow::anyhow!("Kafka offset was never registered"))?;
+            .ok_or_else(|| Error::msg("Kafka offset was never registered"))?;
         *done = true;
         // Kafka delivers a partition's records in offset order, so an offset
         // between two registered offsets was never delivered (for example, it

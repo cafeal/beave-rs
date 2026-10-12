@@ -1,6 +1,7 @@
 use super::record::{PulsarPublish, PulsarRecord};
 use crate::{
     dead_letter::DEAD_LETTER_HEADER_PREFIX,
+    error::Error,
     forward::{SamePlatform, ValueRecord},
     handler::{HandlerError, Result},
     middleware::Middleware,
@@ -96,9 +97,9 @@ impl<T: Clone + Send + Sync + 'static> ValueRecord for PulsarRecord<T> {
     /// A null value is rejected; register `Tombstones` to choose another
     /// policy before the handler runs.
     fn value(&self) -> Result<T> {
-        self.value
-            .clone()
-            .ok_or_else(|| HandlerError::Reject(anyhow::anyhow!("Pulsar record has a null value")))
+        self.value.clone().ok_or_else(|| {
+            HandlerError::Reject(Error::invalid_record("Pulsar record has a null value").into())
+        })
     }
 }
 

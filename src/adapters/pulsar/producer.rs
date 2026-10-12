@@ -4,6 +4,7 @@ use super::{
     resend::Resender,
     sink::PulsarPrepared,
 };
+use crate::error::BoxError;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use magnetar::{
     PulsarClient, java_string_hash,
@@ -30,7 +31,7 @@ pub(super) struct Partition {
 }
 
 impl Producers {
-    pub(super) async fn connect(config: &PulsarSinkConfig) -> anyhow::Result<Self> {
+    pub(super) async fn connect(config: &PulsarSinkConfig) -> Result<Self, BoxError> {
         config.validate()?;
         let client = connect(&config.service_url, config.authentication.as_ref()).await?;
         let mut partitions = Vec::new();
@@ -64,7 +65,7 @@ impl Producers {
         &self.partitions[index]
     }
 
-    pub(super) async fn close(self) -> anyhow::Result<()> {
+    pub(super) async fn close(self) -> Result<(), BoxError> {
         let mut result = Ok(());
         for Partition { producer, resender } in self.partitions {
             drop(resender);
@@ -84,7 +85,7 @@ impl Partition {
     pub(super) fn enqueue(
         &self,
         output: &PulsarPrepared,
-    ) -> impl Future<Output = anyhow::Result<()>> + Send + 'static {
+    ) -> impl Future<Output = Result<(), BoxError>> + Send + 'static {
         self.resender.send(outgoing(output))
     }
 }
