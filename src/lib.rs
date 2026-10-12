@@ -77,6 +77,7 @@
 //! | `pulsar` | Apache Pulsar source and sink in `adapters::pulsar` |
 //! | `rabbitmq` | RabbitMQ source and sink in `adapters::rabbitmq` |
 //! | `sqs` | Amazon SQS source and sink in `adapters::sqs` |
+//! | `pubsub` | Google Cloud Pub/Sub source and sink in `adapters::pubsub` |
 //! | `http` | HTTP source and sink in `adapters::http` |
 //! | `avro` | The `Avro` codec |
 //! | `protobuf` | The `Protobuf` codec |

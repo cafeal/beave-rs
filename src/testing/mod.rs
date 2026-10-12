@@ -9,6 +9,8 @@ pub use deliveries::{Deliveries, DeliveryState};
 pub use record::TestRecord;
 #[cfg(feature = "kafka")]
 pub use record::kafka_record;
+#[cfg(feature = "pubsub")]
+pub use record::pubsub_record;
 #[cfg(feature = "pulsar")]
 pub use record::pulsar_record;
 #[cfg(feature = "rabbitmq")]
@@ -17,6 +19,8 @@ pub use record::rabbitmq_record;
 pub use record::sqs_record;
 #[cfg(feature = "kafka")]
 pub use source::KafkaTestSource;
+#[cfg(feature = "pubsub")]
+pub use source::PubSubTestSource;
 #[cfg(feature = "pulsar")]
 pub use source::PulsarTestSource;
 #[cfg(feature = "rabbitmq")]

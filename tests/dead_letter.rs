@@ -3,6 +3,9 @@
 #[cfg(feature = "kafka")]
 #[path = "dead_letter/kafka.rs"]
 mod kafka;
+#[cfg(feature = "pubsub")]
+#[path = "dead_letter/pubsub.rs"]
+mod pubsub;
 #[cfg(feature = "pulsar")]
 #[path = "dead_letter/pulsar.rs"]
 mod pulsar;

@@ -375,6 +375,32 @@ forwarding pipeline against ElasticMQ. Verify with Amazon SQS:
 - a redrive policy's `maxReceiveCount` against releases on shutdown;
 - the default credential chain with web identity and container credentials.
 
+The [Pub/Sub adapter](adapters/pubsub.md) consumes one subscription with the
+official client's streaming pull and publishes to one topic. Remaining
+decisions:
+
+- whether an error policy should nack a failed delivery so the subscription's
+  dead-letter policy moves it, instead of publishing dead letters through a
+  sink;
+- revoking a delivery when the client fails to extend its lease, which the
+  client does not report, rather than only at `max_lease`;
+- push subscriptions, which deliver through HTTP and would build on the HTTP
+  source.
+
+The ignored Pub/Sub live tests cover publication with attributes, ACK, lease
+extension, revocation at the maximum lease, redelivery after a drop and close,
+ordering keys, and a forwarding pipeline against the emulator. Verify with
+Google Cloud Pub/Sub:
+
+- exactly-once delivery subscriptions, including confirmed acknowledgements
+  and `LeaseExpired` revocations;
+- ordering keys through the global endpoint, and publication resumed after an
+  ordering key failed;
+- a dead-letter policy's `maxDeliveryAttempts` against the nacks of shutdowns
+  and dropped deliveries, and the reported `delivery_attempt`;
+- Application Default Credentials on GKE workload identity and Cloud Run, and
+  flow control with `max_outstanding_messages` across several instances.
+
 Each broker adapter must define its native record and publish types, ACK model,
 redelivery behavior, ordering scope, cancellation behavior, connection
 lifecycle, and mapping of trace-context propagation fields (NATS headers)

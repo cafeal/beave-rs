@@ -24,7 +24,8 @@ runs any number of subscriptions side by side and shuts them down together.
   worker pool for blocking handlers.
 - **Pipelines** — chain subscriptions through in-process channels with
   end-to-end acknowledgement.
-- **Adapters** — Kafka, Apache Pulsar, RabbitMQ, Amazon SQS, and HTTP; JSON,
+- **Adapters** — Kafka, Apache Pulsar, RabbitMQ, Amazon SQS, Google Cloud
+  Pub/Sub, and HTTP; JSON,
   Avro, and Protobuf codecs.
 - **Operations** — graceful shutdown, `tracing` spans, `metrics`,
   OpenTelemetry trace propagation, and `/livez` and `/readyz` probes.
@@ -48,6 +49,7 @@ application uses:
 | `pulsar` | Apache Pulsar source and sink |
 | `rabbitmq` | RabbitMQ source and sink |
 | `sqs` | Amazon SQS source and sink |
+| `pubsub` | Google Cloud Pub/Sub source and sink |
 | `http` | HTTP source and sink |
 | `avro` | Avro codec |
 | `protobuf` | Protobuf codec |
@@ -115,7 +117,7 @@ and Cargo alias.
 
 The minimum supported Rust version is 1.94.1. See
 [local development brokers](docs/development.md) for the local Kafka, Pulsar,
-RabbitMQ, and SQS environment and the live tests, and
+RabbitMQ, SQS, and Pub/Sub environment and the live tests, and
 [AGENTS.md](AGENTS.md) for the checks every change must pass.
 
 ## License

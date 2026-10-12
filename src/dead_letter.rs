@@ -102,6 +102,7 @@ pub struct DeadLetterDetails {
     not(any(
         feature = "kafka",
         feature = "pulsar",
+        feature = "pubsub",
         feature = "rabbitmq",
         feature = "sqs"
     )),
@@ -157,6 +158,7 @@ impl DeadLetterDetails {
     not(any(
         feature = "kafka",
         feature = "pulsar",
+        feature = "pubsub",
         feature = "rabbitmq",
         feature = "sqs"
     )),

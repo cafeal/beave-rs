@@ -20,6 +20,7 @@ project follows the versioning policy in
   end-to-end acknowledgement.
 - Kafka, Apache Pulsar, RabbitMQ, and HTTP adapters behind Cargo features,
   including Kafka-to-Kafka transactions.
+- Google Cloud Pub/Sub source and sink adapters behind the `pubsub` feature.
 - JSON, raw byte, and UTF-8 codecs, with Avro and Protobuf behind features.
 - `tracing` spans and `metrics` instruments for every delivery stage,
   trace-context propagation with the `opentelemetry` feature, liveness and

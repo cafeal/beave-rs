@@ -1,0 +1,192 @@
+use super::{client::publisher, config::PubSubSinkConfig, record::PubSubPublish};
+use crate::{
+    codec::Encoder,
+    sink::{PublishRejected, Sink},
+};
+use google_cloud_gax::error::rpc::Code;
+use google_cloud_pubsub::{client::Publisher, error::PublishError, model::Message};
+use std::{
+    fmt,
+    marker::PhantomData,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
+use tokio::sync::OnceCell;
+
+/// Most attributes Pub/Sub accepts per message.
+const MAX_ATTRIBUTES: usize = 100;
+/// Longest attribute name Pub/Sub accepts, in bytes.
+const MAX_ATTRIBUTE_NAME: usize = 256;
+/// Longest attribute value Pub/Sub accepts, in bytes.
+pub(super) const MAX_ATTRIBUTE_VALUE: usize = 1024;
+/// Longest ordering key Pub/Sub accepts, in bytes.
+const MAX_ORDERING_KEY: usize = 1024;
+
+/// A Pub/Sub message ready to publish: the encoded data, attributes, and
+/// ordering key.
+#[derive(Clone)]
+pub struct PubSubPrepared {
+    message: Message,
+}
+
+impl PubSubPrepared {
+    /// The encoded message data.
+    pub fn data(&self) -> &[u8] {
+        &self.message.data
+    }
+}
+
+impl fmt::Debug for PubSubPrepared {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PubSubPrepared")
+            .field("data_len", &self.message.data.len())
+            .field(
+                "attributes",
+                &self.message.attributes.keys().collect::<Vec<_>>(),
+            )
+            .field("ordering_key", &self.message.ordering_key)
+            .finish()
+    }
+}
+
+/// Publishes each output to one topic. A publication succeeds once Pub/Sub
+/// has stored the message and returned its ID.
+pub struct PubSubSink<C, T> {
+    config: PubSubSinkConfig,
+    codec: Arc<C>,
+    publisher: Arc<OnceCell<Publisher>>,
+    closed: Arc<AtomicBool>,
+    marker: PhantomData<fn(T)>,
+}
+
+impl<C, T> Clone for PubSubSink<C, T> {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            codec: self.codec.clone(),
+            publisher: self.publisher.clone(),
+            closed: self.closed.clone(),
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<C: Default, T> PubSubSink<C, T> {
+    /// A sink with a default-constructed codec.
+    pub fn new(config: PubSubSinkConfig) -> Self {
+        Self::with_codec(config, C::default())
+    }
+}
+
+impl<C, T> PubSubSink<C, T> {
+    /// A sink that uses an existing codec instance, such as a configured `Avro` codec.
+    pub fn with_codec(config: PubSubSinkConfig, codec: C) -> Self {
+        Self {
+            config,
+            codec: Arc::new(codec),
+            publisher: Arc::default(),
+            closed: Arc::default(),
+            marker: PhantomData,
+        }
+    }
+
+    async fn publisher(&self) -> anyhow::Result<&Publisher> {
+        anyhow::ensure!(
+            !self.closed.load(Ordering::Acquire),
+            "Pub/Sub sink is closed"
+        );
+        self.publisher
+            .get_or_try_init(|| async {
+                self.config.validate()?;
+                publisher(&self.config).await
+            })
+            .await
+    }
+}
+
+impl<C, T> Sink<PubSubPublish<T>> for PubSubSink<C, T>
+where
+    C: Encoder<T>,
+    T: Send + Sync + 'static,
+{
+    type Prepared = PubSubPrepared;
+
+    /// Encodes the value as the message data and checks the attribute and
+    /// ordering key limits.
+    fn prepare(&self, output: PubSubPublish<T>) -> anyhow::Result<Self::Prepared> {
+        let data = self.codec.encode(&output.value)?;
+        anyhow::ensure!(
+            output.attributes.len() <= MAX_ATTRIBUTES,
+            "Pub/Sub messages accept at most {MAX_ATTRIBUTES} attributes"
+        );
+        for (name, value) in &output.attributes {
+            anyhow::ensure!(
+                !name.is_empty() && name.len() <= MAX_ATTRIBUTE_NAME,
+                "Pub/Sub attribute names must be 1 to {MAX_ATTRIBUTE_NAME} bytes: {name:?}"
+            );
+            anyhow::ensure!(
+                !name.starts_with("goog"),
+                "Pub/Sub reserves attribute names starting with goog: {name:?}"
+            );
+            anyhow::ensure!(
+                value.len() <= MAX_ATTRIBUTE_VALUE,
+                "Pub/Sub attribute {name} is longer than {MAX_ATTRIBUTE_VALUE} bytes"
+            );
+        }
+        let ordering_key = output.ordering_key.unwrap_or_default();
+        anyhow::ensure!(
+            ordering_key.len() <= MAX_ORDERING_KEY,
+            "Pub/Sub ordering keys must be at most {MAX_ORDERING_KEY} bytes"
+        );
+        anyhow::ensure!(
+            !data.is_empty() || !output.attributes.is_empty(),
+            "Pub/Sub messages need data or at least one attribute"
+        );
+        Ok(PubSubPrepared {
+            message: Message::new()
+                .set_data(data)
+                .set_attributes(output.attributes)
+                .set_ordering_key(ordering_key),
+        })
+    }
+
+    async fn publish(&self, output: &Self::Prepared) -> anyhow::Result<()> {
+        let publisher = self.publisher().await?;
+        let error = match publisher.publish(output.message.clone()).await {
+            Ok(_) => return Ok(()),
+            Err(error) => error,
+        };
+        let ordering_key = &output.message.ordering_key;
+        if !ordering_key.is_empty() {
+            // The client pauses an ordering key after a failure. The runtime
+            // retries or dead-letters this output itself, so later outputs of
+            // the key may be published.
+            publisher.resume_publish(ordering_key.as_str());
+        }
+        let rejected = match &error {
+            PublishError::Rpc(error) => error
+                .status()
+                .is_some_and(|status| status.code == Code::InvalidArgument),
+            _ => false,
+        };
+        let error = anyhow::Error::new(error).context("publishing to Pub/Sub");
+        Err(if rejected {
+            PublishRejected::wrap(error)
+        } else {
+            error
+        })
+    }
+
+    /// Sends the messages still batched and stops new publications.
+    async fn close(&self) -> anyhow::Result<()> {
+        if self.closed.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        if let Some(publisher) = self.publisher.get() {
+            publisher.flush().await;
+        }
+        Ok(())
+    }
+}

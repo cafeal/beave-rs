@@ -4,6 +4,8 @@ use std::fmt::Debug;
 
 #[cfg(feature = "kafka")]
 use crate::adapters::kafka::{KafkaMetadata, KafkaRecord, text_headers};
+#[cfg(feature = "pubsub")]
+use crate::adapters::pubsub::{PubSubAttributes, PubSubMetadata, PubSubRecord};
 #[cfg(feature = "pulsar")]
 use crate::adapters::pulsar::{PulsarMessageId, PulsarMetadata, PulsarRecord};
 #[cfg(feature = "rabbitmq")]
@@ -164,6 +166,39 @@ impl TestRecord for RabbitMqRecord<Vec<u8>> {
     }
 }
 
+/// Decodes like a [`PubSubSource`](crate::adapters::pubsub::PubSubSource). A
+/// message with an ordering key is ordered by it, and attributes carry trace
+/// context.
+#[cfg(feature = "pubsub")]
+impl TestRecord for PubSubRecord<Vec<u8>> {
+    type Decoded<T: Clone + Send + Sync + 'static> = PubSubRecord<T>;
+
+    fn decode<C, T>(&self, codec: &C) -> anyhow::Result<PubSubRecord<T>>
+    where
+        C: Decoder<T>,
+        T: Clone + Send + Sync + 'static,
+    {
+        Ok(PubSubRecord {
+            value: codec.decode(&self.value)?,
+            attributes: self.attributes.clone(),
+            ordering_key: self.ordering_key.clone(),
+            metadata: self.metadata.clone(),
+        })
+    }
+
+    fn ordering_key(&self) -> Option<OrderingKey> {
+        let key = self.ordering_key.as_deref()?;
+        Some(OrderingKey::new(self.metadata.subscription.as_str(), 0).with_key(key.as_bytes()))
+    }
+
+    fn propagation_fields(&self) -> Vec<(&str, &str)> {
+        self.attributes
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect()
+    }
+}
+
 /// Decodes like an [`SqsSource`](crate::adapters::sqs::SqsSource). A FIFO
 /// queue message, whose queue URL ends in `.fifo`, is ordered by its message
 /// group, and `String` attributes carry trace context.
@@ -268,6 +303,28 @@ pub fn rabbitmq_record(
             redelivered: false,
             persistent: true,
             delivery_tag,
+        },
+    }
+}
+
+/// A Pub/Sub message with `message_id` received from `subscription`, without
+/// attributes, ordering key, publish time, or delivery attempt. Set the public
+/// fields for anything else, such as `ordering_key`.
+#[cfg(feature = "pubsub")]
+pub fn pubsub_record(
+    subscription: impl Into<String>,
+    message_id: impl Into<String>,
+    value: impl Into<Vec<u8>>,
+) -> PubSubRecord<Vec<u8>> {
+    PubSubRecord {
+        value: value.into(),
+        attributes: PubSubAttributes::new(),
+        ordering_key: None,
+        metadata: PubSubMetadata {
+            subscription: subscription.into(),
+            message_id: message_id.into(),
+            publish_time: None,
+            delivery_attempt: None,
         },
     }
 }

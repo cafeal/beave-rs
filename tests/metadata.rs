@@ -3,6 +3,9 @@
 mod kafka;
 #[path = "metadata/mapping.rs"]
 mod mapping;
+#[cfg(feature = "pubsub")]
+#[path = "metadata/pubsub.rs"]
+mod pubsub;
 #[cfg(feature = "pulsar")]
 #[path = "metadata/pulsar.rs"]
 mod pulsar;
