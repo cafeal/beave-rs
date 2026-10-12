@@ -45,7 +45,7 @@ Each event becomes one line on standard output. The message is in
 `fields.message`, so a failed subscription appears as:
 
 ```json
-{"timestamp":"…","level":"ERROR","fields":{"message":"subscription failed","error":"…"},"target":"beavers::app"}
+{"timestamp":"…","level":"ERROR","fields":{"message":"subscription failed","error":"…"},"target":"beavers::subscription::runtime"}
 ```
 
 ## What to alert on
@@ -162,7 +162,9 @@ groups:
 ```
 
 `BeaversMetricsDown` matches the `job` label that the scrape configuration
-assigns; replace `beavers` with that value. `BeaversHandlerSlow` needs
+assigns; replace `beavers` with that value. It fires while an instance runs
+but does not answer scrapes; an instance that has gone away leaves no `up`
+series, which the restart and backlog alerts cover. `BeaversHandlerSlow` needs
 histogram buckets, and its threshold must lie within them. `BeaversStalled`
 also fires for a subscription whose handler legitimately runs longer than 15
 minutes; raise the window above the longest expected handler duration.

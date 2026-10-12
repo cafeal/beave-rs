@@ -47,7 +47,10 @@ az aks update --resource-group orders-rg --name orders-aks \
 Expose the ports and probes as in the
 [Kubernetes Deployment](kubernetes.md#deployment), then select the pods with a
 `PodMonitor`. The managed add-on reads its own API group,
-`azmonitoring.coreos.com`, not the Prometheus Operator's:
+`azmonitoring.coreos.com`, not the Prometheus Operator's. Azure's
+documentation also recommends keeping its `labelLimit`,
+`labelNameLengthLimit`, and `labelValueLengthLimit` template values (63, 511,
+and 1023) so that labels are not dropped:
 
 ```yaml
 apiVersion: azmonitoring.coreos.com/v1
@@ -56,6 +59,9 @@ metadata:
   name: beavers
   namespace: orders
 spec:
+  labelLimit: 63
+  labelNameLengthLimit: 511
+  labelValueLengthLimit: 1023
   selector:
     matchLabels:
       app: orders-consumer
@@ -132,8 +138,9 @@ alert rule with this query, evaluated every 5 minutes with a threshold of
 ```kusto
 ContainerLogV2
 | where PodNamespace == "orders" and ContainerName == "app"
-| where tostring(LogMessage.fields.message) == "subscription failed"
-| project TimeGenerated, PodName, Error = tostring(LogMessage.fields.error)
+| extend Event = parse_json(tostring(LogMessage))
+| where tostring(Event.fields.message) == "subscription failed"
+| project TimeGenerated, PodName, Error = tostring(Event.fields.error)
 ```
 
 ## Azure Container Apps
@@ -220,8 +227,9 @@ customMetrics
 
 Other counter alerts follow the same shape. The application's console output,
 including the `subscription failed` event, is in the
-`ContainerAppConsoleLogs_CL` table of the environment's Log Analytics
-workspace:
+`ContainerAppConsoleLogs_CL` table when the environment sends logs to a Log
+Analytics workspace; with diagnostic settings, the table is
+`ContainerAppConsoleLogs` and the columns drop the `_s` suffix:
 
 ```kusto
 ContainerAppConsoleLogs_CL

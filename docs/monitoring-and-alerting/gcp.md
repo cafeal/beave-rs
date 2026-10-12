@@ -86,8 +86,7 @@ conditions:
       query: sum by (subscription) (increase(beavers_delivery_failures_total{action="dead_letter"}[10m])) > 0
       duration: 0s
       evaluationInterval: 60s
-alertStrategy:
-  autoClose: 1800s
+      disableMetricValidation: true
 notificationChannels:
   - projects/my-project/notificationChannels/1234567890
 documentation:
@@ -109,8 +108,7 @@ conditions:
           and sum by (subscription) (increase(beavers_deliveries_acknowledged_total[15m])) == 0
       duration: 300s
       evaluationInterval: 60s
-alertStrategy:
-  autoClose: 1800s
+      disableMetricValidation: true
 notificationChannels:
   - projects/my-project/notificationChannels/9876543210
 ```
@@ -121,7 +119,11 @@ gcloud monitoring policies create --policy-from-file=stalled.yaml
 ```
 
 The rule's `for` becomes `duration`, and the policy's `severity` takes the
-value of the rule's `severity` label. Give `critical` policies the on-call channel and
+value of the rule's `severity` label. A PromQL policy holds exactly one
+condition. `disableMetricValidation` lets the policy be created before the
+application has written its first metrics; without it, creation fails for a
+metric that does not exist yet. A PromQL incident closes on its own once the
+query stops matching, so these policies need no `autoClose`. Give `critical` policies the on-call channel and
 `warning` policies the team's channel. Each time series that matches the
 query opens its own incident, so a policy notifies once per failing
 subscription.
@@ -130,7 +132,7 @@ On GKE, restarts are available as a Cloud Monitoring system metric, which
 PromQL reads under its converted name:
 
 ```text
-increase(kubernetes_io:container_restart_count{monitored_resource="k8s_container", namespace_name="orders", container_name="app"}[15m]) > 0
+increase(kubernetes_io:container_restart_count{namespace_name="orders", container_name="app"}[15m]) > 0
 ```
 
 ## Log-based alert
@@ -157,6 +159,9 @@ alertStrategy:
 notificationChannels:
   - projects/my-project/notificationChannels/9876543210
 ```
+
+Log-based policies require `notificationRateLimit`, which limits notifications
+to one per period while matching entries keep arriving.
 
 ## Backlog
 

@@ -169,9 +169,13 @@ CloudWatch metrics, and each dimension set is published separately: declaring
 together. The task role needs `logs:PutLogEvents`, `logs:CreateLogStream`, and
 `logs:CreateLogGroup` on the log group.
 
-The handler latency histogram is left out because CloudWatch cannot derive a
-99th percentile from Prometheus buckets; time the handler with a CloudWatch
-metric of its own if latency needs an alarm.
+`awsemf` drops the first value of each counter after the collector or the
+application restarts, because it has no previous value to subtract.
+
+The handler latency histogram is left out because `awsemf` does not convert
+the cumulative bucket counts of a scraped Prometheus histogram to deltas, so
+CloudWatch statistics on it are not meaningful; time the handler with a
+CloudWatch metric of its own if latency needs an alarm.
 
 ### Alarms
 
