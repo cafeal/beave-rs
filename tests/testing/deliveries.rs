@@ -1,5 +1,5 @@
 use beavers::{
-    App, HandlerError, InMemorySink, Json, Receive, Source, SourceMessage, Subscription,
+    App, BoxError, HandlerError, InMemorySink, Json, Receive, Source, SourceMessage, Subscription,
     testing::{DeliveryState, TestSource},
 };
 
@@ -59,7 +59,7 @@ async fn a_stopped_subscription_leaves_its_failed_record_unacknowledged() {
             sink.clone(),
             |value: u32| async move {
                 if value == 2 {
-                    return Err(HandlerError::Fatal(anyhow::anyhow!("broken")));
+                    return Err(HandlerError::Fatal(BoxError::from("broken")));
                 }
                 Ok(value)
             },

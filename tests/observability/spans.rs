@@ -1,5 +1,5 @@
 use super::fixtures::{Capture, FieldSource};
-use beavers::{App, ErrorPolicy, FailureAction, InMemorySink, Subscription};
+use beavers::{App, BoxError, ErrorPolicy, FailureAction, InMemorySink, Subscription};
 use tracing::Level;
 
 #[tokio::test]
@@ -45,7 +45,7 @@ async fn discarded_and_dead_lettered_deliveries_are_logged() {
                 InMemorySink::default(),
                 |n: i32| async move {
                     if n < 0 {
-                        return Err(beavers::HandlerError::Reject(anyhow::anyhow!("negative")));
+                        return Err(beavers::HandlerError::Reject(BoxError::from("negative")));
                     }
                     Ok(n)
                 },

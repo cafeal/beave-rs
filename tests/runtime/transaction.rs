@@ -1,6 +1,6 @@
 use super::fixtures::{TransactionalSource, Transactions, fast};
 use beavers::{
-    App, CancellationToken, Emit, ErrorPolicy, FailureAction, HandlerError, InMemorySink,
+    App, BoxError, CancellationToken, Emit, ErrorPolicy, FailureAction, HandlerError, InMemorySink,
     ProcessingOrder, RetryPolicy, Subscription, TransactionBatch,
 };
 use std::{
@@ -44,7 +44,7 @@ async fn deliveries_without_output_commit_empty_transactions() {
             Subscription::new_emitting("transactions", source, sink.clone(), |n: i32| async move {
                 match n {
                     1 => Ok(Emit::None),
-                    2 => Err(HandlerError::Reject(anyhow::anyhow!("rejected"))),
+                    2 => Err(HandlerError::Reject(BoxError::from("rejected"))),
                     _ => Ok(Emit::One(-n)),
                 }
             })

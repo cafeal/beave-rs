@@ -5,11 +5,11 @@ use super::{
 };
 use crate::{
     codec::Decoder,
+    error::{BoxError, Context, Error, ensure},
     message::{OrderingKey, SourceMessage},
     retry::RetryPolicy,
     source::{Receive, ReceiveError, Source},
 };
-use anyhow::Context as _;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use futures_util::future::select_all;
 use magnetar::{
@@ -71,7 +71,7 @@ impl<C, T> PulsarSource<C, T> {
         }
     }
 
-    async fn connect(&self) -> anyhow::Result<Connection> {
+    async fn connect(&self) -> Result<Connection, BoxError> {
         self.config.validate()?;
         let client = connect(
             &self.config.service_url,
@@ -118,7 +118,7 @@ impl Connection {
 
     /// Closes the consumers. Deliveries still held fail to acknowledge from
     /// now on, and the client closes when the last of them is dropped.
-    async fn close(self) -> anyhow::Result<()> {
+    async fn close(self) -> Result<(), BoxError> {
         self.closed.store(true, Ordering::Release);
         let mut result = Ok(());
         for consumer in self.consumers {
@@ -164,7 +164,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PulsarSource<C,
         }))
     }
 
-    async fn close(&mut self) -> anyhow::Result<()> {
+    async fn close(&mut self) -> Result<(), BoxError> {
         if self.closed {
             return Ok(());
         }
@@ -191,7 +191,7 @@ impl Delivery {
     /// Reads the per-message fields of a batched message from its single
     /// message metadata and those of any other message from the entry's
     /// metadata.
-    fn new(topic: String, message: &IncomingMessage) -> anyhow::Result<Self> {
+    fn new(topic: String, message: &IncomingMessage) -> Result<Self, BoxError> {
         let entry = &message.metadata;
         let (properties, key, key_b64_encoded, ordering_key, event_time, null_value) =
             match &message.single_metadata {
@@ -286,9 +286,10 @@ struct Acknowledgement {
 }
 
 impl Acknowledgement {
-    fn ensure_open(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
+    fn ensure_open(&self) -> Result<(), BoxError> {
+        ensure!(
             !self.closed.load(Ordering::Acquire),
+            Error::closed,
             "Pulsar source is closed"
         );
         Ok(())
@@ -312,7 +313,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMe
     type Item = PulsarRecord<T>;
     type Raw = PulsarRecord<Vec<u8>>;
 
-    fn decode(&self) -> anyhow::Result<Self::Item> {
+    fn decode(&self) -> Result<Self::Item, BoxError> {
         Ok(PulsarRecord {
             value: self
                 .payload
@@ -340,7 +341,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMe
     /// policy. Acknowledging a message again is harmless, and an attempt
     /// on a reconnected session succeeds for a message the broker
     /// redelivers.
-    async fn ack(self) -> anyhow::Result<()> {
+    async fn ack(self) -> Result<(), BoxError> {
         let acknowledgement = &self.acknowledgement;
         let mut failures = 0;
         loop {
@@ -350,9 +351,11 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMe
             };
             failures += 1;
             if failures >= acknowledgement.retry.max_attempts {
-                return Err(anyhow::Error::new(error).context(format!(
-                    "Pulsar acknowledgement failed after {failures} attempts"
-                )));
+                return Err(Error::wrap(
+                    format!("Pulsar acknowledgement failed after {failures} attempts"),
+                    error,
+                )
+                .into());
             }
             tokio::time::sleep(acknowledgement.retry.delay(failures)).await;
         }

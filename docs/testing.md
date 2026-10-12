@@ -92,7 +92,7 @@ use beavers::{
 async fn price(record: KafkaRecord<u32>) -> beavers::Result<KafkaPublish<u32>> {
     let cents = record.value.unwrap_or_default();
     if cents == 0 {
-        return Err(HandlerError::Reject(anyhow::anyhow!("free order")));
+        return Err(HandlerError::Reject("free order".into()));
     }
     Ok(KafkaPublish::new(cents * 110 / 100))
 }

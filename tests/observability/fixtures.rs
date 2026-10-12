@@ -1,4 +1,4 @@
-use beavers::{Receive, ReceiveError, Source, SourceMessage};
+use beavers::{BoxError, Receive, ReceiveError, Source, SourceMessage};
 use metrics_util::{
     CompositeKey,
     debugging::{DebugValue, DebuggingRecorder, Snapshotter},
@@ -36,11 +36,11 @@ impl SourceMessage for FieldMessage {
     type Item = i32;
     type Raw = Vec<u8>;
 
-    fn decode(&self) -> anyhow::Result<i32> {
+    fn decode(&self) -> Result<i32, BoxError> {
         Ok(self.payload.parse()?)
     }
 
-    async fn ack(self) -> anyhow::Result<()> {
+    async fn ack(self) -> Result<(), BoxError> {
         Ok(())
     }
 

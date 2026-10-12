@@ -1,5 +1,6 @@
 use beavers::{
-    App, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json, Result, Subscription,
+    App, BoxError, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json, Result,
+    Subscription,
     adapters::pulsar::{
         PulsarDeadLetter, PulsarInherit, PulsarMessageId, PulsarMetadata, PulsarPublish,
         PulsarRecord,
@@ -47,7 +48,7 @@ fn received(publish: PulsarPublish<Vec<u8>>, entry_id: u64) -> PulsarRecord<Vec<
 async fn reject_odd(record: PulsarRecord<u32>) -> Result<u32> {
     match record.value {
         Some(value) if value % 2 == 0 => Ok(value),
-        _ => Err(HandlerError::Reject(anyhow::anyhow!("odd value"))),
+        _ => Err(HandlerError::Reject(BoxError::from("odd value"))),
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::error::{BoxError, Error};
 use crate::retry::RetryPolicy;
 use futures_util::future::BoxFuture;
 use magnetar::{
@@ -42,7 +43,7 @@ struct Attempt {
     sent_at: Instant,
     /// Rejected sends of this message so far.
     failures: usize,
-    result: oneshot::Sender<anyhow::Result<()>>,
+    result: oneshot::Sender<Result<(), BoxError>>,
 }
 
 impl<P: SendMessage + Clone> Resender<P> {
@@ -65,7 +66,7 @@ impl<P: SendMessage> Resender<P> {
     pub(super) fn send(
         &self,
         message: OutgoingMessage,
-    ) -> impl Future<Output = anyhow::Result<()>> + Send + 'static {
+    ) -> impl Future<Output = Result<(), BoxError>> + Send + 'static {
         let (result, outcome) = oneshot::channel();
         {
             let sender = self
@@ -87,7 +88,7 @@ impl<P: SendMessage> Resender<P> {
         async move {
             outcome
                 .await
-                .map_err(|_| anyhow::anyhow!("Pulsar producer task stopped"))?
+                .map_err(|_| Error::closed("Pulsar producer task stopped"))?
         }
     }
 }

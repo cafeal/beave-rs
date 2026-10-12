@@ -1,6 +1,6 @@
 use beavers::{
-    CancellationToken, Completion, Delivery, OrderingKey, PublishRejected, Receive, ReceiveError,
-    RetryPolicy, Sink, Source, SourceMessage, TransactionEntry, TransactionalSink,
+    BoxError, CancellationToken, Completion, Delivery, OrderingKey, PublishRejected, Receive,
+    ReceiveError, RetryPolicy, Sink, Source, SourceMessage, TransactionEntry, TransactionalSink,
 };
 use std::{
     collections::VecDeque,
@@ -30,14 +30,16 @@ pub(crate) struct Flaky {
 impl Sink<i32> for Flaky {
     type Prepared = i32;
 
-    fn prepare(&self, value: i32) -> anyhow::Result<i32> {
+    fn prepare(&self, value: i32) -> Result<i32, BoxError> {
         Ok(value)
     }
 
-    async fn publish(&self, _: &i32) -> anyhow::Result<()> {
+    async fn publish(&self, _: &i32) -> Result<(), BoxError> {
         assert_eq!(self.acks.load(Ordering::SeqCst), 0);
         let calls = self.calls.fetch_add(1, Ordering::SeqCst);
-        anyhow::ensure!(!self.fail_always && calls >= 2, "offline");
+        if !(!self.fail_always && calls >= 2) {
+            return Err("offline".into());
+        };
         Ok(())
     }
 }
@@ -65,8 +67,8 @@ impl Source for ScriptedSource {
         match self.events.pop_front().unwrap_or(Ok(None)) {
             Ok(Some(value)) => Ok(Receive::Message(Delivery::untracked(value))),
             Ok(None) => Ok(Receive::End),
-            Err(true) => Err(ReceiveError::Retry(anyhow::anyhow!("retry"))),
-            Err(false) => Err(ReceiveError::Fatal(anyhow::anyhow!("fatal"))),
+            Err(true) => Err(ReceiveError::Retry(BoxError::from("retry"))),
+            Err(false) => Err(ReceiveError::Fatal(BoxError::from("fatal"))),
         }
     }
 }
@@ -86,11 +88,11 @@ impl SourceMessage for TextMessage {
     type Item = i32;
     type Raw = Vec<u8>;
 
-    fn decode(&self) -> anyhow::Result<i32> {
+    fn decode(&self) -> Result<i32, BoxError> {
         Ok(self.payload.parse()?)
     }
 
-    async fn ack(self) -> anyhow::Result<()> {
+    async fn ack(self) -> Result<(), BoxError> {
         self.acks.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -148,12 +150,14 @@ pub(crate) struct RejectNegative(pub(crate) Arc<Mutex<Vec<i32>>>);
 impl Sink<i32> for RejectNegative {
     type Prepared = i32;
 
-    fn prepare(&self, value: i32) -> anyhow::Result<i32> {
-        anyhow::ensure!(value >= 0, "negative output");
+    fn prepare(&self, value: i32) -> Result<i32, BoxError> {
+        if !(value >= 0) {
+            return Err("negative output".into());
+        };
         Ok(value)
     }
 
-    async fn publish(&self, value: &i32) -> anyhow::Result<()> {
+    async fn publish(&self, value: &i32) -> Result<(), BoxError> {
         self.0.lock().unwrap().push(*value);
         Ok(())
     }
@@ -171,18 +175,18 @@ pub(crate) struct RefuseNegative {
 impl Sink<i32> for RefuseNegative {
     type Prepared = i32;
 
-    fn prepare(&self, value: i32) -> anyhow::Result<i32> {
+    fn prepare(&self, value: i32) -> Result<i32, BoxError> {
         Ok(value)
     }
 
-    async fn publish(&self, value: &i32) -> anyhow::Result<()> {
+    async fn publish(&self, value: &i32) -> Result<(), BoxError> {
         self.submit(value).await?.wait().await
     }
 
-    async fn submit(&self, value: &i32) -> anyhow::Result<Completion> {
+    async fn submit(&self, value: &i32) -> Result<Completion, BoxError> {
         self.attempts.fetch_add(1, Ordering::SeqCst);
         if *value < 0 {
-            return Err(PublishRejected::wrap(anyhow::anyhow!("negative output")));
+            return Err(PublishRejected::wrap(BoxError::from("negative output")));
         }
         let (value, completed, acks) = (*value, self.completed.clone(), self.acks.clone());
         Ok(Completion::pending(async move {
@@ -216,12 +220,14 @@ impl SourceMessage for Transactional {
     type Item = i32;
     type Raw = i32;
 
-    fn decode(&self) -> anyhow::Result<i32> {
-        anyhow::ensure!(self.value != 0, "zero does not decode");
+    fn decode(&self) -> Result<i32, BoxError> {
+        if !(self.value != 0) {
+            return Err("zero does not decode".into());
+        };
         Ok(self.value)
     }
 
-    async fn ack(self) -> anyhow::Result<()> {
+    async fn ack(self) -> Result<(), BoxError> {
         self.acks.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -298,33 +304,37 @@ pub(crate) struct Transactions {
 impl Sink<i32> for Transactions {
     type Prepared = i32;
 
-    fn prepare(&self, value: i32) -> anyhow::Result<i32> {
-        anyhow::ensure!(value >= 0, "negative output");
+    fn prepare(&self, value: i32) -> Result<i32, BoxError> {
+        if !(value >= 0) {
+            return Err("negative output".into());
+        };
         Ok(value)
     }
 
-    async fn publish(&self, _: &i32) -> anyhow::Result<()> {
-        anyhow::bail!("transactional test sink publishes only through commit")
+    async fn publish(&self, _: &i32) -> Result<(), BoxError> {
+        Err("transactional test sink publishes only through commit".into())
     }
 }
 
 impl TransactionalSink<Transactional, i32> for Transactions {
-    async fn verify_source(&self, _: &Transactional) -> anyhow::Result<()> {
+    async fn verify_source(&self, _: &Transactional) -> Result<(), BoxError> {
         let attempt = self.verifications.fetch_add(1, Ordering::SeqCst);
-        anyhow::ensure!(attempt >= self.verify_failures, "source on another cluster");
+        if !(attempt >= self.verify_failures) {
+            return Err("source on another cluster".into());
+        };
         Ok(())
     }
 
     async fn commit(
         &self,
         batch: &[TransactionEntry<'_, Transactional, i32>],
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), BoxError> {
         let attempt = self.attempts.fetch_add(1, Ordering::SeqCst);
         if attempt < self.failures {
             if let Some(token) = &self.revoke_on_failure {
                 token.cancel();
             }
-            let error = anyhow::anyhow!("transaction aborted");
+            let error = BoxError::from("transaction aborted");
             return Err(if self.reject {
                 PublishRejected::wrap(error)
             } else {

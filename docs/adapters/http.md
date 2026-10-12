@@ -41,7 +41,8 @@ async fn main() -> anyhow::Result<()> {
     App::new()
         .subscribe("orders", source, StdoutSink::<Json>::new(), accept)
         .run()
-        .await
+        .await?;
+    Ok(())
 }
 ```
 

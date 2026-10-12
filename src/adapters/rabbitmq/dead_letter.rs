@@ -1,6 +1,7 @@
 //! Dead letters forwarded to a RabbitMQ exchange with their original message.
 use super::record::{RabbitMqPublish, RabbitMqRecord, RabbitMqValue};
 use crate::dead_letter::{DEAD_LETTER_HEADER_PREFIX, DeadLetter, DeadLetterDetails};
+use crate::error::Error;
 
 const ORIGIN_QUEUE: &str = "beavers-dlq-origin-queue";
 const ORIGIN_EXCHANGE: &str = "beavers-dlq-origin-exchange";
@@ -35,21 +36,20 @@ pub struct RabbitMqDeadLetter {
 impl RabbitMqDeadLetter {
     /// Reads dead-letter headers. Returns `None` for a record without them and an error when
     /// they are incomplete, malformed, or not strings.
-    pub fn from_record<T>(record: &RabbitMqRecord<T>) -> anyhow::Result<Option<Self>> {
+    pub fn from_record<T>(record: &RabbitMqRecord<T>) -> Result<Option<Self>, Error> {
         let field = |name: &str| match record.headers.get(name) {
             None => Ok(None),
-            Some(value) => value
-                .as_str()
-                .map(Some)
-                .ok_or_else(|| anyhow::anyhow!("dead-letter header {name} is not a string")),
+            Some(value) => value.as_str().map(Some).ok_or_else(|| {
+                Error::invalid_record(format!("dead-letter header {name} is not a string"))
+            }),
         };
         let Some(details) = DeadLetterDetails::parse(field)? else {
             return Ok(None);
         };
         let required = |name: &str| {
-            field(name)?
-                .map(str::to_owned)
-                .ok_or_else(|| anyhow::anyhow!("dead-letter header {name} is missing"))
+            field(name)?.map(str::to_owned).ok_or_else(|| {
+                Error::invalid_record(format!("dead-letter header {name} is missing"))
+            })
         };
         Ok(Some(Self {
             details,

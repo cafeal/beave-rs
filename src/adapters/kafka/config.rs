@@ -1,4 +1,5 @@
 use crate::adapters::pending::PendingLimit;
+use crate::error::{Error, ensure};
 use std::{collections::HashMap, time::Duration};
 
 /// Configuration for a [`KafkaSource`](super::KafkaSource).
@@ -34,22 +35,26 @@ impl KafkaSourceConfig {
     ///
     /// Fails when the brokers, group ID, or topic list is empty, a topic name is
     /// blank, or a property has an empty name or a value containing a NUL byte.
-    pub fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
+    pub fn validate(&self) -> Result<(), Error> {
+        ensure!(
             !self.brokers.trim().is_empty(),
+            Error::config,
             "Kafka brokers are required"
         );
-        anyhow::ensure!(
+        ensure!(
             !self.group_id.trim().is_empty(),
+            Error::config,
             "Kafka group ID is required"
         );
-        anyhow::ensure!(
+        ensure!(
             !self.topics.is_empty(),
+            Error::config,
             "at least one Kafka topic is required"
         );
         for topic in &self.topics {
-            anyhow::ensure!(
+            ensure!(
                 !topic.trim().is_empty(),
+                Error::config,
                 "Kafka topic names must not be empty"
             );
         }
@@ -99,15 +104,21 @@ impl KafkaSinkConfig {
     /// than the semaphore limit, `transactional.id` is set as a property (use
     /// [`KafkaSink::transactional`](super::KafkaSink::transactional)), or a
     /// property has an empty name or a value containing a NUL byte.
-    pub fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
+    pub fn validate(&self) -> Result<(), Error> {
+        ensure!(
             !self.brokers.trim().is_empty(),
+            Error::config,
             "Kafka brokers are required"
         );
-        anyhow::ensure!(!self.topic.trim().is_empty(), "Kafka topic is required");
+        ensure!(
+            !self.topic.trim().is_empty(),
+            Error::config,
+            "Kafka topic is required"
+        );
         PendingLimit::validate(self.max_pending, "Kafka")?;
-        anyhow::ensure!(
+        ensure!(
             !self.properties.contains_key(TRANSACTIONAL_ID),
+            Error::config,
             "set the Kafka transactional ID with KafkaSink::transactional"
         );
         validate_properties(&self.properties)
@@ -116,14 +127,16 @@ impl KafkaSinkConfig {
 
 const TRANSACTIONAL_ID: &str = "transactional.id";
 
-fn validate_properties(properties: &HashMap<String, String>) -> anyhow::Result<()> {
+fn validate_properties(properties: &HashMap<String, String>) -> Result<(), Error> {
     for (key, value) in properties {
-        anyhow::ensure!(
+        ensure!(
             !key.trim().is_empty(),
+            Error::config,
             "Kafka property names must not be empty"
         );
-        anyhow::ensure!(
+        ensure!(
             !value.contains('\0'),
+            Error::config,
             "Kafka property values must not contain NUL bytes"
         );
     }

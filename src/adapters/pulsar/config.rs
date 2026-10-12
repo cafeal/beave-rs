@@ -1,3 +1,4 @@
+use crate::error::{Error, ensure};
 use crate::{adapters::pending::PendingLimit, retry::RetryPolicy};
 use bytes::Bytes;
 use magnetar::proto::{AuthError, AuthProvider, pb::command_subscribe::SubType};
@@ -33,12 +34,17 @@ impl PulsarAuthentication {
         Arc::new(self.clone())
     }
 
-    fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
+    fn validate(&self) -> Result<(), Error> {
+        ensure!(
             !self.name.trim().is_empty(),
+            Error::config,
             "Pulsar auth method is required"
         );
-        anyhow::ensure!(!self.data.is_empty(), "Pulsar auth data is required");
+        ensure!(
+            !self.data.is_empty(),
+            Error::config,
+            "Pulsar auth data is required"
+        );
         Ok(())
     }
 }
@@ -138,14 +144,16 @@ impl PulsarSourceConfig {
     /// use `pulsar://` or `pulsar+ssl://`, when the topic or subscription is
     /// empty, when `buffer_size` is zero, or when `ack_retry` or the
     /// authentication is invalid.
-    pub fn validate(&self) -> anyhow::Result<()> {
+    pub fn validate(&self) -> Result<(), Error> {
         validate_endpoint(&self.service_url, &self.topic)?;
-        anyhow::ensure!(
+        ensure!(
             !self.subscription.trim().is_empty(),
+            Error::config,
             "Pulsar subscription is required"
         );
-        anyhow::ensure!(
+        ensure!(
             self.buffer_size > 0,
+            Error::config,
             "Pulsar buffer size must be greater than zero"
         );
         self.ack_retry.validate()?;
@@ -204,14 +212,15 @@ impl PulsarSinkConfig {
     /// use `pulsar://` or `pulsar+ssl://`, when the topic or a set producer
     /// name is empty, when `max_pending` is zero or too large, or when
     /// `send_retry` or the authentication is invalid.
-    pub fn validate(&self) -> anyhow::Result<()> {
+    pub fn validate(&self) -> Result<(), Error> {
         validate_endpoint(&self.service_url, &self.topic)?;
         if let Some(authentication) = &self.authentication {
             authentication.validate()?;
         }
         if let Some(name) = &self.producer_name {
-            anyhow::ensure!(
+            ensure!(
                 !name.trim().is_empty(),
+                Error::config,
                 "Pulsar producer name must not be empty"
             );
         }
@@ -221,19 +230,26 @@ impl PulsarSinkConfig {
     }
 }
 
-fn validate_endpoint(service_url: &str, topic: &str) -> anyhow::Result<()> {
-    anyhow::ensure!(
+fn validate_endpoint(service_url: &str, topic: &str) -> Result<(), Error> {
+    ensure!(
         !service_url.trim().is_empty(),
+        Error::config,
         "Pulsar service URL is required"
     );
-    anyhow::ensure!(
+    ensure!(
         !service_url.chars().any(char::is_whitespace),
+        Error::config,
         "Pulsar service URL must not contain whitespace"
     );
-    anyhow::ensure!(
+    ensure!(
         service_url.starts_with("pulsar://") || service_url.starts_with("pulsar+ssl://"),
+        Error::config,
         "Pulsar service URL must use pulsar:// or pulsar+ssl://"
     );
-    anyhow::ensure!(!topic.trim().is_empty(), "Pulsar topic is required");
+    ensure!(
+        !topic.trim().is_empty(),
+        Error::config,
+        "Pulsar topic is required"
+    );
     Ok(())
 }

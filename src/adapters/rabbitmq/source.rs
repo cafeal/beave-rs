@@ -6,11 +6,11 @@ use super::{
 };
 use crate::{
     codec::Decoder,
+    error::{BoxError, Context, Error},
     message::{OrderingKey, SourceMessage},
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
 };
-use anyhow::Context as _;
 use futures_util::StreamExt;
 use lapin::{
     Connection, Consumer,
@@ -75,7 +75,7 @@ impl<C, T> RabbitMqSource<C, T> {
         }
     }
 
-    async fn connect(&self) -> anyhow::Result<Session> {
+    async fn connect(&self) -> Result<Session, BoxError> {
         let connection = connect(
             &self.config.uri,
             format!("beavers source {}", self.config.queue),
@@ -86,7 +86,7 @@ impl<C, T> RabbitMqSource<C, T> {
             channel
                 .basic_qos(self.config.prefetch, BasicQosOptions::default())
                 .await?;
-            channel
+            let consumer = channel
                 .basic_consume(
                     short_string("queue name", &self.config.queue)?,
                     "".into(),
@@ -94,7 +94,8 @@ impl<C, T> RabbitMqSource<C, T> {
                     FieldTable::default(),
                 )
                 .await
-                .with_context(|| format!("consuming RabbitMQ queue {:?}", self.config.queue))
+                .with_context(|| format!("consuming RabbitMQ queue {:?}", self.config.queue))?;
+            Ok::<_, BoxError>(consumer)
         }
         .await;
         match consumer {
@@ -119,7 +120,9 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for RabbitMqSource<
             return Ok(Receive::End);
         }
         if self.session.is_none() {
-            self.config.validate().map_err(ReceiveError::Fatal)?;
+            self.config
+                .validate()
+                .map_err(|error| ReceiveError::Fatal(error.into()))?;
             self.session = Some(self.connect().await.map_err(ReceiveError::Retry)?);
         }
         let session = self.session.as_mut().expect("connected source");
@@ -140,19 +143,19 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for RabbitMqSource<
                     marker: PhantomData,
                 }));
             }
-            Some(Err(error)) => anyhow::Error::new(error).context("RabbitMQ consumer failed"),
-            None => anyhow::anyhow!("RabbitMQ consumer was cancelled"),
+            Some(Err(error)) => Error::wrap("RabbitMQ consumer failed", error),
+            None => Error::msg("RabbitMQ consumer was cancelled"),
         };
         self.session.take().expect("connected source").end();
-        Err(ReceiveError::Retry(error))
+        Err(ReceiveError::Retry(error.into()))
     }
 
-    async fn close(&mut self) -> anyhow::Result<()> {
+    async fn close(&mut self) -> Result<(), BoxError> {
         self.closed = true;
         match self.session.take() {
             Some(session) => {
                 session.revoked.cancel();
-                close(&session.connection).await
+                Ok(close(&session.connection).await?)
             }
             None => Ok(()),
         }
@@ -196,7 +199,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for RabbitMq
     type Item = RabbitMqRecord<T>;
     type Raw = RabbitMqRecord<Vec<u8>>;
 
-    fn decode(&self) -> anyhow::Result<Self::Item> {
+    fn decode(&self) -> Result<Self::Item, BoxError> {
         self.record(|bytes| self.codec.decode(bytes))
     }
 
@@ -208,16 +211,16 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for RabbitMq
     /// Sends `basic.ack` for the delivery tag. AMQP does not confirm an
     /// acknowledgement, so a connection lost right after it can still requeue
     /// the message.
-    async fn ack(self) -> anyhow::Result<()> {
+    async fn ack(self) -> Result<(), BoxError> {
         match self.delivery.acker.ack(BasicAckOptions::default()).await {
             Ok(true) => Ok(()),
             Ok(false) => {
                 self.revoked.cancel();
-                anyhow::bail!("RabbitMQ channel closed before the acknowledgement")
+                Err(Error::msg("RabbitMQ channel closed before the acknowledgement").into())
             }
             Err(error) => {
                 self.revoked.cancel();
-                Err(anyhow::Error::new(error).context("acknowledging a RabbitMQ delivery"))
+                Err(Error::wrap("acknowledging a RabbitMQ delivery", error).into())
             }
         }
     }

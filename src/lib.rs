@@ -24,17 +24,17 @@
 //! # #[cfg(feature = "kafka")]
 //! # mod example {
 //! use beavers::{
-//!     App, Classify, Result, Utf8,
+//!     App, Classify, Utf8,
 //!     adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
 //! };
 //!
-//! async fn summarize(article: String) -> Result<String> {
+//! async fn summarize(article: String) -> beavers::Result<String> {
 //!     let summary = call_llm(&format!("Summarize: {article}")).await.retry()?;
 //!     Ok(summary)
 //! }
 //!
 //! #[tokio::main]
-//! async fn main() -> anyhow::Result<()> {
+//! async fn main() -> Result<(), beavers::Error> {
 //!     let articles = KafkaSource::<Utf8, _>::new(KafkaSourceConfig::new(
 //!         "localhost:9092",
 //!         "summarizer",
@@ -47,7 +47,7 @@
 //!         .run()
 //!         .await
 //! }
-//! # async fn call_llm(prompt: &str) -> anyhow::Result<String> {
+//! # async fn call_llm(prompt: &str) -> Result<String, std::io::Error> {
 //! #     Ok(prompt.to_owned())
 //! # }
 //! # }
@@ -102,6 +102,7 @@ pub mod app;
 pub mod blocking;
 pub mod codec;
 pub mod dead_letter;
+pub mod error;
 pub mod error_policy;
 pub mod forward;
 pub mod handler;
@@ -133,6 +134,7 @@ pub use codec::Avro;
 pub use codec::Protobuf;
 pub use codec::{Decoder, Encoder, Json, RawBytes, Utf8};
 pub use dead_letter::{DEAD_LETTER_HEADER_PREFIX, DeadLetter, DeadLetterDetails};
+pub use error::{BoxError, Error};
 pub use error_policy::{ErrorPolicy, FailureAction, FailureKind};
 pub use forward::{SamePlatform, ValueRecord};
 pub use handler::{Classify, Emit, Handler, HandlerError, Result};

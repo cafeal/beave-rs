@@ -1,4 +1,5 @@
 //! Received message ownership, decoding, ordering scope, and acknowledgement.
+use crate::error::BoxError;
 use crate::shutdown::CancellationToken;
 use serde::Serialize;
 use std::{fmt::Debug, future::Future, pin::Pin, sync::Arc};
@@ -50,10 +51,10 @@ pub trait SourceMessage: Send + 'static {
     /// Decoded value passed to the handler.
     type Item: Clone + Send + Sync + 'static;
     /// Decode the payload. Called once per delivery, before any handler attempt.
-    fn decode(&self) -> anyhow::Result<Self::Item>;
+    fn decode(&self) -> Result<Self::Item, BoxError>;
     /// Success means the adapter safely recorded completion. Broker commit ordering
     /// and assignment validity remain the adapter's responsibility.
-    fn ack(self) -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn ack(self) -> impl Future<Output = Result<(), BoxError>> + Send;
     /// Undecoded form of this delivery, copied into dead letters so failures keep the
     /// original payload and broker metadata even when decoding failed. It is
     /// serializable so that dead letters can be published as they are, and so
@@ -81,7 +82,7 @@ pub trait SourceMessage: Send + 'static {
     }
 }
 
-type AckFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
+type AckFuture = Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send>>;
 type Acknowledge = Box<dyn FnOnce() -> AckFuture + Send>;
 
 /// Acknowledgement belongs to the delivery, not the handler's payload.
@@ -102,7 +103,7 @@ impl<T> Delivery<T> {
     pub fn new<F, Fut>(value: T, ack: F) -> Self
     where
         F: FnOnce() -> Fut + Send + 'static,
-        Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
+        Fut: Future<Output = Result<(), BoxError>> + Send + 'static,
     {
         Self {
             value,
@@ -147,7 +148,7 @@ impl<T, R> Delivery<T, R> {
         self
     }
     /// Run the acknowledgement.
-    pub async fn ack(self) -> anyhow::Result<()> {
+    pub async fn ack(self) -> Result<(), BoxError> {
         (self.ack)().await
     }
 }
@@ -161,13 +162,13 @@ where
     /// Already typed local input has no separate undecoded form unless one was
     /// set with [`Delivery::with_raw`].
     type Raw = R;
-    fn decode(&self) -> anyhow::Result<T> {
+    fn decode(&self) -> Result<T, BoxError> {
         Ok(self.value.clone())
     }
     fn raw(&self) -> R {
         self.raw.clone()
     }
-    async fn ack(self) -> anyhow::Result<()> {
+    async fn ack(self) -> Result<(), BoxError> {
         Delivery::ack(self).await
     }
     fn ordering_key(&self) -> Option<OrderingKey> {
