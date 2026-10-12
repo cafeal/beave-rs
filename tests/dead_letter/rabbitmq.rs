@@ -1,5 +1,6 @@
 use beavers::{
-    App, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json, Result, Subscription,
+    App, BoxError, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json, Result,
+    Subscription,
     adapters::rabbitmq::{
         RabbitMqDeadLetter, RabbitMqHeaders, RabbitMqInherit, RabbitMqMetadata, RabbitMqOrigin,
         RabbitMqPublish, RabbitMqRecord, RabbitMqValue,
@@ -42,7 +43,7 @@ async fn reject_odd(record: RabbitMqRecord<u32>) -> Result<u32> {
     if record.value.is_multiple_of(2) {
         Ok(record.value)
     } else {
-        Err(HandlerError::Reject(anyhow::anyhow!("odd value")))
+        Err(HandlerError::Reject(BoxError::from("odd value")))
     }
 }
 

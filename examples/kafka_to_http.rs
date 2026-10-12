@@ -66,7 +66,8 @@ async fn main() -> anyhow::Result<()> {
                     print,
                 )
                 .run()
-                .await
+                .await?;
+            Ok(())
         }
         Some("forward") | None => {
             let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
@@ -91,7 +92,8 @@ async fn main() -> anyhow::Result<()> {
                     .concurrency(3),
                 )
                 .run()
-                .await
+                .await?;
+            Ok(())
         }
         Some(other) => {
             anyhow::bail!("unknown command {other:?}; use `receive` or `forward`")

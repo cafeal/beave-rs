@@ -2,6 +2,7 @@
 #[cfg(feature = "health")]
 use crate::health::HealthServer;
 use crate::{
+    error::{Error, ensure},
     health::Health,
     shutdown::{CancellationToken, termination_signal},
     sink::Sink,
@@ -12,19 +13,18 @@ use std::{collections::HashSet, future::Future, pin::Pin};
 use tokio::task::JoinSet;
 
 type Runner = Box<
-    dyn FnOnce(CancellationToken) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>
-        + Send,
+    dyn FnOnce(CancellationToken) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>> + Send,
 >;
 /// A set of subscriptions that run, fail, and shut down together.
 ///
 /// ```no_run
-/// use beavers::{App, IterSource, Json, Result, StdoutSink};
+/// use beavers::{App, IterSource, Json, StdoutSink};
 ///
-/// async fn double(value: u64) -> Result<u64> {
+/// async fn double(value: u64) -> beavers::Result<u64> {
 ///     Ok(value * 2)
 /// }
 ///
-/// # async fn run() -> anyhow::Result<()> {
+/// # async fn run() -> Result<(), beavers::Error> {
 /// App::new()
 ///     .subscribe("double", IterSource::new([1, 2, 3]), StdoutSink::<Json>::new(), double)
 ///     .run()
@@ -105,10 +105,11 @@ impl App {
     ///
     /// A subscription failure cancels `shutdown`, so the others drain and stop; the first
     /// failure is returned after every subscription has finished.
-    pub async fn run_until(self, shutdown: CancellationToken) -> anyhow::Result<()> {
-        anyhow::ensure!(
+    pub async fn run_until(self, shutdown: CancellationToken) -> Result<(), Error> {
+        ensure!(
             self.validation.is_empty(),
-            "invalid subscription configuration: {}",
+            Error::config,
+            "{}",
             self.validation.join("; ")
         );
         self.health.start(&shutdown);
@@ -124,7 +125,9 @@ impl App {
         }
         let mut failure = None;
         while let Some(result) = subscriptions.join_next().await {
-            if let Err(error) = result.unwrap_or_else(|error| Err(error.into())) {
+            if let Err(error) =
+                result.unwrap_or_else(|error| Err(Error::wrap("subscription task failed", error)))
+            {
                 shutdown.cancel();
                 failure.get_or_insert(error);
             }
@@ -132,8 +135,11 @@ impl App {
         #[cfg(feature = "health")]
         if let Some((stop, task)) = health_server {
             stop.cancel();
-            if let Err(error) = task.await.unwrap_or_else(|error| Err(error.into())) {
-                failure.get_or_insert(error.context("health server failed"));
+            if let Err(error) = task
+                .await
+                .unwrap_or_else(|error| Err(Error::wrap("health server task failed", error)))
+            {
+                failure.get_or_insert(Error::wrap("health server failed", error));
             }
         }
         match failure {
@@ -143,7 +149,7 @@ impl App {
     }
     /// Run every subscription until all of them finish, one fails, or the process receives
     /// SIGINT or SIGTERM.
-    pub async fn run(self) -> anyhow::Result<()> {
+    pub async fn run(self) -> Result<(), Error> {
         let token = CancellationToken::new();
         let run = self.run_until(token.clone());
         tokio::pin!(run);

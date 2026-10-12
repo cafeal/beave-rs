@@ -1,4 +1,4 @@
-use anyhow::Context as _;
+use crate::error::{Context, Error, ensure};
 use hyper::{
     Method, Uri,
     header::{HeaderName, HeaderValue},
@@ -47,9 +47,10 @@ impl HttpSourceConfig {
 
     /// Checks the configuration without binding the address; fails when
     /// `max_body_bytes` is zero.
-    pub fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
+    pub fn validate(&self) -> Result<(), Error> {
+        ensure!(
             self.max_body_bytes > 0,
+            Error::config,
             "HTTP maximum body size must be greater than zero"
         );
         Ok(())
@@ -115,35 +116,37 @@ impl HttpSinkConfig {
     /// Fails for a URL without a host, a scheme other than `http` or `https`,
     /// credentials in the URL, an invalid header name or value, or a zero
     /// timeout.
-    pub fn validate(&self) -> anyhow::Result<()> {
+    pub fn validate(&self) -> Result<(), Error> {
         self.uri()?;
         for (name, value) in &self.headers {
             HeaderName::from_bytes(name.as_bytes())
-                .with_context(|| format!("invalid HTTP header name {name:?}"))?;
+                .map_err(|_| Error::config(format!("invalid HTTP header name {name:?}")))?;
             HeaderValue::from_str(value)
-                .with_context(|| format!("invalid value for HTTP header {name:?}"))?;
+                .map_err(|_| Error::config(format!("invalid value for HTTP header {name:?}")))?;
         }
-        anyhow::ensure!(
+        ensure!(
             !self.timeout.is_zero(),
+            Error::config,
             "HTTP request timeout must be greater than zero"
         );
         Ok(())
     }
 
-    pub(super) fn uri(&self) -> anyhow::Result<Uri> {
-        let uri: Uri = self
-            .url
-            .parse()
-            .with_context(|| format!("invalid HTTP sink URL {:?}", self.url))?;
-        anyhow::ensure!(
+    pub(super) fn uri(&self) -> Result<Uri, Error> {
+        let uri: Uri = self.url.parse().map_err(|error| {
+            Error::config(format!("invalid HTTP sink URL {:?}: {error}", self.url))
+        })?;
+        ensure!(
             matches!(uri.scheme_str(), Some("http" | "https")),
+            Error::config,
             "HTTP sink URL must use the http or https scheme"
         );
         let authority = uri
             .authority()
             .context("HTTP sink URL must include a host")?;
-        anyhow::ensure!(
+        ensure!(
             !authority.as_str().contains('@'),
+            Error::config,
             "HTTP sink URL must not contain credentials; send them in a header"
         );
         Ok(uri)

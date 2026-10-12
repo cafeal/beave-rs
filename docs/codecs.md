@@ -11,11 +11,11 @@ The framework defines separate decoding and encoding traits:
 
 ```rust
 pub trait Decoder<T>: Send + Sync + 'static {
-    fn decode(&self, bytes: &[u8]) -> anyhow::Result<T>;
+    fn decode(&self, bytes: &[u8]) -> Result<T, BoxError>;
 }
 
 pub trait Encoder<T>: Send + Sync + 'static {
-    fn encode(&self, value: &T) -> anyhow::Result<Vec<u8>>;
+    fn encode(&self, value: &T) -> Result<Vec<u8>, BoxError>;
 }
 ```
 
@@ -76,7 +76,8 @@ async fn main() -> anyhow::Result<()> {
             handler,
         )
         .run()
-        .await
+        .await?;
+    Ok(())
 }
 ```
 
@@ -113,8 +114,9 @@ reuse cloned decoded input. The runtime prepares all emitted outputs before
 publishing any; publish retries reuse the same prepared representation and do
 not rerun encoding.
 
-Codec errors return through `anyhow::Result`. Neither decode nor preparation
-failures are retried, because the same bytes or value would fail again. By
+Codec errors return as `BoxError`, so an implementation can propagate any error
+type with `?`. Neither decode nor preparation failures are retried, because the
+same bytes or value would fail again. By
 default both stop processing without ACK; the subscription's
 [error policy](runtime.md#error-policy) can instead dead-letter or discard them
 as `FailureKind::Decode` and `FailureKind::Encode`. An invalid JSON line is a
@@ -126,19 +128,19 @@ Implement the relevant trait for the payload type. For example, a UTF-8 string
 codec needs no Serde dependency:
 
 ```rust
-use beavers::{Decoder, Encoder};
+use beavers::{BoxError, Decoder, Encoder};
 
 #[derive(Default)]
 struct Utf8;
 
 impl Decoder<String> for Utf8 {
-    fn decode(&self, bytes: &[u8]) -> anyhow::Result<String> {
+    fn decode(&self, bytes: &[u8]) -> Result<String, BoxError> {
         Ok(std::str::from_utf8(bytes)?.to_owned())
     }
 }
 
 impl Encoder<String> for Utf8 {
-    fn encode(&self, value: &String) -> anyhow::Result<Vec<u8>> {
+    fn encode(&self, value: &String) -> Result<Vec<u8>, BoxError> {
         Ok(value.as_bytes().to_vec())
     }
 }

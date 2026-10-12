@@ -1,3 +1,4 @@
+use crate::error::{BoxError, Error};
 use std::io::Cursor;
 
 use apache_avro::{
@@ -21,9 +22,10 @@ pub struct Avro {
 
 impl Avro {
     /// Parse and validate an Avro schema once for subsequent codec calls.
-    pub fn new(schema: &str) -> anyhow::Result<Self> {
+    pub fn new(schema: &str) -> Result<Self, Error> {
         Ok(Self {
-            schema: Schema::parse_str(schema)?,
+            schema: Schema::parse_str(schema)
+                .map_err(|error| Error::config(format!("invalid Avro schema: {error}")))?,
         })
     }
 
@@ -42,16 +44,17 @@ impl<T> Decoder<T> for Avro
 where
     T: DeserializeOwned,
 {
-    fn decode(&self, bytes: &[u8]) -> anyhow::Result<T> {
+    fn decode(&self, bytes: &[u8]) -> Result<T, BoxError> {
         let mut input = Cursor::new(bytes);
         let reader = GenericDatumReader::builder(&self.schema).build()?;
         let value = reader.read_value(&mut input)?;
 
         if input.position() != bytes.len() as u64 {
-            anyhow::bail!(
+            return Err(Error::invalid_record(format!(
                 "Avro datum has {} trailing byte(s)",
                 bytes.len() as u64 - input.position()
-            );
+            ))
+            .into());
         }
 
         Ok(from_value(&value)?)
@@ -62,7 +65,7 @@ impl<T> Encoder<T> for Avro
 where
     T: Serialize,
 {
-    fn encode(&self, value: &T) -> anyhow::Result<Vec<u8>> {
+    fn encode(&self, value: &T) -> Result<Vec<u8>, BoxError> {
         let writer = GenericDatumWriter::builder(&self.schema).build()?;
         Ok(writer.write_ser_to_vec(value)?)
     }

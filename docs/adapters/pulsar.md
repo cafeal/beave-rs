@@ -51,7 +51,7 @@ output.key = Some(b"customer-42".to_vec());
 output.properties.insert("kind".into(), "order".into());
 let prepared = sink.prepare(output)?;
 sink.publish(&prepared).await?;
-# Ok::<(), anyhow::Error>(())
+# Ok::<(), beavers::BoxError>(())
 ```
 
 ## Records

@@ -6,12 +6,12 @@ use super::{
     transaction::Batcher,
 };
 use crate::{
+    error::{BoxError, Context},
     message::SourceMessage,
     retry::RetryPolicy,
     sink::{self, PublishRejected, Sink},
     transaction::TransactionalSink,
 };
-use anyhow::Context as _;
 use metrics::Counter;
 use std::{
     future::Future,
@@ -34,10 +34,10 @@ pub(super) enum Completion<M> {
     Committing(sink::Completion),
     /// Preparing an output failed before anything was published; the
     /// delivery is returned unacknowledged for failure routing.
-    Encode(M, anyhow::Error),
+    Encode(M, BoxError),
     /// The sink rejected an output after every output submitted before it
     /// completed; the delivery is returned unacknowledged for failure routing.
-    Rejected(M, anyhow::Error),
+    Rejected(M, BoxError),
 }
 
 /// Completes deliveries of one subscription with the sink's output.
@@ -53,15 +53,15 @@ pub(super) trait Complete<M, O>: Send + Sync + 'static {
         outputs: Vec<O>,
         policy: &'a RetryPolicy,
         instruments: &'a Instruments,
-    ) -> BoxFuture<'a, anyhow::Result<Completion<M>>>;
+    ) -> BoxFuture<'a, Result<Completion<M>, BoxError>>;
     /// Checks before the first delivery is processed that deliveries of this
     /// source can be completed, and returns the delivery.
     fn verify<'a>(
         &'a self,
         delivery: M,
         policy: &'a RetryPolicy,
-    ) -> BoxFuture<'a, anyhow::Result<M>>;
-    fn close(&self) -> BoxFuture<'_, anyhow::Result<()>>;
+    ) -> BoxFuture<'a, Result<M, BoxError>>;
+    fn close(&self) -> BoxFuture<'_, Result<(), BoxError>>;
 }
 
 /// Publishes outputs sequentially, then acknowledges the delivery separately.
@@ -79,7 +79,7 @@ where
         outputs: Vec<O>,
         policy: &'a RetryPolicy,
         instruments: &'a Instruments,
-    ) -> BoxFuture<'a, anyhow::Result<Completion<M>>> {
+    ) -> BoxFuture<'a, Result<Completion<M>, BoxError>> {
         Box::pin(async move {
             // Preparing all outputs first means an encode failure never follows a partial publish.
             let outputs = match prepare(&*self.0, outputs, &delivery, instruments) {
@@ -98,11 +98,13 @@ where
                         .await
                         {
                             Ok(completion) => completions.push(completion),
-                            Err(error) if PublishRejected::is(&error) => return Ok(Some(error)),
+                            Err(error) if PublishRejected::is(error.as_ref()) => {
+                                return Ok(Some(error));
+                            }
                             Err(error) => return Err(error),
                         }
                     }
-                    anyhow::Ok(None)
+                    Ok::<_, BoxError>(None)
                 }
                 .instrument(info_span!("publish", outputs = outputs.len()))
                 .await?;
@@ -127,11 +129,11 @@ where
         })
     }
 
-    fn verify<'a>(&'a self, delivery: M, _: &'a RetryPolicy) -> BoxFuture<'a, anyhow::Result<M>> {
+    fn verify<'a>(&'a self, delivery: M, _: &'a RetryPolicy) -> BoxFuture<'a, Result<M, BoxError>> {
         Box::pin(async move { Ok(delivery) })
     }
 
-    fn close(&self) -> BoxFuture<'_, anyhow::Result<()>> {
+    fn close(&self) -> BoxFuture<'_, Result<(), BoxError>> {
         Box::pin(self.0.close())
     }
 }
@@ -173,7 +175,7 @@ where
         outputs: Vec<O>,
         _: &'a RetryPolicy,
         instruments: &'a Instruments,
-    ) -> BoxFuture<'a, anyhow::Result<Completion<M>>> {
+    ) -> BoxFuture<'a, Result<Completion<M>, BoxError>> {
         Box::pin(async move {
             let outputs = match prepare(&*self.sink, outputs, &delivery, instruments) {
                 Ok(outputs) => outputs,
@@ -195,7 +197,7 @@ where
         &'a self,
         delivery: M,
         policy: &'a RetryPolicy,
-    ) -> BoxFuture<'a, anyhow::Result<M>> {
+    ) -> BoxFuture<'a, Result<M, BoxError>> {
         Box::pin(async move {
             retry_publish(policy, &Counter::noop(), None, || {
                 self.sink.verify_source(&delivery)
@@ -206,7 +208,7 @@ where
         })
     }
 
-    fn close(&self) -> BoxFuture<'_, anyhow::Result<()>> {
+    fn close(&self) -> BoxFuture<'_, Result<(), BoxError>> {
         Box::pin(async move {
             let batcher = self.batcher.lock().unwrap().take();
             let batched = match batcher {
@@ -223,7 +225,7 @@ fn prepare<M: SourceMessage, O, K: Sink<O>>(
     outputs: Vec<O>,
     delivery: &M,
     instruments: &Instruments,
-) -> anyhow::Result<Vec<K::Prepared>> {
+) -> Result<Vec<K::Prepared>, BoxError> {
     // A delivery without outputs, such as a discarded one, records no encode stage.
     if outputs.is_empty() {
         return Ok(Vec::new());
@@ -242,7 +244,7 @@ fn prepare<M: SourceMessage, O, K: Sink<O>>(
 pub(super) async fn acknowledge<M: SourceMessage>(
     delivery: M,
     instruments: &Instruments,
-) -> anyhow::Result<()> {
+) -> Result<(), BoxError> {
     let started = Instant::now();
     delivery.ack().instrument(info_span!("ack")).await?;
     instruments.record(Stage::Ack, started);

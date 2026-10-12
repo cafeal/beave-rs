@@ -16,7 +16,7 @@ use beavers::{Decoder, Encoder, RawBytes};
 let codec = RawBytes;
 let value = codec.decode(&[0, 0xff, b'\n'])?;
 assert_eq!(codec.encode(&value)?, vec![0, 0xff, b'\n']);
-# Ok::<(), anyhow::Error>(())
+# Ok::<(), beavers::BoxError>(())
 ```
 
 ## Utf8
@@ -33,7 +33,7 @@ let codec = Utf8;
 let value = codec.decode("hello\n".as_bytes())?;
 assert_eq!(value, "hello\n");
 assert_eq!(codec.encode(&value)?, b"hello\n");
-# Ok::<(), anyhow::Error>(())
+# Ok::<(), beavers::BoxError>(())
 ```
 
 Framing remains the adapter's responsibility. In particular, a line-based

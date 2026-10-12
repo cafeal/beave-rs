@@ -1,3 +1,4 @@
+use crate::error::BoxError;
 use crate::sink::Sink;
 use std::sync::{Arc, Mutex};
 
@@ -24,10 +25,10 @@ impl<T: Clone> InMemorySink<T> {
 }
 impl<T: Clone + Send + Sync + 'static> Sink<T> for InMemorySink<T> {
     type Prepared = T;
-    fn prepare(&self, value: T) -> anyhow::Result<T> {
+    fn prepare(&self, value: T) -> Result<T, BoxError> {
         Ok(value)
     }
-    async fn publish(&self, value: &T) -> anyhow::Result<()> {
+    async fn publish(&self, value: &T) -> Result<(), BoxError> {
         self.0.lock().unwrap().push(value.clone());
         Ok(())
     }

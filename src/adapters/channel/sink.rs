@@ -4,6 +4,7 @@ use super::{
     record::{ChannelOutput, ChannelRaw},
 };
 use crate::{
+    error::{BoxError, Error},
     message::SourceMessage,
     sink::{Completion, Sink},
 };
@@ -64,7 +65,7 @@ impl<T: Clone + Send + Sync + 'static> Sink<T> for ChannelSink<T> {
     type Prepared = ChannelOutput<T>;
 
     /// A value without an upstream delivery: no ordering key and an empty raw form.
-    fn prepare(&self, value: T) -> anyhow::Result<ChannelOutput<T>> {
+    fn prepare(&self, value: T) -> Result<ChannelOutput<T>, BoxError> {
         Ok(value.into())
     }
 
@@ -72,7 +73,7 @@ impl<T: Clone + Send + Sync + 'static> Sink<T> for ChannelSink<T> {
         &self,
         value: T,
         delivery: &M,
-    ) -> anyhow::Result<ChannelOutput<T>> {
+    ) -> Result<ChannelOutput<T>, BoxError> {
         Ok(ChannelOutput {
             value,
             origin: Origin {
@@ -82,22 +83,22 @@ impl<T: Clone + Send + Sync + 'static> Sink<T> for ChannelSink<T> {
         })
     }
 
-    async fn publish(&self, output: &ChannelOutput<T>) -> anyhow::Result<()> {
+    async fn publish(&self, output: &ChannelOutput<T>) -> Result<(), BoxError> {
         self.submit(output).await?.wait().await
     }
 
     /// Returns once the value is enqueued. The completion resolves when the
     /// receiving end takes responsibility for it.
-    async fn submit(&self, output: &ChannelOutput<T>) -> anyhow::Result<Completion> {
+    async fn submit(&self, output: &ChannelOutput<T>) -> Result<Completion, BoxError> {
         let sender = self
             .sender()
-            .ok_or_else(|| anyhow::anyhow!("channel sink is closed"))?;
-        enqueue(&sender, output.value.clone(), output.origin.clone()).await
+            .ok_or_else(|| Error::closed("channel sink is closed"))?;
+        Ok(enqueue(&sender, output.value.clone(), output.origin.clone()).await?)
     }
 
     /// Rejects later publications from this clone. The receiving end ends after every
     /// clone is closed or dropped and the values already sent have been received.
-    async fn close(&self) -> anyhow::Result<()> {
+    async fn close(&self) -> Result<(), BoxError> {
         self.sender
             .lock()
             .unwrap_or_else(PoisonError::into_inner)

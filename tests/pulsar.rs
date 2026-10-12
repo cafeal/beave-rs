@@ -1,7 +1,7 @@
 #![cfg(feature = "pulsar")]
 
 use beavers::{
-    Receive, ReceiveError, Sink, Source, SourceMessage, Utf8,
+    BoxError, Receive, ReceiveError, Sink, Source, SourceMessage, Utf8,
     adapters::pulsar::{
         PulsarAuthentication, PulsarMessage, PulsarMessageId, PulsarMetadata, PulsarPublish,
         PulsarRecord, PulsarSink, PulsarSinkConfig, PulsarSource, PulsarSourceConfig,
@@ -142,7 +142,7 @@ fn unique_topic(prefix: &str) -> String {
 
 /// Sends a `PUT` for `topic` to the admin REST API at `PULSAR_ADMIN_ADDR`
 /// (default: `127.0.0.1:8080`). `action` follows the topic path.
-async fn put_topic_admin(topic: &str, action: &str, body: &str) -> anyhow::Result<()> {
+async fn put_topic_admin(topic: &str, action: &str, body: &str) -> Result<(), BoxError> {
     let address = env::var("PULSAR_ADMIN_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
     let path = topic.replacen("persistent://", "/admin/v2/persistent/", 1);
     let request = format!(
@@ -154,16 +154,15 @@ async fn put_topic_admin(topic: &str, action: &str, body: &str) -> anyhow::Resul
     stream.write_all(request.as_bytes()).await?;
     let mut response = String::new();
     stream.read_to_string(&mut response).await?;
-    anyhow::ensure!(
-        response.starts_with("HTTP/1.1 2"),
-        "{action} of {topic} failed: {response}"
-    );
+    if !(response.starts_with("HTTP/1.1 2")) {
+        return Err(format!("{action} of {topic} failed: {response}").into());
+    };
     Ok(())
 }
 
 /// Creates a durable subscription at the earliest position, so messages
 /// published before the source's consumer connects are still delivered to it.
-async fn create_subscription(topic: &str, subscription: &str) -> anyhow::Result<()> {
+async fn create_subscription(topic: &str, subscription: &str) -> Result<(), BoxError> {
     put_topic_admin(
         topic,
         &format!("subscription/{subscription}"),
@@ -173,32 +172,32 @@ async fn create_subscription(topic: &str, subscription: &str) -> anyhow::Result<
 }
 
 /// Closes the topic on its broker, so clients reconnect to it.
-async fn unload_topic(topic: &str) -> anyhow::Result<()> {
+async fn unload_topic(topic: &str) -> Result<(), BoxError> {
     put_topic_admin(topic, "unload", "").await
 }
 
 async fn next_message(
     source: &mut PulsarSource<Utf8, String>,
     timeout: Duration,
-) -> anyhow::Result<Option<PulsarMessage<Utf8, String>>> {
+) -> Result<Option<PulsarMessage<Utf8, String>>, BoxError> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         match tokio::time::timeout(remaining, source.receive()).await {
             Err(_) => return Ok(None),
             Ok(Ok(Receive::Message(message))) => return Ok(Some(message)),
-            Ok(Ok(Receive::End)) => anyhow::bail!("Pulsar source ended"),
+            Ok(Ok(Receive::End)) => return Err("Pulsar source ended".into()),
             Ok(Err(ReceiveError::Retry(_))) => {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
             Ok(Err(ReceiveError::Fatal(error))) => {
-                anyhow::bail!("Pulsar receive failed: {error:#}")
+                return Err(format!("Pulsar receive failed: {error}").into());
             }
         }
     }
 }
 
-async fn publish_all(topic: &str, values: &[&str]) -> anyhow::Result<()> {
+async fn publish_all(topic: &str, values: &[&str]) -> Result<(), BoxError> {
     let sink = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(service_url(), topic));
     for value in values {
         let mut output = PulsarPublish::new((*value).to_owned());
@@ -219,7 +218,7 @@ fn exclusive_source(topic: &str, subscription: &str) -> PulsarSource<Utf8, Strin
 /// acknowledged once the consumer has reconnected.
 #[tokio::test]
 #[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
-async fn acknowledgement_is_retried_across_a_topic_unload() -> anyhow::Result<()> {
+async fn acknowledgement_is_retried_across_a_topic_unload() -> Result<(), BoxError> {
     let topic = unique_topic("beavers-pulsar-unload");
     let subscription = unique_name("beavers-pulsar-unload");
     create_subscription(&topic, &subscription).await?;
@@ -250,7 +249,7 @@ async fn acknowledgement_is_retried_across_a_topic_unload() -> anyhow::Result<()
 /// completes and every message reaches the topic.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
-async fn submissions_complete_across_topic_unloads() -> anyhow::Result<()> {
+async fn submissions_complete_across_topic_unloads() -> Result<(), BoxError> {
     let topic = unique_topic("beavers-pulsar-resend");
     let subscription = unique_name("beavers-pulsar-resend");
     create_subscription(&topic, &subscription).await?;
@@ -276,7 +275,7 @@ async fn submissions_complete_across_topic_unloads() -> anyhow::Result<()> {
                 result??;
             }
             sink.close().await?;
-            anyhow::Ok(count)
+            Ok::<_, BoxError>(count)
         }
     });
     for _ in 0..10 {
@@ -301,7 +300,7 @@ async fn submissions_complete_across_topic_unloads() -> anyhow::Result<()> {
 /// Requires the development broker at `PULSAR_URL`.
 #[tokio::test]
 #[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
-async fn tombstones_carry_the_null_value_marker() -> anyhow::Result<()> {
+async fn tombstones_carry_the_null_value_marker() -> Result<(), BoxError> {
     let topic = unique_topic("beavers-pulsar-tombstone");
     let subscription = unique_name("tombstones");
     create_subscription(&topic, &subscription).await?;
@@ -334,7 +333,7 @@ async fn tombstones_carry_the_null_value_marker() -> anyhow::Result<()> {
 /// `pulsar://127.0.0.1:6650`).
 #[tokio::test]
 #[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
-async fn publish_receive_and_ack_against_pulsar() -> anyhow::Result<()> {
+async fn publish_receive_and_ack_against_pulsar() -> Result<(), BoxError> {
     let service_url = env::var("PULSAR_URL").unwrap_or_else(|_| "pulsar://127.0.0.1:6650".into());
     let topic = format!(
         "persistent://public/default/{}",
@@ -356,12 +355,12 @@ async fn publish_receive_and_ack_against_pulsar() -> anyhow::Result<()> {
         let message = loop {
             match source.receive().await {
                 Ok(Receive::Message(message)) => break message,
-                Ok(Receive::End) => anyhow::bail!("Pulsar source ended before delivery"),
+                Ok(Receive::End) => return Err("Pulsar source ended before delivery".into()),
                 Err(ReceiveError::Retry(_)) => {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
                 Err(ReceiveError::Fatal(error)) => {
-                    anyhow::bail!("Pulsar receive failed: {error:#}")
+                    return Err(format!("Pulsar receive failed: {error}").into());
                 }
             }
         };
@@ -369,7 +368,7 @@ async fn publish_receive_and_ack_against_pulsar() -> anyhow::Result<()> {
         let metadata = record.metadata.clone();
         message.ack().await?;
         source.close().await?;
-        anyhow::Ok((record, metadata))
+        Ok::<_, BoxError>((record, metadata))
     });
 
     let mut output = PulsarPublish::new("hello pulsar".to_owned());
@@ -402,7 +401,7 @@ async fn publish_receive_and_ack_against_pulsar() -> anyhow::Result<()> {
 /// `pulsar://127.0.0.1:6650`).
 #[tokio::test]
 #[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
-async fn submitted_messages_complete_on_their_broker_receipts() -> anyhow::Result<()> {
+async fn submitted_messages_complete_on_their_broker_receipts() -> Result<(), BoxError> {
     let topic = unique_topic("beavers-pulsar-submit");
     let mut config = PulsarSinkConfig::new(service_url(), &topic);
     config.max_pending = 2;
