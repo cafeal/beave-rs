@@ -1,7 +1,7 @@
 #![cfg(feature = "pubsub")]
 
 use beavers::{
-    App, CancellationToken, RawBytes, Receive, ReceiveError, Sink, Source, SourceMessage,
+    App, BoxError, CancellationToken, RawBytes, Receive, ReceiveError, Sink, Source, SourceMessage,
     Subscription, Utf8,
     adapters::pubsub::{
         PubSubCredentials, PubSubMessage, PubSubPublish, PubSubSink, PubSubSinkConfig,
@@ -60,7 +60,7 @@ fn emulator_host() -> String {
 
 /// Sends a `PUT` with a JSON body to the emulator's REST API and reads the
 /// response, which the emulator sends without closing the connection.
-async fn put(path: &str, body: &str) -> anyhow::Result<()> {
+async fn put(path: &str, body: &str) -> Result<(), BoxError> {
     let address = emulator_host();
     let mut stream = TcpStream::connect(&address).await?;
     let request = format!(
@@ -72,7 +72,9 @@ async fn put(path: &str, body: &str) -> anyhow::Result<()> {
     let mut buffer = [0; 4096];
     loop {
         let read = stream.read(&mut buffer).await?;
-        anyhow::ensure!(read > 0, "the emulator closed the connection");
+        if read == 0 {
+            return Err("the emulator closed the connection".into());
+        }
         response.extend_from_slice(&buffer[..read]);
         let text = String::from_utf8_lossy(&response);
         let Some((head, body)) = text.split_once("\r\n\r\n") else {
@@ -91,10 +93,9 @@ async fn put(path: &str, body: &str) -> anyhow::Result<()> {
         if body.len() < length {
             continue;
         }
-        anyhow::ensure!(
-            head.starts_with("HTTP/1.1 200"),
-            "PUT {path} failed: {text}"
-        );
+        if !head.starts_with("HTTP/1.1 200") {
+            return Err(format!("PUT {path} failed: {text}").into());
+        }
         return Ok(());
     }
 }
@@ -106,7 +107,7 @@ struct Topic {
 }
 
 /// Creates a topic and a subscription with a 10-second acknowledgement deadline.
-async fn create_topic(prefix: &str, ordered: bool) -> anyhow::Result<Topic> {
+async fn create_topic(prefix: &str, ordered: bool) -> Result<Topic, BoxError> {
     let name = unique_name(prefix);
     let topic = format!("projects/{PROJECT}/topics/{name}");
     let subscription = format!("projects/{PROJECT}/subscriptions/{name}");
@@ -146,7 +147,7 @@ fn sink(topic: &str) -> PubSubSink<Utf8, String> {
 async fn send(
     sink: &PubSubSink<Utf8, String>,
     output: PubSubPublish<String>,
-) -> anyhow::Result<()> {
+) -> Result<(), BoxError> {
     let prepared = sink.prepare(output)?;
     tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
         .await
@@ -157,20 +158,20 @@ async fn send(
 async fn next_message(
     source: &mut PubSubSource<Utf8, String>,
     timeout: Duration,
-) -> anyhow::Result<Option<PubSubMessage<Utf8, String>>> {
+) -> Result<Option<PubSubMessage<Utf8, String>>, BoxError> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         match tokio::time::timeout(remaining, source.receive()).await {
             Err(_) => return Ok(None),
             Ok(Ok(Receive::Message(message))) => return Ok(Some(message)),
-            Ok(Ok(Receive::End)) => anyhow::bail!("Pub/Sub source ended"),
+            Ok(Ok(Receive::End)) => return Err("Pub/Sub source ended".into()),
             Ok(Err(ReceiveError::Retry(error))) => {
-                eprintln!("retrying Pub/Sub receive: {error:#}");
+                eprintln!("retrying Pub/Sub receive: {error}");
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
             Ok(Err(ReceiveError::Fatal(error))) => {
-                anyhow::bail!("Pub/Sub receive failed: {error:#}")
+                return Err(format!("Pub/Sub receive failed: {error}").into());
             }
         }
     }
@@ -178,7 +179,7 @@ async fn next_message(
 
 #[tokio::test]
 #[ignore = "requires the Pub/Sub emulator; run with cargo test --features pubsub -- --ignored"]
-async fn publish_receive_and_ack_against_pubsub() -> anyhow::Result<()> {
+async fn publish_receive_and_ack_against_pubsub() -> Result<(), BoxError> {
     let Topic {
         topic,
         subscription,
@@ -219,7 +220,7 @@ async fn publish_receive_and_ack_against_pubsub() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires the Pub/Sub emulator; run with cargo test --features pubsub -- --ignored"]
-async fn leases_are_extended_while_a_delivery_is_held() -> anyhow::Result<()> {
+async fn leases_are_extended_while_a_delivery_is_held() -> Result<(), BoxError> {
     let Topic {
         topic,
         subscription,
@@ -247,7 +248,7 @@ async fn leases_are_extended_while_a_delivery_is_held() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires the Pub/Sub emulator; run with cargo test --features pubsub -- --ignored"]
-async fn deliveries_held_past_the_max_lease_are_revoked() -> anyhow::Result<()> {
+async fn deliveries_held_past_the_max_lease_are_revoked() -> Result<(), BoxError> {
     let Topic {
         topic,
         subscription,
@@ -271,7 +272,7 @@ async fn deliveries_held_past_the_max_lease_are_revoked() -> anyhow::Result<()> 
 
 #[tokio::test]
 #[ignore = "requires the Pub/Sub emulator; run with cargo test --features pubsub -- --ignored"]
-async fn dropped_and_closed_deliveries_are_redelivered() -> anyhow::Result<()> {
+async fn dropped_and_closed_deliveries_are_redelivered() -> Result<(), BoxError> {
     let Topic {
         topic,
         subscription,
@@ -322,7 +323,7 @@ async fn dropped_and_closed_deliveries_are_redelivered() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires the Pub/Sub emulator; run with cargo test --features pubsub -- --ignored"]
-async fn messages_are_ordered_by_their_ordering_key() -> anyhow::Result<()> {
+async fn messages_are_ordered_by_their_ordering_key() -> Result<(), BoxError> {
     let Topic {
         topic,
         subscription,
@@ -354,7 +355,7 @@ async fn messages_are_ordered_by_their_ordering_key() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires the Pub/Sub emulator; run with cargo test --features pubsub -- --ignored"]
-async fn pipeline_forwards_attributes_and_acknowledges_every_input() -> anyhow::Result<()> {
+async fn pipeline_forwards_attributes_and_acknowledges_every_input() -> Result<(), BoxError> {
     let input = create_topic("beavers-pubsub-input", false).await?;
     let output = create_topic("beavers-pubsub-output", false).await?;
     let producer = sink(&input.topic);

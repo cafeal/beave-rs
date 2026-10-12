@@ -3,7 +3,10 @@ use super::{
     record::{PubSubAttributes, PubSubPublish, PubSubRecord},
     sink::MAX_ATTRIBUTE_VALUE,
 };
-use crate::dead_letter::{DEAD_LETTER_HEADER_PREFIX, DeadLetter, DeadLetterDetails};
+use crate::{
+    dead_letter::{DEAD_LETTER_HEADER_PREFIX, DeadLetter, DeadLetterDetails},
+    error::Error,
+};
 
 const ORIGIN_SUBSCRIPTION: &str = "beavers-dlq-origin-subscription";
 const ORIGIN_MESSAGE_ID: &str = "beavers-dlq-origin-message-id";
@@ -35,17 +38,15 @@ pub struct PubSubDeadLetter {
 impl PubSubDeadLetter {
     /// Reads dead-letter attributes. Returns `None` for a record without them and an error
     /// when they are incomplete or malformed.
-    pub fn from_record<T>(record: &PubSubRecord<T>) -> anyhow::Result<Option<Self>> {
+    pub fn from_record<T>(record: &PubSubRecord<T>) -> Result<Option<Self>, Error> {
         let field = |name: &str| Ok(record.attributes.get(name).map(String::as_str));
         let Some(details) = DeadLetterDetails::parse(field)? else {
             return Ok(None);
         };
         let required = |name: &str| {
-            record
-                .attributes
-                .get(name)
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("dead-letter attribute {name} is missing"))
+            record.attributes.get(name).cloned().ok_or_else(|| {
+                Error::invalid_record(format!("dead-letter attribute {name} is missing"))
+            })
         };
         Ok(Some(Self {
             details,

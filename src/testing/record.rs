@@ -174,7 +174,7 @@ impl TestRecord for RabbitMqRecord<Vec<u8>> {
 impl TestRecord for PubSubRecord<Vec<u8>> {
     type Decoded<T: Clone + Send + Sync + 'static> = PubSubRecord<T>;
 
-    fn decode<C, T>(&self, codec: &C) -> anyhow::Result<PubSubRecord<T>>
+    fn decode<C, T>(&self, codec: &C) -> Result<PubSubRecord<T>, BoxError>
     where
         C: Decoder<T>,
         T: Clone + Send + Sync + 'static,

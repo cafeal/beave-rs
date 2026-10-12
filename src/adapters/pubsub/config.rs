@@ -1,3 +1,4 @@
+use crate::error::{Error, ensure};
 use std::time::Duration;
 
 /// How the adapters authenticate to Pub/Sub.
@@ -20,10 +21,11 @@ pub(super) struct Endpoint<'a> {
 }
 
 impl Endpoint<'_> {
-    fn validate(&self) -> anyhow::Result<()> {
+    fn validate(&self) -> Result<(), Error> {
         if let Some(url) = self.endpoint {
-            anyhow::ensure!(
+            ensure!(
                 url.starts_with("https://") || url.starts_with("http://"),
+                Error::config,
                 "Pub/Sub endpoint must be an http or https URL"
             );
         }
@@ -32,13 +34,14 @@ impl Endpoint<'_> {
 }
 
 /// Checks that `name` is `projects/{project}/{collection}/{id}`.
-fn validate_name(name: &str, collection: &str) -> anyhow::Result<()> {
+fn validate_name(name: &str, collection: &str) -> Result<(), Error> {
     let parts: Vec<_> = name.split('/').collect();
-    anyhow::ensure!(
+    ensure!(
         matches!(parts[..], ["projects", project, kind, id]
             if !project.is_empty() && kind == collection && !id.is_empty()),
+        Error::config,
         "Pub/Sub {} must be named projects/{{project}}/{collection}/{{id}}, not {name:?}",
-        collection.trim_end_matches('s'),
+        collection.trim_end_matches('s')
     );
     Ok(())
 }
@@ -92,15 +95,17 @@ impl PubSubSourceConfig {
     }
 
     /// Checks the settings without contacting Pub/Sub.
-    pub fn validate(&self) -> anyhow::Result<()> {
+    pub fn validate(&self) -> Result<(), Error> {
         validate_name(&self.subscription, "subscriptions")?;
         self.endpoint().validate()?;
-        anyhow::ensure!(
+        ensure!(
             (Duration::from_secs(10)..=Duration::from_secs(600)).contains(&self.ack_deadline),
+            Error::config,
             "Pub/Sub ack_deadline must be between 10 seconds and 10 minutes"
         );
-        anyhow::ensure!(
+        ensure!(
             self.max_lease >= self.ack_deadline,
+            Error::config,
             "Pub/Sub max_lease must be at least ack_deadline"
         );
         Ok(())
@@ -141,7 +146,7 @@ impl PubSubSinkConfig {
     }
 
     /// Checks the settings without contacting Pub/Sub.
-    pub fn validate(&self) -> anyhow::Result<()> {
+    pub fn validate(&self) -> Result<(), Error> {
         validate_name(&self.topic, "topics")?;
         self.endpoint().validate()
     }

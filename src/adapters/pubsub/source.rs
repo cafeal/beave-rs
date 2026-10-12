@@ -5,11 +5,11 @@ use super::{
 };
 use crate::{
     codec::Decoder,
+    error::{BoxError, Context, Error},
     message::{OrderingKey, SourceMessage},
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
 };
-use anyhow::Context as _;
 use google_cloud_pubsub::{
     client::Subscriber,
     error::AckError,
@@ -74,11 +74,13 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PubSubSource<C,
             return Ok(Receive::End);
         }
         if self.connection.is_none() {
-            self.config.validate().map_err(ReceiveError::Fatal)?;
+            self.config
+                .validate()
+                .map_err(|error| ReceiveError::Fatal(error.into()))?;
             let client = subscriber(&self.config.endpoint())
                 .await
                 .context("creating the Pub/Sub subscriber client")
-                .map_err(ReceiveError::Fatal)?;
+                .map_err(|error| ReceiveError::Fatal(error.into()))?;
             self.connection = Some(Connection {
                 client,
                 stream: None,
@@ -99,19 +101,19 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PubSubSource<C,
             Some(Ok((message, handler))) => {
                 return Ok(Receive::Message(PubSubMessage::new(self, message, handler)));
             }
-            Some(Err(error)) => anyhow::Error::new(error).context("receiving from Pub/Sub"),
-            None => anyhow::anyhow!("the Pub/Sub stream ended"),
+            Some(Err(error)) => Error::wrap("receiving from Pub/Sub", error),
+            None => Error::msg("the Pub/Sub stream ended"),
         };
         // The client retries transient errors itself, so this stream is done.
         // The next receive opens another one.
         let stream = connection.stream.take().expect("open stream");
         connection.retired.push(stream.shutdown_token());
-        Err(ReceiveError::Retry(error))
+        Err(ReceiveError::Retry(error.into()))
     }
 
     /// Stops the stream, sends the acknowledgements still pending, and makes
     /// the messages that were received but not handed out available again.
-    async fn close(&mut self) -> anyhow::Result<()> {
+    async fn close(&mut self) -> Result<(), BoxError> {
         self.closed = true;
         let Some(connection) = self.connection.take() else {
             return Ok(());
@@ -205,7 +207,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PubSubMe
     type Item = PubSubRecord<T>;
     type Raw = PubSubRecord<Vec<u8>>;
 
-    fn decode(&self) -> anyhow::Result<Self::Item> {
+    fn decode(&self) -> Result<Self::Item, BoxError> {
         self.record(|bytes| self.codec.decode(bytes))
     }
 
@@ -219,7 +221,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PubSubMe
     /// delivery when its lease expired first. Otherwise the client sends
     /// acknowledgements in batches without confirmation, so the message can
     /// still be redelivered.
-    async fn ack(mut self) -> anyhow::Result<()> {
+    async fn ack(mut self) -> Result<(), BoxError> {
         let handler = self.handler.take().expect("unacknowledged message");
         match handler {
             Handler::ExactlyOnce(handler) => match handler.confirmed_ack().await {
@@ -228,7 +230,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PubSubMe
                     if matches!(error, AckError::LeaseExpired) {
                         self.revoked.cancel();
                     }
-                    Err(anyhow::Error::new(error).context("acknowledging a Pub/Sub message"))
+                    Err(Error::wrap("acknowledging a Pub/Sub message", error).into())
                 }
             },
             handler => {

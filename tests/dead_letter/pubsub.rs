@@ -1,5 +1,6 @@
 use beavers::{
-    App, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json, Result, Subscription,
+    App, BoxError, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json, Result,
+    Subscription,
     adapters::pubsub::{
         PubSubAttributes, PubSubDeadLetter, PubSubInherit, PubSubOrigin, PubSubPublish,
         PubSubRecord,
@@ -32,7 +33,7 @@ async fn reject_odd(record: PubSubRecord<u32>) -> Result<u32> {
     if record.value.is_multiple_of(2) {
         Ok(record.value)
     } else {
-        Err(HandlerError::Reject(anyhow::anyhow!("odd value")))
+        Err(HandlerError::Reject(BoxError::from("odd value")))
     }
 }
 
@@ -92,7 +93,7 @@ async fn dead_letters_keep_the_original_message_and_add_detail_attributes() {
 #[tokio::test]
 async fn long_errors_are_cut_to_the_attribute_limit() {
     let published = dead_letter("orders", vec![order("m-7", "3")], |_| async {
-        Err(HandlerError::Reject(anyhow::anyhow!("é".repeat(600))))
+        Err(HandlerError::Reject(BoxError::from("é".repeat(600))))
     })
     .await;
     let error = &published[0].attributes["beavers-dlq-error"];
