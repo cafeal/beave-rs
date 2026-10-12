@@ -106,6 +106,7 @@ pub struct DeadLetterDetails {
         feature = "pulsar",
         feature = "pubsub",
         feature = "rabbitmq",
+        feature = "servicebus",
         feature = "sqs"
     )),
     allow(dead_code)
@@ -164,6 +165,7 @@ impl DeadLetterDetails {
         feature = "pulsar",
         feature = "pubsub",
         feature = "rabbitmq",
+        feature = "servicebus",
         feature = "sqs"
     )),
     allow(dead_code)

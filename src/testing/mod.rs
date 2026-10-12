@@ -15,6 +15,8 @@ pub use record::pubsub_record;
 pub use record::pulsar_record;
 #[cfg(feature = "rabbitmq")]
 pub use record::rabbitmq_record;
+#[cfg(feature = "servicebus")]
+pub use record::servicebus_record;
 #[cfg(feature = "sqs")]
 pub use record::sqs_record;
 #[cfg(feature = "kafka")]
@@ -25,6 +27,8 @@ pub use source::PubSubTestSource;
 pub use source::PulsarTestSource;
 #[cfg(feature = "rabbitmq")]
 pub use source::RabbitMqTestSource;
+#[cfg(feature = "servicebus")]
+pub use source::ServiceBusTestSource;
 #[cfg(feature = "sqs")]
 pub use source::SqsTestSource;
 pub use source::{TestMessage, TestSource};

@@ -25,6 +25,8 @@ project follows the versioning policy in
 - Kafka, Apache Pulsar, RabbitMQ, and HTTP adapters behind Cargo features,
   including Kafka-to-Kafka transactions.
 - Google Cloud Pub/Sub source and sink adapters behind the `pubsub` feature.
+- An Azure Service Bus source and sink behind the `servicebus` feature, with
+  peek-lock receipt and lock renewal.
 - JSON, raw byte, and UTF-8 codecs, with Avro and Protobuf behind features.
 - `tracing` spans and `metrics` instruments for every delivery stage,
   trace-context propagation with the `opentelemetry` feature, liveness and

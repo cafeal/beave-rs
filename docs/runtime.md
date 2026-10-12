@@ -67,7 +67,8 @@ delivers in order. The Kafka source uses the topic partition. The Pulsar source
 uses the topic partition or message key, depending on its subscription type.
 The RabbitMQ source uses its queue when configured as ordered. The SQS source
 uses the message group of a FIFO queue. The Pub/Sub source uses the ordering
-key of a message published with one. Local adapters provide no key.
+key of a message published with one. The Azure Service Bus source and local
+adapters provide no key.
 
 With the default `ProcessingOrder::PerKey`, the runtime runs at most one
 delivery per key at a time, in receive order. A delivery whose key is busy waits
@@ -310,14 +311,16 @@ decoded from the source, and none of the delivery's outputs are published.
 
 Adapters provide same-platform inheritance middleware: `KafkaInherit` for Kafka
 to Kafka, `PulsarInherit` for Pulsar to Pulsar, `RabbitMqInherit` for
-RabbitMQ to RabbitMQ, `SqsInherit` for SQS to SQS, and `PubSubInherit` for
-Pub/Sub to Pub/Sub. They copy user-controlled metadata and never copy delivery
+RabbitMQ to RabbitMQ, `SqsInherit` for SQS to SQS, `PubSubInherit` for
+Pub/Sub to Pub/Sub, and `ServiceBusInherit` for Azure Service Bus to Azure
+Service Bus. They copy user-controlled metadata and never copy delivery
 facts such as offsets, partitions, message IDs, routing keys, or broker
 timestamps. See the [Kafka](adapters/kafka.md#metadata-inheritance),
 [Pulsar](adapters/pulsar.md#metadata-inheritance),
 [RabbitMQ](adapters/rabbitmq.md#metadata-inheritance),
-[SQS](adapters/sqs.md#metadata-inheritance), and
-[Pub/Sub](adapters/pubsub.md#metadata-inheritance) guides. A handler that
+[SQS](adapters/sqs.md#metadata-inheritance),
+[Pub/Sub](adapters/pubsub.md#metadata-inheritance), and
+[Azure Service Bus](adapters/servicebus.md#metadata-inheritance) guides. A handler that
 returns the sink's publish record carries no received metadata into outputs
 unless middleware maps it; a handler that returns a plain value inherits the
 platform's defaults, as described in [handler shapes](#handler-shapes).
@@ -363,8 +366,9 @@ emitted through `new_emitting` inherits from the same input. A publish record
 output carries no received metadata unless middleware maps it.
 
 Kafka uses `KafkaInherit::new()`, Pulsar uses `PulsarInherit::new()`,
-RabbitMQ uses `RabbitMqInherit::new()`, SQS uses `SqsInherit::new()`, and
-Pub/Sub uses `PubSubInherit::new()`. A
+RabbitMQ uses `RabbitMqInherit::new()`, SQS uses `SqsInherit::new()`,
+Pub/Sub uses `PubSubInherit::new()`, and Azure Service Bus uses
+`ServiceBusInherit::new()`. A
 record whose value cannot be represented as a plain value, such as a Kafka null
 value, is rejected without invoking a value handler and routed by the error
 policy as a `Rejected` failure. Register `Tombstones` to choose another policy,
@@ -538,6 +542,7 @@ native shape instead of passing through a universal structure:
 | RabbitMQ | `RabbitMqRecord<Vec<u8>>`: body bytes, headers, properties, and delivery metadata |
 | SQS | `SqsRecord<Vec<u8>>`: body bytes, message attributes, and message metadata |
 | Pub/Sub | `PubSubRecord<Vec<u8>>`: data bytes, attributes, ordering key, and message metadata |
+| Azure Service Bus | `ServiceBusRecord<Vec<u8>>`: body bytes, application properties, message properties, and message metadata |
 | Stdin | `Vec<u8>`: the received line |
 | `Delivery` (`IterSource`) | `()`: input is already typed |
 | Channel | `ChannelRaw`: the raw form of the upstream delivery that produced the value |
@@ -552,14 +557,16 @@ stops without ACK; dead-letter failures are never routed again.
 ### Forwarding dead letters to a broker topic
 
 `KafkaPublish::from_dead_letter`, `PulsarPublish::from_dead_letter`,
-`RabbitMqPublish::from_dead_letter`, `SqsPublish::from_dead_letter`, and
-`PubSubPublish::from_dead_letter` convert a dead letter into a record for a
+`RabbitMqPublish::from_dead_letter`, `SqsPublish::from_dead_letter`,
+`PubSubPublish::from_dead_letter`, and `ServiceBusPublish::from_dead_letter`
+convert a dead letter into a record for a
 dead-letter topic or queue of the same platform. The record keeps the original
 key, value bytes, and headers or properties (and the Pulsar event time), so the
 payload can be inspected with ordinary broker tools and decoded by the same
 codec as the original topic. Failure details are added as text headers (Kafka),
-properties (Pulsar), string headers (RabbitMQ), or attributes (Pub/Sub, whose
-1024-byte value limit cuts a longer error message). SQS accepts at most 10
+properties (Pulsar), string headers (RabbitMQ), string application properties
+(Azure Service Bus), or attributes (Pub/Sub, whose 1024-byte value limit cuts a
+longer error message). SQS accepts at most 10
 message attributes, so the SQS adapter writes the same names and values as one
 JSON object into the `beavers-dlq-details` string attribute:
 
@@ -576,6 +583,7 @@ JSON object into the `beavers-dlq-details` string attribute:
 | `beavers-dlq-origin-queue`, `-exchange`, `-routing-key` | RabbitMQ queue of the first receipt, and the exchange and routing key it was published with |
 | `beavers-dlq-origin-queue-url`, `-message-id` | SQS queue URL and message ID of the first receipt |
 | `beavers-dlq-origin-subscription`, `-message-id` | Pub/Sub subscription and message ID of the first receipt |
+| `beavers-dlq-origin-entity-path`, `-sequence-number` | Azure Service Bus entity path and sequence number of the first receipt |
 
 The sink must publish raw bytes:
 
@@ -591,8 +599,9 @@ origin headers are kept and the count is incremented, while the other details
 describe the latest failure. Previous dead-letter headers that are malformed
 are replaced as if the payload had never been dead-lettered.
 `KafkaDeadLetter::from_record`, `PulsarDeadLetter::from_record`,
-`RabbitMqDeadLetter::from_record`, `SqsDeadLetter::from_record`, and
-`PubSubDeadLetter::from_record` read the details back from a received record
+`RabbitMqDeadLetter::from_record`, `SqsDeadLetter::from_record`,
+`PubSubDeadLetter::from_record`, and `ServiceBusDeadLetter::from_record` read
+the details back from a received record
 and return `None` for a record without them. The inheritance middleware of each
 adapter never copies names starting with
 `DEAD_LETTER_HEADER_PREFIX` into outputs.
@@ -846,6 +855,7 @@ adapter maps the fields to its own metadata:
 | RabbitMQ | String headers | String headers |
 | SQS | String message attributes | String message attributes |
 | Pub/Sub | Attributes | Attributes |
+| Azure Service Bus | String application properties | String application properties |
 | Channel | The sender's trace context, captured when a value is enqueued | Captured automatically; no carrier needed |
 | `Delivery` | Fields set with `Delivery::with_propagation_fields` | Not supported |
 | Other local adapters | None | Not supported |
@@ -944,7 +954,8 @@ The health server does not export metrics; [metrics](#metrics) go through the
 
 ## Implementation limits
 
-Kafka, Pulsar, RabbitMQ, SQS, and Pub/Sub adapters, broker record types, Protobuf, and Avro
+Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, and Azure Service Bus adapters, broker
+record types, Protobuf, and Avro
 codecs are implemented. Kafka commits up to the first unfinished offset per partition,
 schedules work per partition, and abandons revoked work. Kafka-to-Kafka
 subscriptions can publish and commit offsets in batched Kafka transactions;
@@ -955,7 +966,9 @@ acknowledgements and revokes the deliveries of a lost channel. SQS deletes each
 acknowledged message, extends the visibility of held messages, and revokes a
 delivery whose visibility could not be kept. Pub/Sub acknowledges through the
 client's streaming pull, extends the leases of held messages, and revokes a
-delivery held past its maximum lease. NATS JetStream and adapter pause/resume backpressure are not implemented. Async handler
+delivery held past its maximum lease. Azure Service Bus completes each
+acknowledged message, renews the locks of held messages, and revokes a delivery
+whose lock was lost. NATS JetStream and adapter pause/resume backpressure are not implemented. Async handler
 futures run on the shared Tokio executor without isolation. Metadata inheritance
 is limited to same-platform middleware;
 cross-platform mappings are application-written `MapMetadata` functions.

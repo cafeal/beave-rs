@@ -9,14 +9,15 @@ tests only:
 beavers = { version = "0.1", features = ["testing", "kafka"] }
 ```
 
-The Kafka, Pulsar, RabbitMQ, SQS, and Pub/Sub record types additionally need the `kafka`,
-`pulsar`, `rabbitmq`, `sqs`, or `pubsub` feature, which an application testing those handlers already enables.
+The Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, and Azure Service Bus record types
+additionally need the `kafka`, `pulsar`, `rabbitmq`, `sqs`, `pubsub`, or
+`servicebus` feature, which an application testing those handlers already enables.
 
 ## What each part covers
 
 | Need | Use |
 |---|---|
-| Feed Kafka, Pulsar, RabbitMQ, SQS, or Pub/Sub records with chosen metadata, key, headers, properties, or attributes | `KafkaTestSource<C, T>`, `PulsarTestSource<C, T>`, `RabbitMqTestSource<C, T>`, `SqsTestSource<C, T>`, `PubSubTestSource<C, T>`, with `kafka_record`, `pulsar_record`, `rabbitmq_record`, `sqs_record`, and `pubsub_record` |
+| Feed Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, or Service Bus records with chosen metadata, key, headers, properties, or attributes | `KafkaTestSource<C, T>`, `PulsarTestSource<C, T>`, `RabbitMqTestSource<C, T>`, `SqsTestSource<C, T>`, `PubSubTestSource<C, T>`, `ServiceBusTestSource<C, T>`, with `kafka_record`, `pulsar_record`, `rabbitmq_record`, `sqs_record`, `pubsub_record`, and `servicebus_record` |
 | Feed bare payloads through a codec | `TestSource<C, T, Vec<u8>>` |
 | Check which records were acknowledged or left unacknowledged | `TestSource::deliveries()` |
 | Capture published outputs | `InMemorySink<T>` for the subscription's output type |
@@ -47,6 +48,7 @@ adapter the record type belongs to:
 | `RabbitMqRecord<Vec<u8>>` | `RabbitMqRecord<T>` | None | String headers |
 | `SqsRecord<Vec<u8>>` | `SqsRecord<T>` | Queue and message group, for FIFO messages | String attributes |
 | `PubSubRecord<Vec<u8>>` | `PubSubRecord<T>` | Subscription and ordering key, for messages with one | Attributes |
+| `ServiceBusRecord<Vec<u8>>` | `ServiceBusRecord<T>` | None | String application properties |
 
 A null Kafka or Pulsar value stays `None` after decoding, as with the broker
 sources. The Pulsar ordering key is the partition scope of Exclusive and
@@ -60,8 +62,9 @@ Pub/Sub record has one when its `ordering_key` is set.
 accepts a configured one. `kafka_record(topic, partition, offset, value)` and
 `pulsar_record(topic, entry_id, value)`,
 `rabbitmq_record(queue, delivery_tag, value)`,
-`sqs_record(queue_url, message_id, value)`, and
-`pubsub_record(subscription, message_id, value)` build records with empty optional
+`sqs_record(queue_url, message_id, value)`,
+`pubsub_record(subscription, message_id, value)`, and
+`servicebus_record(entity_path, sequence_number, value)` build records with empty optional
 fields. Set the public fields for keys, headers, properties, attributes, timestamps, a
 partition topic's index, or a null value.
 

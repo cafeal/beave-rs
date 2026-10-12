@@ -2,7 +2,7 @@
 
 Adapters connect the framework's [Source and Sink contracts](architecture.md#trait-boundaries)
 to concrete inputs and outputs. Local adapters and the channel adapter are
-available by default. Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, and HTTP adapters are optional features and are
+available by default. Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, Azure Service Bus, and HTTP adapters are optional features and are
 available through `beavers::adapters`; the default local adapters and channel
 types are also re-exported at the crate root.
 
@@ -19,6 +19,7 @@ types are also re-exported at the crate root.
 | `RabbitMqSource<C, T>` / `RabbitMqSink<C, T>` | RabbitMQ queue deliveries and exchange publishes | Work queues and routed messaging (`rabbitmq` feature) |
 | `SqsSource<C, T>` / `SqsSink<C, T>` | Amazon SQS queue messages and sends | Managed work queues on AWS (`sqs` feature) |
 | `PubSubSource<C, T>` / `PubSubSink<C, T>` | Google Cloud Pub/Sub subscription messages and topic publishes | Managed messaging on Google Cloud (`pubsub` feature) |
+| `ServiceBusSource<C, T>` / `ServiceBusSink<C, T>` | Azure Service Bus queue and subscription messages and sends | Managed work queues and topics on Azure (`servicebus` feature) |
 | `HttpSource<C, T>` | HTTP `POST` requests answered on ACK | Webhooks and push ingestion (`http` feature) |
 | `HttpSink<C, T>` | HTTP requests that succeed on a `2xx` response | Delivering events to HTTP services (`http` feature) |
 
@@ -30,13 +31,14 @@ Enable a broker adapter in the application manifest:
 ```toml
 [dependencies]
 beavers = { version = "0.1", features = ["kafka"] }
-# or: features = ["pulsar"], ["rabbitmq"], ["sqs"], ["pubsub"], or ["http"]
+# or: features = ["pulsar"], ["rabbitmq"], ["sqs"], ["pubsub"], ["servicebus"], or ["http"]
 ```
 
 The broker-specific guides document configuration, metadata, ACK behavior, and
 delivery boundaries: [Channel](adapters/channel.md), [Kafka](adapters/kafka.md),
 [Pulsar](adapters/pulsar.md), [RabbitMQ](adapters/rabbitmq.md),
-[SQS](adapters/sqs.md), [Pub/Sub](adapters/pubsub.md), and [HTTP](adapters/http.md).
+[SQS](adapters/sqs.md), [Pub/Sub](adapters/pubsub.md),
+[Azure Service Bus](adapters/servicebus.md), and [HTTP](adapters/http.md).
 
 ## IterSource
 
@@ -213,10 +215,11 @@ See [architecture](architecture.md) for ownership boundaries and the
 
 ## Broker adapters
 
-Kafka, Pulsar, RabbitMQ, SQS, and Pub/Sub keep their platform-specific message
-models explicit below `beavers::adapters::kafka`, `beavers::adapters::pulsar`,
-`beavers::adapters::rabbitmq`, `beavers::adapters::sqs`, and
-`beavers::adapters::pubsub`. Each decodes source
+Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, and Azure Service Bus keep their
+platform-specific message models explicit below `beavers::adapters::kafka`,
+`beavers::adapters::pulsar`, `beavers::adapters::rabbitmq`,
+`beavers::adapters::sqs`, `beavers::adapters::pubsub`, and
+`beavers::adapters::servicebus`. Each decodes source
 messages into a broker-specific `*Record<T>` containing delivery metadata and
 accept a separate `*Publish<T>` type for user-controlled output. Prepared
 payloads hold encoded bytes for retries. See the dedicated guides for each
