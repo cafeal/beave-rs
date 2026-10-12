@@ -1,0 +1,55 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - docs/assets/overview.svg
+      - .github/workflows/pages.yml
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+    paths:
+      - site/**
+      - docs/assets/overview.svg
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+# Deployments and previews all push to the gh-pages branch, so they run one at a time.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy site
+    # Pull requests from forks cannot push to gh-pages.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble site
+        if: github.event.action != 'closed'
+        run: |
+          mkdir _site
+          cp -R site/. _site/
+          cp docs/assets/overview.svg _site/overview.svg
+          touch _site/.nojekyll
+      - name: Publish main site
+        if: github.event_name != 'pull_request'
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: _site
+          branch: gh-pages
+          clean-exclude: pr-preview/
+          force: false
+      - name: Publish pull request preview
+        if: github.event_name == 'pull_request'
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: _site
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview

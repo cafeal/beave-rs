@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="./">beave-rs</a>
+      <nav>
+        <a href="https://github.com/cafeal/beave-rs/blob/main/docs/README.md">Guides</a>
+        <a href="https://docs.rs/beavers">API</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="intro">
+      <div>
+        <h1>beave-rs</h1>
+        <p>A lightweight Rust message processing framework built around typed handlers.</p>
+        <pre class="install"><code>cargo add beavers --features kafka</code></pre>
+        <p class="note">Pre-release. The API may change until 0.1.0.</p>
+      </div>
+      <!-- Replace this figure with the project character artwork. -->
+      <figure class="character" aria-label="Character artwork placeholder"></figure>
+    </section>
+
+    <section>
+      <h2>Example</h2>
+      <p>Summarize each article on a Kafka topic with an LLM and publish the summaries to another topic:</p>
+<pre><code><span class="k">use</span> beavers::{
+    App, Classify, Result, Utf8,
+    adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
+};
+
+<span class="k">async fn</span> summarize(article: String) -&gt; Result&lt;String&gt; {
+    <span class="k">let</span> summary = call_llm(&amp;<span class="m">format!</span>(<span class="s">"Summarize: {article}"</span>)).<span class="k">await</span>.retry()?;
+    Ok(summary)
+}
+
+<span class="c">#[tokio::main]</span>
+<span class="k">async fn</span> main() -&gt; anyhow::Result&lt;()&gt; {
+    <span class="k">let</span> articles = KafkaSource::&lt;Utf8, _&gt;::new(KafkaSourceConfig::new(
+        <span class="s">"localhost:9092"</span>,
+        <span class="s">"summarizer"</span>,
+        [<span class="s">"articles"</span>],
+    ));
+    <span class="k">let</span> summaries = KafkaSink::&lt;Utf8, _&gt;::new(KafkaSinkConfig::new(
+        <span class="s">"localhost:9092"</span>,
+        <span class="s">"summaries"</span>,
+    ));
+
+    App::new()
+        .subscribe(<span class="s">"summarize"</span>, articles, summaries, summarize)
+        .run()
+        .<span class="k">await</span>
+}</code></pre>
+      <p>The handler sees only the decoded value. A transient API failure is retried with backoff, and each offset is committed after its summary is published.</p>
+    </section>
+
+    <section>
+      <h2>Subscriptions</h2>
+      <p>Each <code>Subscription</code> connects one source, one handler, and one sink. An <code>App</code> runs any number of subscriptions side by side and shuts them down together.</p>
+      <img class="diagram" src="overview.svg" width="760" height="330" alt="An App running three subscriptions: Kafka source to handler to Kafka sink, Pulsar source to handler to HTTP sink, and SQS source to handler to RabbitMQ sink">
+    </section>
+
+    <section>
+      <h2>Features</h2>
+      <ul>
+        <li><strong>Typed handlers.</strong> Write <code>async fn(Input) -&gt; Result&lt;Output&gt;</code>; decoding, publishing, and acknowledgement are handled for you.</li>
+        <li><strong>At-least-once delivery.</strong> An input is acknowledged only after its output is published.</li>
+        <li><strong>Explicit failure handling.</strong> Classify errors as retry, reject (dead-letter), or fatal; retries back off.</li>
+        <li><strong>Concurrency with ordering.</strong> Bounded concurrency, per-key ordering, and a worker pool for blocking handlers.</li>
+        <li><strong>Pipelines.</strong> Chain subscriptions through in-process channels with end-to-end acknowledgement.</li>
+        <li><strong>Operations.</strong> Graceful shutdown, <code>tracing</code> spans, <code>metrics</code>, OpenTelemetry trace propagation, and <code>/livez</code> and <code>/readyz</code> probes.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Errors</h2>
+      <p>Errors propagated with <code>?</code> reject the input, which is dead-lettered by default. The handler asks for other outcomes at the call site:</p>
+<pre><code><span class="k">async fn</span> handle(order: Order) -&gt; Result&lt;Output&gt; {
+    validate(&amp;order).reject()?; <span class="c">// dead-letter now (same as `?`)</span>
+    <span class="k">let</span> user = db.find_user(order.user_id).<span class="k">await</span>.retry()?; <span class="c">// retry, then dead-letter</span>
+    Ok(build_output(order, user))
+}</code></pre>
+      <p><code>.fatal()?</code> stops the subscription.</p>
+    </section>
+
+    <section>
+      <h2>Cargo features</h2>
+      <p>No feature is enabled by default.</p>
+      <table>
+        <tbody>
+          <tr><td><code>kafka</code></td><td>Kafka source and sink</td></tr>
+          <tr><td><code>pulsar</code></td><td>Apache Pulsar source and sink</td></tr>
+          <tr><td><code>rabbitmq</code></td><td>RabbitMQ source and sink</td></tr>
+          <tr><td><code>sqs</code></td><td>Amazon SQS source and sink</td></tr>
+          <tr><td><code>http</code></td><td>HTTP source and sink</td></tr>
+          <tr><td><code>avro</code></td><td>Avro codec</td></tr>
+          <tr><td><code>protobuf</code></td><td>Protobuf codec</td></tr>
+          <tr><td><code>opentelemetry</code></td><td>Trace-context propagation through broker metadata</td></tr>
+          <tr><td><code>health</code></td><td><code>/livez</code> and <code>/readyz</code> endpoints</td></tr>
+          <tr><td><code>testing</code></td><td>Fabricated broker records for handler tests</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <footer class="wrap foot">MIT license</footer>
+</body>
+</html>
