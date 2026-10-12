@@ -9,6 +9,8 @@ use std::{collections::VecDeque, marker::PhantomData, sync::Arc};
 
 #[cfg(feature = "kafka")]
 use crate::adapters::kafka::KafkaRecord;
+#[cfg(feature = "pubsub")]
+use crate::adapters::pubsub::PubSubRecord;
 #[cfg(feature = "pulsar")]
 use crate::adapters::pulsar::PulsarRecord;
 #[cfg(feature = "rabbitmq")]
@@ -74,6 +76,10 @@ pub type KafkaTestSource<C, T> = TestSource<C, T, KafkaRecord<Vec<u8>>>;
 /// A [`TestSource`] of Pulsar messages, delivering `PulsarRecord<T>` inputs.
 #[cfg(feature = "pulsar")]
 pub type PulsarTestSource<C, T> = TestSource<C, T, PulsarRecord<Vec<u8>>>;
+
+/// A [`TestSource`] of Pub/Sub messages, delivering `PubSubRecord<T>` inputs.
+#[cfg(feature = "pubsub")]
+pub type PubSubTestSource<C, T> = TestSource<C, T, PubSubRecord<Vec<u8>>>;
 
 /// A [`TestSource`] of RabbitMQ messages, delivering `RabbitMqRecord<T>` inputs.
 #[cfg(feature = "rabbitmq")]

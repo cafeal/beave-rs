@@ -109,6 +109,29 @@ services:
       retries: 30
       start_period: 5s
 
+  # Google Cloud Pub/Sub emulator; the live tests create their own topics and
+  # subscriptions in the beavers project.
+  pubsub:
+    image: google/cloud-sdk:588.0.0-emulators
+    command:
+      - gcloud
+      - beta
+      - emulators
+      - pubsub
+      - start
+      - --project=beavers
+      - --host-port=0.0.0.0:8085
+    ports:
+      - "8085:8085"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fsS http://localhost:8085/ > /dev/null
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
   # One-shot setup: creates the pulsar_orders example subscription at the
   # earliest position, so orders produced before the example's first run are
   # consumed, and creates the Pulsar Manager login admin / apachepulsar.
