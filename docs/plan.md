@@ -214,6 +214,81 @@ The ignored live tests check that completions resolve on delivery and that
 - Shutdown with pending completions drains them before the sink closes, within
   the subscription's shutdown timeout.
 
+## Shared connections
+
+Each source and sink currently opens its own client and authenticates on its
+own: a Kafka consumer or producer, a Pulsar client, a RabbitMQ or Service Bus
+AMQP connection, an SQS client built from a fresh `aws_config` load, and a
+Pub/Sub client that resolves its own credentials. Only clones of one sink share
+a connection. Authentication settings are also expressed differently per
+adapter: raw librdkafka properties, a Pulsar method name and data, credentials
+in a RabbitMQ URI, an SQS credentials field, Pub/Sub credential modes, and a
+`ServiceBusConnection` embedded in the Service Bus configurations.
+
+Each adapter will gain a connection handle that is created first and builds
+the sources and sinks that share it:
+
+```rust,ignore
+let kafka = Kafka::new(KafkaConnection::new("broker:9092").sasl_plain(user, password));
+
+let articles = kafka.source::<Utf8, String>(KafkaSourceConfig::new("summarizer", ["articles"]));
+let summaries = kafka.sink::<Utf8, String>(KafkaSinkConfig::new("summaries"));
+```
+
+Construction from configuration values stays available and uses the same
+implementation:
+
+```rust,ignore
+let articles = KafkaSource::<Utf8, String>::new(
+    KafkaConnection::new("broker:9092"),
+    KafkaSourceConfig::new("summarizer", ["articles"]),
+);
+```
+
+Decisions:
+
+- Configuration is split into a connection configuration, `XxxConnection`,
+  holding the endpoint, authentication, and client-wide settings, and the
+  existing source and sink configurations, which keep only per-endpoint
+  settings such as topics, queues, groups, and limits. Both remain plain data
+  that applications can build from files or the environment.
+- The handle (`Kafka`, `Pulsar`, `RabbitMq`, `Sqs`, `PubSub`, `ServiceBus`, and
+  an HTTP client handle for sinks) is a cheap clone around shared state. It
+  validates its configuration on creation, connects on first use, owns
+  reconnection, and closes once the last source or sink built from it has
+  closed. Closing one subscription never closes a connection another
+  subscription still uses.
+- `XxxSource::new(connection, config)` creates a private handle and builds the
+  source from it, so both entry points produce the same type with the same
+  behavior. `with_codec` variants exist on both entry points.
+- Authentication moves into the connection configuration with typed settings
+  where the platform has common mechanisms, such as SASL and TLS for Kafka.
+  Raw client properties remain available as an escape hatch.
+- A lost shared connection affects every subscription that uses it.
+  Subscription failure stays fail-fast, so this does not change how
+  applications detect failures.
+
+What each handle shares:
+
+| Adapter | Shared | Kept per source or sink |
+|---|---|---|
+| Kafka | One producer for every non-transactional sink | One consumer per source; one producer per transactional sink |
+| Pulsar | One client for every producer and consumer | Producers and consumers |
+| Service Bus | One AMQP connection and session | Links and their entity authorization |
+| RabbitMQ | One publishing and one consuming connection, as RabbitMQ recommends | Channels |
+| SQS | One client and its credential provider | Nothing |
+| Pub/Sub | Credentials and one subscriber client | One publisher per topic |
+| HTTP sink | One HTTP client and its connection pool | Nothing |
+
+Open points:
+
+- Whether a shared Kafka producer keeps per-sink `max_pending` limits and
+  close semantics on top of one librdkafka queue.
+- Whether HTTP sources should share one listener and route by path.
+- Whether to add Entra ID authentication to Service Bus as part of this work.
+- Naming of the HTTP handle, and whether `XxxConnection` reads clearly for a
+  configuration type next to a handle that owns the live connection.
+
 ## Kafka rebalance behavior
 
 Revoked partitions currently abandon in-flight work immediately. Evaluate an
@@ -464,12 +539,13 @@ the first crates.io release:
 
 | Priority | Scope |
 |---|---|
-| 1 | Adapter pause/resume backpressure and graceful rebalance handoff |
-| 2 | Cross-platform metadata mapping policy |
-| 3 | Observability refinements |
-| 4 | Live verification of batched Kafka transactions |
-| 5 | NATS JetStream adapter |
-| 6 | Schema Registry and additional codecs |
+| 1 | Shared connections, starting with Pulsar, before `0.1.0` |
+| 2 | Adapter pause/resume backpressure and graceful rebalance handoff |
+| 3 | Cross-platform metadata mapping policy |
+| 4 | Observability refinements |
+| 5 | Live verification of batched Kafka transactions |
+| 6 | NATS JetStream adapter |
+| 7 | Schema Registry and additional codecs |
 
 The order may change when a concrete application requires a later capability.
 When work begins, update this document with any newly resolved decisions. When
