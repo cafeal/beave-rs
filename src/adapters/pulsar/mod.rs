@@ -14,9 +14,8 @@ mod sink;
 mod source;
 mod tombstone;
 
-pub use config::{
-    PulsarAuthentication, PulsarSinkConfig, PulsarSourceConfig, PulsarSubscriptionType,
-};
+pub use client::Pulsar;
+pub use config::{PulsarAuthentication, PulsarSubscriptionType};
 pub use dead_letter::PulsarDeadLetter;
 pub use inherit::PulsarInherit;
 pub use record::{PulsarMessageId, PulsarMetadata, PulsarPublish, PulsarRecord};

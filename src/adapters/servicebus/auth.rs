@@ -1,5 +1,5 @@
 //! Shared access signature tokens for claims-based authorization.
-use super::config::ServiceBusCredential;
+use super::config::Credential;
 use crate::error::{Context as _, Error};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use hmac::{Hmac, KeyInit, Mac};
@@ -18,7 +18,7 @@ pub(super) struct Token {
     pub(super) expires: SystemTime,
 }
 
-impl ServiceBusCredential {
+impl Credential {
     /// The token to authorize `audience` with at `now`.
     pub(super) fn token(&self, audience: &str, now: SystemTime) -> Result<Token, Error> {
         match self {
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn key_tokens_expire_after_an_hour() {
-        let credential = ServiceBusCredential::SharedAccessKey {
+        let credential = Credential::SharedAccessKey {
             name: "send".into(),
             key: "key".into(),
         };
@@ -125,7 +125,7 @@ mod tests {
 
     #[test]
     fn signed_tokens_are_used_as_given() {
-        let credential = ServiceBusCredential::SharedAccessSignature(
+        let credential = Credential::SharedAccessSignature(
             "SharedAccessSignature sr=x&sig=y&se=1700000000&skn=z".into(),
         );
         let token = credential
@@ -137,8 +137,7 @@ mod tests {
         );
         assert!(token.value.ends_with("skn=z"));
         assert!(!credential.renewable());
-        let invalid =
-            ServiceBusCredential::SharedAccessSignature("SharedAccessSignature sr=x".into());
+        let invalid = Credential::SharedAccessSignature("SharedAccessSignature sr=x".into());
         assert!(invalid.token("sb://ns/orders", SystemTime::now()).is_err());
     }
 }

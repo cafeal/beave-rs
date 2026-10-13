@@ -1,5 +1,6 @@
 use super::{
-    config::KafkaSourceConfig,
+    client::Kafka,
+    config::SourceConfig,
     progress::{Context, KafkaConsumer, Progress, TransactionGate},
     record::{KafkaMetadata, KafkaRecord, text_headers},
 };
@@ -11,7 +12,7 @@ use crate::{
     source::{Receive, ReceiveError, Source},
 };
 use rdkafka::{
-    ClientConfig, Offset, TopicPartitionList,
+    Offset, TopicPartitionList,
     consumer::{CommitMode, Consumer},
     message::{Headers, Message, OwnedMessage},
 };
@@ -21,9 +22,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-/// A Kafka source. It creates its consumer and subscribes on the first receive.
+/// A Kafka source with a consumer of its own.
+///
+/// Built with [`Kafka::source`]. It creates its consumer and subscribes on the
+/// first receive, which also validates the settings.
 pub struct KafkaSource<C, T> {
-    config: KafkaSourceConfig,
+    kafka: Kafka,
+    config: SourceConfig,
     codec: Arc<C>,
     consumer: Option<Arc<KafkaConsumer>>,
     progress: Arc<Mutex<Progress>>,
@@ -35,23 +40,10 @@ pub struct KafkaSource<C, T> {
     marker: PhantomData<T>,
 }
 
-impl<C: Default, T> KafkaSource<C, T> {
-    /// Creates a source that decodes with the codec's default value.
-    ///
-    /// The consumer is created on the first receive, which also validates the
-    /// configuration.
-    pub fn new(config: KafkaSourceConfig) -> Self {
-        Self::with_codec(config, C::default())
-    }
-}
-
 impl<C, T> KafkaSource<C, T> {
-    /// Creates a source that decodes with `codec`.
-    ///
-    /// The consumer is created on the first receive, which also validates the
-    /// configuration.
-    pub fn with_codec(config: KafkaSourceConfig, codec: C) -> Self {
+    pub(super) fn new(kafka: Kafka, config: SourceConfig, codec: C) -> Self {
         Self {
+            kafka,
             config,
             codec: Arc::new(codec),
             consumer: None,
@@ -63,15 +55,33 @@ impl<C, T> KafkaSource<C, T> {
         }
     }
 
+    /// Sets a librdkafka property on this source's consumer, after the
+    /// handle's properties, such as `auto.offset.reset`. Automatic offset
+    /// storage and commits are always disabled; the source commits
+    /// acknowledged offsets.
+    pub fn property(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.config.properties.insert(name.into(), value.into());
+        self
+    }
+
+    /// Checks the handle and source settings without network access.
+    ///
+    /// Fails when the handle is invalid, the group ID or topic list is empty, a
+    /// topic name is blank, or a property has an empty name or a value
+    /// containing a NUL byte.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.kafka.validate()?;
+        self.config.validate()
+    }
+
     fn connect(&mut self) -> Result<(), BoxError> {
-        self.config.validate()?;
-        let mut config = ClientConfig::new();
+        self.validate()?;
+        let mut config = self.kafka.client_config();
         for (key, value) in &self.config.properties {
             config.set(key, value);
         }
         // The adapter owns offset progress, regardless of user properties.
         config
-            .set("bootstrap.servers", &self.config.brokers)
             .set("group.id", &self.config.group_id)
             .set("enable.auto.commit", "false")
             .set("enable.auto.offset.store", "false");

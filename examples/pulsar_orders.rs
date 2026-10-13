@@ -16,10 +16,7 @@
 //! position, so orders produced before the first `process` run are consumed.
 use beavers::{
     App, IterSource, Json, Result, Subscription,
-    adapters::pulsar::{
-        PulsarPublish, PulsarSink, PulsarSinkConfig, PulsarSource, PulsarSourceConfig,
-        PulsarSubscriptionType,
-    },
+    adapters::pulsar::{Pulsar, PulsarPublish, PulsarSubscriptionType},
 };
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -66,7 +63,8 @@ async fn to_event(order: Order) -> Result<OrderEvent> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let service_url = env::var("PULSAR_URL").unwrap_or_else(|_| "pulsar://localhost:6650".into());
+    let pulsar =
+        Pulsar::new(env::var("PULSAR_URL").unwrap_or_else(|_| "pulsar://localhost:6650".into()));
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
         Some("produce") => {
@@ -84,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
                 .subscribe(
                     "produce-orders",
                     IterSource::new(orders),
-                    PulsarSink::<Json, Order>::new(PulsarSinkConfig::new(&service_url, ORDERS)),
+                    pulsar.sink::<Json, Order>(ORDERS),
                     keyed_by_customer,
                 )
                 .run()
@@ -93,18 +91,15 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some("process") | None => {
-            let mut source = PulsarSourceConfig::new(&service_url, ORDERS, "beavers-examples");
-            source.subscription_type = PulsarSubscriptionType::KeyShared;
             println!("consuming {ORDERS} and publishing to {EVENTS}; press Ctrl-C to stop");
             App::new()
                 .subscription(
                     Subscription::new(
                         "process-orders",
-                        PulsarSource::<Json, Order>::new(source),
-                        PulsarSink::<Json, OrderEvent>::new(PulsarSinkConfig::new(
-                            &service_url,
-                            EVENTS,
-                        )),
+                        pulsar
+                            .source::<Json, Order>(ORDERS, "beavers-examples")
+                            .subscription_type(PulsarSubscriptionType::KeyShared),
+                        pulsar.sink::<Json, OrderEvent>(EVENTS),
                         to_event,
                     )
                     .concurrency(3),

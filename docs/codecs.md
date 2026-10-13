@@ -84,9 +84,9 @@ impl Encoder<String> for Utf8 {
 `Utf8` is an exported built-in codec; see [Utf8](codecs/utf8.md)
 for its exact behavior and [`RawBytes`](codecs/raw-bytes.md) for arbitrary payloads. The local stdin and
 stdout adapters default-construct their codec, so using a custom codec with them
-requires `Default`. The codec traits themselves do not require it. Kafka and
-Pulsar adapters also provide `with_codec(config, codec)` for existing configured
-codec instances.
+requires `Default`. The codec traits themselves do not require it. Broker
+adapter handles also provide `source_with_codec(codec, ...)` and
+`sink_with_codec(codec, ...)` for existing configured codec instances.
 
 Choose framing-compatible codecs for line-based adapters. A binary encoding can
 contain newline bytes, and an arbitrary string may contain embedded newlines;

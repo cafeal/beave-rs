@@ -13,16 +13,16 @@ inner codec, including other wrappers, and implement `Decoder<T>` or
 | [`Zstd<C>`](wrappers/zstd.md) | `zstd` | One Zstandard frame containing the inner payload |
 
 Each wrapper implements `Default` when its inner codec does, so it works with
-adapters that construct their codec with `C::default()`. Use the adapter's
-`with_codec` constructor to pass a wrapper with non-default settings or a
-configured inner codec such as `Avro`.
+adapters that construct their codec with `C::default()`. Use the adapter
+handle's `source_with_codec` or `sink_with_codec` to pass a wrapper with
+non-default settings or a configured inner codec such as `Avro`.
 
 ```rust,ignore
-use beavers::adapters::sqs::{SqsSink, SqsSinkConfig};
+use beavers::adapters::sqs::Sqs;
 use beavers::{Base64, Gzip, Protobuf};
 
 // Protobuf bytes, gzip-compressed, carried as text in an SQS body.
-let sink = SqsSink::<Base64<Gzip<Protobuf>>, Event>::new(config);
+let sink = Sqs::new().sink::<Base64<Gzip<Protobuf>>, Event>(queue_url);
 ```
 
 The order of nested wrappers is the order of the encoding steps from the inside
@@ -42,7 +42,7 @@ decode once the output would exceed `with_max_decoded_len`, 64 MiB by default,
 so a small, highly compressible payload cannot exhaust memory.
 
 On Kafka, prefer the producer's batch compression: set the librdkafka
-`compression.type` property, such as `zstd`, in `KafkaSinkConfig::properties`,
+`compression.type` property, such as `zstd`, with `Kafka::producer_property`,
 and consumers decompress transparently. Batch compression sees repeated
 content across records and keeps payloads readable by any Kafka client. The
 Pulsar sink does not expose producer compression yet. The compression wrappers

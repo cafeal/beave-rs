@@ -1,11 +1,11 @@
 use super::{
-    client::subscriber,
-    config::PubSubSourceConfig,
+    client::PubSub,
+    config::SourceConfig,
     record::{PubSubMetadata, PubSubRecord},
 };
 use crate::{
     codec::Decoder,
-    error::{BoxError, Context, Error},
+    error::{BoxError, Error},
     message::{OrderingKey, SourceMessage},
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
@@ -18,10 +18,14 @@ use google_cloud_pubsub::{
 };
 use std::{convert::Infallible, marker::PhantomData, sync::Arc, time::Duration};
 
-/// Consumes one subscription with a streaming pull. It creates its client on
-/// the first `receive`.
+/// Consumes one subscription with a streaming pull.
+///
+/// Built with [`PubSub::source`]. It opens its stream on the handle's
+/// subscriber client on the first `receive`, which also validates the
+/// settings.
 pub struct PubSubSource<C, T> {
-    config: PubSubSourceConfig,
+    pubsub: PubSub,
+    config: SourceConfig,
     codec: Arc<C>,
     connection: Option<Connection>,
     closed: bool,
@@ -29,30 +33,62 @@ pub struct PubSubSource<C, T> {
 }
 
 struct Connection {
-    client: Subscriber,
     stream: Option<MessageStream>,
     /// Streams replaced after an error. Their lease management keeps running
     /// for the deliveries they handed out; `close` waits for it.
     retired: Vec<ShutdownToken>,
 }
 
-impl<C: Default, T> PubSubSource<C, T> {
-    /// A source with a default-constructed codec.
-    pub fn new(config: PubSubSourceConfig) -> Self {
-        Self::with_codec(config, C::default())
-    }
-}
-
 impl<C, T> PubSubSource<C, T> {
-    /// A source that uses an existing codec instance, such as a configured `Avro` codec.
-    pub fn with_codec(config: PubSubSourceConfig, codec: C) -> Self {
+    pub(super) fn new(pubsub: PubSub, config: SourceConfig, codec: C) -> Self {
         Self {
+            pubsub,
             config,
             codec: Arc::new(codec),
             connection: None,
             closed: false,
             marker: PhantomData,
         }
+    }
+
+    /// Messages Pub/Sub hands to the source before any of them is
+    /// acknowledged. Zero or less sets no limit. Defaults to 1000.
+    pub fn max_outstanding_messages(mut self, max: i64) -> Self {
+        self.config.max_outstanding_messages = max;
+        self
+    }
+
+    /// Bytes of message data Pub/Sub hands to the source before any of it is
+    /// acknowledged. Zero or less sets no limit. Defaults to 100 MiB.
+    pub fn max_outstanding_bytes(mut self, max: i64) -> Self {
+        self.config.max_outstanding_bytes = max;
+        self
+    }
+
+    /// How far each lease extension moves a message's acknowledgement
+    /// deadline, from 10 seconds to 10 minutes. Pub/Sub redelivers a message
+    /// this long after the source stops extending it, for example because the
+    /// process crashed. Defaults to 60 seconds.
+    pub fn ack_deadline(mut self, ack_deadline: Duration) -> Self {
+        self.config.ack_deadline = ack_deadline;
+        self
+    }
+
+    /// How long the source extends a message's lease at most. A delivery held
+    /// longer is revoked, because Pub/Sub redelivers it. Defaults to one hour.
+    pub fn max_lease(mut self, max_lease: Duration) -> Self {
+        self.config.max_lease = max_lease;
+        self
+    }
+
+    /// Checks the handle and source settings without contacting Pub/Sub.
+    ///
+    /// Fails when the handle is invalid, the subscription is not named
+    /// `projects/{project}/subscriptions/{id}`, `ack_deadline` is outside 10
+    /// seconds to 10 minutes, or `max_lease` is shorter than `ack_deadline`.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.pubsub.validate()?;
+        self.config.validate()
     }
 
     fn subscribe(&self, client: &Subscriber) -> MessageStream {
@@ -74,15 +110,9 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PubSubSource<C,
             return Ok(Receive::End);
         }
         if self.connection.is_none() {
-            self.config
-                .validate()
-                .map_err(|error| ReceiveError::Fatal(error.into()))?;
-            let client = subscriber(&self.config.endpoint())
-                .await
-                .context("creating the Pub/Sub subscriber client")
+            self.validate()
                 .map_err(|error| ReceiveError::Fatal(error.into()))?;
             self.connection = Some(Connection {
-                client,
                 stream: None,
                 retired: Vec::new(),
             });
@@ -90,7 +120,14 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PubSubSource<C,
         let connection = self.connection.as_ref().expect("connected source");
         let stream = match connection.stream {
             Some(_) => None,
-            None => Some(self.subscribe(&connection.client)),
+            None => {
+                let client = self
+                    .pubsub
+                    .subscriber()
+                    .await
+                    .map_err(ReceiveError::Fatal)?;
+                Some(self.subscribe(client))
+            }
         };
         let connection = self.connection.as_mut().expect("connected source");
         if let Some(stream) = stream {

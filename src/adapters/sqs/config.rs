@@ -37,88 +37,62 @@ impl fmt::Debug for SqsCredentials {
     }
 }
 
-/// Where and how a source or sink reaches SQS.
-pub(super) struct Endpoint<'a> {
-    pub(super) queue_url: &'a str,
-    pub(super) region: Option<&'a str>,
-    pub(super) endpoint_url: Option<&'a str>,
-    pub(super) credentials: Option<&'a SqsCredentials>,
-}
-
-impl Endpoint<'_> {
+impl SqsCredentials {
     fn validate(&self) -> Result<(), Error> {
         ensure!(
-            self.queue_url.starts_with("https://") || self.queue_url.starts_with("http://"),
+            !self.access_key_id.is_empty() && !self.secret_access_key.is_empty(),
             Error::config,
-            "SQS queue URL must be an http or https URL"
+            "SQS credentials need an access key ID and a secret access key"
         );
-        ensure!(
-            !self.queue_url.chars().any(char::is_whitespace),
-            Error::config,
-            "SQS queue URL must not contain whitespace"
-        );
-        if let Some(region) = self.region {
+        Ok(())
+    }
+}
+
+/// How an [`Sqs`](super::Sqs) handle reaches SQS.
+#[derive(Clone, Debug, Default)]
+pub(super) struct ClientConfig {
+    pub(super) region: Option<String>,
+    pub(super) endpoint_url: Option<String>,
+    pub(super) credentials: Option<SqsCredentials>,
+}
+
+impl ClientConfig {
+    pub(super) fn validate(&self) -> Result<(), Error> {
+        if let Some(region) = &self.region {
             ensure!(
                 !region.trim().is_empty(),
                 Error::config,
                 "SQS region must not be empty"
             );
         }
-        if let Some(url) = self.endpoint_url {
+        if let Some(url) = &self.endpoint_url {
             ensure!(
                 url.starts_with("https://") || url.starts_with("http://"),
                 Error::config,
                 "SQS endpoint URL must be an http or https URL"
             );
         }
-        if let Some(credentials) = self.credentials {
-            ensure!(
-                !credentials.access_key_id.is_empty() && !credentials.secret_access_key.is_empty(),
-                Error::config,
-                "SQS credentials need an access key ID and a secret access key"
-            );
+        if let Some(credentials) = &self.credentials {
+            credentials.validate()?;
         }
         Ok(())
     }
-
-    /// Whether the queue is a FIFO queue, whose name ends in `.fifo`.
-    pub(super) fn is_fifo(&self) -> bool {
-        self.queue_url.ends_with(".fifo")
-    }
 }
 
-/// Configuration of an [`SqsSource`](crate::adapters::sqs::SqsSource).
+/// Settings of an [`SqsSource`](super::SqsSource).
 #[derive(Clone, Debug)]
-pub struct SqsSourceConfig {
-    /// The queue to consume, such as
-    /// `https://sqs.eu-west-1.amazonaws.com/123456789012/orders`.
-    pub queue_url: String,
-    /// AWS region; unset uses the default region provider chain.
-    pub region: Option<String>,
-    /// Endpoint replacing the regional SQS endpoint, such as a local emulator.
-    pub endpoint_url: Option<String>,
-    /// Static credentials; unset uses the default credential provider chain.
-    pub credentials: Option<SqsCredentials>,
-    /// Messages one `ReceiveMessage` call returns at most, from 1 to 10.
-    pub max_messages: i32,
-    /// How long `ReceiveMessage` waits for a message (long polling), up to 20 seconds.
-    pub wait_time: Duration,
-    /// How long a received message stays invisible to other consumers. The
-    /// source extends it while the delivery is buffered or in flight, up to
-    /// SQS's limit of 12 hours from its receipt.
-    pub visibility_timeout: Duration,
-    /// Attempts to delete a message when it is acknowledged.
-    pub ack_retry: RetryPolicy,
+pub(super) struct SourceConfig {
+    pub(super) queue_url: String,
+    pub(super) max_messages: i32,
+    pub(super) wait_time: Duration,
+    pub(super) visibility_timeout: Duration,
+    pub(super) ack_retry: RetryPolicy,
 }
 
-impl SqsSourceConfig {
-    /// A configuration for `queue_url` with the default settings.
-    pub fn new(queue_url: impl Into<String>) -> Self {
+impl SourceConfig {
+    pub(super) fn new(queue_url: String) -> Self {
         Self {
-            queue_url: queue_url.into(),
-            region: None,
-            endpoint_url: None,
-            credentials: None,
+            queue_url,
             max_messages: 10,
             wait_time: Duration::from_secs(20),
             visibility_timeout: Duration::from_secs(30),
@@ -131,18 +105,8 @@ impl SqsSourceConfig {
         }
     }
 
-    pub(super) fn endpoint(&self) -> Endpoint<'_> {
-        Endpoint {
-            queue_url: &self.queue_url,
-            region: self.region.as_deref(),
-            endpoint_url: self.endpoint_url.as_deref(),
-            credentials: self.credentials.as_ref(),
-        }
-    }
-
-    /// Checks the settings without contacting SQS.
-    pub fn validate(&self) -> Result<(), Error> {
-        self.endpoint().validate()?;
+    pub(super) fn validate(&self) -> Result<(), Error> {
+        validate_queue_url(&self.queue_url)?;
         ensure!(
             (1..=10).contains(&self.max_messages),
             Error::config,
@@ -162,43 +126,24 @@ impl SqsSourceConfig {
     }
 }
 
-/// Configuration of an [`SqsSink`](crate::adapters::sqs::SqsSink).
-#[derive(Clone, Debug)]
-pub struct SqsSinkConfig {
-    /// The queue every output is sent to.
-    pub queue_url: String,
-    /// AWS region; unset uses the default region provider chain.
-    pub region: Option<String>,
-    /// Endpoint replacing the regional SQS endpoint, such as a local emulator.
-    pub endpoint_url: Option<String>,
-    /// Static credentials; unset uses the default credential provider chain.
-    pub credentials: Option<SqsCredentials>,
+/// Checks the URL of the queue a source or sink uses.
+pub(super) fn validate_queue_url(queue_url: &str) -> Result<(), Error> {
+    ensure!(
+        queue_url.starts_with("https://") || queue_url.starts_with("http://"),
+        Error::config,
+        "SQS queue URL must be an http or https URL"
+    );
+    ensure!(
+        !queue_url.chars().any(char::is_whitespace),
+        Error::config,
+        "SQS queue URL must not contain whitespace"
+    );
+    Ok(())
 }
 
-impl SqsSinkConfig {
-    /// A configuration for `queue_url` with the default settings.
-    pub fn new(queue_url: impl Into<String>) -> Self {
-        Self {
-            queue_url: queue_url.into(),
-            region: None,
-            endpoint_url: None,
-            credentials: None,
-        }
-    }
-
-    pub(super) fn endpoint(&self) -> Endpoint<'_> {
-        Endpoint {
-            queue_url: &self.queue_url,
-            region: self.region.as_deref(),
-            endpoint_url: self.endpoint_url.as_deref(),
-            credentials: self.credentials.as_ref(),
-        }
-    }
-
-    /// Checks the settings without contacting SQS.
-    pub fn validate(&self) -> Result<(), Error> {
-        self.endpoint().validate()
-    }
+/// Whether the queue is a FIFO queue, whose name ends in `.fifo`.
+pub(super) fn is_fifo(queue_url: &str) -> bool {
+    queue_url.ends_with(".fifo")
 }
 
 #[cfg(test)]
@@ -207,39 +152,45 @@ mod tests {
 
     #[test]
     fn validation_checks_values_locally() {
-        let valid = SqsSourceConfig::new("https://sqs.eu-west-1.amazonaws.com/1/orders");
+        let valid = SourceConfig::new("https://sqs.eu-west-1.amazonaws.com/1/orders".into());
         valid.validate().unwrap();
         for invalid in [
-            SqsSourceConfig {
+            SourceConfig {
                 queue_url: "orders".into(),
                 ..valid.clone()
             },
-            SqsSourceConfig {
+            SourceConfig {
                 max_messages: 11,
                 ..valid.clone()
             },
-            SqsSourceConfig {
+            SourceConfig {
                 wait_time: Duration::from_secs(21),
                 ..valid.clone()
             },
-            SqsSourceConfig {
+            SourceConfig {
                 visibility_timeout: Duration::ZERO,
-                ..valid.clone()
-            },
-            SqsSourceConfig {
-                endpoint_url: Some("localhost:9324".into()),
-                ..valid.clone()
-            },
-            SqsSourceConfig {
-                credentials: Some(SqsCredentials::new("key", "")),
                 ..valid.clone()
             },
         ] {
             assert!(invalid.validate().is_err(), "{invalid:?}");
         }
-        SqsSinkConfig::new("http://localhost:9324/000000000000/orders.fifo")
-            .validate()
-            .unwrap();
+        for invalid in [
+            ClientConfig {
+                endpoint_url: Some("localhost:9324".into()),
+                ..ClientConfig::default()
+            },
+            ClientConfig {
+                credentials: Some(SqsCredentials::new("key", "")),
+                ..ClientConfig::default()
+            },
+            ClientConfig {
+                region: Some(" ".into()),
+                ..ClientConfig::default()
+            },
+        ] {
+            assert!(invalid.validate().is_err(), "{invalid:?}");
+        }
+        validate_queue_url("http://localhost:9324/000000000000/orders.fifo").unwrap();
     }
 
     #[test]
@@ -253,11 +204,7 @@ mod tests {
 
     #[test]
     fn fifo_queues_are_recognized_by_name() {
-        assert!(
-            SqsSinkConfig::new("http://q/1/orders.fifo")
-                .endpoint()
-                .is_fifo()
-        );
-        assert!(!SqsSinkConfig::new("http://q/1/orders").endpoint().is_fifo());
+        assert!(is_fifo("http://q/1/orders.fifo"));
+        assert!(!is_fifo("http://q/1/orders"));
     }
 }

@@ -1,4 +1,9 @@
-use super::{config::KafkaSinkConfig, record::KafkaPublish, transaction::KafkaTransactionalSink};
+use super::{
+    client::Kafka,
+    config::{SinkConfig, TransactionalConfig},
+    record::KafkaPublish,
+    transaction::KafkaTransactionalSink,
+};
 use crate::{
     adapters::pending::PendingLimit,
     codec::Encoder,
@@ -6,7 +11,6 @@ use crate::{
     sink::{Completion, Sink},
 };
 use rdkafka::{
-    ClientConfig,
     error::{KafkaError, RDKafkaErrorCode},
     message::{Header, OwnedHeaders},
     producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer},
@@ -15,7 +19,7 @@ use rdkafka::{
 use std::{
     marker::PhantomData,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -33,16 +37,29 @@ pub struct KafkaPrepared {
 }
 
 struct State {
-    producer: Mutex<Option<FutureProducer>>,
     closed: AtomicBool,
     /// One permit per record awaiting its delivery report.
     pending: PendingLimit,
 }
 
-/// Queues records on the producer and completes each one when Kafka reports
-/// successful delivery.
+impl State {
+    fn new(max_pending: usize) -> Arc<Self> {
+        Arc::new(Self {
+            closed: AtomicBool::new(false),
+            pending: PendingLimit::new(max_pending, "Kafka"),
+        })
+    }
+}
+
+/// Queues records on the handle's shared producer and completes each one when
+/// Kafka reports successful delivery.
+///
+/// Built with [`Kafka::sink`]. The producer is created on the first
+/// publication of any sink of the handle, which also validates the settings.
+/// Clones share their closure state and `max_pending` limit.
 pub struct KafkaSink<C, T> {
-    config: KafkaSinkConfig,
+    kafka: Kafka,
+    config: SinkConfig,
     codec: Arc<C>,
     state: Arc<State>,
     marker: PhantomData<fn(T)>,
@@ -51,6 +68,7 @@ pub struct KafkaSink<C, T> {
 impl<C, T> Clone for KafkaSink<C, T> {
     fn clone(&self) -> Self {
         Self {
+            kafka: self.kafka.clone(),
             config: self.config.clone(),
             codec: self.codec.clone(),
             state: self.state.clone(),
@@ -59,36 +77,35 @@ impl<C, T> Clone for KafkaSink<C, T> {
     }
 }
 
-impl<C: Default, T> KafkaSink<C, T> {
-    /// Creates a sink that encodes with the codec's default value.
-    ///
-    /// The producer is created on the first publication, which also validates
-    /// the configuration.
-    pub fn new(config: KafkaSinkConfig) -> Self {
-        Self::with_codec(config, C::default())
-    }
-}
-
 impl<C, T> KafkaSink<C, T> {
-    /// Creates a sink that encodes with `codec`.
-    ///
-    /// The producer is created on the first publication, which also validates
-    /// the configuration.
-    pub fn with_codec(config: KafkaSinkConfig, codec: C) -> Self {
+    pub(super) fn new(kafka: Kafka, config: SinkConfig, codec: C) -> Self {
         Self {
-            codec: Arc::new(codec),
-            state: Arc::new(State {
-                producer: Mutex::new(None),
-                closed: AtomicBool::new(false),
-                pending: PendingLimit::new(config.max_pending, "Kafka"),
-            }),
+            kafka,
+            state: State::new(config.max_pending),
             config,
+            codec: Arc::new(codec),
             marker: PhantomData,
         }
     }
 
-    /// Converts this sink into one that publishes in producer transactions,
-    /// using `transactional_id` as the producer's `transactional.id`.
+    /// Records queued by `submit` whose delivery report has not arrived.
+    /// `submit` waits while this many are outstanding. Defaults to 1000.
+    pub fn max_pending(mut self, max_pending: usize) -> Self {
+        self.config.max_pending = max_pending;
+        self.state = State::new(max_pending);
+        self
+    }
+
+    /// Maximum time `close` waits for the shared producer's queued delivery
+    /// reports. Defaults to 30 seconds.
+    pub fn close_timeout(mut self, close_timeout: Duration) -> Self {
+        self.config.close_timeout = close_timeout;
+        self
+    }
+
+    /// Converts this sink into one that publishes in producer transactions
+    /// through a producer of its own, using `transactional_id` as the
+    /// producer's `transactional.id`.
     ///
     /// The ID must be unique among the application's running producers and
     /// should stay the same when one instance restarts, so that the new
@@ -99,7 +116,22 @@ impl<C, T> KafkaSink<C, T> {
         self,
         transactional_id: impl Into<String>,
     ) -> KafkaTransactionalSink<C, T> {
-        KafkaTransactionalSink::new(self.config, transactional_id.into(), self.codec)
+        let config = TransactionalConfig {
+            topic: self.config.topic,
+            transactional_id: transactional_id.into(),
+            close_timeout: self.config.close_timeout,
+            transaction_timeout: Duration::from_secs(60),
+        };
+        KafkaTransactionalSink::new(self.kafka, config, self.codec)
+    }
+
+    /// Checks the handle and sink settings without network access.
+    ///
+    /// Fails when the handle is invalid, the topic is empty, or `max_pending`
+    /// is zero or larger than the semaphore limit.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.kafka.validate()?;
+        self.config.validate()
     }
 
     fn producer(&self) -> Result<FutureProducer, BoxError> {
@@ -108,17 +140,8 @@ impl<C, T> KafkaSink<C, T> {
             Error::closed,
             "Kafka sink is closed"
         );
-        let mut slot = self.state.producer.lock().unwrap();
-        if slot.is_none() {
-            self.config.validate()?;
-            let mut config = ClientConfig::new();
-            for (key, value) in &self.config.properties {
-                config.set(key, value);
-            }
-            config.set("bootstrap.servers", &self.config.brokers);
-            *slot = Some(config.create()?);
-        }
-        Ok(slot.as_ref().unwrap().clone())
+        self.config.validate()?;
+        self.kafka.producer()
     }
 }
 
@@ -149,11 +172,13 @@ where
         }))
     }
 
+    /// Stops new submissions and flushes the shared producer, which also
+    /// waits for records other sinks of the handle have queued. The producer
+    /// stays open for them.
     async fn close(&self) -> Result<(), BoxError> {
         self.state.closed.store(true, Ordering::Release);
         self.state.pending.close();
-        let producer = self.state.producer.lock().unwrap().take();
-        if let Some(producer) = producer {
+        if let Some(producer) = self.kafka.created_producer() {
             let timeout = self.config.close_timeout;
             tokio::task::spawn_blocking(move || producer.flush(Timeout::After(timeout))).await??;
         }
