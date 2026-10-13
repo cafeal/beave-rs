@@ -46,7 +46,8 @@ overrides the queue's own default.
 applies to the message body. SQS has no null body, so the value is always
 present and SQS records support no tombstones. SQS bodies are text: `prepare`
 rejects an encoded value that is not UTF-8, so binary codecs such as Protobuf
-and Avro need a text representation before they can be sent.
+and Avro need a text representation, such as the
+[`Base64` wrapper](../codecs/wrappers.md#base64), before they can be sent.
 
 `attributes` holds the message attributes as `SqsAttributeValue::String`,
 `Number` in its decimal text form, or `Binary`. A custom type label such as

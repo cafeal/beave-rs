@@ -26,8 +26,9 @@ no dedicated codec execution pool.
 
 The traits do not require Serde. Each codec chooses its own representation and
 payload bounds. `Decoder`, `Encoder`, `Json`, `RawBytes`, and `Utf8` are available
-through `beavers::codec` and re-exported at the crate root. `Protobuf` and `Avro`
-are available when their corresponding Cargo features are enabled.
+through `beavers::codec` and re-exported at the crate root. `Protobuf`, `Avro`,
+`MessagePack`, `Cbor`, and the `Base64`, `Gzip`, and `Zstd` wrappers are
+available when their corresponding Cargo features are enabled.
 
 ## Lifecycle and failures
 
@@ -103,6 +104,14 @@ The optional `protobuf` feature provides `Protobuf` for raw `prost::Message`
 payloads. The optional `avro` feature provides schema-bound `Avro` values. Both
 formats leave framing to the adapter. See [Protobuf](codecs/protobuf.md) and
 [Avro](codecs/avro.md).
+
+The optional `msgpack` and `cbor` features provide `MessagePack` and `Cbor`,
+compact binary formats for the same Serde types as `Json`. See
+[MessagePack and CBOR](codecs/msgpack-cbor.md).
+
+The optional `base64`, `gzip`, and `zstd` features provide `Base64<C>`,
+`Gzip<C>`, and `Zstd<C>`, which wrap another codec to carry its payload as text
+or compress it. See [Base64 and compression wrappers](codecs/wrappers.md).
 
 Kafka applies its selected codec to a record value; keys and headers remain raw
 bytes in `KafkaRecord<T>`, and a value can be null. Pulsar applies its selected
