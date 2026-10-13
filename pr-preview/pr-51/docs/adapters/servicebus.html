@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Azure Service Bus adapter - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="servicebus.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="../runtime/handlers.html">Handlers</a></li><li><a href="../runtime/middleware.html">Middleware</a></li><li><a href="../runtime/errors.html">Errors and retries</a></li><li><a href="../runtime/tombstones.html">Tombstones</a></li><li><a href="../runtime/transactions.html">Transactions</a></li><li><a href="../runtime/observability.html">Observability</a></li><li><a href="../runtime/health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="local.html">Local adapters</a></li><li><a href="channel.html">Channel</a></li><li><a href="kafka.html">Kafka</a></li><li><a href="pulsar.html">Pulsar</a></li><li><a href="rabbitmq.html">RabbitMQ</a></li><li><a href="sqs.html">SQS</a></li><li><a href="pubsub.html">Pub/Sub</a></li><li><a href="servicebus.html" aria-current="page">Azure Service Bus</a></li><li><a href="http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="azure-service-bus-adapter">Azure Service Bus adapter</h1>
+<p>The optional <code>servicebus</code> feature provides typed Azure Service Bus source and
+sink adapters that speak AMQP 1.0 to a namespace through <code>fe2o3-amqp</code>.</p>
+<pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;servicebus&quot;</span>] }
+</code></pre><h2 id="configuration">Configuration</h2>
+<p><code>ServiceBusConnection</code> names a namespace, such as
+<code>contoso.servicebus.windows.net</code>, and a <code>ServiceBusCredential</code>:</p>
+<ul>
+<li><code>SharedAccessKey { name, key }</code> signs a shared access signature for each
+entity the adapter uses and renews it before it expires.</li>
+<li><code>SharedAccessSignature(token)</code> uses a token signed elsewhere. It cannot be
+renewed, so the connection fails once the token expires.</li>
+</ul>
+<p><code>ServiceBusConnection::from_connection_string</code> reads a connection string as the
+Azure portal and the Service Bus emulator show it. A connection string with
+<code>EntityPath</code> is refused; name the entity in the source or sink configuration
+instead. The <code>Debug</code> output of <code>ServiceBusCredential</code> hides the key and the
+signature.</p>
+<p>The adapters connect with AMQP over TLS on port 5671 and authenticate with
+claims-based security. <code>UseDevelopmentEmulator=true</code> in a connection string, or
+<code>emulator = true</code>, selects plain AMQP on port 5672 for the emulator; a port in
+the namespace overrides either default. Microsoft Entra ID credentials are not
+supported yet.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{
+    Utf8,
+    adapters::servicebus::{
+        ServiceBusConnection, ServiceBusPublish, ServiceBusSink, ServiceBusSinkConfig,
+        ServiceBusSource, ServiceBusSourceConfig,
+    },
+};
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">connection</span> = ServiceBusConnection::<span class="hljs-title function_ invoke__">from_connection_string</span>(
+    <span class="hljs-string">&quot;Endpoint=sb://contoso.servicebus.windows.net/;SharedAccessKeyName=app;SharedAccessKey=...&quot;</span>,
+)?;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = ServiceBusSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(ServiceBusSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
+    connection.<span class="hljs-title function_ invoke__">clone</span>(),
+    <span class="hljs-string">&quot;orders/Subscriptions/billing&quot;</span>,
+));
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = ServiceBusSink::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(ServiceBusSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
+    connection,
+    <span class="hljs-string">&quot;processed-orders&quot;</span>,
+));
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = ServiceBusPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()).<span class="hljs-title function_ invoke__">with_message_id</span>(<span class="hljs-string">&quot;order-7&quot;</span>);
+# Ok::&lt;(), beavers::Error&gt;(())
+</code></pre><p><code>ServiceBusSourceConfig</code> receives from a queue, a topic subscription written as
+<code>{topic}/Subscriptions/{subscription}</code>, or a dead-letter subqueue such as
+<code>orders/$DeadLetterQueue</code>. Session-enabled entities are not supported.
+<code>prefetch</code>, 10 by default, is how many messages Service Bus may send ahead of
+<code>receive</code>. Each is locked from the moment it is sent, so keep <code>prefetch</code> small
+enough that prefetched messages reach a handler well within the lock duration.</p>
+<p><code>ServiceBusSinkConfig</code> sends to one queue or topic. <code>max_pending</code>, 1000 by
+default, limits the messages sent and not yet accepted.</p>
+<p><code>validate</code> checks the values without contacting Service Bus. Both adapters
+connect on first use. They create no entities; create queues, topics,
+subscriptions, and their rules with infrastructure tooling before the
+subscription starts.</p>
+<h2 id="records">Records</h2>
+<p><code>ServiceBusRecord&lt;T&gt;</code> is the decoded input and <code>ServiceBusPublish&lt;T&gt;</code> the
+output. The codec applies to the message body, which the adapters send as one
+AMQP data section. A received message whose body is an AMQP value or sequence,
+as some AMQP clients send, fails to decode; its raw form carries the AMQP
+encoding of the body.</p>
+<p><code>application_properties</code> holds typed <code>ServiceBusValue</code>s: strings, booleans,
+integers, floats, characters, timestamps, and UUIDs. Service Bus refuses binary
+application properties and stores symbols as strings, so the adapter has
+neither; received binary, decimal, and described values are skipped.</p>
+<p><code>ServiceBusProperties</code> holds the properties the sender sets: message ID,
+correlation ID, session ID, reply-to address and session, subject, content type,
+<code>to</code>, time to live, and partition key. <code>prepare</code> limits the identifiers to 128
+characters, requires the partition key to equal a session ID when both are set,
+and accepts a time to live from one millisecond to 49 days.</p>
+<p><code>ServiceBusMetadata</code> contains read-only facts about a received message: the
+entity path, sequence number, enqueued and scheduled enqueue times in
+milliseconds since the Unix epoch, delivery count, lock token, and the entity a
+dead-lettered message came from. <code>ServiceBusPublish</code> has none of them except an
+optional <code>scheduled_enqueue_time</code>, which keeps the message invisible until that
+time.</p>
+<p>The raw form of a <code>ServiceBusMessage</code> is a <code>ServiceBusRecord&lt;Vec&lt;u8&gt;&gt;</code> with the
+undecoded body. Dead letters carry it, so the original body, properties, and
+metadata survive even when decoding fails.</p>
+<h2 id="acknowledgements-and-ordering">Acknowledgements and ordering</h2>
+<p>The source receives in peek-lock mode. A received message is locked to the
+source for the entity&#39;s lock duration. A background task renews the locks of
+the messages the source has received and not yet settled with
+<code>com.microsoft:renew-lock</code> once a third of the lock duration has passed, so a
+handler may run longer than the lock duration.</p>
+<p>A successful ACK completes the message with an <code>accepted</code> disposition. Service
+Bus does not confirm a completion, so a completion sent just before the lock is
+lost leaves the message to be delivered again. Dropping a <code>ServiceBusMessage</code>
+without acknowledging it abandons the message, which Service Bus delivers again
+at once with an incremented delivery count. Closing the source releases the
+messages Service Bus sent ahead and the application never received, without
+counting a delivery, and then closes the connection.</p>
+<p>A lock that renewal reports lost, or that ends before it is renewed, means
+Service Bus may already have handed the message to another receiver, so the
+adapter cancels that delivery&#39;s revocation token. The runtime abandons a
+revoked delivery without ACK or subscription failure. An ACK whose lock has
+already ended also revokes the delivery and fails. When the connection or link
+is lost, every unsettled delivery is revoked and the next <code>receive</code> connects
+again.</p>
+<p>Without sessions, Service Bus delivers messages in no guaranteed order, so the
+deliveries have no ordering key and run in parallel up to the subscription&#39;s
+<code>concurrency</code>.</p>
+<p><code>receive</code> is cancel-safe: a message that arrives for a dropped <code>receive</code> is
+kept for the next one.</p>
+<h2 id="publication">Publication</h2>
+<p><code>prepare</code> encodes the value and converts the properties once, so publish
+retries reuse the message. <code>ServiceBusSink::submit</code> sends the message on the
+link and returns a completion that resolves when Service Bus accepts it;
+<code>publish</code> waits for that completion. A message larger than the link&#39;s maximum
+message size fails as <code>PublishRejected</code>, which the subscription&#39;s error policy
+can dead-letter instead of retrying. A lost connection fails the publication,
+and the next one connects again. <code>close</code> stops new publications and closes the
+connection.</p>
+<p>A scheduled message is stored at once, so a completed publication of a
+scheduled message is as durable as any other.</p>
+<h2 id="metadata-inheritance">Metadata inheritance</h2>
+<p>Register <code>ServiceBusInherit</code> on a Service Bus to Service Bus subscription to
+forward the received application properties:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::adapters::servicebus::ServiceBusInherit;
+
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, servicebus_source, servicebus_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(ServiceBusInherit::<span class="hljs-title function_ invoke__">new</span>())
+</code></pre><p>An application property is added only when the output does not set that name,
+and dead-letter properties starting with <code>beavers-dlq-</code> are never inherited.
+<code>with_session()</code> also forwards the session ID and partition key when the output
+leaves the session ID <code>None</code>. The message ID, correlation ID, subject, content
+type, time to live, and schedule are never inherited.
+<code>without_application_properties()</code> disables property inheritance.</p>
+<p>A handler that returns a plain value between a Service Bus source and sink gets
+<code>ServiceBusInherit::new()</code> automatically. See the
+<a href="../runtime/handlers.html#handler-shapes">runtime guide</a>. Register <code>TraceContext</code> after
+<code>ServiceBusInherit</code> to replace inherited trace-context properties; the source
+reads trace context from string application properties.</p>
+<h2 id="dead-letters">Dead letters</h2>
+<p><code>ServiceBusPublish::from_dead_letter</code> forwards a dead letter with its original
+body, application properties, and message properties, and adds the failure
+details and the entity path and sequence number of the first receipt as
+<code>beavers-dlq-*</code> string application properties. It clears the message ID, so
+duplicate detection on the dead-letter entity does not drop a payload
+dead-lettered again, and the time to live, so the dead letter does not expire
+with the original. <code>ServiceBusDeadLetter::from_record</code> reads the details back;
+see <a href="../runtime/errors.html#forwarding-dead-letters-to-a-broker-topic">forwarding dead letters</a>.</p>
+<p>Every queue and subscription also has a dead-letter subqueue, to which Service
+Bus moves a message once its delivery count exceeds the entity&#39;s
+<code>MaxDeliveryCount</code>. The subscription&#39;s error policy decides what happens to a
+failed delivery first, so the subqueue receives messages that are delivered
+again and again without being settled, for example because they crash the
+process every time. Keep <code>MaxDeliveryCount</code> high enough for that. A source can
+receive from the subqueue by its path, such as <code>orders/$DeadLetterQueue</code>.</p>
+<h2 id="delivery-guarantees">Delivery guarantees</h2>
+<p>A source ACK and a sink publication are separate operations, so a failure
+between them, or a lock lost before the completion arrives, can produce a
+duplicate. Service Bus pipelines are at-least-once; duplicate detection on the
+target entity drops a repeated message ID only within its detection window.</p>
+
+      <p class="source"><a href="servicebus.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/adapters/servicebus.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>

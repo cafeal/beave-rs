@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RabbitMQ adapter - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="rabbitmq.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="../runtime/handlers.html">Handlers</a></li><li><a href="../runtime/middleware.html">Middleware</a></li><li><a href="../runtime/errors.html">Errors and retries</a></li><li><a href="../runtime/tombstones.html">Tombstones</a></li><li><a href="../runtime/transactions.html">Transactions</a></li><li><a href="../runtime/observability.html">Observability</a></li><li><a href="../runtime/health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="local.html">Local adapters</a></li><li><a href="channel.html">Channel</a></li><li><a href="kafka.html">Kafka</a></li><li><a href="pulsar.html">Pulsar</a></li><li><a href="rabbitmq.html" aria-current="page">RabbitMQ</a></li><li><a href="sqs.html">SQS</a></li><li><a href="pubsub.html">Pub/Sub</a></li><li><a href="servicebus.html">Azure Service Bus</a></li><li><a href="http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="rabbitmq-adapter">RabbitMQ adapter</h1>
+<p>The optional <code>rabbitmq</code> feature provides typed RabbitMQ source and sink adapters
+for AMQP 0-9-1, backed by the <code>lapin</code> 4 client.</p>
+<pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;rabbitmq&quot;</span>] }
+</code></pre><h2 id="configuration">Configuration</h2>
+<p><code>RabbitMqSourceConfig</code> takes a broker URI and the queue to consume;
+<code>RabbitMqSinkConfig</code> takes a broker URI, the exchange every output is published
+to, and the routing key of outputs that do not set their own. The empty
+exchange name is RabbitMQ&#39;s default exchange, which routes a message to the
+queue named by its routing key. <code>validate</code> checks the values without contacting
+the broker, and both adapters connect on first use. The <code>Debug</code> output of both
+configurations hides the URI&#39;s password.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::rabbitmq::{
+    RabbitMqPublish, RabbitMqSink, RabbitMqSinkConfig, RabbitMqSource, RabbitMqSourceConfig,
+}};
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = RabbitMqSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(RabbitMqSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;amqp://guest:guest@localhost:5672/%2f&quot;</span>,
+    <span class="hljs-string">&quot;orders&quot;</span>,
+));
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = RabbitMqSink::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(RabbitMqSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;amqp://guest:guest@localhost:5672/%2f&quot;</span>,
+    <span class="hljs-string">&quot;&quot;</span>,
+    <span class="hljs-string">&quot;processed-orders&quot;</span>,
+));
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = RabbitMqPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()).<span class="hljs-title function_ invoke__">with_routing_key</span>(<span class="hljs-string">&quot;audit&quot;</span>);
+</code></pre><p>The adapters declare no exchanges, queues, or bindings. Create the topology
+with broker definitions, the management tools, or application code before the
+subscription starts; a source whose queue does not exist fails its receive and
+retries under the subscription&#39;s <code>receive_retry</code>.</p>
+<p><code>RabbitMqSourceConfig::prefetch</code> is the <code>basic.qos</code> prefetch count, 100 by
+default: the number of unacknowledged messages the broker sends ahead. It bounds
+the source&#39;s buffered and in-flight deliveries together, so keep it at least as
+large as the subscription&#39;s <code>max_in_flight</code>. Each connection is named
+<code>beavers source &lt;queue&gt;</code> or <code>beavers sink &lt;exchange&gt;</code> in the management tools.</p>
+<h2 id="records">Records</h2>
+<p><code>RabbitMqRecord&lt;T&gt;</code> is the decoded input and <code>RabbitMqPublish&lt;T&gt;</code> the output.
+The codec applies to the message body. AMQP has no null body, so the value is
+always present and RabbitMQ records support no tombstones.</p>
+<p><code>headers</code> is the AMQP <code>headers</code> table as a map of <code>RabbitMqValue</code>, which keeps
+each field&#39;s AMQP type: integers of each width, floats, decimals, timestamps,
+booleans, nested arrays and tables, strings, and byte arrays. Short strings and
+UTF-8 long strings are read as <code>String</code>, and a long string that is not UTF-8 as
+<code>Bytes</code>. <code>RabbitMqProperties</code> holds the basic properties applications set:
+content type and encoding, priority, correlation ID, reply-to, expiration,
+message ID, timestamp, type (<code>kind</code>), user ID, and app ID. The protocol limits
+text properties, header names, and routing keys to 255 bytes; <code>prepare</code> rejects
+longer values.</p>
+<p><code>RabbitMqMetadata</code> contains read-only delivery facts: the consumed queue, the
+exchange and routing key the message was published with, the redelivered flag,
+whether the message is persistent, and its delivery tag. <code>RabbitMqPublish</code> has
+none of them, so the sink publishes to its configured exchange with the output&#39;s
+routing key or the configured one, and input metadata is never inherited
+implicitly.</p>
+<p>The raw form of a <code>RabbitMqMessage</code> is a <code>RabbitMqRecord&lt;Vec&lt;u8&gt;&gt;</code> with the
+undecoded body. Dead letters carry it, so the original body, headers,
+properties, and delivery metadata survive even when decoding fails.</p>
+<h2 id="acknowledgements-and-ordering">Acknowledgements and ordering</h2>
+<p>The source consumes with manual acknowledgements. A successful ACK sends
+<code>basic.ack</code> for the delivery&#39;s tag. AMQP does not confirm an acknowledgement,
+so a connection lost right after it can still requeue the message, which is
+then processed again. Dropping a <code>RabbitMqMessage</code> leaves its message
+unacknowledged until its channel closes, when the broker requeues it with the
+redelivered flag set; this happens when the source closes or loses its
+connection.</p>
+<p>A delivery tag is valid only on the channel that delivered it. When the
+connection or channel is lost, or the broker cancels the consumer, <code>receive</code>
+cancels the revocation token of every delivery of that channel and reports a
+retryable error, and the next <code>receive</code> connects again. The runtime abandons
+revoked deliveries without ACK or subscription failure, because the broker has
+already requeued them. An acknowledgement that finds its channel closed also
+revokes its channel&#39;s deliveries and fails. Broker heartbeats detect a silent
+connection loss.</p>
+<p>RabbitMQ delivers a queue&#39;s messages to one consumer in order, but distributes
+them among several consumers and requeues unacknowledged messages, so
+deliveries have no ordering key by default and run in parallel up to the
+subscription&#39;s <code>concurrency</code>. Set <code>RabbitMqSourceConfig::ordered</code> to give every
+delivery the queue as its ordering key, so that <code>ProcessingOrder::PerKey</code>
+processes one message at a time in delivery order. Combine it with a queue that
+has a single active consumer (<code>x-single-active-consumer</code>) for order across
+application instances; a requeued message is still delivered again after later
+ones.</p>
+<p>The consumer is a stream fed by the connection&#39;s I/O task: a delivery leaves it
+only when a receive completes, so dropping a pending receive does not consume a
+delivery.</p>
+<h2 id="publication">Publication</h2>
+<p><code>prepare</code> encodes the value and converts the routing key, headers, and
+properties to their AMQP form once, so publish retries reuse them. The sink
+opens its connection and a channel in publisher-confirm mode on first use, and
+again after the previous channel was lost.</p>
+<p><code>RabbitMqSink::submit</code> returns once the message is written to the channel, with
+a completion that resolves on the broker&#39;s publisher confirmation. The runtime
+frees the job&#39;s concurrency slot at submission and acknowledges the input when
+the confirmation arrives. <code>publish</code> writes the message and waits for its
+confirmation. A broker <code>nack</code>, a channel lost before the confirmation, or a
+message returned as unroutable fails the completion, which stops the
+subscription without acknowledging the input, and the input is redelivered.</p>
+<p><code>RabbitMqSinkConfig::mandatory</code>, enabled by default, asks the broker to return
+a message no queue receives, so a missing binding fails the subscription
+instead of losing outputs. Disable it to let the broker discard such messages.
+<code>persistent</code>, also enabled by default, publishes with the persistent delivery
+mode, so durable queues keep the messages across a broker restart; the
+confirmation then arrives after the broker has written them.</p>
+<p><code>RabbitMqSinkConfig::max_pending</code> bounds the messages submitted whose
+confirmation has not arrived; the default is 1000. <code>submit</code> waits while that
+many are outstanding. Messages on one channel are confirmed in publication
+order. <code>close</code> stops new submissions, waits for outstanding confirmations, and
+closes the connection.</p>
+<h2 id="metadata-inheritance">Metadata inheritance</h2>
+<p>Register <code>RabbitMqInherit</code> on a RabbitMQ-to-RabbitMQ subscription to forward the
+received headers and the properties that describe the payload or its
+conversation: content type, content encoding, type, correlation ID, app ID, and
+priority.</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::adapters::rabbitmq::RabbitMqInherit;
+
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, rabbitmq_source, rabbitmq_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(RabbitMqInherit::<span class="hljs-title function_ invoke__">new</span>())
+</code></pre><p>Explicit output fields take precedence: a received header is added only when the
+output does not set that name, and a property only when the output leaves it
+<code>None</code>. Dead-letter headers starting with <code>beavers-dlq-</code> are never inherited.
+The message ID, timestamp, expiration, reply-to address, and user ID identify or
+address one message and are never inherited, and neither is the routing key, so
+an output cannot route back to the queue it came from unless the sink is
+configured to. <code>without_headers()</code> and <code>without_properties()</code> disable either
+part.</p>
+<p>A handler that returns a plain value between a RabbitMQ source and sink gets
+<code>RabbitMqInherit::new()</code> automatically. See the
+<a href="../runtime/handlers.html#handler-shapes">runtime guide</a>. Register
+<code>TraceContext</code> after <code>RabbitMqInherit</code> to replace inherited trace-context
+headers; the source reads trace context from string headers.</p>
+<h2 id="dead-letters">Dead letters</h2>
+<p><code>RabbitMqPublish::from_dead_letter</code> forwards a dead letter with its original
+body, headers, and properties, adding string headers with the failure details
+and the queue, exchange, and routing key of its first receipt.
+<code>RabbitMqDeadLetter::from_record</code> reads them back; see
+<a href="../runtime/errors.html#forwarding-dead-letters-to-a-broker-topic">forwarding dead letters</a>.
+The sink&#39;s routing key applies, so a sink on the default exchange whose routing
+key names a dead-letter queue collects them there.</p>
+<p>RabbitMQ&#39;s own dead-lettering, through a queue&#39;s dead-letter exchange, applies
+to messages that are rejected, expire, or exceed a queue&#39;s delivery limit. The
+adapter never rejects a message, so the subscription&#39;s error policy decides
+what happens to a failed delivery. On a quorum queue, a delivery limit
+(<code>x-delivery-limit</code>) with a dead-letter exchange still moves a message that
+keeps being requeued, for example because it crashes the process every time,
+out of the queue.</p>
+<h2 id="delivery-guarantees">Delivery guarantees</h2>
+<p>A source ACK and a sink publication are separate operations, and AMQP
+acknowledgements are not confirmed, so a failure between them, or a connection
+loss right after an acknowledgement, can produce a duplicate on redelivery. The
+adapter does not use AMQP transactions; RabbitMQ pipelines are at-least-once.</p>
+
+      <p class="source"><a href="rabbitmq.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/adapters/rabbitmq.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>
