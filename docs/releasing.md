@@ -87,25 +87,43 @@ A published version cannot be replaced. If a release is broken, yank it with
 
 ## Project website
 
-The landing page in `site/` is a static HTML and CSS page with no build step.
-The `Pages` workflow copies it together with `docs/assets/overview.svg` to the
-`gh-pages` branch on every push to `main` that touches those files. GitHub Pages
-serves that branch, so the repository's Pages source must be set to deploy from
-the `gh-pages` branch root.
+The website has a landing page and the guides, built by
+`tools/pages/build.mjs` with one header and one stylesheet,
+`tools/pages/style.css`. The landing page body is hand-written HTML in
+`site/index.html`; its links are relative to the site root. Each
+`docs/<path>.md` becomes `docs/<path>.html` with a navigation sidebar, and a
+`README.md` inside `docs/` becomes `index.html` in its directory. Code blocks on
+both are highlighted at build time.
 
-A pull request that changes the site gets a preview under
+Each guide's Markdown source is published at the same path with `.md` instead
+of `.html`, so replacing the extension in a guide URL returns the exact source.
+The landing page's Markdown, `index.md`, is the repository README. Links
+between guides point at the generated pages; links to other repository files
+point at GitHub, in both the HTML and the Markdown copies. The navigation lists the guide index, then one group per `##` section of
+`docs/README.md`, with the guides in that section's link order.
+
+For language-model tools, the site root also serves `llms.txt`, which lists the
+Markdown URL of every page, and `llms-full.txt`, which holds all pages in one
+file.
+
+The `Pages` workflow runs the build and publishes the result to the `gh-pages`
+branch on every push to `main` that touches `site/`, `README.md`, `docs/`, or
+`tools/pages/`. GitHub Pages serves that branch, so the repository's Pages
+source must be set to deploy from the `gh-pages` branch root.
+
+A pull request that changes the website gets a preview under
 `pr-preview/pr-<number>/` on the same branch. The workflow comments the preview
 URL on the pull request and removes the preview when the pull request closes.
 Pull requests from forks are not previewed because their workflows cannot push
 to the repository.
 
-Preview the page locally by copying the diagram next to it and serving the
-directory:
+Build and preview the site locally with Node.js 22:
 
 ```sh
-cp docs/assets/overview.svg site/
-python3 -m http.server -d site
+npm ci --prefix tools/pages
+node tools/pages/build.mjs _site
+python3 -m http.server -d _site
 ```
 
-The character artwork slot in the hero section is a placeholder; replace the
-`mascot-slot` figure in `site/index.html` with the artwork when it exists.
+The character artwork slot in the landing page is a placeholder; replace the
+`character` figure in `site/index.html` with the artwork when it exists.

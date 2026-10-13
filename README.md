@@ -103,16 +103,42 @@ To try the API without a broker, run `cargo run --example transform`. See
 [local development brokers](docs/development.md) for every example, console,
 and Cargo alias.
 
+## Errors
+
+Errors propagated with `?` reject the input, which is dead-lettered by default.
+The handler asks for other outcomes at the call site:
+
+```rust
+async fn handle(order: Order) -> Result<Output> {
+    validate(&order).reject()?; // dead-letter now (same as `?`)
+    let user = db.find_user(order.user_id).await.retry()?; // retry, then dead-letter
+    Ok(build_output(order, user))
+}
+```
+
+`.fatal()?` stops the subscription. See
+[errors and retries](docs/runtime.md#errors-and-retries) for retry policies
+and the error policy.
+
 ## Documentation
 
 - [Documentation index](docs/README.md)
+- [Architecture and trait contracts](docs/architecture.md)
 - [Adapters and usage examples](docs/adapters.md)
 - [Codecs and serialization](docs/codecs.md)
-- [Architecture and trait contracts](docs/architecture.md)
+- [Dead-letter handling](docs/dead-letter-handling.md)
+- [Monitoring and alerting](docs/monitoring-and-alerting/README.md)
+- [Testing handlers](docs/testing.md)
 - [Runtime behavior, configuration, and limitations](docs/runtime.md)
 - [Design plan and roadmap](docs/plan.md)
 - [Local development brokers](docs/development.md)
 - [Versioning and releases](docs/releasing.md)
+- [API reference on docs.rs](https://docs.rs/beavers)
+
+The guides are also published at <https://cafeal.github.io/beave-rs/>. Each
+page's Markdown source is available at the page URL with `.html` replaced by
+`.md`, and [`llms.txt`](https://cafeal.github.io/beave-rs/llms.txt) lists them
+all for language-model tools.
 
 ## Development
 

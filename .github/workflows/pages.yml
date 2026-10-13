@@ -5,13 +5,17 @@ on:
     branches: [main]
     paths:
       - site/**
-      - docs/assets/overview.svg
+      - README.md
+      - docs/**
+      - tools/pages/**
       - .github/workflows/pages.yml
   pull_request:
     types: [opened, reopened, synchronize, closed]
     paths:
       - site/**
-      - docs/assets/overview.svg
+      - README.md
+      - docs/**
+      - tools/pages/**
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -31,13 +35,19 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
-      - name: Assemble site
+      - uses: actions/setup-node@v4
         if: github.event.action != 'closed'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tools/pages/package-lock.json
+      - name: Build site
+        if: github.event.action != 'closed'
+        env:
+          SITE_URL: ${{ github.event_name == 'pull_request' && format('https://{0}.github.io/{1}/pr-preview/pr-{2}/', github.repository_owner, github.event.repository.name, github.event.number) || '' }}
         run: |
-          mkdir _site
-          cp -R site/. _site/
-          cp docs/assets/overview.svg _site/overview.svg
-          touch _site/.nojekyll
+          npm ci --prefix tools/pages
+          node tools/pages/build.mjs _site
       - name: Publish main site
         if: github.event_name != 'pull_request'
         uses: JamesIves/github-pages-deploy-action@v4

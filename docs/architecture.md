@@ -1,64 +1,12 @@
 # Architecture
 
-The project currently uses one crate. Modules separate public contracts from
-transport implementations and runtime internals. Split crates when SDK
-dependencies or distribution requirements justify it; do not create empty
-modules for unimplemented brokers.
-
-## Module layout
-
-```text
-src/
-├── lib.rs                 # Public modules and explicit re-exports
-├── app.rs                 # Registration, supervision, and application shutdown
-├── source.rs              # Source, Receive, ReceiveError, and SourceItem
-├── message.rs             # SourceMessage and Delivery ownership
-├── sink.rs                # Prepare, publish, and close contracts
-├── handler.rs             # Handler, Emit, HandlerError, and Result
-├── error.rs               # Error reported by the crate and BoxError
-├── blocking.rs            # Synchronous handlers on a bounded worker pool
-├── error_policy.rs        # FailureKind, FailureAction, and ErrorPolicy
-├── dead_letter.rs         # DeadLetter envelope
-├── retry.rs               # Retry policy and jitter
-├── propagation.rs         # Trace-context carrier contract for outputs
-├── telemetry.rs           # OpenTelemetry propagation (`opentelemetry` feature)
-├── shutdown.rs            # Cancellation and process signals
-├── health/
-│   ├── mod.rs             # Module declarations and public re-exports
-│   ├── state.rs           # Health handle, reports, and per-subscription state
-│   └── server.rs          # Liveness and readiness probes (`health` feature)
-├── testing/               # Test sources for fabricated records (`testing` feature)
-├── codec/
-│   ├── mod.rs             # Decoder and Encoder contracts
-│   └── json.rs            # JSON implementation
-├── subscription/
-│   ├── mod.rs             # Module declarations and public re-exports
-│   ├── builder.rs         # Subscription type and builder API
-│   ├── handler.rs         # Handler shapes: IntoHandler, ByRecord, and ByValue
-│   ├── config.rs          # Runtime configuration and validation
-│   ├── runtime.rs         # Private receive loop, draining, and cleanup
-│   ├── scheduler.rs       # Private ordering-key queues
-│   ├── instruments.rs     # Private per-subscription metric handles
-│   └── processing.rs      # Private per-message processing lifecycle
-└── adapters/
-    ├── mod.rs
-    ├── channel/           # Chained subscriptions with deferred upstream ACK
-    ├── kafka/, pulsar/,   # Broker adapters (optional features), each with
-    │   rabbitmq/, sqs/,   #   config, record, source, and sink modules
-    │   pubsub/, servicebus/,
-    │   http/
-    ├── pending.rs         # Private bound on unconfirmed broker publications
-    ├── iter.rs
-    ├── memory.rs
-    ├── stdin.rs
-    └── stdout.rs
-```
-
-See the [adapter guide](adapters.md) for the built-in implementations.
-
-Core contracts do not depend on concrete adapters. Internal code imports the
-module that owns a responsibility; root re-exports shorten application imports.
-The scheduler and per-message processing implementation remain private.
+An application registers subscriptions on an `App`. Each subscription connects
+one `Source`, one handler, and one `Sink`: the source receives broker messages,
+the handler turns each decoded input into outputs, and the sink publishes them.
+The source message is acknowledged only after its outputs are published. Codecs
+convert between bytes and typed values, and middleware runs around the handler.
+The [runtime guide](runtime.md) describes processing behavior, and the
+[adapter guide](adapters.md) the built-in sources and sinks.
 
 ## Trait boundaries
 
