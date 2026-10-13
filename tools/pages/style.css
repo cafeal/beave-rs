@@ -128,10 +128,10 @@ pre code { font-size: inherit; }
 
 /* Landing page: centered sections and more color than the guides. */
 
-.landing { --green: #16a34a; --green-ink: #ffffff; --tint: #f0fdf4; --blue: #2563eb; --orange: #ea580c; --purple: #7c3aed; --pink: #db2777; --teal: #0d9488; }
+.landing { --green: #16a34a; --green-ink: #ffffff; --tint: #f0fdf4; }
 
 @media (prefers-color-scheme: dark) {
-  .landing { --green: #22c55e; --green-ink: #052e16; --tint: #071a0f; --blue: #60a5fa; --orange: #fb923c; --purple: #a78bfa; --pink: #f472b6; --teal: #2dd4bf; }
+  .landing { --green: #22c55e; --green-ink: #052e16; --tint: #071a0f; }
 }
 
 .landing section { padding: 72px 0; text-align: center; }
@@ -156,25 +156,35 @@ pre code { font-size: inherit; }
 
 .hero .lead { margin-bottom: 28px; font-size: 1.35rem; line-height: 1.45; }
 
-.landing .install { display: inline-flex; align-items: center; max-width: 100%; margin: 0 0 28px; padding-right: 8px; border-radius: 6px; background: var(--code-bg); }
+.landing .install { display: inline-flex; align-items: center; max-width: 100%; margin: 0 0 28px; padding-right: 6px; border-radius: 6px; background: var(--code-bg); }
 
-.landing .install pre { min-width: 0; margin: 0; padding-right: 12px; font-size: 0.95rem; }
+.landing .install pre { min-width: 0; margin: 0; padding-right: 10px; font-size: 0.95rem; }
 
 .install .prompt { color: var(--muted); user-select: none; }
 
 .copy {
+  display: grid;
   flex: none;
-  padding: 6px 12px;
-  border: 1px solid var(--line);
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
   border-radius: 6px;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  font-size: 0.85rem;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
 }
 
-.copy:hover { border-color: var(--green); color: var(--green); }
+.copy:hover { background: var(--line); color: var(--text); }
+
+.copy:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
+
+.copy .icon-done, .copy.done .icon-copy { display: none; }
+
+.copy.done .icon-done { display: block; }
+
+.copy.done { color: var(--green); }
 
 .hero .note { margin-top: 20px; color: var(--muted); font-size: 0.9rem; }
 
@@ -204,18 +214,9 @@ pre code { font-size: inherit; }
 
 .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-top: 32px; text-align: left; }
 
-.grid > div { padding: 20px; border: 1px solid var(--line); border-top: 4px solid var(--accent); border-radius: 8px; background: var(--bg); }
-
-.grid h3 a { color: var(--accent); }
+.grid > div { padding: 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
 
 .grid p { margin: 0; color: var(--muted); }
-
-.green { --accent: var(--green); }
-.blue { --accent: var(--blue); }
-.orange { --accent: var(--orange); }
-.purple { --accent: var(--purple); }
-.pink { --accent: var(--pink); }
-.teal { --accent: var(--teal); }
 
 .links { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; max-width: 960px; margin: 24px auto; }
 
@@ -238,6 +239,10 @@ pre code { font-size: inherit; }
 .closing .actions { margin-top: 28px; }
 
 .foot { padding: 24px 0 40px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+
+@media (max-width: 480px) {
+  .landing .install pre { padding-inline: 12px 6px; font-size: 0.8rem; }
+}
 
 @media (max-width: 860px) {
   .grid { grid-template-columns: minmax(0, 1fr); }

@@ -11,7 +11,10 @@
     <p class="lead">A lightweight Rust message processing framework built around typed handlers.</p>
     <div class="install">
       <pre><code><span class="prompt" aria-hidden="true">$ </span><span id="install-command">cargo add beavers --features kafka</span></code></pre>
-      <button type="button" class="copy" data-copy="install-command">Copy</button>
+      <button type="button" class="copy" data-copy="install-command" aria-label="Copy command" title="Copy">
+        <svg class="icon-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <svg class="icon-done" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+      </button>
     </div>
     <p class="actions">
       <a class="button primary" href="docs/index.html">Read the guides</a>
@@ -70,27 +73,27 @@ async fn main() -&gt; anyhow::Result&lt;()&gt; {
   <div class="wrap">
     <h2>Features</h2>
     <div class="grid">
-      <div class="green">
+      <div>
         <h3><a href="docs/runtime.html#handler-shapes">Typed handlers</a></h3>
         <p>Write <code>async fn(Input) -&gt; Result&lt;Output&gt;</code>; decoding, publishing, and acknowledgement are handled for you.</p>
       </div>
-      <div class="blue">
+      <div>
         <h3><a href="docs/runtime.html#per-message-lifecycle">At-least-once delivery</a></h3>
         <p>An input is acknowledged only after its output is published.</p>
       </div>
-      <div class="orange">
+      <div>
         <h3><a href="docs/runtime.html#errors-and-retries">Explicit failure handling</a></h3>
         <p>Classify errors as retry, reject (dead-letter), or fatal; retries back off.</p>
       </div>
-      <div class="purple">
+      <div>
         <h3><a href="docs/runtime.html#ordering-and-backpressure">Concurrency with ordering</a></h3>
         <p>Bounded concurrency, per-key ordering, and a worker pool for blocking handlers.</p>
       </div>
-      <div class="pink">
+      <div>
         <h3><a href="docs/adapters/channel.html">Pipelines</a></h3>
         <p>Chain subscriptions through in-process channels with end-to-end acknowledgement.</p>
       </div>
-      <div class="teal">
+      <div>
         <h3><a href="docs/runtime.html#observability">Operations</a></h3>
         <p>Graceful shutdown, <code>tracing</code> spans, <code>metrics</code>, OpenTelemetry trace propagation, and <code>/livez</code> and <code>/readyz</code> probes.</p>
       </div>
@@ -147,15 +150,18 @@ async fn main() -&gt; anyhow::Result&lt;()&gt; {
 
 <script>
   for (const button of document.querySelectorAll("button.copy")) {
+    let timer;
     button.addEventListener("click", async () => {
-      const text = document.getElementById(button.dataset.copy).textContent;
-      try {
-        await navigator.clipboard.writeText(text);
-        button.textContent = "Copied";
-      } catch {
-        button.textContent = "Copy failed";
-      }
-      setTimeout(() => (button.textContent = "Copy"), 1500);
+      await navigator.clipboard.writeText(document.getElementById(button.dataset.copy).textContent);
+      button.classList.add("done");
+      button.setAttribute("aria-label", "Copied");
+      button.title = "Copied";
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        button.classList.remove("done");
+        button.setAttribute("aria-label", "Copy command");
+        button.title = "Copy";
+      }, 1500);
     });
   }
 </script>
