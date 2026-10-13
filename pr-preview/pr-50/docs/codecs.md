@@ -81,8 +81,8 @@ impl Encoder<String> for Utf8 {
 }
 ```
 
-`Utf8` is an exported built-in codec; see [Raw bytes and UTF-8](codecs/raw-utf8.md)
-for its exact behavior and `RawBytes` for arbitrary payloads. The local stdin and
+`Utf8` is an exported built-in codec; see [Utf8](codecs/utf8.md)
+for its exact behavior and [`RawBytes`](codecs/raw-bytes.md) for arbitrary payloads. The local stdin and
 stdout adapters default-construct their codec, so using a custom codec with them
 requires `Default`. The codec traits themselves do not require it. Kafka and
 Pulsar adapters also provide `with_codec(config, codec)` for existing configured
@@ -98,7 +98,8 @@ example preserves all bytes, including any newline supplied by the source.
 `Json` converts between JSON and any Serde type. See [JSON](codecs/json.md).
 
 `RawBytes` preserves arbitrary `Vec<u8>` payloads and `Utf8` converts valid UTF-8
-between bytes and `String`. See [Raw bytes and UTF-8](codecs/raw-utf8.md).
+between bytes and `String`. See [RawBytes](codecs/raw-bytes.md) and
+[Utf8](codecs/utf8.md).
 
 The optional `protobuf` feature provides `Protobuf` for raw `prost::Message`
 payloads. The optional `avro` feature provides schema-bound `Avro` values. Both
@@ -107,11 +108,11 @@ formats leave framing to the adapter. See [Protobuf](codecs/protobuf.md) and
 
 The optional `msgpack` and `cbor` features provide `MessagePack` and `Cbor`,
 compact binary formats for the same Serde types as `Json`. See
-[MessagePack and CBOR](codecs/msgpack-cbor.md).
+[MessagePack](codecs/msgpack.md) and [CBOR](codecs/cbor.md).
 
 The optional `base64`, `gzip`, and `zstd` features provide `Base64<C>`,
 `Gzip<C>`, and `Zstd<C>`, which wrap another codec to carry its payload as text
-or compress it. See [Base64 and compression wrappers](codecs/wrappers.md).
+or compress it. See [codec wrappers](codecs/wrappers.md).
 
 Kafka applies its selected codec to a record value; keys and headers remain raw
 bytes in `KafkaRecord<T>`, and a value can be null. Pulsar applies its selected

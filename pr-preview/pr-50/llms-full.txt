@@ -188,11 +188,11 @@ Adapter references: [Local adapters](adapters/local.md),
 [SQS](adapters/sqs.md), [Pub/Sub](adapters/pubsub.md),
 [Azure Service Bus](adapters/servicebus.md), and [HTTP](adapters/http.md).
 
-Codec references: [JSON](codecs/json.md),
-[Raw bytes and UTF-8](codecs/raw-utf8.md),
-[Protobuf](codecs/protobuf.md), [Avro](codecs/avro.md),
-[MessagePack and CBOR](codecs/msgpack-cbor.md), and
-[Base64 and compression wrappers](codecs/wrappers.md).
+Codec references: [JSON](codecs/json.md), [Raw bytes](codecs/raw-bytes.md),
+[UTF-8](codecs/utf8.md), [Protobuf](codecs/protobuf.md), [Avro](codecs/avro.md),
+[MessagePack](codecs/msgpack.md), [CBOR](codecs/cbor.md), and
+[codec wrappers](codecs/wrappers.md): [Base64](codecs/wrappers/base64.md),
+[Gzip](codecs/wrappers/gzip.md), and [Zstd](codecs/wrappers/zstd.md).
 
 ## Contributing
 
@@ -730,8 +730,8 @@ impl Encoder<String> for Utf8 {
 }
 ```
 
-`Utf8` is an exported built-in codec; see [Raw bytes and UTF-8](codecs/raw-utf8.md)
-for its exact behavior and `RawBytes` for arbitrary payloads. The local stdin and
+`Utf8` is an exported built-in codec; see [Utf8](codecs/utf8.md)
+for its exact behavior and [`RawBytes`](codecs/raw-bytes.md) for arbitrary payloads. The local stdin and
 stdout adapters default-construct their codec, so using a custom codec with them
 requires `Default`. The codec traits themselves do not require it. Kafka and
 Pulsar adapters also provide `with_codec(config, codec)` for existing configured
@@ -747,7 +747,8 @@ example preserves all bytes, including any newline supplied by the source.
 `Json` converts between JSON and any Serde type. See [JSON](codecs/json.md).
 
 `RawBytes` preserves arbitrary `Vec<u8>` payloads and `Utf8` converts valid UTF-8
-between bytes and `String`. See [Raw bytes and UTF-8](codecs/raw-utf8.md).
+between bytes and `String`. See [RawBytes](codecs/raw-bytes.md) and
+[Utf8](codecs/utf8.md).
 
 The optional `protobuf` feature provides `Protobuf` for raw `prost::Message`
 payloads. The optional `avro` feature provides schema-bound `Avro` values. Both
@@ -756,11 +757,11 @@ formats leave framing to the adapter. See [Protobuf](codecs/protobuf.md) and
 
 The optional `msgpack` and `cbor` features provide `MessagePack` and `Cbor`,
 compact binary formats for the same Serde types as `Json`. See
-[MessagePack and CBOR](codecs/msgpack-cbor.md).
+[MessagePack](codecs/msgpack.md) and [CBOR](codecs/cbor.md).
 
 The optional `base64`, `gzip`, and `zstd` features provide `Base64<C>`,
 `Gzip<C>`, and `Zstd<C>`, which wrap another codec to carry its payload as text
-or compress it. See [Base64 and compression wrappers](codecs/wrappers.md).
+or compress it. See [codec wrappers](codecs/wrappers.md).
 
 Kafka applies its selected codec to a record value; keys and headers remain raw
 bytes in `KafkaRecord<T>`, and a value can be null. Pulsar applies its selected
@@ -3299,7 +3300,7 @@ applies to the message body. SQS has no null body, so the value is always
 present and SQS records support no tombstones. SQS bodies are text: `prepare`
 rejects an encoded value that is not UTF-8, so binary codecs such as Protobuf
 and Avro need a text representation, such as the
-[`Base64` wrapper](../codecs/wrappers.md#base64), before they can be sent.
+[`Base64` wrapper](../codecs/wrappers/base64.md), before they can be sent.
 
 `attributes` holds the message attributes as `SqsAttributeValue::String`,
 `Number` in its decimal text form, or `Binary`. A custom type label such as
@@ -4178,19 +4179,15 @@ printf '%s\n' '{"id":10}' '{"id":20}' | cargo run --example transform -- --stdin
 IterSource and InMemorySink already exchange typed values, so they require no
 serialization codec.
 
-<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-50/docs/codecs/raw-utf8.md -->
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-50/docs/codecs/raw-bytes.md -->
 
-# Raw bytes and UTF-8 codecs
-
-`RawBytes` and `Utf8` provide lossless conversions for payloads that do not
-need a structured serialization format. Both are unit structs and implement
-`Default`, so they can be used by adapters that construct codecs internally.
-
-## RawBytes
+# Raw bytes codec
 
 `RawBytes` decodes a byte slice to `Vec<u8>` and encodes a `Vec<u8>` to bytes.
 It copies the payload without interpreting it. Empty payloads and every byte
-value are valid, including zero bytes and malformed UTF-8.
+value are valid, including zero bytes and malformed UTF-8. It is a unit struct
+that implements `Default`, so adapters that construct their codec internally
+can use it, and it needs no Cargo feature.
 
 ```rust
 use beavers::{Decoder, Encoder, RawBytes};
@@ -4201,12 +4198,21 @@ assert_eq!(codec.encode(&value)?, vec![0, 0xff, b'\n']);
 # Ok::<(), beavers::BoxError>(())
 ```
 
-## Utf8
+Framing remains the adapter's responsibility. A line-based source may remove
+or preserve delimiters according to its own contract, and a sink may append
+delimiters after encoding. `RawBytes` does not change framing on its own. For
+payloads that must be valid text, use [`Utf8`](utf8.md).
+
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-50/docs/codecs/utf8.md -->
+
+# UTF-8 codec
 
 `Utf8` decodes bytes to `String` only when the complete payload is valid UTF-8,
 and encodes a `String` using its UTF-8 representation. It does not trim text,
 strip a byte-order mark, normalize Unicode, or remove line endings. An empty
-payload decodes to an empty string. Malformed UTF-8 returns an error.
+payload decodes to an empty string. Malformed UTF-8 returns an error. It is a
+unit struct that implements `Default`, so adapters that construct their codec
+internally can use it, and it needs no Cargo feature.
 
 ```rust
 use beavers::{Decoder, Encoder, Utf8};
@@ -4218,10 +4224,10 @@ assert_eq!(codec.encode(&value)?, b"hello\n");
 # Ok::<(), beavers::BoxError>(())
 ```
 
-Framing remains the adapter's responsibility. In particular, a line-based
-source may remove or preserve delimiters according to its own contract, and a
-sink may append delimiters after encoding. Neither codec changes framing on its
-own.
+Framing remains the adapter's responsibility. A line-based source may remove
+or preserve delimiters according to its own contract, and a sink may append
+delimiters after encoding. `Utf8` does not change framing on its own. For
+arbitrary bytes, use [`RawBytes`](raw-bytes.md).
 
 <!-- https://cafeal.github.io/beave-rs/pr-preview/pr-50/docs/codecs/protobuf.md -->
 
@@ -4320,24 +4326,22 @@ producer and consumer use different schemas, create a codec with the producer's
 schema only when they are known to be compatible, or use Apache Avro's datum
 reader directly with explicit writer and reader schemas.
 
-<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-50/docs/codecs/msgpack-cbor.md -->
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-50/docs/codecs/msgpack.md -->
 
-# MessagePack and CBOR codecs
+# MessagePack codec
 
-`MessagePack` and `Cbor` convert between compact binary payloads and any type
-implementing Serde's traits, the same types `Json` accepts. Both are unit
-structs that implement `Default`. Enable the `msgpack` or `cbor` Cargo feature
-to use them:
+`MessagePack` converts between [MessagePack](https://msgpack.org/) payloads and
+any type implementing Serde's traits, the same types `Json` accepts. It is a
+unit struct that implements `Default`. Enable the `msgpack` Cargo feature to
+use it:
 
 ```toml
 [dependencies]
-beavers = { version = "0.1", features = ["msgpack", "cbor"] }
+beavers = { version = "0.1", features = ["msgpack"] }
 ```
 
-| Codec | Format | Encoding | Decoding |
-|---|---|---|---|
-| `MessagePack` | [MessagePack](https://msgpack.org/) | `rmp_serde::to_vec_named` | `rmp_serde` from the complete payload |
-| `Cbor` | CBOR, [RFC 8949](https://www.rfc-editor.org/rfc/rfc8949) | `ciborium::into_writer` | `ciborium::from_reader` over the complete payload |
+Encoding calls `rmp_serde::to_vec_named`; decoding reads the complete payload
+with `rmp_serde`.
 
 ```rust
 use beavers::{Decoder, Encoder, MessagePack};
@@ -4354,7 +4358,7 @@ assert_eq!(order, Order { id: 42 });
 # Ok::<(), beavers::BoxError>(())
 ```
 
-## MessagePack
+## Struct representation
 
 `MessagePack` encodes a struct as a map keyed by field name rather than as a
 positional array. Payloads are larger than the array form, but other
@@ -4362,27 +4366,70 @@ MessagePack implementations can read them by name, and a reader tolerates
 fields that were added, removed, or reordered, as with JSON. Decoding also
 accepts the array form that `rmp_serde::to_vec` writes.
 
-## CBOR
+## Failures and framing
+
+Decoding rejects malformed or truncated input and payloads that contain bytes
+after the first value, so one payload cannot silently carry more than one value.
+These are decode failures; see [lifecycle and failures](../codecs.md#lifecycle-and-failures).
+
+`MessagePack` adds no framing. Its output is binary and can contain newline
+bytes, so it does not suit line-based adapters such as `StdinSource`, and
+brokers whose bodies carry text only, such as SQS, need the
+[`Base64` wrapper](wrappers/base64.md).
+
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-50/docs/codecs/cbor.md -->
+
+# CBOR codec
+
+`Cbor` converts between CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949))
+payloads and any type implementing Serde's traits, the same types `Json`
+accepts. It is a unit struct that implements `Default`. Enable the `cbor` Cargo
+feature to use it:
+
+```toml
+[dependencies]
+beavers = { version = "0.1", features = ["cbor"] }
+```
+
+Encoding calls `ciborium::into_writer`; decoding calls `ciborium::from_reader`
+over the complete payload.
+
+```rust
+use beavers::{Cbor, Decoder, Encoder};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Reading {
+    sensor: String,
+}
+
+let bytes = Cbor.encode(&Reading { sensor: "dam-1".into() })?;
+let reading: Reading = Cbor.decode(&bytes)?;
+assert_eq!(reading.sensor, "dam-1");
+# Ok::<(), beavers::BoxError>(())
+```
+
+## Representation
 
 `Cbor` writes the representation `ciborium` chooses for each Serde type: a
 struct is a map keyed by field name, and `Vec<u8>` is an array of integers
 unless the field uses a byte-string helper such as `serde_bytes`. It does not
 write a self-describe tag, CBOR sequences, or COSE structures.
 
-## Failures
+## Failures and framing
 
-Both codecs reject malformed or truncated input and payloads that contain bytes
+Decoding rejects malformed or truncated input and payloads that contain bytes
 after the first value, so one payload cannot silently carry more than one value.
 These are decode failures; see [lifecycle and failures](../codecs.md#lifecycle-and-failures).
 
-Neither codec adds framing. Their output is binary and can contain newline
-bytes, so it does not suit line-based adapters such as `StdinSource`, and
-brokers whose bodies carry text only, such as SQS, need a
-[Base64 wrapper](wrappers.md#base64).
+`Cbor` adds no framing. Its output is binary and can contain newline bytes, so
+it does not suit line-based adapters such as `StdinSource`, and brokers whose
+bodies carry text only, such as SQS, need the
+[`Base64` wrapper](wrappers/base64.md).
 
 <!-- https://cafeal.github.io/beave-rs/pr-preview/pr-50/docs/codecs/wrappers.md -->
 
-# Base64 and compression wrappers
+# Codec wrappers
 
 `Base64<C>`, `Gzip<C>`, and `Zstd<C>` wrap another codec `C` and transform its
 payload. Encoding runs the inner codec first and then the wrapper; decoding runs
@@ -4392,9 +4439,9 @@ inner codec, including other wrappers, and implement `Decoder<T>` or
 
 | Wrapper | Cargo feature | Payload |
 |---|---|---|
-| `Base64<C>` | `base64` | Standard Base64 text of the inner payload |
-| `Gzip<C>` | `gzip` | One gzip member containing the inner payload |
-| `Zstd<C>` | `zstd` | One Zstandard frame containing the inner payload |
+| [`Base64<C>`](wrappers/base64.md) | `base64` | Standard Base64 text of the inner payload |
+| [`Gzip<C>`](wrappers/gzip.md) | `gzip` | One gzip member containing the inner payload |
+| [`Zstd<C>`](wrappers/zstd.md) | `zstd` | One Zstandard frame containing the inner payload |
 
 Each wrapper implements `Default` when its inner codec does, so it works with
 adapters that construct their codec with `C::default()`. Use the adapter's
@@ -4418,14 +4465,41 @@ decoder therefore expects every payload in a stream to use the same wrapping;
 a subscription that receives both compressed and uncompressed payloads needs a
 custom codec that tells them apart.
 
-## Base64
+## Choosing compression
 
-`Base64<C>` encodes the inner payload with the standard alphabet and padding
-from [RFC 4648, section 4](https://www.rfc-editor.org/rfc/rfc4648#section-4).
+Gzip is readable by almost every platform; Zstandard compresses better and
+faster where both ends support it. Both decompress into memory and fail to
+decode once the output would exceed `with_max_decoded_len`, 64 MiB by default,
+so a small, highly compressible payload cannot exhaust memory.
+
+On Kafka, prefer the producer's batch compression: set the librdkafka
+`compression.type` property, such as `zstd`, in `KafkaSinkConfig::properties`,
+and consumers decompress transparently. Batch compression sees repeated
+content across records and keeps payloads readable by any Kafka client. The
+Pulsar sink does not expose producer compression yet. The compression wrappers
+suit brokers without built-in compression, such as SQS, Pub/Sub, RabbitMQ, and
+Azure Service Bus, and payloads that must stay compressed end to end.
+Compressed payloads are binary, so SQS also needs `Base64` around them.
+
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-50/docs/codecs/wrappers/base64.md -->
+
+# Base64 wrapper
+
+`Base64<C>` carries the payload of an inner codec `C` as Base64 text. Enable
+the `base64` Cargo feature to use it:
+
+```toml
+[dependencies]
+beavers = { version = "0.1", features = ["base64"] }
+```
+
+Encoding runs the inner codec and encodes its output with the standard alphabet
+and padding from
+[RFC 4648, section 4](https://www.rfc-editor.org/rfc/rfc4648#section-4).
 Decoding accepts exactly that form: whitespace, line breaks, missing padding,
-and the URL-safe alphabet are errors. Its output is ASCII, which makes binary
-codecs usable where bodies carry text only, such as
-[SQS](../adapters/sqs.md) bodies.
+and the URL-safe alphabet are errors. The output is ASCII, which makes binary
+codecs usable where bodies carry text only, such as [SQS](../../adapters/sqs.md)
+bodies.
 
 ```rust
 use beavers::{Base64, Decoder, Encoder, RawBytes};
@@ -4436,26 +4510,70 @@ assert_eq!(codec.decode(b"+/8=")?, vec![0xfb, 0xff]);
 # Ok::<(), beavers::BoxError>(())
 ```
 
-## Compression
+`Base64::new(inner)` wraps a configured codec, and `Base64::default()` wraps
+`C::default()`. See [codec wrappers](../wrappers.md) for nesting and use with
+adapters.
 
-`Gzip<C>` writes [RFC 1952](https://www.rfc-editor.org/rfc/rfc1952) gzip
-through `flate2`. `Zstd<C>` writes
-[RFC 8878](https://www.rfc-editor.org/rfc/rfc8878) Zstandard frames through the
-`zstd` crate, which compiles the reference C library. Gzip is readable by
-almost every platform; Zstandard compresses better and faster where both ends
-support it.
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-50/docs/codecs/wrappers/gzip.md -->
 
-| Setting | `Gzip<C>` | `Zstd<C>` |
+# Gzip wrapper
+
+`Gzip<C>` compresses the payload of an inner codec `C` as gzip
+([RFC 1952](https://www.rfc-editor.org/rfc/rfc1952)) through `flate2`. Enable
+the `gzip` Cargo feature to use it:
+
+```toml
+[dependencies]
+beavers = { version = "0.1", features = ["gzip"] }
+```
+
+Encoding runs the inner codec and writes its output as one gzip member.
+Decoding decompresses every concatenated member and passes the result to the
+inner codec, so payloads from other gzip writers decode as well.
+
+| Setting | Default | Range |
 |---|---|---|
-| Default level | 6 | 3 |
-| `with_level` range | 0 (store only) to 9 | Negative levels for speed up to 22; the linked library's range |
-| Decoding | Every concatenated member | Every concatenated frame |
-| `with_max_decoded_len` default | 64 MiB | 64 MiB |
+| `with_level` | 6 | 0 (store only) to 9 (smallest output) |
+| `with_max_decoded_len` | 64 MiB | Any byte count |
 
-`with_level` panics on a level outside the range, because the value is fixed
-when the codec is constructed. Decoding fails when the decompressed payload
-would exceed `with_max_decoded_len`, so a small, highly compressible payload
-cannot exhaust memory. Malformed compressed data is also a decode failure.
+```rust
+use beavers::{Decoder, Encoder, Gzip, Json};
+
+let codec = Gzip::new(Json).with_level(9);
+let bytes = codec.encode(&vec!["beaver"; 100])?;
+let value: Vec<String> = codec.decode(&bytes)?;
+assert_eq!(value.len(), 100);
+# Ok::<(), beavers::BoxError>(())
+```
+
+`with_level` panics on a level above 9, because the value is fixed when the
+codec is constructed. Decoding fails when the decompressed payload would exceed
+`with_max_decoded_len`, and malformed compressed data is also a decode failure.
+See [codec wrappers](../wrappers.md#choosing-compression) for when to compress
+in the codec rather than in the broker client.
+
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-50/docs/codecs/wrappers/zstd.md -->
+
+# Zstd wrapper
+
+`Zstd<C>` compresses the payload of an inner codec `C` as Zstandard
+([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878)) through the `zstd` crate,
+which compiles the reference C library. Enable the `zstd` Cargo feature to use
+it:
+
+```toml
+[dependencies]
+beavers = { version = "0.1", features = ["zstd"] }
+```
+
+Encoding runs the inner codec and writes its output as one Zstandard frame.
+Decoding decompresses every concatenated frame and passes the result to the
+inner codec, so payloads from other Zstandard writers decode as well.
+
+| Setting | Default | Range |
+|---|---|---|
+| `with_level` | 3 | Negative levels for speed up to 22; the linked library's range |
+| `with_max_decoded_len` | 64 MiB | Any byte count |
 
 ```rust
 use beavers::{Decoder, Encoder, Json, Zstd};
@@ -4469,14 +4587,12 @@ assert_eq!(value.len(), 100);
 # Ok::<(), beavers::BoxError>(())
 ```
 
-On Kafka, prefer the producer's batch compression: set the librdkafka
-`compression.type` property, such as `zstd`, in `KafkaSinkConfig::properties`,
-and consumers decompress transparently. Batch compression sees repeated
-content across records and keeps payloads readable by any Kafka client. The
-Pulsar sink does not expose producer compression yet. The wrappers suit
-brokers without built-in compression, such as SQS, Pub/Sub, RabbitMQ, and
-Azure Service Bus, and payloads that must stay compressed end to end.
-Compressed payloads are binary, so SQS also needs `Base64` around them.
+`with_level` panics on a level outside the library's range, because the value
+is fixed when the codec is constructed. Decoding fails when the decompressed
+payload would exceed `with_max_decoded_len`, and malformed compressed data is
+also a decode failure. See
+[codec wrappers](../wrappers.md#choosing-compression) for when to compress in
+the codec rather than in the broker client.
 
 <!-- https://cafeal.github.io/beave-rs/pr-preview/pr-50/docs/development.md -->
 
