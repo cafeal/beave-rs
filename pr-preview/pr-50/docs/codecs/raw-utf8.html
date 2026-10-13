@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Raw bytes and UTF-8 codecs - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="raw-utf8.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="../runtime/handlers.html">Handlers</a></li><li><a href="../runtime/middleware.html">Middleware</a></li><li><a href="../runtime/errors.html">Errors and retries</a></li><li><a href="../runtime/tombstones.html">Tombstones</a></li><li><a href="../runtime/transactions.html">Transactions</a></li><li><a href="../runtime/observability.html">Observability</a></li><li><a href="../runtime/health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/local.html">Local adapters</a></li><li><a href="../adapters/channel.html">Channel</a></li><li><a href="../adapters/kafka.html">Kafka</a></li><li><a href="../adapters/pulsar.html">Pulsar</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="../adapters/sqs.html">SQS</a></li><li><a href="../adapters/pubsub.html">Pub/Sub</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus</a></li><li><a href="../adapters/http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="json.html">JSON</a></li><li><a href="raw-utf8.html" aria-current="page">Raw bytes and UTF-8</a></li><li><a href="protobuf.html">Protobuf</a></li><li><a href="avro.html">Avro</a></li><li><a href="msgpack-cbor.html">MessagePack and CBOR</a></li><li><a href="wrappers.html">Base64 and compression wrappers</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="raw-bytes-and-utf-8-codecs">Raw bytes and UTF-8 codecs</h1>
+<p><code>RawBytes</code> and <code>Utf8</code> provide lossless conversions for payloads that do not
+need a structured serialization format. Both are unit structs and implement
+<code>Default</code>, so they can be used by adapters that construct codecs internally.</p>
+<h2 id="rawbytes">RawBytes</h2>
+<p><code>RawBytes</code> decodes a byte slice to <code>Vec&lt;u8&gt;</code> and encodes a <code>Vec&lt;u8&gt;</code> to bytes.
+It copies the payload without interpreting it. Empty payloads and every byte
+value are valid, including zero bytes and malformed UTF-8.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Decoder, Encoder, RawBytes};
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">codec</span> = RawBytes;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">value</span> = codec.<span class="hljs-title function_ invoke__">decode</span>(&amp;[<span class="hljs-number">0</span>, <span class="hljs-number">0xff</span>, <span class="hljs-string">b&#x27;<span class="hljs-char escape_">\n</span>&#x27;</span>])?;
+<span class="hljs-built_in">assert_eq!</span>(codec.<span class="hljs-title function_ invoke__">encode</span>(&amp;value)?, <span class="hljs-built_in">vec!</span>[<span class="hljs-number">0</span>, <span class="hljs-number">0xff</span>, <span class="hljs-string">b&#x27;<span class="hljs-char escape_">\n</span>&#x27;</span>]);
+# Ok::&lt;(), beavers::BoxError&gt;(())
+</code></pre><h2 id="utf8">Utf8</h2>
+<p><code>Utf8</code> decodes bytes to <code>String</code> only when the complete payload is valid UTF-8,
+and encodes a <code>String</code> using its UTF-8 representation. It does not trim text,
+strip a byte-order mark, normalize Unicode, or remove line endings. An empty
+payload decodes to an empty string. Malformed UTF-8 returns an error.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Decoder, Encoder, Utf8};
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">codec</span> = Utf8;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">value</span> = codec.<span class="hljs-title function_ invoke__">decode</span>(<span class="hljs-string">&quot;hello\n&quot;</span>.<span class="hljs-title function_ invoke__">as_bytes</span>())?;
+<span class="hljs-built_in">assert_eq!</span>(value, <span class="hljs-string">&quot;hello\n&quot;</span>);
+<span class="hljs-built_in">assert_eq!</span>(codec.<span class="hljs-title function_ invoke__">encode</span>(&amp;value)?, <span class="hljs-string">b&quot;hello\n&quot;</span>);
+# Ok::&lt;(), beavers::BoxError&gt;(())
+</code></pre><p>Framing remains the adapter&#39;s responsibility. In particular, a line-based
+source may remove or preserve delimiters according to its own contract, and a
+sink may append delimiters after encoding. Neither codec changes framing on its
+own.</p>
+
+      <p class="source"><a href="raw-utf8.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/codecs/raw-utf8.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>

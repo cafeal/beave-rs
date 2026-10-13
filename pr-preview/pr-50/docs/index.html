@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guides - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="alternate" type="text/markdown" href="index.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../">beave-rs</a>
+      <nav>
+        <a href="index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="index.html" aria-current="page">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html">Architecture</a></li><li><a href="runtime.html">Runtime guide</a><ul><li><a href="runtime/handlers.html">Handlers</a></li><li><a href="runtime/middleware.html">Middleware</a></li><li><a href="runtime/errors.html">Errors and retries</a></li><li><a href="runtime/tombstones.html">Tombstones</a></li><li><a href="runtime/transactions.html">Transactions</a></li><li><a href="runtime/observability.html">Observability</a></li><li><a href="runtime/health.html">Health checks</a></li></ul></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/local.html">Local adapters</a></li><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/json.html">JSON</a></li><li><a href="codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li><li><a href="codecs/msgpack-cbor.html">MessagePack and CBOR</a></li><li><a href="codecs/wrappers.html">Base64 and compression wrappers</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html">Local development brokers</a></li><li><a href="plan.html">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="guides">Guides</h1>
+<h2 id="using-beave-rs">Using beave-rs</h2>
+<table>
+<thead>
+<tr>
+<th>Guide</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><a href="architecture.html">Architecture</a></td>
+<td>How sources, handlers, and sinks fit together, their trait contracts, and errors</td>
+</tr>
+<tr>
+<td><a href="runtime.html">Runtime guide</a></td>
+<td>Registration, configuration, processing behavior, shutdown, and limitations, with topic guides for handlers, middleware, errors, tombstones, transactions, observability, and health checks</td>
+</tr>
+<tr>
+<td><a href="adapters.html">Adapters</a></td>
+<td>Local, channel, Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, Azure Service Bus, and HTTP adapters, usage, and extension contracts</td>
+</tr>
+<tr>
+<td><a href="codecs.html">Codecs</a></td>
+<td>Serialization contracts; JSON, raw bytes, UTF-8, Protobuf, Avro, MessagePack, and CBOR codecs; Base64 and compression wrappers</td>
+</tr>
+<tr>
+<td><a href="testing.html">Testing</a></td>
+<td>Testing handlers, middleware, and error policies with fabricated broker records</td>
+</tr>
+<tr>
+<td><a href="dead-letter-handling.html">Handling dead letters</a></td>
+<td>Finding the cause of dead letters, and reprocessing, parking, or dropping them on log and queue brokers</td>
+</tr>
+<tr>
+<td><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a></td>
+<td>Signals to alert on, alert rules, and setups for Kubernetes, AWS, Google Cloud, and Azure</td>
+</tr>
+</tbody></table>
+<p>Runtime topics: <a href="runtime/handlers.html">Handlers</a>,
+<a href="runtime/middleware.html">Middleware</a>, <a href="runtime/errors.html">Errors and retries</a>,
+<a href="runtime/tombstones.html">Tombstones</a>, <a href="runtime/transactions.html">Transactions</a>,
+<a href="runtime/observability.html">Observability</a>, and <a href="runtime/health.html">Health checks</a>.</p>
+<p>Adapter references: <a href="adapters/local.html">Local adapters</a>,
+<a href="adapters/channel.html">Channel</a>, <a href="adapters/kafka.html">Kafka</a>,
+<a href="adapters/pulsar.html">Pulsar</a>, <a href="adapters/rabbitmq.html">RabbitMQ</a>,
+<a href="adapters/sqs.html">SQS</a>, <a href="adapters/pubsub.html">Pub/Sub</a>,
+<a href="adapters/servicebus.html">Azure Service Bus</a>, and <a href="adapters/http.html">HTTP</a>.</p>
+<p>Codec references: <a href="codecs/json.html">JSON</a>,
+<a href="codecs/raw-utf8.html">Raw bytes and UTF-8</a>,
+<a href="codecs/protobuf.html">Protobuf</a>, <a href="codecs/avro.html">Avro</a>,
+<a href="codecs/msgpack-cbor.html">MessagePack and CBOR</a>, and
+<a href="codecs/wrappers.html">Base64 and compression wrappers</a>.</p>
+<h2 id="contributing">Contributing</h2>
+<table>
+<thead>
+<tr>
+<th>Guide</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><a href="development.html">Local development brokers</a></td>
+<td>Docker Compose Kafka, Pulsar, RabbitMQ, ElasticMQ, Pub/Sub emulator, and Service Bus emulator brokers, web consoles, broker examples, and live tests</td>
+</tr>
+<tr>
+<td><a href="plan.html">Design plan</a></td>
+<td>Product goals, agreed design direction, future work, and open questions</td>
+</tr>
+<tr>
+<td><a href="releasing.html">Versioning and releases</a></td>
+<td>Version numbers, the compatibility contract, the minimum supported Rust version, and the website</td>
+</tr>
+<tr>
+<td><a href="https://github.com/cafeal/beave-rs/blob/main/CODE_GUIDELINES.md">Code guidelines</a></td>
+<td>Module layout and implementation standards</td>
+</tr>
+</tbody></table>
+<p>The runtime guide describes what works today. The design plan includes future
+APIs and capabilities; its examples are conceptual unless explicitly identified
+as implemented.</p>
+<p>Keep repository documentation, code comments, and examples in English. Keep the
+root README focused on the project overview and quick start. Put detailed user
+and contributor explanations here, and document public API contracts alongside
+their Rust definitions. When behavior changes, update the relevant guide and
+keep planned capabilities distinct from implemented ones.</p>
+
+      <p class="source"><a href="index.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/README.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>

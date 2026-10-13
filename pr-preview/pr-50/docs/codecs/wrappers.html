@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Base64 and compression wrappers - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="wrappers.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="../runtime/handlers.html">Handlers</a></li><li><a href="../runtime/middleware.html">Middleware</a></li><li><a href="../runtime/errors.html">Errors and retries</a></li><li><a href="../runtime/tombstones.html">Tombstones</a></li><li><a href="../runtime/transactions.html">Transactions</a></li><li><a href="../runtime/observability.html">Observability</a></li><li><a href="../runtime/health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/local.html">Local adapters</a></li><li><a href="../adapters/channel.html">Channel</a></li><li><a href="../adapters/kafka.html">Kafka</a></li><li><a href="../adapters/pulsar.html">Pulsar</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="../adapters/sqs.html">SQS</a></li><li><a href="../adapters/pubsub.html">Pub/Sub</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus</a></li><li><a href="../adapters/http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="json.html">JSON</a></li><li><a href="raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="protobuf.html">Protobuf</a></li><li><a href="avro.html">Avro</a></li><li><a href="msgpack-cbor.html">MessagePack and CBOR</a></li><li><a href="wrappers.html" aria-current="page">Base64 and compression wrappers</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="base64-and-compression-wrappers">Base64 and compression wrappers</h1>
+<p><code>Base64&lt;C&gt;</code>, <code>Gzip&lt;C&gt;</code>, and <code>Zstd&lt;C&gt;</code> wrap another codec <code>C</code> and transform its
+payload. Encoding runs the inner codec first and then the wrapper; decoding runs
+the wrapper first and passes its output to the inner codec. They accept any
+inner codec, including other wrappers, and implement <code>Decoder&lt;T&gt;</code> or
+<code>Encoder&lt;T&gt;</code> whenever the inner codec does.</p>
+<table>
+<thead>
+<tr>
+<th>Wrapper</th>
+<th>Cargo feature</th>
+<th>Payload</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Base64&lt;C&gt;</code></td>
+<td><code>base64</code></td>
+<td>Standard Base64 text of the inner payload</td>
+</tr>
+<tr>
+<td><code>Gzip&lt;C&gt;</code></td>
+<td><code>gzip</code></td>
+<td>One gzip member containing the inner payload</td>
+</tr>
+<tr>
+<td><code>Zstd&lt;C&gt;</code></td>
+<td><code>zstd</code></td>
+<td>One Zstandard frame containing the inner payload</td>
+</tr>
+</tbody></table>
+<p>Each wrapper implements <code>Default</code> when its inner codec does, so it works with
+adapters that construct their codec with <code>C::default()</code>. Use the adapter&#39;s
+<code>with_codec</code> constructor to pass a wrapper with non-default settings or a
+configured inner codec such as <code>Avro</code>.</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::adapters::sqs::{SqsSink, SqsSinkConfig};
+<span class="hljs-keyword">use</span> beavers::{Base64, Gzip, Protobuf};
+
+<span class="hljs-comment">// Protobuf bytes, gzip-compressed, carried as text in an SQS body.</span>
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = SqsSink::&lt;Base64&lt;Gzip&lt;Protobuf&gt;&gt;, Event&gt;::<span class="hljs-title function_ invoke__">new</span>(config);
+</code></pre><p>The order of nested wrappers is the order of the encoding steps from the inside
+out: <code>Base64&lt;Gzip&lt;Json&gt;&gt;</code> compresses JSON and then encodes the compressed bytes
+as Base64. The reader of the payload must use the same nesting.</p>
+<p>Wrappers do not record what they did in the payload or in message metadata. A
+decoder therefore expects every payload in a stream to use the same wrapping;
+a subscription that receives both compressed and uncompressed payloads needs a
+custom codec that tells them apart.</p>
+<h2 id="base64">Base64</h2>
+<p><code>Base64&lt;C&gt;</code> encodes the inner payload with the standard alphabet and padding
+from <a href="https://www.rfc-editor.org/rfc/rfc4648#section-4">RFC 4648, section 4</a>.
+Decoding accepts exactly that form: whitespace, line breaks, missing padding,
+and the URL-safe alphabet are errors. Its output is ASCII, which makes binary
+codecs usable where bodies carry text only, such as
+<a href="../adapters/sqs.html">SQS</a> bodies.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Base64, Decoder, Encoder, RawBytes};
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">codec</span> = Base64::<span class="hljs-title function_ invoke__">new</span>(RawBytes);
+<span class="hljs-built_in">assert_eq!</span>(codec.<span class="hljs-title function_ invoke__">encode</span>(&amp;<span class="hljs-built_in">vec!</span>[<span class="hljs-number">0xfb</span>, <span class="hljs-number">0xff</span>])?, <span class="hljs-string">b&quot;+/8=&quot;</span>);
+<span class="hljs-built_in">assert_eq!</span>(codec.<span class="hljs-title function_ invoke__">decode</span>(<span class="hljs-string">b&quot;+/8=&quot;</span>)?, <span class="hljs-built_in">vec!</span>[<span class="hljs-number">0xfb</span>, <span class="hljs-number">0xff</span>]);
+# Ok::&lt;(), beavers::BoxError&gt;(())
+</code></pre><h2 id="compression">Compression</h2>
+<p><code>Gzip&lt;C&gt;</code> writes <a href="https://www.rfc-editor.org/rfc/rfc1952">RFC 1952</a> gzip
+through <code>flate2</code>. <code>Zstd&lt;C&gt;</code> writes
+<a href="https://www.rfc-editor.org/rfc/rfc8878">RFC 8878</a> Zstandard frames through the
+<code>zstd</code> crate, which compiles the reference C library. Gzip is readable by
+almost every platform; Zstandard compresses better and faster where both ends
+support it.</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th><code>Gzip&lt;C&gt;</code></th>
+<th><code>Zstd&lt;C&gt;</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Default level</td>
+<td>6</td>
+<td>3</td>
+</tr>
+<tr>
+<td><code>with_level</code> range</td>
+<td>0 (store only) to 9</td>
+<td>Negative levels for speed up to 22; the linked library&#39;s range</td>
+</tr>
+<tr>
+<td>Decoding</td>
+<td>Every concatenated member</td>
+<td>Every concatenated frame</td>
+</tr>
+<tr>
+<td><code>with_max_decoded_len</code> default</td>
+<td>64 MiB</td>
+<td>64 MiB</td>
+</tr>
+</tbody></table>
+<p><code>with_level</code> panics on a level outside the range, because the value is fixed
+when the codec is constructed. Decoding fails when the decompressed payload
+would exceed <code>with_max_decoded_len</code>, so a small, highly compressible payload
+cannot exhaust memory. Malformed compressed data is also a decode failure.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Decoder, Encoder, Json, Zstd};
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">codec</span> = Zstd::<span class="hljs-title function_ invoke__">new</span>(Json)
+    .<span class="hljs-title function_ invoke__">with_level</span>(<span class="hljs-number">9</span>)
+    .<span class="hljs-title function_ invoke__">with_max_decoded_len</span>(<span class="hljs-number">1024</span> * <span class="hljs-number">1024</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">bytes</span> = codec.<span class="hljs-title function_ invoke__">encode</span>(&amp;<span class="hljs-built_in">vec!</span>[<span class="hljs-string">&quot;beaver&quot;</span>; <span class="hljs-number">100</span>])?;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">value</span>: <span class="hljs-type">Vec</span>&lt;<span class="hljs-type">String</span>&gt; = codec.<span class="hljs-title function_ invoke__">decode</span>(&amp;bytes)?;
+<span class="hljs-built_in">assert_eq!</span>(value.<span class="hljs-title function_ invoke__">len</span>(), <span class="hljs-number">100</span>);
+# Ok::&lt;(), beavers::BoxError&gt;(())
+</code></pre><p>On Kafka, prefer the producer&#39;s batch compression: set the librdkafka
+<code>compression.type</code> property, such as <code>zstd</code>, in <code>KafkaSinkConfig::properties</code>,
+and consumers decompress transparently. Batch compression sees repeated
+content across records and keeps payloads readable by any Kafka client. The
+Pulsar sink does not expose producer compression yet. The wrappers suit
+brokers without built-in compression, such as SQS, Pub/Sub, RabbitMQ, and
+Azure Service Bus, and payloads that must stay compressed end to end.
+Compressed payloads are binary, so SQS also needs <code>Base64</code> around them.</p>
+
+      <p class="source"><a href="wrappers.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/codecs/wrappers.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>
