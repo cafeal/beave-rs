@@ -145,9 +145,10 @@ still stop it. Remaining decisions:
 
 ## Dead-letter handling
 
-Forwarding dead letters with failure headers, reprocessing them with a
-subscription on the dead-letter topic, and example alert rules are described
-in the [runtime guide](runtime.md#forwarding-dead-letters-to-a-broker-topic).
+Forwarding dead letters with failure headers is described in the
+[runtime guide](runtime.md#forwarding-dead-letters-to-a-broker-topic), and
+examining, reprocessing, parking, and dropping them in the
+[dead-letter handling guide](dead-letter-handling.md).
 The library deliberately sends no notifications and has no redrive command.
 Remaining decisions:
 
