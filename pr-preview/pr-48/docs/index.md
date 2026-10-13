@@ -1,4 +1,4 @@
-# Documentation
+# Guides
 
 | Document | Purpose |
 |---|---|

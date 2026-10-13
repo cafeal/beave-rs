@@ -8,7 +8,7 @@ All pages in one file: https://cafeal.github.io/beave-rs/pr-preview/pr-48/llms-f
 ## Pages
 
 - [README](https://cafeal.github.io/beave-rs/pr-preview/pr-48/index.md): Project overview, installation, quick start, and Cargo features
-- [Documentation](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/index.md)
+- [Guides](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/index.md)
 - [Architecture](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/architecture.md): Module layout, trait contracts, and extension boundaries
 - [Adapters](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters.md): Local, channel, Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, Azure Service Bus, and HTTP adapters, usage, and extension contracts
 - [Codecs](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/codecs.md): Serialization contracts and JSON, raw bytes, UTF-8, Protobuf, and Avro codecs
@@ -27,7 +27,7 @@ All pages in one file: https://cafeal.github.io/beave-rs/pr-preview/pr-48/llms-f
 - [Pub/Sub adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters/pubsub.md)
 - [Azure Service Bus adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters/servicebus.md)
 - [HTTP adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters/http.md)
-- [Raw byte and UTF-8 codecs](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/codecs/raw-utf8.md)
+- [Raw bytes and UTF-8 codecs](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/codecs/raw-utf8.md)
 - [Protobuf codec](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/codecs/protobuf.md)
 - [Avro codec](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/codecs/avro.md)
 - [Kubernetes](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/monitoring-and-alerting/kubernetes.md)

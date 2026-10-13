@@ -157,7 +157,7 @@ Licensed under the [MIT license](https://github.com/cafeal/beave-rs/blob/main/LI
 
 <!-- https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/index.md -->
 
-# Documentation
+# Guides
 
 | Document | Purpose |
 |---|---|
@@ -5024,7 +5024,7 @@ holding the response status, `error` for a failed connection or response, or
 
 <!-- https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/codecs/raw-utf8.md -->
 
-# Raw byte and UTF-8 codecs
+# Raw bytes and UTF-8 codecs
 
 `RawBytes` and `Utf8` provide lossless conversions for payloads that do not
 need a structured serialization format. Both are unit structs and implement

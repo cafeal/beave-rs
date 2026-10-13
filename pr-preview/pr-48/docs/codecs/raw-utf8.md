@@ -1,4 +1,4 @@
-# Raw byte and UTF-8 codecs
+# Raw bytes and UTF-8 codecs
 
 `RawBytes` and `Utf8` provide lossless conversions for payloads that do not
 need a structured serialization format. Both are unit structs and implement
