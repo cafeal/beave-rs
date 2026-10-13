@@ -87,24 +87,37 @@ A published version cannot be replaced. If a release is broken, yank it with
 
 ## Project website
 
-The landing page in `site/` is a static HTML and CSS page with no build step.
-The `Pages` workflow copies it together with `docs/assets/overview.svg` to the
-`gh-pages` branch on every push to `main` that touches those files. GitHub Pages
-serves that branch, so the repository's Pages source must be set to deploy from
-the `gh-pages` branch root.
+The project website has two parts: the landing page in `site/`, a static HTML
+and CSS page, and the guides in `docs/`. `tools/pages/build.mjs` assembles both
+into one directory. Each `docs/<path>.md` becomes `docs/<path>.html`, styled
+with `site/style.css`, and the Markdown source is published next to it at
+`docs/<path>.md`, so replacing `.html` with `.md` in a guide URL returns the
+exact source. A `README.md` becomes `index.html` and `index.md`. Links between
+guides point at the generated pages; links to files outside `docs/` point at
+the repository on GitHub, in both the HTML and the Markdown copies. The guide
+navigation follows the link order of `docs/README.md`.
 
-A pull request that changes the site gets a preview under
+For language-model tools, the site root also serves `llms.txt`, which lists the
+Markdown URL of every guide, and `llms-full.txt`, which holds all guides in one
+file.
+
+The `Pages` workflow runs the build and publishes the result to the `gh-pages`
+branch on every push to `main` that touches `site/`, `docs/`, or
+`tools/pages/`. GitHub Pages serves that branch, so the repository's Pages
+source must be set to deploy from the `gh-pages` branch root.
+
+A pull request that changes the site or the guides gets a preview under
 `pr-preview/pr-<number>/` on the same branch. The workflow comments the preview
 URL on the pull request and removes the preview when the pull request closes.
 Pull requests from forks are not previewed because their workflows cannot push
 to the repository.
 
-Preview the page locally by copying the diagram next to it and serving the
-directory:
+Build and preview the site locally with Node.js 22:
 
 ```sh
-cp docs/assets/overview.svg site/
-python3 -m http.server -d site
+npm ci --prefix tools/pages
+node tools/pages/build.mjs _site
+python3 -m http.server -d _site
 ```
 
 The character artwork slot in the hero section is a placeholder; replace the

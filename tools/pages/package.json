@@ -1,0 +1,13 @@
+{
+  "name": "beave-rs-pages",
+  "private": true,
+  "type": "module",
+  "description": "Builds the GitHub Pages site from site/ and docs/.",
+  "scripts": {
+    "build": "node build.mjs ../../_site"
+  },
+  "dependencies": {
+    "marked": "18.0.14",
+    "marked-gfm-heading-id": "4.1.4"
+  }
+}

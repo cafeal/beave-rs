@@ -1,2 +1,3 @@
 /target/
-site/overview.svg
+/tools/pages/node_modules/
+/_site/
