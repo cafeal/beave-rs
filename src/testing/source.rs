@@ -15,6 +15,8 @@ use crate::adapters::pubsub::PubSubRecord;
 use crate::adapters::pulsar::PulsarRecord;
 #[cfg(feature = "rabbitmq")]
 use crate::adapters::rabbitmq::RabbitMqRecord;
+#[cfg(feature = "servicebus")]
+use crate::adapters::servicebus::ServiceBusRecord;
 #[cfg(feature = "sqs")]
 use crate::adapters::sqs::SqsRecord;
 
@@ -84,6 +86,11 @@ pub type PubSubTestSource<C, T> = TestSource<C, T, PubSubRecord<Vec<u8>>>;
 /// A [`TestSource`] of RabbitMQ messages, delivering `RabbitMqRecord<T>` inputs.
 #[cfg(feature = "rabbitmq")]
 pub type RabbitMqTestSource<C, T> = TestSource<C, T, RabbitMqRecord<Vec<u8>>>;
+
+/// A [`TestSource`] of Service Bus messages, delivering `ServiceBusRecord<T>`
+/// inputs.
+#[cfg(feature = "servicebus")]
+pub type ServiceBusTestSource<C, T> = TestSource<C, T, ServiceBusRecord<Vec<u8>>>;
 
 /// A [`TestSource`] of SQS messages, delivering `SqsRecord<T>` inputs.
 #[cfg(feature = "sqs")]

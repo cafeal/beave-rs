@@ -1,8 +1,9 @@
 # Local development brokers
 
 `compose.yaml` at the repository root starts single-node Kafka, Apache Pulsar,
-and RabbitMQ brokers, an ElasticMQ SQS emulator, and the Google Cloud Pub/Sub
-emulator, with web consoles for the brokers. Use it to run the broker examples, the
+and RabbitMQ brokers, an ElasticMQ SQS emulator, the Google Cloud Pub/Sub
+emulator, and the Azure Service Bus emulator, with web consoles for the
+brokers. Use it to run the broker examples, the
 ignored live tests, and manual experiments. It requires Docker with Compose v2.
 
 ## Quick start
@@ -25,7 +26,7 @@ aliases cannot start Docker, so the brokers are always started and stopped with
 | Command | Effect |
 |---|---|
 | `docker compose up -d --wait` | Starts every service and returns when the brokers pass their health checks |
-| `docker compose up -d --wait kafka pulsar rabbitmq elasticmq pubsub` | Starts only the brokers, without the separate web consoles |
+| `docker compose up -d --wait kafka pulsar rabbitmq elasticmq pubsub servicebus-health` | Starts only the brokers, without the separate web consoles; `servicebus-health` brings the Service Bus emulator and its SQL Server |
 | `docker compose ps --all` | Shows the state of each service, including the finished `pulsar-init` |
 | `docker compose logs -f pulsar` | Follows the logs of one service |
 | `docker compose down` | Stops and removes the containers |
@@ -49,6 +50,8 @@ topic, offset, and subscription; the next `up` starts from empty brokers.
 | ElasticMQ | <http://localhost:9324> | SQS-compatible API; queue URLs look like `http://localhost:9324/000000000000/orders` |
 | ElasticMQ UI | <http://localhost:9325> | Queues and their message counts |
 | Pub/Sub emulator | `localhost:8085` | Pub/Sub gRPC and REST APIs for the `beavers` project; set the adapter `endpoint` to `http://localhost:8085` |
+| Service Bus emulator | `localhost:5673` | Azure Service Bus over plain AMQP; connection string `Endpoint=sb://localhost:5673;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true` |
+| Service Bus emulator management | <http://localhost:5300> | Health endpoint and the queue management API the live tests use |
 
 The examples and live tests use these addresses by default. Set these
 variables to target other brokers:
@@ -63,6 +66,8 @@ variables to target other brokers:
 | `RABBITMQ_MANAGEMENT_ADDR` | `127.0.0.1:15672` | RabbitMQ live tests that declare queues or close connections |
 | `SQS_ENDPOINT` | `http://127.0.0.1:9324` | SQS live tests |
 | `PUBSUB_EMULATOR_HOST` | `127.0.0.1:8085` | Pub/Sub live tests |
+| `SERVICEBUS_CONNECTION_STRING` | The emulator connection string on `127.0.0.1:5673` | Service Bus live tests |
+| `SERVICEBUS_ADMIN_ADDR` | `127.0.0.1:5300` | Service Bus live tests that create or delete queues |
 
 ## Broker configuration
 
@@ -109,6 +114,20 @@ curl -X PUT http://localhost:8085/v1/projects/beavers/subscriptions/orders \
 
 It does not reproduce every Pub/Sub limit and behavior, so verify production
 settings against Pub/Sub itself.
+
+The Service Bus emulator stores its entities in the `servicebus-sql` SQL Server
+container and reads its namespace from `dev/servicebus/config.json`, which
+defines the `beavers-events` topic with the `beavers-test` subscription. Its
+management API on port 5300 creates and deletes queues
+(`PUT /{queue}?api-version=2021-05` with an Atom `QueueDescription`), as the
+live tests do, but cannot create topic subscriptions, so add topics and
+subscriptions to the configuration file and recreate the container. Its AMQP
+port is published as 5673 because RabbitMQ uses 5672. The emulator image has no
+shell, so the `servicebus-health` container polls its health endpoint for
+`docker compose up --wait`. Both images are amd64 only and need the Microsoft
+license accepted, which `ACCEPT_EULA` does. The emulator serves plain AMQP
+without TLS, refuses binary application properties, and applies smaller quotas
+than a real namespace, so verify production settings against Azure.
 
 ## Examples
 
@@ -172,12 +191,13 @@ docker compose exec pulsar bin/pulsar-admin topics stats \
 
 ## Live tests
 
-The Kafka, Pulsar, RabbitMQ, SQS, and Pub/Sub adapter tests in `tests/kafka.rs`,
-`tests/pulsar.rs`, `tests/rabbitmq.rs`, `tests/sqs.rs`, and `tests/pubsub.rs` and the end-to-end pipeline tests in `tests/pipelines.rs` are ignored by
+The Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, and Service Bus adapter tests in
+`tests/kafka.rs`, `tests/pulsar.rs`, `tests/rabbitmq.rs`, `tests/sqs.rs`,
+`tests/pubsub.rs`, and `tests/servicebus.rs` and the end-to-end pipeline tests in `tests/pipelines.rs` are ignored by
 default. With the brokers running:
 
 ```sh
-cargo test-live             # cargo test --features kafka,pulsar,rabbitmq,sqs,pubsub -- --ignored
+cargo test-live             # cargo test --features kafka,pulsar,rabbitmq,sqs,pubsub,servicebus -- --ignored
 cargo test-live pipeline    # only tests whose name contains "pipeline"
 ```
 
@@ -191,13 +211,13 @@ producing input.
 Every live test uses unique topic, group, subscription, and queue names, so the
 tests can run repeatedly without resetting the brokers. GitHub Actions runs them
 in the `Live broker tests` job, which starts the `kafka`, `pulsar`,
-`rabbitmq`, `elasticmq`, and `pubsub` services from
+`rabbitmq`, `elasticmq`, and `pubsub` services and the Service Bus emulator from
 `compose.yaml` and runs `cargo test --all-features -- --ignored`.
 
 ## Troubleshooting
 
 - **A port is already in use.** The environment publishes ports 9092, 6650,
-  8080, 8081, 9527, 5672, 15672, 9324, 9325, and 8085. Stop the conflicting process, or change the host side
+  8080, 8081, 9527, 5672, 15672, 9324, 9325, 8085, 5673, and 5300. Stop the conflicting process, or change the host side
   of the mapping in `compose.yaml`; the Kafka port must stay 9092 unless the
   advertised `HOST` listener changes with it.
 - **An example or test waits without output.** The brokers are probably not

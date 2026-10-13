@@ -3,13 +3,13 @@
 | Document | Purpose |
 |---|---|
 | [Architecture](architecture.md) | Module layout, trait contracts, and extension boundaries |
-| [Adapters](adapters.md) | Local, channel, Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, and HTTP adapters, usage, and extension contracts |
+| [Adapters](adapters.md) | Local, channel, Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, Azure Service Bus, and HTTP adapters, usage, and extension contracts |
 | [Codecs](codecs.md) | Serialization contracts and JSON, raw bytes, UTF-8, Protobuf, and Avro codecs |
 | [Monitoring and alerting](monitoring-and-alerting/README.md) | Signals to alert on, alert rules, and setups for Kubernetes, AWS, Google Cloud, and Azure |
 | [Testing](testing.md) | Testing handlers, middleware, and error policies with fabricated broker records |
 | [Runtime](runtime.md) | Implemented APIs, processing behavior, configuration, and limitations |
 | [Design plan](plan.md) | Product goals, agreed design direction, future work, and open questions |
-| [Local development brokers](development.md) | Docker Compose Kafka, Pulsar, RabbitMQ, ElasticMQ, and Pub/Sub emulator brokers, web consoles, broker examples, and live tests |
+| [Local development brokers](development.md) | Docker Compose Kafka, Pulsar, RabbitMQ, ElasticMQ, Pub/Sub emulator, and Service Bus emulator brokers, web consoles, broker examples, and live tests |
 | [Versioning and releases](releasing.md) | Version numbers, the compatibility contract, and the minimum supported Rust version |
 
 The runtime guide describes what works today. The design plan includes future
@@ -18,7 +18,8 @@ as implemented.
 
 Adapter references: [Channel](adapters/channel.md), [Kafka](adapters/kafka.md),
 [Pulsar](adapters/pulsar.md), [RabbitMQ](adapters/rabbitmq.md),
-[SQS](adapters/sqs.md), [Pub/Sub](adapters/pubsub.md), and [HTTP](adapters/http.md).
+[SQS](adapters/sqs.md), [Pub/Sub](adapters/pubsub.md),
+[Azure Service Bus](adapters/servicebus.md), and [HTTP](adapters/http.md).
 
 Codec references: [Raw bytes and UTF-8](codecs/raw-utf8.md),
 [Protobuf](codecs/protobuf.md), and [Avro](codecs/avro.md).

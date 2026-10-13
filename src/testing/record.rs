@@ -14,6 +14,11 @@ use crate::adapters::rabbitmq::{
     RabbitMqHeaders, RabbitMqMetadata, RabbitMqProperties, RabbitMqRecord,
     text_headers as rabbitmq_text_headers,
 };
+#[cfg(feature = "servicebus")]
+use crate::adapters::servicebus::{
+    ServiceBusApplicationProperties, ServiceBusMetadata, ServiceBusProperties, ServiceBusRecord,
+    text_properties as servicebus_text_properties,
+};
 #[cfg(feature = "sqs")]
 use crate::adapters::sqs::{SqsAttributes, SqsMetadata, SqsRecord, text_attributes};
 #[cfg(feature = "pulsar")]
@@ -231,6 +236,31 @@ impl TestRecord for SqsRecord<Vec<u8>> {
     }
 }
 
+/// Decodes like a
+/// [`ServiceBusSource`](crate::adapters::servicebus::ServiceBusSource): records
+/// are not ordered, and `String` application properties carry trace context.
+#[cfg(feature = "servicebus")]
+impl TestRecord for ServiceBusRecord<Vec<u8>> {
+    type Decoded<T: Clone + Send + Sync + 'static> = ServiceBusRecord<T>;
+
+    fn decode<C, T>(&self, codec: &C) -> Result<ServiceBusRecord<T>, BoxError>
+    where
+        C: Decoder<T>,
+        T: Clone + Send + Sync + 'static,
+    {
+        Ok(ServiceBusRecord {
+            value: codec.decode(&self.value)?,
+            application_properties: self.application_properties.clone(),
+            properties: self.properties.clone(),
+            metadata: self.metadata.clone(),
+        })
+    }
+
+    fn propagation_fields(&self) -> Vec<(&str, &str)> {
+        servicebus_text_properties(&self.application_properties)
+    }
+}
+
 /// A Kafka record at `offset` of a topic partition, without key, headers, or
 /// timestamp. Set the public fields for anything else, such as `value = None`
 /// for a tombstone.
@@ -351,6 +381,32 @@ pub fn sqs_record(
             message_group_id: None,
             deduplication_id: None,
             sequence_number: None,
+        },
+    }
+}
+
+/// A Service Bus message with `sequence_number` received from `entity_path`
+/// for the first time, without application properties, message properties, or
+/// timestamps, and with a nil lock token. Set the public fields for anything
+/// else.
+#[cfg(feature = "servicebus")]
+pub fn servicebus_record(
+    entity_path: impl Into<String>,
+    sequence_number: i64,
+    value: impl Into<Vec<u8>>,
+) -> ServiceBusRecord<Vec<u8>> {
+    ServiceBusRecord {
+        value: value.into(),
+        application_properties: ServiceBusApplicationProperties::new(),
+        properties: ServiceBusProperties::default(),
+        metadata: ServiceBusMetadata {
+            entity_path: entity_path.into(),
+            sequence_number,
+            enqueued_time: None,
+            scheduled_enqueue_time: None,
+            delivery_count: 1,
+            lock_token: "00000000-0000-0000-0000-000000000000".to_owned(),
+            dead_letter_source: None,
         },
     }
 }

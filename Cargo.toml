@@ -3,7 +3,7 @@ name = "beavers"
 version = "0.0.1"
 edition = "2024"
 rust-version = "1.94.1"
-description = "Typed message processing for Kafka, Pulsar, RabbitMQ, and HTTP with explicit delivery semantics"
+description = "Typed message processing for Kafka, Pulsar, RabbitMQ, SQS, Azure Service Bus, and HTTP with explicit delivery semantics"
 license = "MIT"
 repository = "https://github.com/cafeal/beave-rs"
 documentation = "https://docs.rs/beavers"
@@ -40,6 +40,18 @@ pulsar = ["dep:magnetar", "dep:base64", "dep:bytes", "dep:futures-util"]
 rabbitmq = ["dep:lapin", "dep:futures-util"]
 sqs = ["dep:aws-config", "dep:aws-sdk-sqs"]
 pubsub = ["dep:google-cloud-pubsub", "dep:google-cloud-auth", "dep:google-cloud-gax"]
+servicebus = [
+    "dep:fe2o3-amqp",
+    "dep:fe2o3-amqp-cbs",
+    "dep:serde_amqp",
+    "dep:tokio-rustls",
+    "dep:rustls",
+    "dep:rustls-native-certs",
+    "dep:hmac",
+    "dep:sha2",
+    "dep:base64",
+    "tokio/net",
+]
 opentelemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 testing = []
 http = ["dep:hyper", "dep:hyper-util", "dep:hyper-rustls", "dep:rustls", "dep:http-body-util", "dep:bytes", "tokio/net"]
@@ -85,6 +97,39 @@ optional = true
 
 [dependencies.google-cloud-gax]
 version = "1.15"
+default-features = false
+optional = true
+
+[dependencies.fe2o3-amqp]
+version = "0.18"
+default-features = false
+optional = true
+
+[dependencies.fe2o3-amqp-cbs]
+version = "0.18"
+optional = true
+
+[dependencies.serde_amqp]
+version = "0.18"
+default-features = false
+optional = true
+
+[dependencies.tokio-rustls]
+version = "0.26"
+default-features = false
+features = ["ring", "tls12"]
+optional = true
+
+[dependencies.rustls-native-certs]
+version = "0.8"
+optional = true
+
+[dependencies.hmac]
+version = "0.13"
+optional = true
+
+[dependencies.sha2]
+version = "0.11"
 default-features = false
 optional = true
 

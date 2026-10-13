@@ -78,6 +78,7 @@
 //! | `rabbitmq` | RabbitMQ source and sink in `adapters::rabbitmq` |
 //! | `sqs` | Amazon SQS source and sink in `adapters::sqs` |
 //! | `pubsub` | Google Cloud Pub/Sub source and sink in `adapters::pubsub` |
+//! | `servicebus` | Azure Service Bus source and sink in `adapters::servicebus` |
 //! | `http` | HTTP source and sink in `adapters::http` |
 //! | `avro` | The `Avro` codec |
 //! | `protobuf` | The `Protobuf` codec |

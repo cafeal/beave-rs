@@ -9,7 +9,7 @@ contract in the appropriate guide.
 ## Direction
 
 beave-rs is a lightweight Rust message-processing framework for Kafka, Pulsar,
-NATS JetStream, SQS, and other transports:
+NATS JetStream, SQS, Azure Service Bus, and other transports:
 
 ```text
 Source → Handler → Sink
@@ -406,6 +406,37 @@ Google Cloud Pub/Sub:
   and dropped deliveries, and the reported `delivery_attempt`;
 - Application Default Credentials on GKE workload identity and Cloud Run, and
   flow control with `max_outstanding_messages` across several instances.
+
+The [Azure Service Bus adapter](adapters/servicebus.md) receives from one queue
+or subscription in peek-lock mode and sends to one queue or topic over AMQP.
+Remaining decisions:
+
+- session-enabled entities, which need a session receiver per session and an
+  ordering key per session ID;
+- Microsoft Entra ID credentials, through `azure_identity` or a token callback;
+- sending batches with one transfer, and settling several messages at once;
+- confirming completions, which Service Bus settles without an answer, so a
+  completion lost with the connection is only seen as a redelivery;
+- whether an error policy should abandon a failed delivery until the entity's
+  `MaxDeliveryCount` moves it to the dead-letter subqueue, instead of
+  publishing dead letters through a sink.
+
+The ignored Service Bus live tests cover sending with application properties,
+completion, lock renewal, abandonment on drop, release of prefetched messages
+on close, the dead-letter subqueue, topic subscriptions, scheduled messages,
+and a forwarding pipeline against the Service Bus emulator. The emulator serves
+plain AMQP only and cannot create topic subscriptions through its management
+API. Verify with an Azure namespace:
+
+- AMQP over TLS on port 5671 with the system root certificates, and the
+  `sb://` token audiences of claims-based security;
+- `com.microsoft:renew-lock` and lock-lost errors on a premium namespace, and
+  renewal of many held locks against throttling;
+- clock skew between the host and Service Bus, since the lock expiry Service
+  Bus reports is compared with the local clock;
+- partitioned entities with a partition key, and duplicate detection with the
+  message IDs that dead letters clear;
+- maximum message sizes of standard and premium namespaces.
 
 Each broker adapter must define its native record and publish types, ACK model,
 redelivery behavior, ordering scope, cancellation behavior, connection

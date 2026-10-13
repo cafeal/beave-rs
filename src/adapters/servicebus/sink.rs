@@ -1,0 +1,245 @@
+use super::{
+    config::ServiceBusSinkConfig,
+    connection::{Connection, unique_name},
+    convert::message_to_amqp,
+    record::ServiceBusPublish,
+};
+use crate::error::{BoxError, Context as _, Error, ensure};
+use crate::{
+    adapters::pending::PendingLimit,
+    codec::Encoder,
+    sink::{Completion, PublishRejected, Sink},
+};
+use fe2o3_amqp::{
+    Sendable, Sender,
+    link::SendError,
+    types::messaging::{Data, Outcome},
+};
+use std::{
+    fmt,
+    marker::PhantomData,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
+use tokio::sync::Mutex;
+
+/// An encoded Service Bus message with its properties and annotations.
+/// Preparing a value performs all codec work and validation once.
+pub struct ServiceBusPrepared {
+    sendable: Sendable<Data>,
+}
+
+impl ServiceBusPrepared {
+    /// The encoded message body.
+    pub fn body(&self) -> &[u8] {
+        &self.sendable.message.body.0
+    }
+}
+
+impl fmt::Debug for ServiceBusPrepared {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = &self.sendable.message;
+        f.debug_struct("ServiceBusPrepared")
+            .field("body_len", &message.body.0.len())
+            .field("properties", &message.properties)
+            .field(
+                "application_properties",
+                &message
+                    .application_properties
+                    .as_ref()
+                    .map(|properties| properties.0.keys().collect::<Vec<_>>()),
+            )
+            .finish()
+    }
+}
+
+/// A connection and its send link.
+struct Publisher {
+    connection: Connection,
+    sender: Sender,
+}
+
+impl Publisher {
+    async fn close(self) {
+        let _ = self.sender.close().await;
+        self.connection.close().await;
+    }
+}
+
+struct State {
+    publisher: Mutex<Option<Publisher>>,
+    closed: AtomicBool,
+    pending: PendingLimit,
+}
+
+/// Sends every output to one queue or topic and completes it when Service Bus
+/// accepts the message.
+pub struct ServiceBusSink<C, T> {
+    config: ServiceBusSinkConfig,
+    codec: Arc<C>,
+    state: Arc<State>,
+    marker: PhantomData<fn(T)>,
+}
+
+impl<C, T> Clone for ServiceBusSink<C, T> {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            codec: self.codec.clone(),
+            state: self.state.clone(),
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<C: Default, T> ServiceBusSink<C, T> {
+    /// A sink with a default-constructed codec.
+    ///
+    /// The connection is opened on the first publication, which also validates
+    /// the configuration.
+    pub fn new(config: ServiceBusSinkConfig) -> Self {
+        Self::with_codec(config, C::default())
+    }
+}
+
+impl<C, T> ServiceBusSink<C, T> {
+    /// A sink that uses an existing codec instance, such as a configured `Avro` codec.
+    ///
+    /// The connection is opened on the first publication, which also validates
+    /// the configuration.
+    pub fn with_codec(config: ServiceBusSinkConfig, codec: C) -> Self {
+        Self {
+            codec: Arc::new(codec),
+            state: Arc::new(State {
+                publisher: Mutex::new(None),
+                closed: AtomicBool::new(false),
+                pending: PendingLimit::new(config.max_pending, "Service Bus"),
+            }),
+            config,
+            marker: PhantomData,
+        }
+    }
+
+    async fn connect(&self) -> Result<Publisher, BoxError> {
+        self.config.validate()?;
+        let entity = &self.config.entity_path;
+        let mut connection =
+            Connection::open(&self.config.connection, std::slice::from_ref(entity)).await?;
+        let name = unique_name("sender");
+        let sender = Sender::builder()
+            .name(name.as_str())
+            .source(name.as_str())
+            .target(entity.as_str())
+            .attach(&mut connection.session)
+            .await
+            .with_context(|| format!("attaching a Service Bus sender to {entity}"));
+        match sender {
+            Ok(sender) => Ok(Publisher { connection, sender }),
+            Err(error) => {
+                connection.close().await;
+                Err(error.into())
+            }
+        }
+    }
+}
+
+impl<C, T> Sink<ServiceBusPublish<T>> for ServiceBusSink<C, T>
+where
+    C: Encoder<T>,
+    T: Send + Sync + 'static,
+{
+    type Prepared = ServiceBusPrepared;
+
+    fn prepare(&self, output: ServiceBusPublish<T>) -> Result<Self::Prepared, BoxError> {
+        let message = message_to_amqp(
+            self.codec.encode(&output.value)?,
+            &output.application_properties,
+            &output.properties,
+            output.scheduled_enqueue_time,
+        )?;
+        Ok(ServiceBusPrepared {
+            sendable: Sendable::from(message),
+        })
+    }
+
+    async fn publish(&self, output: &Self::Prepared) -> Result<(), BoxError> {
+        self.submit(output).await?.wait().await
+    }
+
+    /// Returns once the message is transferred on the send link. The
+    /// completion resolves when Service Bus accepts it. A message larger than
+    /// the link's maximum message size fails as
+    /// [`PublishRejected`](crate::PublishRejected).
+    async fn submit(&self, output: &Self::Prepared) -> Result<Completion, BoxError> {
+        let permit = self.state.pending.acquire().await?;
+        let mut publisher = self.state.publisher.lock().await;
+        ensure!(
+            !self.state.closed.load(Ordering::Acquire),
+            Error::closed,
+            "Service Bus sink is closed"
+        );
+        if publisher.is_none() {
+            *publisher = Some(self.connect().await?);
+        }
+        let sent = publisher
+            .as_mut()
+            .expect("connected sink")
+            .sender
+            .send_batchable_ref(&output.sendable)
+            .await;
+        let delivery = match sent {
+            Ok(delivery) => delivery,
+            Err(SendError::MessageSizeExceeded(error)) => {
+                return Err(PublishRejected::wrap(Error::wrap(
+                    "sending to Service Bus",
+                    error,
+                )));
+            }
+            Err(error) => {
+                if let Some(lost) = publisher.take() {
+                    tokio::spawn(lost.close());
+                }
+                return Err(Error::wrap("sending to Service Bus", error).into());
+            }
+        };
+        drop(publisher);
+        Ok(Completion::pending(async move {
+            let _permit = permit;
+            match delivery
+                .await
+                .context("waiting for Service Bus to accept a message")?
+            {
+                Outcome::Accepted(_) => Ok(()),
+                Outcome::Rejected(rejected) => Err(Error::msg(format!(
+                    "Service Bus rejected a message: {}",
+                    rejected.error.map_or_else(
+                        || "no error given".to_owned(),
+                        |error| format!(
+                            "{:?} {}",
+                            error.condition,
+                            error.description.unwrap_or_default()
+                        )
+                    )
+                ))
+                .into()),
+                outcome => Err(Error::msg(format!(
+                    "Service Bus did not accept a message: {outcome:?}"
+                ))
+                .into()),
+            }
+        }))
+    }
+
+    /// Stops new submissions and closes the connection.
+    async fn close(&self) -> Result<(), BoxError> {
+        self.state.closed.store(true, Ordering::Release);
+        self.state.pending.close();
+        let publisher = self.state.publisher.lock().await.take();
+        if let Some(publisher) = publisher {
+            publisher.close().await;
+        }
+        Ok(())
+    }
+}

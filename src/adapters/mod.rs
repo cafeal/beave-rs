@@ -1,8 +1,8 @@
 //! Local transports and optional broker adapters.
 //!
 //! The local transports and [`channel`] are always available. The `http`,
-//! `kafka`, `pulsar`, `pubsub`, `rabbitmq`, and `sqs` modules are enabled by
-//! Cargo features of the same names.
+//! `kafka`, `pulsar`, `pubsub`, `rabbitmq`, `servicebus`, and `sqs` modules are
+//! enabled by Cargo features of the same names.
 mod iter;
 mod memory;
 mod stdin;
@@ -22,7 +22,12 @@ pub use channel::{
 pub mod http;
 #[cfg(feature = "kafka")]
 pub mod kafka;
-#[cfg(any(feature = "kafka", feature = "pulsar", feature = "rabbitmq"))]
+#[cfg(any(
+    feature = "kafka",
+    feature = "pulsar",
+    feature = "rabbitmq",
+    feature = "servicebus"
+))]
 mod pending;
 #[cfg(feature = "pubsub")]
 pub mod pubsub;
@@ -30,5 +35,7 @@ pub mod pubsub;
 pub mod pulsar;
 #[cfg(feature = "rabbitmq")]
 pub mod rabbitmq;
+#[cfg(feature = "servicebus")]
+pub mod servicebus;
 #[cfg(feature = "sqs")]
 pub mod sqs;

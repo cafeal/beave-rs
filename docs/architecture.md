@@ -45,7 +45,8 @@ src/
     ├── channel/           # Chained subscriptions with deferred upstream ACK
     ├── kafka/, pulsar/,   # Broker adapters (optional features), each with
     │   rabbitmq/, sqs/,   #   config, record, source, and sink modules
-    │   pubsub/, http/
+    │   pubsub/, servicebus/,
+    │   http/
     ├── pending.rs         # Private bound on unconfirmed broker publications
     ├── iter.rs
     ├── memory.rs

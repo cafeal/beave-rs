@@ -132,6 +132,58 @@ services:
       retries: 30
       start_period: 10s
 
+  # Azure Service Bus emulator, which stores its entities in SQL Server. The
+  # topic and subscription come from dev/servicebus/config.json; the live tests
+  # create their own queues through the emulator's management port 5300. AMQP
+  # is published on 5673 because RabbitMQ uses 5672.
+  servicebus-sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: Beavers-Emulator-1
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -Q "SELECT 1" > /dev/null
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+
+  servicebus:
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+    ports:
+      - "5673:5672"
+      - "5300:5300"
+    environment:
+      ACCEPT_EULA: "Y"
+      SQL_SERVER: servicebus-sql
+      MSSQL_SA_PASSWORD: Beavers-Emulator-1
+    volumes:
+      - ./dev/servicebus/config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
+    depends_on:
+      servicebus-sql:
+        condition: service_healthy
+
+  # The emulator image has no shell for a health check, so this container,
+  # reusing the SQL Server image, reports the emulator's health endpoint to
+  # `docker compose up --wait`.
+  servicebus-health:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    entrypoint:
+      - sleep
+      - infinity
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O /dev/null http://servicebus:5300/health
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+    depends_on:
+      - servicebus
+
   # One-shot setup: creates the pulsar_orders example subscription at the
   # earliest position, so orders produced before the example's first run are
   # consumed, and creates the Pulsar Manager login admin / apachepulsar.
