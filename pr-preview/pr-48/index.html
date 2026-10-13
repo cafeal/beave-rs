@@ -87,11 +87,10 @@
 <section>
   <div class="wrap">
     <h2>Subscriptions</h2>
-    <p>Each <code>Subscription</code> connects one source, one handler, and one sink. An <code>App</code> runs any number of subscriptions side by side and shuts them down together.</p>
+    <p>Each <code>Subscription</code> connects one source, one handler, and one sink. An <code>App</code> runs any number of subscriptions side by side and shuts them down together. The <a href="docs/architecture.html">architecture guide</a> describes the contracts each part implements.</p>
     <div class="diagram-wrap">
       <img class="diagram" src="docs/assets/overview.svg" width="760" height="330" alt="An App running three subscriptions: Kafka source to handler to Kafka sink, Pulsar source to handler to HTTP sink, and SQS source to handler to RabbitMQ sink">
     </div>
-    <p><a class="more" href="docs/architecture.html">Architecture and trait contracts</a></p>
   </div>
 </section>
 
