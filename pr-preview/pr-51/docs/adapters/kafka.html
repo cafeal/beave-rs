@@ -24,7 +24,7 @@
 
   <div class="wrap layout">
     <nav class="toc" aria-label="Guides">
-<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="../runtime/handlers.html">Handlers</a></li><li><a href="../runtime/middleware.html">Middleware</a></li><li><a href="../runtime/errors.html">Errors and retries</a></li><li><a href="../runtime/tombstones.html">Tombstones</a></li><li><a href="../runtime/transactions.html">Transactions</a></li><li><a href="../runtime/observability.html">Observability</a></li><li><a href="../runtime/health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="local.html">Local adapters</a></li><li><a href="channel.html">Channel</a></li><li><a href="kafka.html" aria-current="page">Kafka</a></li><li><a href="pulsar.html">Pulsar</a></li><li><a href="rabbitmq.html">RabbitMQ</a></li><li><a href="sqs.html">SQS</a></li><li><a href="pubsub.html">Pub/Sub</a></li><li><a href="servicebus.html">Azure Service Bus</a></li><li><a href="http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="../runtime/handlers.html">Handlers</a></li><li><a href="../runtime/middleware.html">Middleware</a></li><li><a href="../runtime/errors.html">Errors and retries</a></li><li><a href="../runtime/tombstones.html">Tombstones</a></li><li><a href="../runtime/transactions.html">Transactions</a></li><li><a href="../runtime/observability.html">Observability</a></li><li><a href="../runtime/health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="local.html">Local adapters</a></li><li><a href="channel.html">Channel</a></li><li><a href="kafka.html" aria-current="page">Kafka</a></li><li><a href="pulsar.html">Pulsar</a></li><li><a href="rabbitmq.html">RabbitMQ</a></li><li><a href="sqs.html">SQS</a></li><li><a href="pubsub.html">Pub/Sub</a></li><li><a href="servicebus.html">Azure Service Bus</a></li><li><a href="http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-bytes.html">Raw bytes</a></li><li><a href="../codecs/utf8.html">UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li><li><a href="../codecs/msgpack.html">MessagePack</a></li><li><a href="../codecs/cbor.html">CBOR</a></li><li><a href="../codecs/wrappers.html">Codec wrappers</a><ul><li><a href="../codecs/wrappers/base64.html">Base64</a></li><li><a href="../codecs/wrappers/gzip.html">Gzip</a></li><li><a href="../codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
     </nav>
     <main class="doc">
 <h1 id="kafka-adapter">Kafka adapter</h1>
@@ -32,26 +32,37 @@
 backed by <code>rdkafka</code>.</p>
 <pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;kafka&quot;</span>] }
 </code></pre><h2 id="configuration">Configuration</h2>
-<p><code>KafkaSourceConfig</code> takes the bootstrap brokers, consumer group, and topics;
-<code>KafkaSinkConfig</code> takes the brokers and the topic every output is published to.
-Both accept additional librdkafka settings in <code>properties</code>. <code>validate</code> checks
-the values without contacting a broker. Both adapters validate their
-configuration when first used, then create their Kafka clients lazily, so an
-application can construct its pipeline before a broker is reachable.</p>
-<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::kafka::{KafkaPublish, KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig}};
+<p>A <code>Kafka</code> handle holds the bootstrap brokers and the librdkafka settings that
+every client built from it uses. <code>property</code> sets a librdkafka property on every
+consumer and producer of the handle, <code>producer_property</code> on its producers only,
+and <code>sasl_plain</code> configures SASL/PLAIN authentication, over TLS unless
+<code>security.protocol</code> is set otherwise. <code>handle.source::&lt;C, T&gt;(group_id, topics)</code>
+builds a source and <code>handle.sink::&lt;C, T&gt;(topic)</code> a sink that publishes every
+output to <code>topic</code>; <code>source_with_codec</code> and <code>sink_with_codec</code> take a codec value
+as their first argument instead of using the codec&#39;s default. Optional settings
+are builder methods on the source and sink, such as <code>property</code> on a source for
+consumer-only settings like <code>auto.offset.reset</code>, or <code>max_pending</code> on a sink.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::kafka::{Kafka, KafkaPublish}};
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = KafkaSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
-    <span class="hljs-string">&quot;localhost:9092&quot;</span>,
-    <span class="hljs-string">&quot;orders-workers&quot;</span>,
-    [<span class="hljs-string">&quot;orders&quot;</span>],
-));
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = KafkaSink::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
-    <span class="hljs-string">&quot;localhost:9092&quot;</span>,
-    <span class="hljs-string">&quot;processed-orders&quot;</span>,
-));
+<span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>).<span class="hljs-title function_ invoke__">property</span>(<span class="hljs-string">&quot;client.id&quot;</span>, <span class="hljs-string">&quot;orders-service&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = kafka
+    .source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;orders-workers&quot;</span>, [<span class="hljs-string">&quot;orders&quot;</span>])
+    .<span class="hljs-title function_ invoke__">property</span>(<span class="hljs-string">&quot;auto.offset.reset&quot;</span>, <span class="hljs-string">&quot;earliest&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = kafka.sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;processed-orders&quot;</span>).<span class="hljs-title function_ invoke__">max_pending</span>(<span class="hljs-number">500</span>);
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = KafkaPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>());
-</code></pre><h2 id="records">Records</h2>
+</code></pre><p>Every non-transactional sink built from one handle publishes through one
+shared producer, created on the first publication of any of them. Each source
+has a consumer of its own, because a consumer belongs to one consumer group,
+and each <a href="#transactions">transactional sink</a> has a producer of its own. Each
+builder method on the handle returns a handle with a producer of its own, so
+configure the handle before building sources and sinks from it.</p>
+<p>The handle, the source, and the sink each have <code>validate</code>, which checks the
+values without contacting a broker. Sources and sinks validate their settings
+when first used, then create their Kafka clients lazily, so an application can
+construct its pipeline before a broker is reachable. The handle&#39;s <code>Debug</code>
+output shows property names only, because their values can hold credentials.</p>
+<h2 id="records">Records</h2>
 <p><code>KafkaRecord&lt;T&gt;</code> is the decoded input, including immutable delivery metadata;
 <code>KafkaPublish&lt;T&gt;</code> is the user-controlled output accepted by the sink.
 The value is decoded and encoded by the selected codec. <code>key</code> and header values
@@ -102,8 +113,9 @@ job&#39;s concurrency slot at submission and acknowledges the input when the rep
 arrives, so a subscription keeps several records in the producer while each
 input is still acknowledged only after Kafka has its output. <code>publish</code> queues
 the record and waits for the report.</p>
-<p><code>KafkaSinkConfig::max_pending</code> bounds the records queued by <code>submit</code> whose
-report has not arrived; the default is 1000. <code>submit</code> waits while that many are
+<p><code>max_pending</code> bounds the records queued by <code>submit</code> on one sink whose report
+has not arrived; the default is 1000. The limit is per sink and shared by its
+clones, not by the other sinks of the handle. <code>submit</code> waits while that many are
 outstanding, and also while librdkafka&#39;s own queue
 (<code>queue.buffering.max.messages</code>, <code>queue.buffering.max.kbytes</code>) is full. A
 completion dropped before its report, as when the input&#39;s partition is revoked,
@@ -116,8 +128,12 @@ to queueing only, such as a record rejected before it reaches the queue.</p>
 <p>Records queued for one partition keep their order when the producer does not
 reorder retried batches. Set <code>enable.idempotence=true</code> so that a retry cannot
 move a record behind a later record with the same key.
-<code>close</code> stops new submissions and flushes the producer for at most
-<code>close_timeout</code>.</p>
+<code>close</code> stops new submissions on that sink and flushes the shared producer for
+at most <code>close_timeout</code>, 30 seconds by default. The flush also waits for
+records the handle&#39;s other sinks have queued, and the producer stays open for
+them. Because the producer is shared, a cluster that stays unreachable past
+<code>delivery.timeout.ms</code> fails the queued records of every sink of the handle, and
+each subscription with a failed record stops.</p>
 <h2 id="metadata-inheritance">Metadata inheritance</h2>
 <p>Register <code>KafkaInherit</code> on a Kafka-to-Kafka subscription to forward the received
 key and headers:</p>
@@ -168,21 +184,13 @@ by one transaction that contains the outputs of every delivery in it and, for
 each partition, the consumer offset after the batch&#39;s last delivery of that
 partition:</p>
 <pre><code class="hljs language-text">begin transaction → produce outputs → send consumer offsets → commit transaction
-</code></pre><pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{
-    Subscription, Utf8,
-    adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
-};
+</code></pre><pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Subscription, Utf8, adapters::kafka::Kafka};
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = KafkaSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
-    <span class="hljs-string">&quot;localhost:9092&quot;</span>,
-    <span class="hljs-string">&quot;orders-workers&quot;</span>,
-    [<span class="hljs-string">&quot;orders&quot;</span>],
-));
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = KafkaSink::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
-    <span class="hljs-string">&quot;localhost:9092&quot;</span>,
-    <span class="hljs-string">&quot;processed-orders&quot;</span>,
-))
-.<span class="hljs-title function_ invoke__">transactional</span>(<span class="hljs-string">&quot;orders-workers-1&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = kafka.source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;orders-workers&quot;</span>, [<span class="hljs-string">&quot;orders&quot;</span>]);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = kafka
+    .sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;processed-orders&quot;</span>)
+    .<span class="hljs-title function_ invoke__">transactional</span>(<span class="hljs-string">&quot;orders-workers-1&quot;</span>);
 <span class="hljs-keyword">let</span> <span class="hljs-variable">subscription</span> = Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, |order: <span class="hljs-type">String</span>| <span class="hljs-keyword">async</span> <span class="hljs-keyword">move</span> {
     <span class="hljs-title function_ invoke__">Ok</span>(order.<span class="hljs-title function_ invoke__">to_uppercase</span>())
 })
@@ -199,17 +207,21 @@ are published outside the transaction.</p>
 <p>The transactional ID becomes the producer&#39;s <code>transactional.id</code>. Give each
 running instance of the application its own ID and keep it across restarts of
 that instance: a new producer with the same ID fences the previous one and
-aborts its unfinished transaction. The adapter sets the ID itself, so
-<code>KafkaSinkConfig</code> rejects <code>transactional.id</code> in <code>properties</code>.
-<code>KafkaSinkConfig::transaction_timeout</code> bounds each blocking transaction call:
-initialization, sending offsets, commit, and abort. The producer is created and
-its transactions are initialized on first use.</p>
+aborts its unfinished transaction. The adapter sets the ID itself, so the
+handle&#39;s <code>validate</code> rejects <code>transactional.id</code> set with <code>property</code> or
+<code>producer_property</code>. <code>KafkaTransactionalSink::transaction_timeout</code> bounds each
+blocking transaction call: initialization, sending offsets, commit, and abort;
+the default is 60 seconds. Its <code>close_timeout</code> defaults to the sink&#39;s. The
+transactional sink publishes through a producer of its own, created with the
+handle&#39;s properties and producer properties, and its transactions are
+initialized on first use.</p>
 <p>The source and sink must use the same Kafka cluster, because the offsets are
 committed through the group coordinator of the sink&#39;s cluster. Before the
 first delivery is processed, the sink compares the cluster ID reported by the
 source&#39;s consumer with the one reported by its brokers, read with a separate
-non-transactional client, and a mismatch stops the subscription. Different
-<code>brokers</code> lists for the same cluster are accepted. Each cluster ID request
+non-transactional client, and a mismatch stops the subscription. A source and
+sink built from different handles, or with different broker lists for the same
+cluster, are accepted. Each cluster ID request
 waits up to <code>transaction_timeout</code>.</p>
 <p>A producer runs one transaction at a time, so transactions from every clone of
 the sink are serialized, while handlers still run in parallel up to the

@@ -24,7 +24,7 @@
 
   <div class="wrap layout">
     <nav class="toc" aria-label="Guides">
-<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html">Architecture</a></li><li><a href="runtime.html">Runtime guide</a><ul><li><a href="runtime/handlers.html">Handlers</a></li><li><a href="runtime/middleware.html">Middleware</a></li><li><a href="runtime/errors.html">Errors and retries</a></li><li><a href="runtime/tombstones.html">Tombstones</a></li><li><a href="runtime/transactions.html">Transactions</a></li><li><a href="runtime/observability.html">Observability</a></li><li><a href="runtime/health.html">Health checks</a></li></ul></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/local.html">Local adapters</a></li><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/json.html">JSON</a></li><li><a href="codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html">Local development brokers</a></li><li><a href="plan.html" aria-current="page">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
+<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html">Architecture</a></li><li><a href="runtime.html">Runtime guide</a><ul><li><a href="runtime/handlers.html">Handlers</a></li><li><a href="runtime/middleware.html">Middleware</a></li><li><a href="runtime/errors.html">Errors and retries</a></li><li><a href="runtime/tombstones.html">Tombstones</a></li><li><a href="runtime/transactions.html">Transactions</a></li><li><a href="runtime/observability.html">Observability</a></li><li><a href="runtime/health.html">Health checks</a></li></ul></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/local.html">Local adapters</a></li><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/json.html">JSON</a></li><li><a href="codecs/raw-bytes.html">Raw bytes</a></li><li><a href="codecs/utf8.html">UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li><li><a href="codecs/msgpack.html">MessagePack</a></li><li><a href="codecs/cbor.html">CBOR</a></li><li><a href="codecs/wrappers.html">Codec wrappers</a><ul><li><a href="codecs/wrappers/base64.html">Base64</a></li><li><a href="codecs/wrappers/gzip.html">Gzip</a></li><li><a href="codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html">Local development brokers</a></li><li><a href="plan.html" aria-current="page">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
     </nav>
     <main class="doc">
 <h1 id="beave-rs--design-plan">beave-rs — Design plan</h1>
@@ -71,10 +71,12 @@ Rust.</li>
 <h2 id="serialization-and-codecs">Serialization and codecs</h2>
 <p>Potential codec work includes:</p>
 <ul>
-<li>MessagePack support;</li>
 <li>Schema Registry integration for Avro;</li>
 <li>writer-schema and reader-schema resolution;</li>
-<li>evaluation of typed key codecs where a broker supports typed keys.</li>
+<li>evaluation of typed key codecs where a broker supports typed keys;</li>
+<li>recording a wrapper&#39;s content encoding, such as gzip, in message metadata so
+one subscription can accept both wrapped and unwrapped payloads. <code>Decoder</code>
+receives payload bytes only, so this needs metadata in the decoding contract.</li>
 </ul>
 <p>Schema Registry support must keep wire framing separate from raw Avro datum
 encoding and define schema lookup caching, compatibility failures, and behavior
@@ -218,105 +220,16 @@ acknowledgements, and the new owner reprocesses those records.</li>
 <li>Shutdown with pending completions drains them before the sink closes, within
 the subscription&#39;s shutdown timeout.</li>
 </ul>
-<h2 id="shared-connections">Shared connections</h2>
-<p>Each source and sink currently opens its own client and authenticates on its
-own: a Kafka consumer or producer, a Pulsar client, a RabbitMQ or Service Bus
-AMQP connection, an SQS client built from a fresh <code>aws_config</code> load, and a
-Pub/Sub client that resolves its own credentials. Only clones of one sink share
-a connection. Authentication settings are also expressed differently per
-adapter: raw librdkafka properties, a Pulsar method name and data, credentials
-in a RabbitMQ URI, an SQS credentials field, Pub/Sub credential modes, and a
-<code>ServiceBusConnection</code> embedded in the Service Bus configurations.</p>
-<p>Each adapter will gain a connection handle that is created first and builds
-the sources and sinks that share it. Configuration types go away: required
-values are arguments, and optional settings are builder methods on the handle,
-the source, and the sink.</p>
-<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;broker:9092&quot;</span>).<span class="hljs-title function_ invoke__">sasl_plain</span>(user, password);
-
-<span class="hljs-keyword">let</span> <span class="hljs-variable">articles</span> = kafka.source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;summarizer&quot;</span>, [<span class="hljs-string">&quot;articles&quot;</span>]);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">summaries</span> = kafka.sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;summaries&quot;</span>).<span class="hljs-title function_ invoke__">max_pending</span>(<span class="hljs-number">500</span>);
-
-<span class="hljs-comment">// A single source or sink is still one expression.</span>
-<span class="hljs-keyword">let</span> <span class="hljs-variable">articles</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;broker:9092&quot;</span>).source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;summarizer&quot;</span>, [<span class="hljs-string">&quot;articles&quot;</span>]);
-</code></pre><p>Decisions:</p>
+<h2 id="shared-connection-follow-ups">Shared connection follow-ups</h2>
+<p>Sources and sinks share their adapter handle&#39;s connection; the adapter
+documents describe what each handle shares. Remaining work:</p>
 <ul>
-<li>The public types per adapter are the handle (<code>Kafka</code>, <code>Pulsar</code>, <code>RabbitMq</code>,
-<code>Sqs</code>, <code>PubSub</code>, <code>ServiceBus</code>, and an HTTP client handle for sinks), its
-source, and its sink. <code>XxxSourceConfig</code>, <code>XxxSinkConfig</code>, and the Service Bus
-<code>ServiceBusConnection</code> are removed, and so are the <code>XxxSource::new</code> and
-<code>XxxSink::new</code> constructors. The HTTP source listens rather than
-connects, so it keeps a constructor of its own with builder methods instead
-of a configuration type.</li>
-<li>The handle holds the endpoint, authentication, and client-wide settings. It
-is a cheap clone around shared state, connects on first use, owns
-reconnection, and closes once the last source or sink built from it has
-closed. Closing one subscription never closes a connection another
-subscription still uses.</li>
-<li>Settings are validated without contacting the broker when the first source
-or sink connects, as the configurations are validated today.</li>
-<li>A codec that needs a value uses <code>source_with_codec</code> and <code>sink_with_codec</code>.</li>
-<li>Authentication gets typed builder methods where the platform has common
-mechanisms, such as SASL and TLS for Kafka. Raw client properties remain
-available as an escape hatch.</li>
-<li>A lost shared connection affects every subscription that uses it.
-Subscription failure stays fail-fast, so this does not change how
-applications detect failures.</li>
-<li>Building sources and sinks from configuration files is left to
-applications. A deserializable configuration type can be added later if
-applications need one.</li>
-</ul>
-<p>What each handle shares:</p>
-<table>
-<thead>
-<tr>
-<th>Adapter</th>
-<th>Shared</th>
-<th>Kept per source or sink</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>Kafka</td>
-<td>One producer for every non-transactional sink</td>
-<td>One consumer per source; one producer per transactional sink</td>
-</tr>
-<tr>
-<td>Pulsar</td>
-<td>One client for every producer and consumer</td>
-<td>Producers and consumers</td>
-</tr>
-<tr>
-<td>Service Bus</td>
-<td>One AMQP connection and session</td>
-<td>Links and their entity authorization</td>
-</tr>
-<tr>
-<td>RabbitMQ</td>
-<td>One publishing and one consuming connection, as RabbitMQ recommends</td>
-<td>Channels</td>
-</tr>
-<tr>
-<td>SQS</td>
-<td>One client and its credential provider</td>
-<td>Nothing</td>
-</tr>
-<tr>
-<td>Pub/Sub</td>
-<td>Credentials and one subscriber client</td>
-<td>One publisher per topic</td>
-</tr>
-<tr>
-<td>HTTP sink</td>
-<td>One HTTP client and its connection pool</td>
-<td>Nothing</td>
-</tr>
-</tbody></table>
-<p>Open points:</p>
-<ul>
-<li>Whether a shared Kafka producer keeps per-sink <code>max_pending</code> limits and
-close semantics on top of one librdkafka queue.</li>
-<li>Whether HTTP sources should share one listener and route by path.</li>
-<li>Whether to add Entra ID authentication to Service Bus as part of this work.</li>
-<li>Naming of the HTTP handle.</li>
+<li>Verify against live brokers that the shared Service Bus connection authorizes
+entities added after it opened, renews their tokens, and reopens for every
+link after it is lost, and that the RabbitMQ handle reopens a lost
+connection for every channel.</li>
+<li>Decide whether HTTP sources should share one listener and route by path.</li>
+<li>Decide whether to add Entra ID authentication to the Service Bus handle.</li>
 </ul>
 <h2 id="kafka-rebalance-behavior">Kafka rebalance behavior</h2>
 <p>Revoked partitions currently abandon in-flight work immediately. Evaluate an
@@ -456,8 +369,7 @@ request per message. Remaining decisions:</p>
 <ul>
 <li>batching acknowledgements with <code>DeleteMessageBatch</code> and publications with
 <code>SendMessageBatch</code>, which needs completions that resolve per entry;</li>
-<li>a text representation, such as base64, for binary codecs, whose output SQS
-bodies cannot carry, and the extended client&#39;s S3 payloads beyond 256 KiB;</li>
+<li>the extended client&#39;s S3 payloads beyond 256 KiB;</li>
 <li>whether an error policy should leave a failed delivery visible again so the
 queue&#39;s redrive policy moves it, instead of publishing dead letters through a
 sink;</li>
@@ -562,30 +474,26 @@ intended for use.</li>
 </thead>
 <tbody><tr>
 <td>1</td>
-<td>Shared connections, starting with Pulsar, before <code>0.1.0</code></td>
-</tr>
-<tr>
-<td>2</td>
 <td>Adapter pause/resume backpressure and graceful rebalance handoff</td>
 </tr>
 <tr>
-<td>3</td>
+<td>2</td>
 <td>Cross-platform metadata mapping policy</td>
 </tr>
 <tr>
-<td>4</td>
+<td>3</td>
 <td>Observability refinements</td>
 </tr>
 <tr>
-<td>5</td>
-<td>Live verification of batched Kafka transactions</td>
+<td>4</td>
+<td>Live verification of batched Kafka transactions and shared connections</td>
 </tr>
 <tr>
-<td>6</td>
+<td>5</td>
 <td>NATS JetStream adapter</td>
 </tr>
 <tr>
-<td>7</td>
+<td>6</td>
 <td>Schema Registry and additional codecs</td>
 </tr>
 </tbody></table>

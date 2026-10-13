@@ -27,7 +27,8 @@ runs any number of subscriptions side by side and shuts them down together.
 - **Pipelines** — chain subscriptions through in-process channels with
   end-to-end acknowledgement.
 - **Adapters** — Kafka, Apache Pulsar, RabbitMQ, Amazon SQS, Google Cloud
-  Pub/Sub, Azure Service Bus, and HTTP; JSON, Avro, and Protobuf codecs.
+  Pub/Sub, Azure Service Bus, and HTTP; JSON, Avro, Protobuf, MessagePack,
+  and CBOR codecs, with Base64 and gzip or Zstandard compression wrappers.
 - **Operations** — graceful shutdown, `tracing` spans, `metrics`,
   OpenTelemetry trace propagation, and `/livez` and `/readyz` probes.
 
@@ -55,6 +56,11 @@ application uses:
 | `http` | HTTP source and sink |
 | `avro` | Avro codec |
 | `protobuf` | Protobuf codec |
+| `msgpack` | MessagePack codec |
+| `cbor` | CBOR codec |
+| `base64` | Base64 wrapper for another codec |
+| `gzip` | Gzip compression wrapper for another codec |
+| `zstd` | Zstandard compression wrapper for another codec |
 | `opentelemetry` | Trace-context propagation through broker metadata |
 | `health` | `/livez` and `/readyz` endpoints |
 | `testing` | Fabricated broker records for handler tests |
@@ -67,7 +73,7 @@ to another topic:
 ```rust
 use beavers::{
     App, Classify, Result, Utf8,
-    adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
+    adapters::kafka::Kafka,
 };
 
 async fn summarize(article: String) -> Result<String> {
@@ -77,8 +83,9 @@ async fn summarize(article: String) -> Result<String> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let articles = KafkaSource::<Utf8, _>::new(KafkaSourceConfig::new("localhost:9092", "summarizer", ["articles"]));
-    let summaries = KafkaSink::<Utf8, _>::new(KafkaSinkConfig::new("localhost:9092", "summaries"));
+    let kafka = Kafka::new("localhost:9092");
+    let articles = kafka.source::<Utf8, _>("summarizer", ["articles"]);
+    let summaries = kafka.sink::<Utf8, _>("summaries");
 
     App::new()
         .subscribe("summarize", articles, summaries, summarize)
@@ -90,6 +97,8 @@ async fn main() -> anyhow::Result<()> {
 
 The handler sees only the decoded value. A transient API failure is retried
 with backoff, and each offset is committed after its summary is published.
+Sources and sinks built from one `Kafka` handle share its connection settings,
+and its sinks share one producer.
 
 The repository's examples run against local brokers started with Docker
 Compose, which also provides web consoles for Kafka and Pulsar:
@@ -166,7 +175,7 @@ Licensed under the [MIT license](https://github.com/cafeal/beave-rs/blob/main/LI
 | [Architecture](architecture.md) | How sources, handlers, and sinks fit together, their trait contracts, and errors |
 | [Runtime guide](runtime.md) | Registration, configuration, processing behavior, shutdown, and limitations, with topic guides for handlers, middleware, errors, tombstones, transactions, observability, and health checks |
 | [Adapters](adapters.md) | Local, channel, Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, Azure Service Bus, and HTTP adapters, usage, and extension contracts |
-| [Codecs](codecs.md) | Serialization contracts and JSON, raw bytes, UTF-8, Protobuf, and Avro codecs |
+| [Codecs](codecs.md) | Serialization contracts; JSON, raw bytes, UTF-8, Protobuf, Avro, MessagePack, and CBOR codecs; Base64 and compression wrappers |
 | [Testing](testing.md) | Testing handlers, middleware, and error policies with fabricated broker records |
 | [Handling dead letters](dead-letter-handling.md) | Finding the cause of dead letters, and reprocessing, parking, or dropping them on log and queue brokers |
 | [Monitoring and alerting](monitoring-and-alerting/README.md) | Signals to alert on, alert rules, and setups for Kubernetes, AWS, Google Cloud, and Azure |
@@ -182,9 +191,11 @@ Adapter references: [Local adapters](adapters/local.md),
 [SQS](adapters/sqs.md), [Pub/Sub](adapters/pubsub.md),
 [Azure Service Bus](adapters/servicebus.md), and [HTTP](adapters/http.md).
 
-Codec references: [JSON](codecs/json.md),
-[Raw bytes and UTF-8](codecs/raw-utf8.md),
-[Protobuf](codecs/protobuf.md), and [Avro](codecs/avro.md).
+Codec references: [JSON](codecs/json.md), [Raw bytes](codecs/raw-bytes.md),
+[UTF-8](codecs/utf8.md), [Protobuf](codecs/protobuf.md), [Avro](codecs/avro.md),
+[MessagePack](codecs/msgpack.md), [CBOR](codecs/cbor.md), and
+[codec wrappers](codecs/wrappers.md): [Base64](codecs/wrappers/base64.md),
+[Gzip](codecs/wrappers/gzip.md), and [Zstd](codecs/wrappers/zstd.md).
 
 ## Contributing
 
@@ -317,7 +328,12 @@ first delivery before processing it. See the
 ### Configuration ownership
 
 `SubscriptionConfig` holds processing policy. Source and Sink connection settings
-belong to their adapters. Codecs own serialization behavior. Broker-specific
+belong to their adapters. Each broker adapter keeps its address and credentials
+on a connection handle, such as `Kafka` or `ServiceBus`, whose `source` and
+`sink` methods build sources and sinks with their own entity settings. They
+share the handle's connection and authenticate once, so a lost connection
+affects every subscription that uses it, while each subscription still fails
+fast on its own failures. Codecs own serialization behavior. Broker-specific
 metadata must not become a universal configuration or message struct.
 
 Metadata mapping is typed subscription middleware rather than a shared
@@ -456,9 +472,10 @@ See the [local adapters](adapters/local.md) for IterSource, StdinSource,
 InMemorySink, and StdoutSink, and the [Channel adapter](adapters/channel.md)
 that chains subscriptions, including examples, EOF behavior, ACK guarantees,
 and I/O limits. These components do not provide durable
-redelivery after process exit. Optional Kafka and Pulsar adapters provide
-broker-specific source and sink implementations; their documentation covers
-configuration and acknowledgement semantics.
+redelivery after process exit. Optional broker adapters provide
+broker-specific sources and sinks built from a connection handle, such as
+`Kafka` or `RabbitMq`; their documentation covers configuration and
+acknowledgement semantics.
 
 ## Per-message lifecycle
 
@@ -632,10 +649,33 @@ accept a separate `*Publish<T>` type for user-controlled output. Prepared
 payloads hold encoded bytes for retries. See the dedicated guides for each
 broker's configuration and delivery behavior.
 
-Broker adapter constructors use `C::default()` for a codec. Their
-`with_codec(config, codec)` constructors accept an existing codec instance,
-which is required for configured codecs such as `Avro`. `StdinSource` and
-`StdoutSink` take a codec the same way with `with_codec(codec)`.
+Each broker adapter starts from a connection handle: `Kafka`, `Pulsar`,
+`RabbitMq`, `Sqs`, `PubSub`, or `ServiceBus`. The handle holds the broker
+address and credentials, and its `source` and `sink` methods build sources and
+sinks that share its connection, so they authenticate once; the broker guides
+list the clients an adapter keeps per source or sink, such as Kafka consumers.
+The connection opens on first use. A lost shared connection affects every
+subscription that uses it, while each subscription still fails fast on its own
+receive, publish, and ACK failures. `HttpClient` builds HTTP sinks that share
+one connection pool, and `HttpSource::new(addr)` binds a server.
+
+```rust,ignore
+use beavers::{Json, adapters::kafka::Kafka};
+
+let kafka = Kafka::new("localhost:9092").sasl_plain("user", "password");
+let orders = kafka.source::<Json, Order>("billing", ["orders"]);
+let invoices = kafka.sink::<Json, Invoice>("invoices").max_pending(500);
+```
+
+Builder methods consume and return the value, and every handle, source, and
+sink has a `validate()` that checks its settings without network access. A
+builder method on a handle returns a handle with a connection of its own, so
+configure the handle before building sources and sinks from it.
+`source` and `sink` use `C::default()` for a codec. `source_with_codec(codec,
+...)` and `sink_with_codec(codec, ...)` take an existing codec instance first,
+which is required for configured codecs such as `Avro`; `HttpSource` has
+`with_codec(codec, addr)`. `StdinSource` and `StdoutSink` take a codec with
+`with_codec(codec)`.
 
 <!-- https://cafeal.github.io/beave-rs/pr-preview/pr-51/docs/codecs.md -->
 
@@ -667,8 +707,9 @@ no dedicated codec execution pool.
 
 The traits do not require Serde. Each codec chooses its own representation and
 payload bounds. `Decoder`, `Encoder`, `Json`, `RawBytes`, and `Utf8` are available
-through `beavers::codec` and re-exported at the crate root. `Protobuf` and `Avro`
-are available when their corresponding Cargo features are enabled.
+through `beavers::codec` and re-exported at the crate root. `Protobuf`, `Avro`,
+`MessagePack`, `Cbor`, and the `Base64`, `Gzip`, and `Zstd` wrappers are
+available when their corresponding Cargo features are enabled.
 
 ## Lifecycle and failures
 
@@ -721,12 +762,12 @@ impl Encoder<String> for Utf8 {
 }
 ```
 
-`Utf8` is an exported built-in codec; see [Raw bytes and UTF-8](codecs/raw-utf8.md)
-for its exact behavior and `RawBytes` for arbitrary payloads. The local stdin and
+`Utf8` is an exported built-in codec; see [Utf8](codecs/utf8.md)
+for its exact behavior and [`RawBytes`](codecs/raw-bytes.md) for arbitrary payloads. The local stdin and
 stdout adapters default-construct their codec, so using a custom codec with them
-requires `Default`. The codec traits themselves do not require it. Kafka and
-Pulsar adapters also provide `with_codec(config, codec)` for existing configured
-codec instances.
+requires `Default`. The codec traits themselves do not require it. Broker
+adapter handles also provide `source_with_codec(codec, ...)` and
+`sink_with_codec(codec, ...)` for existing configured codec instances.
 
 Choose framing-compatible codecs for line-based adapters. A binary encoding can
 contain newline bytes, and an arbitrary string may contain embedded newlines;
@@ -738,12 +779,21 @@ example preserves all bytes, including any newline supplied by the source.
 `Json` converts between JSON and any Serde type. See [JSON](codecs/json.md).
 
 `RawBytes` preserves arbitrary `Vec<u8>` payloads and `Utf8` converts valid UTF-8
-between bytes and `String`. See [Raw bytes and UTF-8](codecs/raw-utf8.md).
+between bytes and `String`. See [RawBytes](codecs/raw-bytes.md) and
+[Utf8](codecs/utf8.md).
 
 The optional `protobuf` feature provides `Protobuf` for raw `prost::Message`
 payloads. The optional `avro` feature provides schema-bound `Avro` values. Both
 formats leave framing to the adapter. See [Protobuf](codecs/protobuf.md) and
 [Avro](codecs/avro.md).
+
+The optional `msgpack` and `cbor` features provide `MessagePack` and `Cbor`,
+compact binary formats for the same Serde types as `Json`. See
+[MessagePack](codecs/msgpack.md) and [CBOR](codecs/cbor.md).
+
+The optional `base64`, `gzip`, and `zstd` features provide `Base64<C>`,
+`Gzip<C>`, and `Zstd<C>`, which wrap another codec to carry its payload as text
+or compress it. See [codec wrappers](codecs/wrappers.md).
 
 Kafka applies its selected codec to a record value; keys and headers remain raw
 bytes in `KafkaRecord<T>`, and a value can be null. Pulsar applies its selected
@@ -1004,7 +1054,7 @@ topic and print a summary of each dead letter as one JSON line:
 ```rust,ignore
 use beavers::{
     Json, RawBytes, StdoutSink, Subscription,
-    adapters::kafka::{KafkaDeadLetter, KafkaRecord, KafkaSource, KafkaSourceConfig},
+    adapters::kafka::{Kafka, KafkaDeadLetter, KafkaRecord},
 };
 
 #[derive(serde::Serialize)]
@@ -1015,9 +1065,10 @@ struct Summary {
     origin: Option<String>,
 }
 
-let mut config = KafkaSourceConfig::new(brokers, "orders-dlq-examine", ["orders-dlq"]);
-config.properties.insert("auto.offset.reset".into(), "earliest".into());
-let source = KafkaSource::<RawBytes, Vec<u8>>::new(config);
+let kafka = Kafka::new("localhost:9092");
+let source = kafka
+    .source::<RawBytes, Vec<u8>>("orders-dlq-examine", ["orders-dlq"])
+    .property("auto.offset.reset", "earliest");
 
 Subscription::new("orders-dlq-examine", source, StdoutSink::<Json>::new(), |record: KafkaRecord<Vec<u8>>| async move {
     let dead = KafkaDeadLetter::from_record(&record).ok().flatten();
@@ -1059,14 +1110,11 @@ dead-lettered three times:
 ```rust,ignore
 use beavers::{
     Classify, ErrorPolicy, HandlerError, Json, RawBytes, Subscription,
-    adapters::kafka::{
-        KafkaDeadLetter, KafkaPublish, KafkaRecord, KafkaSink, KafkaSinkConfig, KafkaSource,
-        KafkaSourceConfig,
-    },
+    adapters::kafka::{KafkaDeadLetter, KafkaPublish, KafkaRecord},
 };
 
-let source = KafkaSource::<Json, Order>::new(KafkaSourceConfig::new(brokers, "orders-redrive", ["orders-dlq"]));
-let parked = KafkaSink::<RawBytes, Vec<u8>>::new(KafkaSinkConfig::new(brokers, "orders-parked"));
+let source = kafka.source::<Json, Order>("orders-redrive", ["orders-dlq"]);
+let parked = kafka.sink::<RawBytes, Vec<u8>>("orders-parked");
 
 Subscription::new("orders-redrive", source, invoices, |record: KafkaRecord<Order>| async move {
     if let Some(dead) = KafkaDeadLetter::from_record(&record).reject()?.filter(|dead| dead.details.count >= 3) {
@@ -1134,13 +1182,12 @@ SQS; the other platforms have the same shape with `RabbitMqDeadLetter`,
 ```rust,ignore
 use beavers::{
     Classify, Emit, ErrorPolicy, HandlerError, Json, RawBytes, Subscription,
-    adapters::sqs::{
-        SqsDeadLetter, SqsPublish, SqsRecord, SqsSink, SqsSinkConfig, SqsSource, SqsSourceConfig,
-    },
+    adapters::sqs::{Sqs, SqsDeadLetter, SqsPublish, SqsRecord},
 };
 
-let source = SqsSource::<Json, Order>::new(SqsSourceConfig::new(orders_dlq_url));
-let parked = SqsSink::<RawBytes, Vec<u8>>::new(SqsSinkConfig::new(orders_parked_url));
+let sqs = Sqs::new();
+let source = sqs.source::<Json, Order>(orders_dlq_url);
+let parked = sqs.sink::<RawBytes, Vec<u8>>(orders_parked_url);
 
 Subscription::new_emitting("orders-dlq-triage", source, invoices, |record: SqsRecord<Order>| async move {
     if let Some(dead) = SqsDeadLetter::from_record(&record).reject()?.filter(|dead| dead.details.count >= 3) {
@@ -1193,7 +1240,7 @@ redirected to a file:
 ```rust,ignore
 use beavers::{
     Json, RawBytes, StdoutSink, Subscription,
-    adapters::sqs::{SqsDeadLetter, SqsRecord, SqsSource, SqsSourceConfig},
+    adapters::sqs::{SqsDeadLetter, SqsRecord},
 };
 
 #[derive(serde::Serialize)]
@@ -1205,7 +1252,7 @@ struct Archived {
     body: String,
 }
 
-let source = SqsSource::<RawBytes, Vec<u8>>::new(SqsSourceConfig::new(orders_dlq_url));
+let source = sqs.source::<RawBytes, Vec<u8>>(orders_dlq_url);
 
 Subscription::new("orders-dlq-archive", source, StdoutSink::<Json>::new(), |record: SqsRecord<Vec<u8>>| async move {
     let dead = SqsDeadLetter::from_record(&record).ok().flatten();
@@ -1774,7 +1821,7 @@ JSON object into the `beavers-dlq-details` string attribute:
 The sink must publish raw bytes:
 
 ```rust,ignore
-let dead_letters = KafkaSink::<RawBytes, Vec<u8>>::new(KafkaSinkConfig::new(brokers, "orders-dlq"));
+let dead_letters = kafka.sink::<RawBytes, Vec<u8>>("orders-dlq");
 
 Subscription::new("orders", source, sink, handle)
     .dlq_with(dead_letters, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)));
@@ -1826,6 +1873,11 @@ queue brokers, and complete examples.
 
 Publication, dead-letter publication, and ACK results are never assumed. An
 interrupted or failed attempt is not treated as success.
+
+Sources and sinks built from one broker handle share its connection. A lost
+shared connection therefore affects every subscription that uses it at once:
+each one sees its own receive, publish, or ACK failure and handles it as
+above, so a subscription still stops on its own fatal or exhausted failure.
 
 <!-- https://cafeal.github.io/beave-rs/pr-preview/pr-51/docs/runtime/tombstones.md -->
 
@@ -1884,7 +1936,8 @@ Subscription::new("orders", kafka_source, kafka_transactional_sink, handler)
 The method only compiles when the sink implements
 `TransactionalSink<Source::Message, Output>`, which an adapter provides for the
 source messages whose acknowledgement can join its transactions. The
-Kafka adapter implements it for a `KafkaSource` and a `KafkaTransactionalSink`;
+Kafka adapter implements it for a `KafkaSource` and a `KafkaTransactionalSink`,
+which `kafka.sink(topic).transactional(id)` builds;
 see the [Kafka guide](../adapters/kafka.md#transactions). The runtime never calls
 the delivery's own ACK in a transactional subscription.
 
@@ -2558,28 +2611,41 @@ beavers = { version = "0.1", features = ["kafka"] }
 
 ## Configuration
 
-`KafkaSourceConfig` takes the bootstrap brokers, consumer group, and topics;
-`KafkaSinkConfig` takes the brokers and the topic every output is published to.
-Both accept additional librdkafka settings in `properties`. `validate` checks
-the values without contacting a broker. Both adapters validate their
-configuration when first used, then create their Kafka clients lazily, so an
-application can construct its pipeline before a broker is reachable.
+A `Kafka` handle holds the bootstrap brokers and the librdkafka settings that
+every client built from it uses. `property` sets a librdkafka property on every
+consumer and producer of the handle, `producer_property` on its producers only,
+and `sasl_plain` configures SASL/PLAIN authentication, over TLS unless
+`security.protocol` is set otherwise. `handle.source::<C, T>(group_id, topics)`
+builds a source and `handle.sink::<C, T>(topic)` a sink that publishes every
+output to `topic`; `source_with_codec` and `sink_with_codec` take a codec value
+as their first argument instead of using the codec's default. Optional settings
+are builder methods on the source and sink, such as `property` on a source for
+consumer-only settings like `auto.offset.reset`, or `max_pending` on a sink.
 
 ```rust
-use beavers::{Utf8, adapters::kafka::{KafkaPublish, KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig}};
+use beavers::{Utf8, adapters::kafka::{Kafka, KafkaPublish}};
 
-let source = KafkaSource::<Utf8, String>::new(KafkaSourceConfig::new(
-    "localhost:9092",
-    "orders-workers",
-    ["orders"],
-));
-let sink = KafkaSink::<Utf8, String>::new(KafkaSinkConfig::new(
-    "localhost:9092",
-    "processed-orders",
-));
+let kafka = Kafka::new("localhost:9092").property("client.id", "orders-service");
+let source = kafka
+    .source::<Utf8, String>("orders-workers", ["orders"])
+    .property("auto.offset.reset", "earliest");
+let sink = kafka.sink::<Utf8, String>("processed-orders").max_pending(500);
 
 let output = KafkaPublish::new("created".to_owned());
 ```
+
+Every non-transactional sink built from one handle publishes through one
+shared producer, created on the first publication of any of them. Each source
+has a consumer of its own, because a consumer belongs to one consumer group,
+and each [transactional sink](#transactions) has a producer of its own. Each
+builder method on the handle returns a handle with a producer of its own, so
+configure the handle before building sources and sinks from it.
+
+The handle, the source, and the sink each have `validate`, which checks the
+values without contacting a broker. Sources and sinks validate their settings
+when first used, then create their Kafka clients lazily, so an application can
+construct its pipeline before a broker is reachable. The handle's `Debug`
+output shows property names only, because their values can hold credentials.
 
 ## Records
 
@@ -2643,8 +2709,9 @@ arrives, so a subscription keeps several records in the producer while each
 input is still acknowledged only after Kafka has its output. `publish` queues
 the record and waits for the report.
 
-`KafkaSinkConfig::max_pending` bounds the records queued by `submit` whose
-report has not arrived; the default is 1000. `submit` waits while that many are
+`max_pending` bounds the records queued by `submit` on one sink whose report
+has not arrived; the default is 1000. The limit is per sink and shared by its
+clones, not by the other sinks of the handle. `submit` waits while that many are
 outstanding, and also while librdkafka's own queue
 (`queue.buffering.max.messages`, `queue.buffering.max.kbytes`) is full. A
 completion dropped before its report, as when the input's partition is revoked,
@@ -2659,8 +2726,12 @@ to queueing only, such as a record rejected before it reaches the queue.
 Records queued for one partition keep their order when the producer does not
 reorder retried batches. Set `enable.idempotence=true` so that a retry cannot
 move a record behind a later record with the same key.
-`close` stops new submissions and flushes the producer for at most
-`close_timeout`.
+`close` stops new submissions on that sink and flushes the shared producer for
+at most `close_timeout`, 30 seconds by default. The flush also waits for
+records the handle's other sinks have queued, and the producer stays open for
+them. Because the producer is shared, a cluster that stays unreachable past
+`delivery.timeout.ms` fails the queued records of every sink of the handle, and
+each subscription with a failed record stops.
 
 ## Metadata inheritance
 
@@ -2732,21 +2803,13 @@ begin transaction → produce outputs → send consumer offsets → commit trans
 ```
 
 ```rust
-use beavers::{
-    Subscription, Utf8,
-    adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
-};
+use beavers::{Subscription, Utf8, adapters::kafka::Kafka};
 
-let source = KafkaSource::<Utf8, String>::new(KafkaSourceConfig::new(
-    "localhost:9092",
-    "orders-workers",
-    ["orders"],
-));
-let sink = KafkaSink::<Utf8, String>::new(KafkaSinkConfig::new(
-    "localhost:9092",
-    "processed-orders",
-))
-.transactional("orders-workers-1");
+let kafka = Kafka::new("localhost:9092");
+let source = kafka.source::<Utf8, String>("orders-workers", ["orders"]);
+let sink = kafka
+    .sink::<Utf8, String>("processed-orders")
+    .transactional("orders-workers-1");
 let subscription = Subscription::new("orders", source, sink, |order: String| async move {
     Ok(order.to_uppercase())
 })
@@ -2767,18 +2830,22 @@ are published outside the transaction.
 The transactional ID becomes the producer's `transactional.id`. Give each
 running instance of the application its own ID and keep it across restarts of
 that instance: a new producer with the same ID fences the previous one and
-aborts its unfinished transaction. The adapter sets the ID itself, so
-`KafkaSinkConfig` rejects `transactional.id` in `properties`.
-`KafkaSinkConfig::transaction_timeout` bounds each blocking transaction call:
-initialization, sending offsets, commit, and abort. The producer is created and
-its transactions are initialized on first use.
+aborts its unfinished transaction. The adapter sets the ID itself, so the
+handle's `validate` rejects `transactional.id` set with `property` or
+`producer_property`. `KafkaTransactionalSink::transaction_timeout` bounds each
+blocking transaction call: initialization, sending offsets, commit, and abort;
+the default is 60 seconds. Its `close_timeout` defaults to the sink's. The
+transactional sink publishes through a producer of its own, created with the
+handle's properties and producer properties, and its transactions are
+initialized on first use.
 
 The source and sink must use the same Kafka cluster, because the offsets are
 committed through the group coordinator of the sink's cluster. Before the
 first delivery is processed, the sink compares the cluster ID reported by the
 source's consumer with the one reported by its brokers, read with a separate
-non-transactional client, and a mismatch stops the subscription. Different
-`brokers` lists for the same cluster are accepted. Each cluster ID request
+non-transactional client, and a mismatch stops the subscription. A source and
+sink built from different handles, or with different broker lists for the same
+cluster, are accepted. Each cluster ID request
 waits up to `transaction_timeout`.
 
 A producer runs one transaction at a time, so transactions from every clone of
@@ -2821,43 +2888,56 @@ beavers = { version = "0.1", features = ["pulsar"] }
 
 ## Configuration
 
-Configure a source with a service URL, topic, and subscription. `validate`
-checks the values and optional static authentication without contacting a
-broker. The source opens its client and consumer on the first `receive`. A
-partitioned topic is consumed through one consumer per partition, all in the
-same subscription; the partition list is read when the source connects.
+A `Pulsar` handle holds the service URL, using the `pulsar://` or
+`pulsar+ssl://` scheme, and optional static authentication.
+`handle.source::<C, T>(topic, subscription)` builds a source and
+`handle.sink::<C, T>(topic)` a sink; `source_with_codec` and `sink_with_codec`
+take a codec value as their first argument instead of using the codec's
+default. Optional settings are builder methods on the handle, the source, and
+the sink.
 
 ```rust
-use beavers::{Source, Utf8};
-use beavers::adapters::pulsar::{PulsarSource, PulsarSourceConfig};
+use beavers::Utf8;
+use beavers::adapters::pulsar::{Pulsar, PulsarSubscriptionType};
 
-let mut source = PulsarSource::<Utf8, String>::new(PulsarSourceConfig::new(
-    "pulsar://localhost:6650",
-    "persistent://public/default/orders",
-    "orders-workers",
-));
+let pulsar = Pulsar::new("pulsar://localhost:6650");
+let source = pulsar
+    .source::<Utf8, String>("persistent://public/default/orders", "orders-workers")
+    .subscription_type(PulsarSubscriptionType::Failover);
 ```
+
+All sources and sinks built from one handle share one client. The client
+connects on the first `receive` or publication of any of them, which also
+validates the settings, and reconnects their producers and consumers after the
+broker connection drops. It closes once the handle, every source and sink built
+from it, and every delivery that can still acknowledge through it have been
+dropped. Closing a source or sink closes only its own consumers or producers.
+Each builder method on the handle returns a handle with a client of its own, so
+configure the handle before building sources and sinks from it.
+
+The handle, the source, and the sink each have `validate`, which checks the
+values without contacting a broker. A partitioned topic is consumed through one
+consumer per partition, all in the same subscription; the partition list is
+read when the source connects.
 
 `subscription_type` selects a `PulsarSubscriptionType` and defaults to
 `Shared`. `buffer_size` is the number of messages each partition's consumer
-prefetches. A new subscription starts at the latest message.
+prefetches, 100 by default. A new subscription starts at the latest message.
 
-`PulsarAuthentication::token` supplies a JWT token, while the general
-`PulsarAuthentication` form accepts a Pulsar authentication method name and
-credential bytes. Leave `authentication` unset for an unauthenticated broker.
+`Pulsar::token` supplies a JWT, while `Pulsar::authentication` accepts a
+general `PulsarAuthentication` with a Pulsar authentication method name and
+credential bytes. Leave both unset for an unauthenticated broker.
 
-Configure a sink separately. `prepare` accepts a `PulsarPublish<T>`, encodes
-the typed value once, and returns a cloneable `PulsarPrepared` payload. Set the
-key, ordering key, event time, and user properties before preparation:
+Build a sink from the same handle. `prepare` accepts a `PulsarPublish<T>`,
+encodes the typed value once, and returns a cloneable `PulsarPrepared` payload.
+Set the key, ordering key, event time, and user properties before preparation:
 
 ```rust
 use beavers::{Sink, Utf8};
-use beavers::adapters::pulsar::{PulsarPublish, PulsarSink, PulsarSinkConfig};
+use beavers::adapters::pulsar::{Pulsar, PulsarPublish};
 
-let sink = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(
-    "pulsar://localhost:6650",
-    "persistent://public/default/processed-orders",
-));
+let pulsar = Pulsar::new("pulsar://localhost:6650").token("eyJhbGciOi...");
+let sink = pulsar.sink::<Utf8, String>("persistent://public/default/processed-orders");
 let mut output = PulsarPublish::new("processed".to_owned());
 output.key = Some(b"customer-42".to_vec());
 output.properties.insert("kind".into(), "order".into());
@@ -2865,6 +2945,9 @@ let prepared = sink.prepare(output)?;
 sink.publish(&prepared).await?;
 # Ok::<(), beavers::BoxError>(())
 ```
+
+`producer_name` names each partition's producer; by default the broker assigns
+names.
 
 ## Records
 
@@ -2900,7 +2983,7 @@ A topic unload, as the broker's load balancer performs routinely, or a broker
 restart closes the consumers. An acknowledgement in flight at that moment
 fails, and one sent before the consumer has reattached times out after the
 client's 30-second operation timeout. `ack` therefore retries a failed
-acknowledgement under `PulsarSourceConfig::ack_retry`, five attempts with
+acknowledgement under the source's `ack_retry`, five attempts with
 backoff from 100 ms to 2 s by default, and an attempt on the reattached
 consumer succeeds. Only an exhausted retry fails the acknowledgement and stops
 the subscription. After reattaching, the broker redelivers every
@@ -2909,8 +2992,8 @@ prefetched and still returns, so deliveries received around an unload can be
 processed twice and out of their original order.
 
 Call `close` during shutdown to close the consumers. A delivery acknowledged
-after its source closed fails with an error, and the client closes once the
-last delivery of the source is dropped.
+after its source closed fails with an error. The client stays open for the
+handle's other sources and sinks.
 
 Each delivery's ordering key follows the order Pulsar guarantees for the
 configured subscription type:
@@ -2948,9 +3031,9 @@ receipt. A producer sends queued messages in order and replays unacknowledged
 ones in order after a reconnect, so outputs of one partition keep their
 submission order unless the broker rejects a send, as described below.
 
-`PulsarSinkConfig::max_pending` bounds the messages queued by `submit` whose
-receipt has not arrived; the default is 1000. `submit` waits while that many
-are outstanding. A completion dropped before its receipt, as when the input is
+`max_pending` bounds the messages queued by `submit` on one sink whose receipt
+has not arrived; the default is 1000. `submit` waits while that many are
+outstanding. A completion dropped before its receipt, as when the input is
 abandoned, frees its slot; the message stays queued and may still be written,
 but it is not sent again after a rejection. Publish retries apply to queueing
 only.
@@ -2959,7 +3042,7 @@ The client replays sends that lose their connection. A send the broker answers
 with an error is not replayed by the client, and a broker that is shutting down
 or unloading the topic, as during a restart or a routine load-balancer unload,
 rejects the sends in flight with a persistence error. The sink therefore sends
-a rejected message again under `PulsarSinkConfig::send_retry`, ten sends with
+a rejected message again under the sink's `send_retry`, ten sends with
 backoff from 100 ms to 5 s by default, measured from the previous send. A task
 per producer observes the receipts in submission order, so the messages of one
 rejected run are sent again in their original order and reach the topic's next
@@ -2974,7 +3057,8 @@ reorder the outputs of one partition. A message the broker wrote despite
 answering with an error is written twice.
 
 `close` stops new submissions, waits for every outstanding receipt, then closes
-the producers.
+the sink's producers. The client stays open for the handle's other sources and
+sinks.
 
 ## Metadata inheritance
 
@@ -3009,7 +3093,7 @@ processing span's context; see
 
 A null value is a tombstone. Pulsar topic compaction deletes a key when it sees
 a message with that key and an empty payload, and producers can also mark a
-value as null explicitly. `PulsarSourceConfig::empty_payload_is_tombstone`,
+value as null explicitly. The source's `empty_payload_is_tombstone`,
 enabled by default, follows the compaction rule: an empty payload or a
 null-marked message becomes `PulsarRecord { value: None, .. }` and is not passed
 to the codec. When disabled, only a null-marked message becomes `None`, and an
@@ -3052,42 +3136,56 @@ beavers = { version = "0.1", features = ["rabbitmq"] }
 
 ## Configuration
 
-`RabbitMqSourceConfig` takes a broker URI and the queue to consume;
-`RabbitMqSinkConfig` takes a broker URI, the exchange every output is published
-to, and the routing key of outputs that do not set their own. The empty
-exchange name is RabbitMQ's default exchange, which routes a message to the
-queue named by its routing key. `validate` checks the values without contacting
-the broker, and both adapters connect on first use. The `Debug` output of both
-configurations hides the URI's password.
+A `RabbitMq` handle holds the broker URI. `handle.source::<C, T>(queue)` builds
+a source that consumes `queue`, and `handle.sink::<C, T>(exchange, routing_key)`
+a sink that publishes to `exchange` with `routing_key` for outputs that do not
+set their own; `source_with_codec` and `sink_with_codec` take a codec value as
+their first argument instead of using the codec's default. The empty exchange
+name is RabbitMQ's default exchange, which routes a message to the queue named
+by its routing key. Optional settings are builder methods on the handle, the
+source, and the sink.
 
 ```rust
-use beavers::{Utf8, adapters::rabbitmq::{
-    RabbitMqPublish, RabbitMqSink, RabbitMqSinkConfig, RabbitMqSource, RabbitMqSourceConfig,
-}};
+use beavers::{Utf8, adapters::rabbitmq::{RabbitMq, RabbitMqPublish}};
 
-let source = RabbitMqSource::<Utf8, String>::new(RabbitMqSourceConfig::new(
-    "amqp://guest:guest@localhost:5672/%2f",
-    "orders",
-));
-let sink = RabbitMqSink::<Utf8, String>::new(RabbitMqSinkConfig::new(
-    "amqp://guest:guest@localhost:5672/%2f",
-    "",
-    "processed-orders",
-));
+let rabbit = RabbitMq::new("amqp://guest:guest@localhost:5672/%2f")
+    .connection_name("orders-service");
+let source = rabbit.source::<Utf8, String>("orders").prefetch(32);
+let sink = rabbit.sink::<Utf8, String>("", "processed-orders");
 
 let output = RabbitMqPublish::new("created".to_owned()).with_routing_key("audit");
 ```
+
+The handle opens one connection for all of its sources and one for all of its
+sinks, as RabbitMQ recommends, because the broker blocks a publishing
+connection under memory or disk alarms and consumers on it would stall too.
+Each source and sink uses a channel of its own on them. A connection opens on
+the first use that needs it, which also validates the settings, and is opened
+again after it is lost. Closing a source or sink closes only its channel; the
+connections close once the handle and every source and sink built from it have
+been dropped. `connection_name` names the connections `{name} consumer` and
+`{name} publisher` in the management tools; the default name is `beavers`.
+Each builder method on the handle returns a handle with connections of its
+own, so configure the handle before building sources and sinks from it.
+
+A lost connection ends the channel of every source and sink that uses it. Each
+source reports a retryable error and opens a new channel on the next
+`receive`, while each sink fails the completions still waiting for a
+confirmation, which stops their subscriptions as described under
+[publication](#publication).
+
+The handle, the source, and the sink each have `validate`, which checks the
+values without contacting the broker. The handle's `Debug` output hides the
+URI's password.
 
 The adapters declare no exchanges, queues, or bindings. Create the topology
 with broker definitions, the management tools, or application code before the
 subscription starts; a source whose queue does not exist fails its receive and
 retries under the subscription's `receive_retry`.
 
-`RabbitMqSourceConfig::prefetch` is the `basic.qos` prefetch count, 100 by
-default: the number of unacknowledged messages the broker sends ahead. It bounds
+The source's `prefetch` is the `basic.qos` prefetch count, 100 by default: the number of unacknowledged messages the broker sends ahead. It bounds
 the source's buffered and in-flight deliveries together, so keep it at least as
-large as the subscription's `max_in_flight`. Each connection is named
-`beavers source <queue>` or `beavers sink <exchange>` in the management tools.
+large as the subscription's `max_in_flight`.
 
 ## Records
 
@@ -3124,7 +3222,7 @@ so a connection lost right after it can still requeue the message, which is
 then processed again. Dropping a `RabbitMqMessage` leaves its message
 unacknowledged until its channel closes, when the broker requeues it with the
 redelivered flag set; this happens when the source closes or loses its
-connection.
+channel or connection.
 
 A delivery tag is valid only on the channel that delivered it. When the
 connection or channel is lost, or the broker cancels the consumer, `receive`
@@ -3138,7 +3236,7 @@ connection loss.
 RabbitMQ delivers a queue's messages to one consumer in order, but distributes
 them among several consumers and requeues unacknowledged messages, so
 deliveries have no ordering key by default and run in parallel up to the
-subscription's `concurrency`. Set `RabbitMqSourceConfig::ordered` to give every
+subscription's `concurrency`. Set the source's `ordered` to give every
 delivery the queue as its ordering key, so that `ProcessingOrder::PerKey`
 processes one message at a time in delivery order. Combine it with a queue that
 has a single active consumer (`x-single-active-consumer`) for order across
@@ -3153,8 +3251,8 @@ delivery.
 
 `prepare` encodes the value and converts the routing key, headers, and
 properties to their AMQP form once, so publish retries reuse them. The sink
-opens its connection and a channel in publisher-confirm mode on first use, and
-again after the previous channel was lost.
+opens a channel in publisher-confirm mode on the handle's publishing connection
+on first use, and again after the previous channel or its connection was lost.
 
 `RabbitMqSink::submit` returns once the message is written to the channel, with
 a completion that resolves on the broker's publisher confirmation. The runtime
@@ -3164,18 +3262,19 @@ confirmation. A broker `nack`, a channel lost before the confirmation, or a
 message returned as unroutable fails the completion, which stops the
 subscription without acknowledging the input, and the input is redelivered.
 
-`RabbitMqSinkConfig::mandatory`, enabled by default, asks the broker to return
+The sink's `mandatory`, enabled by default, asks the broker to return
 a message no queue receives, so a missing binding fails the subscription
 instead of losing outputs. Disable it to let the broker discard such messages.
 `persistent`, also enabled by default, publishes with the persistent delivery
 mode, so durable queues keep the messages across a broker restart; the
 confirmation then arrives after the broker has written them.
 
-`RabbitMqSinkConfig::max_pending` bounds the messages submitted whose
-confirmation has not arrived; the default is 1000. `submit` waits while that
+`max_pending` bounds the messages submitted to one sink whose confirmation has
+not arrived; the default is 1000. `submit` waits while that
 many are outstanding. Messages on one channel are confirmed in publication
 order. `close` stops new submissions, waits for outstanding confirmations, and
-closes the connection.
+closes the sink's channel. The publishing connection stays open for the
+handle's other sinks.
 
 ## Metadata inheritance
 
@@ -3244,33 +3343,46 @@ beavers = { version = "0.1", features = ["sqs"] }
 
 ## Configuration
 
-`SqsSourceConfig` and `SqsSinkConfig` take the URL of one queue. A URL ending in
-`.fifo` names a FIFO queue. `region`, `endpoint_url`, and `credentials` are
-optional: unset, the SDK's default chains resolve the region and credentials
-from the environment, shared configuration files, web identity, or container
-and instance metadata. Set `endpoint_url` to use an SQS-compatible emulator
-such as ElasticMQ or LocalStack. `validate` checks the values without contacting
-AWS, and both adapters create their SDK client on first use. The `Debug` output
-of `SqsCredentials` hides the secret key and session token.
+An `Sqs` handle holds how the adapter reaches SQS. `region`, `endpoint_url`,
+and `credentials` are optional builder methods on it: unset, the SDK's default
+chains resolve the region and credentials from the environment, shared
+configuration files, web identity, or container and instance metadata. Set
+`endpoint_url` to use an SQS-compatible emulator such as ElasticMQ or
+LocalStack. `SqsCredentials::new` takes an access key ID and secret access key;
+the `Debug` output of `SqsCredentials` hides the secret key and session token.
+
+`handle.source::<C, T>(queue_url)` and `handle.sink::<C, T>(queue_url)` build a
+source and a sink for one queue; `source_with_codec` and `sink_with_codec` take
+a codec value as their first argument instead of using the codec's default. A
+URL ending in `.fifo` names a FIFO queue.
 
 ```rust
-use beavers::{Utf8, adapters::sqs::{SqsPublish, SqsSink, SqsSinkConfig, SqsSource, SqsSourceConfig}};
+use beavers::{Utf8, adapters::sqs::{Sqs, SqsPublish}};
 
-let source = SqsSource::<Utf8, String>::new(SqsSourceConfig::new(
+let sqs = Sqs::new().region("eu-west-1");
+let source = sqs.source::<Utf8, String>(
     "https://sqs.eu-west-1.amazonaws.com/123456789012/orders",
-));
-let sink = SqsSink::<Utf8, String>::new(SqsSinkConfig::new(
+);
+let sink = sqs.sink::<Utf8, String>(
     "https://sqs.eu-west-1.amazonaws.com/123456789012/processed-orders.fifo",
-));
+);
 
 let output = SqsPublish::new("created".to_owned()).with_message_group_id("customer-7");
 ```
 
+All sources and sinks built from one handle share one SDK client, with its
+credential provider and HTTP connection pool. The client is created on the
+first `receive` or publication of any of them, which also validates the
+settings. Each builder method on the handle returns a handle with a client of
+its own, so configure the handle before building sources and sinks from it.
+The handle, the source, and the sink each have `validate`, which checks the
+values without contacting AWS.
+
 The adapters create no queues and set no queue attributes such as a redrive
 policy. Create them with infrastructure tooling before the subscription starts.
 
-The source receives with long polling. `SqsSourceConfig::max_messages` (1 to
-10, default 10) is the batch size of each `ReceiveMessage` call and `wait_time`
+The source receives with long polling. Its `max_messages` (1 to 10, default
+10) is the batch size of each `ReceiveMessage` call and `wait_time`
 (at most 20 seconds, the default) how long a call waits for messages.
 `visibility_timeout`, 30 seconds by default, is requested with every receive and
 overrides the queue's own default.
@@ -3281,7 +3393,8 @@ overrides the queue's own default.
 applies to the message body. SQS has no null body, so the value is always
 present and SQS records support no tombstones. SQS bodies are text: `prepare`
 rejects an encoded value that is not UTF-8, so binary codecs such as Protobuf
-and Avro need a text representation before they can be sent.
+and Avro need a text representation, such as the
+[`Base64` wrapper](../codecs/wrappers/base64.md), before they can be sent.
 
 `attributes` holds the message attributes as `SqsAttributeValue::String`,
 `Number` in its decimal text form, or `Binary`. A custom type label such as
@@ -3307,8 +3420,8 @@ invisible: a background task extends a message's visibility with
 is acknowledged or released. SQS limits visibility to 12 hours from the receipt;
 a message held longer becomes visible again.
 
-A successful ACK deletes the message with `DeleteMessage`, retried under
-`SqsSourceConfig::ack_retry`. Dropping an `SqsMessage` without acknowledging it,
+A successful ACK deletes the message with `DeleteMessage`, retried under the
+source's `ack_retry`. Dropping an `SqsMessage` without acknowledging it,
 or closing the source, changes the visibility of its remaining messages to zero,
 so another receive takes them at once with an incremented receive count.
 
@@ -3407,32 +3520,40 @@ beavers = { version = "0.1", features = ["pubsub"] }
 
 ## Configuration
 
-`PubSubSourceConfig` takes the full name of one subscription,
-`projects/{project}/subscriptions/{id}`, and `PubSubSinkConfig` the full name of
-one topic, `projects/{project}/topics/{id}`. `credentials` is
-`PubSubCredentials::Default` unless set: Application Default Credentials, which
-read the `GOOGLE_APPLICATION_CREDENTIALS` key file, the gcloud user
-credentials, or the metadata server of the Google Cloud environment the
-application runs in. `endpoint` replaces `https://pubsub.googleapis.com`, for
-example with a regional endpoint. `validate` checks the values without
-contacting Google Cloud, and both adapters create their client on first use.
+A `PubSub` handle holds the connection settings that its sources and sinks
+share. It resolves its credentials once and keeps one subscriber client for all
+of its sources. Each sink has a publisher client of its own, because a Pub/Sub
+publisher batches messages for one topic, and uses the handle's credentials.
+Credentials and clients are created on the first `receive` or publication that
+needs them, which also validates the settings.
+
+The handle uses Application Default Credentials unless `anonymous()` is set:
+the `GOOGLE_APPLICATION_CREDENTIALS` key file, the gcloud user credentials, or
+the metadata server of the Google Cloud environment the application runs in.
+`endpoint` replaces `https://pubsub.googleapis.com`, for example with a
+regional endpoint. Each handle builder method returns a handle with
+credentials and clients of its own, so configure the handle before building
+sources and sinks from it.
+
+`source` takes the full name of one subscription,
+`projects/{project}/subscriptions/{id}`, and `sink` the full name of one topic,
+`projects/{project}/topics/{id}`. `source_with_codec` and `sink_with_codec`
+take a codec value first. The handle, source, and sink each have `validate`,
+which checks the values without contacting Google Cloud.
 
 ```rust
-use beavers::{Utf8, adapters::pubsub::{PubSubPublish, PubSubSink, PubSubSinkConfig, PubSubSource, PubSubSourceConfig}};
+use beavers::{Utf8, adapters::pubsub::{PubSub, PubSubPublish}};
 
-let source = PubSubSource::<Utf8, String>::new(PubSubSourceConfig::new(
-    "projects/my-project/subscriptions/orders",
-));
-let sink = PubSubSink::<Utf8, String>::new(PubSubSinkConfig::new(
-    "projects/my-project/topics/processed-orders",
-));
+let pubsub = PubSub::new();
+let source = pubsub.source::<Utf8, String>("projects/my-project/subscriptions/orders");
+let sink = pubsub.sink::<Utf8, String>("projects/my-project/topics/processed-orders");
 
 let output = PubSubPublish::new("created".to_owned()).with_ordering_key("customer-7");
 ```
 
-For the [Pub/Sub emulator](../development.md#broker-configuration), set
-`endpoint` to its address, such as `http://localhost:8085`, and `credentials`
-to `PubSubCredentials::Anonymous`.
+For the [Pub/Sub emulator](../development.md#broker-configuration), set the
+endpoint to its address and send no credentials:
+`PubSub::new().endpoint("http://localhost:8085").anonymous()`.
 
 The adapters create no topics or subscriptions and set no subscription
 properties such as message ordering, exactly-once delivery, or a dead-letter
@@ -3441,12 +3562,26 @@ policy. Create them with infrastructure tooling before the subscription starts.
 The source receives through one streaming pull. Pub/Sub stops sending once
 `max_outstanding_messages` (1000 by default) messages or
 `max_outstanding_bytes` (100 MiB) of data are received and not yet
-acknowledged. The runtime's `max_in_flight` bounds the deliveries it holds; the
-rest of the outstanding messages wait in the client's buffer with their leases
-extended.
+acknowledged; zero or less sets no limit. The runtime's `max_in_flight` bounds
+the deliveries it holds; the rest of the outstanding messages wait in the
+client's buffer with their leases extended.
 
-`PubSubSinkConfig::batch_delay`, 10 milliseconds by default, is how long the
-client collects outputs into one `Publish` request.
+The sink's `batch_delay`, 10 milliseconds by default, is how long the client
+collects outputs into one `Publish` request.
+
+```rust
+use beavers::{Utf8, adapters::pubsub::PubSub};
+use std::time::Duration;
+
+let pubsub = PubSub::new();
+let source = pubsub
+    .source::<Utf8, String>("projects/my-project/subscriptions/orders")
+    .max_outstanding_messages(200)
+    .ack_deadline(Duration::from_secs(120));
+let sink = pubsub
+    .sink::<Utf8, String>("projects/my-project/topics/processed-orders")
+    .batch_delay(Duration::from_millis(50));
+```
 
 ## Records
 
@@ -3579,63 +3714,72 @@ beavers = { version = "0.1", features = ["servicebus"] }
 
 ## Configuration
 
-`ServiceBusConnection` names a namespace, such as
-`contoso.servicebus.windows.net`, and a `ServiceBusCredential`:
+A `ServiceBus` handle names a namespace, such as
+`contoso.servicebus.windows.net`, and a credential:
 
-- `SharedAccessKey { name, key }` signs a shared access signature for each
+- `shared_access_key(name, key)` signs a shared access signature for each
   entity the adapter uses and renews it before it expires.
-- `SharedAccessSignature(token)` uses a token signed elsewhere. It cannot be
+- `shared_access_signature(token)` uses a token signed elsewhere. It cannot be
   renewed, so the connection fails once the token expires.
 
-`ServiceBusConnection::from_connection_string` reads a connection string as the
-Azure portal and the Service Bus emulator show it. A connection string with
-`EntityPath` is refused; name the entity in the source or sink configuration
-instead. The `Debug` output of `ServiceBusCredential` hides the key and the
-signature.
+`ServiceBus::from_connection_string` reads a connection string as the Azure
+portal and the Service Bus emulator show it. A connection string with
+`EntityPath` is refused; pass the entity to the source or sink instead. The
+`Debug` output of the handle hides the key and the signature.
 
 The adapters connect with AMQP over TLS on port 5671 and authenticate with
 claims-based security. `UseDevelopmentEmulator=true` in a connection string, or
-`emulator = true`, selects plain AMQP on port 5672 for the emulator; a port in
-the namespace overrides either default. Microsoft Entra ID credentials are not
+`emulator()`, selects plain AMQP on port 5672 for the emulator; a port in the
+namespace overrides either default. Microsoft Entra ID credentials are not
 supported yet.
 
-```rust
-use beavers::{
-    Utf8,
-    adapters::servicebus::{
-        ServiceBusConnection, ServiceBusPublish, ServiceBusSink, ServiceBusSinkConfig,
-        ServiceBusSource, ServiceBusSourceConfig,
-    },
-};
+The handle opens one AMQP connection with one session, and every source and
+sink built from it attaches its links to that session. Each entity is
+authorized once on the connection through claims-based security, and tokens
+signed with a shared access key are renewed before they expire. The connection
+opens on the first use that needs it, which also validates the settings, and is
+opened again after it is lost. Closing a source or sink detaches its links
+only; the connection closes once the handle and every source and sink built
+from it have been dropped. Each handle builder method returns a handle with a
+connection of its own, so configure the handle before building sources and
+sinks from it.
 
-let connection = ServiceBusConnection::from_connection_string(
+```rust
+use beavers::{Utf8, adapters::servicebus::{ServiceBus, ServiceBusPublish}};
+
+let bus = ServiceBus::from_connection_string(
     "Endpoint=sb://contoso.servicebus.windows.net/;SharedAccessKeyName=app;SharedAccessKey=...",
 )?;
-let source = ServiceBusSource::<Utf8, String>::new(ServiceBusSourceConfig::new(
-    connection.clone(),
-    "orders/Subscriptions/billing",
-));
-let sink = ServiceBusSink::<Utf8, String>::new(ServiceBusSinkConfig::new(
-    connection,
-    "processed-orders",
-));
+let source = bus.source::<Utf8, String>("orders/Subscriptions/billing");
+let sink = bus.sink::<Utf8, String>("processed-orders");
 
 let output = ServiceBusPublish::new("created".to_owned()).with_message_id("order-7");
 # Ok::<(), beavers::Error>(())
 ```
 
-`ServiceBusSourceConfig` receives from a queue, a topic subscription written as
+`source` receives from a queue, a topic subscription written as
 `{topic}/Subscriptions/{subscription}`, or a dead-letter subqueue such as
-`orders/$DeadLetterQueue`. Session-enabled entities are not supported.
-`prefetch`, 10 by default, is how many messages Service Bus may send ahead of
-`receive`. Each is locked from the moment it is sent, so keep `prefetch` small
-enough that prefetched messages reach a handler well within the lock duration.
+`orders/$DeadLetterQueue`. Session-enabled entities are not supported. The
+source's `prefetch`, 10 by default, is how many messages Service Bus may send
+ahead of `receive`. Each is locked from the moment it is sent, so keep
+`prefetch` small enough that prefetched messages reach a handler well within
+the lock duration.
 
-`ServiceBusSinkConfig` sends to one queue or topic. `max_pending`, 1000 by
-default, limits the messages sent and not yet accepted.
+`sink` sends to one queue or topic. The sink's `max_pending`, 1000 by default,
+limits the messages sent and not yet accepted.
 
-`validate` checks the values without contacting Service Bus. Both adapters
-connect on first use. They create no entities; create queues, topics,
+```rust
+use beavers::{Utf8, adapters::servicebus::ServiceBus};
+
+let bus = ServiceBus::new("contoso.servicebus.windows.net")
+    .shared_access_key("app", "...");
+let source = bus.source::<Utf8, String>("orders").prefetch(20);
+let sink = bus.sink::<Utf8, String>("processed-orders").max_pending(100);
+```
+
+`source_with_codec` and `sink_with_codec` take a codec value first. The handle,
+source, and sink each have `validate`, which checks the values without
+contacting Service Bus. The adapters create no entities; create queues, topics,
 subscriptions, and their rules with infrastructure tooling before the
 subscription starts.
 
@@ -3683,15 +3827,16 @@ lost leaves the message to be delivered again. Dropping a `ServiceBusMessage`
 without acknowledging it abandons the message, which Service Bus delivers again
 at once with an incremented delivery count. Closing the source releases the
 messages Service Bus sent ahead and the application never received, without
-counting a delivery, and then closes the connection.
+counting a delivery, and detaches its links; the handle's connection stays
+open.
 
 A lock that renewal reports lost, or that ends before it is renewed, means
 Service Bus may already have handed the message to another receiver, so the
 adapter cancels that delivery's revocation token. The runtime abandons a
 revoked delivery without ACK or subscription failure. An ACK whose lock has
 already ended also revokes the delivery and fails. When the connection or link
-is lost, every unsettled delivery is revoked and the next `receive` connects
-again.
+is lost, every unsettled delivery is revoked and the next `receive` attaches
+again, reopening the handle's connection when it was lost.
 
 Without sessions, Service Bus delivers messages in no guaranteed order, so the
 deliveries have no ordering key and run in parallel up to the subscription's
@@ -3708,8 +3853,9 @@ link and returns a completion that resolves when Service Bus accepts it;
 `publish` waits for that completion. A message larger than the link's maximum
 message size fails as `PublishRejected`, which the subscription's error policy
 can dead-letter instead of retrying. A lost connection fails the publication,
-and the next one connects again. `close` stops new publications and closes the
-connection.
+and the next one attaches again, reopening the handle's connection. `close`
+stops new publications and detaches the send link; the handle's connection
+stays open.
 
 A scheduled message is stored at once, so a completed publication of a
 scheduled message is as durable as any other.
@@ -3789,7 +3935,7 @@ beavers = { version = "0.1", features = ["http"] }
 ```rust,no_run
 use beavers::{
     App, Json, Result, StdoutSink,
-    adapters::http::{HttpRecord, HttpSource, HttpSourceConfig},
+    adapters::http::{HttpRecord, HttpSource},
 };
 use serde::{Deserialize, Serialize};
 
@@ -3804,9 +3950,7 @@ async fn accept(record: HttpRecord<Order>) -> Result<Order> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let source = HttpSource::<Json, Order>::new(HttpSourceConfig::new(
-        "0.0.0.0:8080".parse()?,
-    ))?;
+    let source = HttpSource::<Json, Order>::new("0.0.0.0:8080".parse()?)?;
     App::new()
         .subscribe("orders", source, StdoutSink::<Json>::new(), accept)
         .run()
@@ -3821,17 +3965,29 @@ curl -i -X POST localhost:8080/orders -d '{"id":7}'
 
 ### Server configuration
 
-| Field | Default | Meaning |
-|---|---|---|
-| `bind` | required | Listen address. Port 0 selects a free port. |
-| `max_body_bytes` | 1 MiB | Larger bodies are answered with `413` and never become deliveries. |
-| `response` | `ResponseTiming::Ack` | When a received request is answered; see [response timing](#response-timing). |
+The HTTP source has no shared handle; each source is its own server.
 
-`HttpSource::new(config)` validates the configuration and binds the listener
-immediately, so an address in use is reported by the constructor and
-`local_addr()` returns the bound address, including a port chosen for port 0.
-The server starts accepting connections on the first `receive`.
-`with_codec(config, codec)` accepts a configured codec.
+| Setting | Default | Meaning |
+|---|---|---|
+| `bind` | required | Listen address passed to `new`. Port 0 selects a free port. |
+| `max_body_bytes(n)` | 1 MiB | Larger bodies are answered with `413` and never become deliveries. |
+| `response(timing)` | `ResponseTiming::Ack` | When a received request is answered; see [response timing](#response-timing). |
+
+`HttpSource::new(bind)` binds the listener immediately, so an address in use is
+reported by the constructor and `local_addr()` returns the bound address,
+including a port chosen for port 0. `HttpSource::with_codec(codec, bind)`
+accepts a configured codec. `validate` checks the settings, and the server
+validates them again when it starts accepting connections on the first
+`receive`.
+
+```rust,no_run
+use beavers::{Utf8, adapters::http::{HttpSource, ResponseTiming}};
+
+let source = HttpSource::<Utf8, String>::new("0.0.0.0:8080".parse()?)?
+    .max_body_bytes(64 * 1024)
+    .response(ResponseTiming::Receive);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
 
 ### Records
 
@@ -3965,15 +4121,15 @@ never reach the subscription's `beavers_delivery_failures_total`.
 ## Sink
 
 `HttpSink<C, T>` accepts `HttpPublish<T>` outputs. It encodes each body with
-its codec and sends one request per output to the configured URL. A typical use
+its codec and sends one request per output to its URL. A typical use
 is handing events consumed from a broker to a service with an HTTP API:
 
 ```rust,ignore
 use beavers::{
     App, Json, Result,
     adapters::{
-        http::{HttpPublish, HttpSink, HttpSinkConfig},
-        kafka::{KafkaRecord, KafkaSource, KafkaSourceConfig},
+        http::{HttpClient, HttpPublish},
+        kafka::{Kafka, KafkaRecord},
     },
 };
 
@@ -3985,42 +4141,71 @@ async fn to_request(record: KafkaRecord<Order>) -> Result<HttpPublish<Order>> {
     Ok(HttpPublish::new(order).with_header("idempotency-key", key))
 }
 
-let source = KafkaSource::<Json, Order>::new(KafkaSourceConfig::new(
-    "localhost:9092",
-    "orders-to-billing",
-    ["orders"],
-));
-let mut config = HttpSinkConfig::new("https://billing.internal/orders");
-config
-    .headers
-    .push(("content-type".into(), "application/json".into()));
-let sink = HttpSink::<Json, Order>::new(config)?;
+let source = Kafka::new("localhost:9092").source::<Json, Order>("orders-to-billing", ["orders"]);
+let sink = HttpClient::new()
+    .sink::<Json, Order>("https://billing.internal/orders")
+    .header("content-type", "application/json");
 App::new().subscribe("orders", source, sink, to_request).run().await?;
 ```
 
 ### Sink configuration
 
-| Field | Default | Meaning |
+An `HttpClient` handle holds the settings and the connection pool that the
+sinks built from it share. Its sinks send through one pool per handle, which
+keeps idle connections to each destination for reuse. The handle creates
+separate pools for `http` and `https` destinations, each on its first request,
+and loads the platform's root certificates only for the `https` pool. Idle
+connections close once the handle and every sink built from it have been
+dropped. Each handle builder method returns a handle with a pool of its own, so
+configure the handle before building sinks from it. The `Debug` output of the
+handle shows header names only.
+
+| Handle method | Default | Meaning |
+|---|---|---|
+| `header(name, value)` | none | Header sent with every request of every sink, such as `authorization` |
+| `timeout(duration)` | 30 s | Limit for one attempt, from connecting until the response body is read, for sinks that set none |
+
+`sink::<C, T>(url)` builds a sink with the codec's default value, and
+`sink_with_codec(codec, url)` with a configured codec. The URL is required; the
+other settings are sink builder methods:
+
+| Sink setting | Default | Meaning |
 |---|---|---|
 | `url` | required | Absolute `http` or `https` URL, including any path and query |
-| `method` | `HttpMethod::Post` | `Post`, `Put`, or `Patch` |
-| `headers` | none | Headers sent with every request, such as `content-type` or `authorization` |
-| `timeout` | 30 s | Limit for one attempt, from connecting until the response body is read |
+| `method(method)` | `HttpMethod::Post` | `Post`, `Put`, or `Patch` |
+| `header(name, value)` | handle headers | Header sent with every request, such as `content-type`; replaces the handle's headers of the same name |
+| `timeout(duration)` | handle timeout | Limit for one attempt, replacing the handle's timeout |
 
-`HttpSink::new(config)` validates the configuration and returns an error for a
+```rust
+use beavers::{Json, adapters::http::{HttpClient, HttpMethod}};
+use std::time::Duration;
+
+let http = HttpClient::new()
+    .header("authorization", "Bearer token")
+    .timeout(Duration::from_secs(10));
+let orders = http
+    .sink::<Json, String>("https://billing.example.com/orders")
+    .header("content-type", "application/json");
+let refunds = http
+    .sink::<Json, String>("https://billing.example.com/refunds")
+    .method(HttpMethod::Put)
+    .timeout(Duration::from_secs(60));
+```
+
+The handle and the sink each have `validate`. The sink's returns an error for a
 URL without a host, a scheme other than `http` or `https`, credentials in the
-URL, invalid header names or values, or a zero timeout. The client is created
-on the first publication. `with_codec(config, codec)` accepts a configured
-codec. Clones share one connection pool and closing state.
+URL, invalid header names or values, or a zero timeout, and the sink validates
+its settings again when it prepares its first output. Clones of a sink share
+its closing state.
 
-`https` servers are verified against the platform's root certificates, loaded
-with the client; a platform without any fails every publication. The codec does
-not set `content-type`, so configure it in `headers`.
+`https` servers are verified against the platform's root certificates; a
+platform without any fails every `https` publication. The codec does not set
+`content-type`, so set it with `header`.
 
 ### Requests
 
 `HttpPublish<T>` carries the body and optional `headers`. A header name set on
-an output replaces every configured header of that name; repeating a name on
+an output replaces every handle and sink header of that name; repeating a name on
 the output sends each value. Header names are case-insensitive, and invalid
 names or values fail `prepare`, which the error policy routes as `Encode`. The
 prepared request keeps the encoded body and complete header set, so a retry
@@ -4064,9 +4249,9 @@ subscription's `concurrency` bounds the requests in flight to one destination.
 
 ### Closing the sink
 
-`close` refuses further publications from the sink and all its clones. Requests
-already in progress finish, and idle connections close when the last of them
-releases the pool.
+`close` only refuses further publications from the sink and all its clones.
+Requests already in progress finish, and the handle's connection pool stays
+open for its other sinks.
 
 ### Client metrics
 
@@ -4160,19 +4345,15 @@ printf '%s\n' '{"id":10}' '{"id":20}' | cargo run --example transform -- --stdin
 IterSource and InMemorySink already exchange typed values, so they require no
 serialization codec.
 
-<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-51/docs/codecs/raw-utf8.md -->
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-51/docs/codecs/raw-bytes.md -->
 
-# Raw bytes and UTF-8 codecs
-
-`RawBytes` and `Utf8` provide lossless conversions for payloads that do not
-need a structured serialization format. Both are unit structs and implement
-`Default`, so they can be used by adapters that construct codecs internally.
-
-## RawBytes
+# Raw bytes codec
 
 `RawBytes` decodes a byte slice to `Vec<u8>` and encodes a `Vec<u8>` to bytes.
 It copies the payload without interpreting it. Empty payloads and every byte
-value are valid, including zero bytes and malformed UTF-8.
+value are valid, including zero bytes and malformed UTF-8. It is a unit struct
+that implements `Default`, so adapters that construct their codec internally
+can use it, and it needs no Cargo feature.
 
 ```rust
 use beavers::{Decoder, Encoder, RawBytes};
@@ -4183,12 +4364,21 @@ assert_eq!(codec.encode(&value)?, vec![0, 0xff, b'\n']);
 # Ok::<(), beavers::BoxError>(())
 ```
 
-## Utf8
+Framing remains the adapter's responsibility. A line-based source may remove
+or preserve delimiters according to its own contract, and a sink may append
+delimiters after encoding. `RawBytes` does not change framing on its own. For
+payloads that must be valid text, use [`Utf8`](utf8.md).
+
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-51/docs/codecs/utf8.md -->
+
+# UTF-8 codec
 
 `Utf8` decodes bytes to `String` only when the complete payload is valid UTF-8,
 and encodes a `String` using its UTF-8 representation. It does not trim text,
 strip a byte-order mark, normalize Unicode, or remove line endings. An empty
-payload decodes to an empty string. Malformed UTF-8 returns an error.
+payload decodes to an empty string. Malformed UTF-8 returns an error. It is a
+unit struct that implements `Default`, so adapters that construct their codec
+internally can use it, and it needs no Cargo feature.
 
 ```rust
 use beavers::{Decoder, Encoder, Utf8};
@@ -4200,10 +4390,10 @@ assert_eq!(codec.encode(&value)?, b"hello\n");
 # Ok::<(), beavers::BoxError>(())
 ```
 
-Framing remains the adapter's responsibility. In particular, a line-based
-source may remove or preserve delimiters according to its own contract, and a
-sink may append delimiters after encoding. Neither codec changes framing on its
-own.
+Framing remains the adapter's responsibility. A line-based source may remove
+or preserve delimiters according to its own contract, and a sink may append
+delimiters after encoding. `Utf8` does not change framing on its own. For
+arbitrary bytes, use [`RawBytes`](raw-bytes.md).
 
 <!-- https://cafeal.github.io/beave-rs/pr-preview/pr-51/docs/codecs/protobuf.md -->
 
@@ -4292,15 +4482,282 @@ maps to an array. For Avro `bytes` and `fixed`, use the byte helper modules
 documented by `apache-avro` when deriving Serde implementations.
 
 The codec intentionally has no `Default` implementation because a schema is
-required. The local stdin and stdout adapters currently default-construct their
-codecs, so an `Avro` instance cannot be plugged into those constructors. Use the
-codec directly until an adapter constructor that accepts an existing configured
-codec is implemented.
+required. Pass an instance to an adapter that accepts an existing codec, such
+as `kafka.source_with_codec(codec, group_id, topics)`,
+`kafka.sink_with_codec(codec, topic)`, or `StdoutSink::with_codec(codec)`.
 
 Schema evolution is not implicit: this API has no separate reader schema. If a
 producer and consumer use different schemas, create a codec with the producer's
 schema only when they are known to be compatible, or use Apache Avro's datum
 reader directly with explicit writer and reader schemas.
+
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-51/docs/codecs/msgpack.md -->
+
+# MessagePack codec
+
+`MessagePack` converts between [MessagePack](https://msgpack.org/) payloads and
+any type implementing Serde's traits, the same types `Json` accepts. It is a
+unit struct that implements `Default`. Enable the `msgpack` Cargo feature to
+use it:
+
+```toml
+[dependencies]
+beavers = { version = "0.1", features = ["msgpack"] }
+```
+
+Encoding calls `rmp_serde::to_vec_named`; decoding reads the complete payload
+with `rmp_serde`.
+
+```rust
+use beavers::{Decoder, Encoder, MessagePack};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Order {
+    id: u64,
+}
+
+let bytes = MessagePack.encode(&Order { id: 42 })?;
+let order: Order = MessagePack.decode(&bytes)?;
+assert_eq!(order, Order { id: 42 });
+# Ok::<(), beavers::BoxError>(())
+```
+
+## Struct representation
+
+`MessagePack` encodes a struct as a map keyed by field name rather than as a
+positional array. Payloads are larger than the array form, but other
+MessagePack implementations can read them by name, and a reader tolerates
+fields that were added, removed, or reordered, as with JSON. Decoding also
+accepts the array form that `rmp_serde::to_vec` writes.
+
+## Failures and framing
+
+Decoding rejects malformed or truncated input and payloads that contain bytes
+after the first value, so one payload cannot silently carry more than one value.
+These are decode failures; see [lifecycle and failures](../codecs.md#lifecycle-and-failures).
+
+`MessagePack` adds no framing. Its output is binary and can contain newline
+bytes, so it does not suit line-based adapters such as `StdinSource`, and
+brokers whose bodies carry text only, such as SQS, need the
+[`Base64` wrapper](wrappers/base64.md).
+
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-51/docs/codecs/cbor.md -->
+
+# CBOR codec
+
+`Cbor` converts between CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949))
+payloads and any type implementing Serde's traits, the same types `Json`
+accepts. It is a unit struct that implements `Default`. Enable the `cbor` Cargo
+feature to use it:
+
+```toml
+[dependencies]
+beavers = { version = "0.1", features = ["cbor"] }
+```
+
+Encoding calls `ciborium::into_writer`; decoding calls `ciborium::from_reader`
+over the complete payload.
+
+```rust
+use beavers::{Cbor, Decoder, Encoder};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Reading {
+    sensor: String,
+}
+
+let bytes = Cbor.encode(&Reading { sensor: "dam-1".into() })?;
+let reading: Reading = Cbor.decode(&bytes)?;
+assert_eq!(reading.sensor, "dam-1");
+# Ok::<(), beavers::BoxError>(())
+```
+
+## Representation
+
+`Cbor` writes the representation `ciborium` chooses for each Serde type: a
+struct is a map keyed by field name, and `Vec<u8>` is an array of integers
+unless the field uses a byte-string helper such as `serde_bytes`. It does not
+write a self-describe tag, CBOR sequences, or COSE structures.
+
+## Failures and framing
+
+Decoding rejects malformed or truncated input and payloads that contain bytes
+after the first value, so one payload cannot silently carry more than one value.
+These are decode failures; see [lifecycle and failures](../codecs.md#lifecycle-and-failures).
+
+`Cbor` adds no framing. Its output is binary and can contain newline bytes, so
+it does not suit line-based adapters such as `StdinSource`, and brokers whose
+bodies carry text only, such as SQS, need the
+[`Base64` wrapper](wrappers/base64.md).
+
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-51/docs/codecs/wrappers.md -->
+
+# Codec wrappers
+
+`Base64<C>`, `Gzip<C>`, and `Zstd<C>` wrap another codec `C` and transform its
+payload. Encoding runs the inner codec first and then the wrapper; decoding runs
+the wrapper first and passes its output to the inner codec. They accept any
+inner codec, including other wrappers, and implement `Decoder<T>` or
+`Encoder<T>` whenever the inner codec does.
+
+| Wrapper | Cargo feature | Payload |
+|---|---|---|
+| [`Base64<C>`](wrappers/base64.md) | `base64` | Standard Base64 text of the inner payload |
+| [`Gzip<C>`](wrappers/gzip.md) | `gzip` | One gzip member containing the inner payload |
+| [`Zstd<C>`](wrappers/zstd.md) | `zstd` | One Zstandard frame containing the inner payload |
+
+Each wrapper implements `Default` when its inner codec does, so it works with
+adapters that construct their codec with `C::default()`. Use the adapter
+handle's `source_with_codec` or `sink_with_codec` to pass a wrapper with
+non-default settings or a configured inner codec such as `Avro`.
+
+```rust,ignore
+use beavers::adapters::sqs::Sqs;
+use beavers::{Base64, Gzip, Protobuf};
+
+// Protobuf bytes, gzip-compressed, carried as text in an SQS body.
+let sink = Sqs::new().sink::<Base64<Gzip<Protobuf>>, Event>(queue_url);
+```
+
+The order of nested wrappers is the order of the encoding steps from the inside
+out: `Base64<Gzip<Json>>` compresses JSON and then encodes the compressed bytes
+as Base64. The reader of the payload must use the same nesting.
+
+Wrappers do not record what they did in the payload or in message metadata. A
+decoder therefore expects every payload in a stream to use the same wrapping;
+a subscription that receives both compressed and uncompressed payloads needs a
+custom codec that tells them apart.
+
+## Choosing compression
+
+Gzip is readable by almost every platform; Zstandard compresses better and
+faster where both ends support it. Both decompress into memory and fail to
+decode once the output would exceed `with_max_decoded_len`, 64 MiB by default,
+so a small, highly compressible payload cannot exhaust memory.
+
+On Kafka, prefer the producer's batch compression: set the librdkafka
+`compression.type` property, such as `zstd`, with `Kafka::producer_property`,
+and consumers decompress transparently. Batch compression sees repeated
+content across records and keeps payloads readable by any Kafka client. The
+Pulsar sink does not expose producer compression yet. The compression wrappers
+suit brokers without built-in compression, such as SQS, Pub/Sub, RabbitMQ, and
+Azure Service Bus, and payloads that must stay compressed end to end.
+Compressed payloads are binary, so SQS also needs `Base64` around them.
+
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-51/docs/codecs/wrappers/base64.md -->
+
+# Base64 wrapper
+
+`Base64<C>` carries the payload of an inner codec `C` as Base64 text. Enable
+the `base64` Cargo feature to use it:
+
+```toml
+[dependencies]
+beavers = { version = "0.1", features = ["base64"] }
+```
+
+Encoding runs the inner codec and encodes its output with the standard alphabet
+and padding from
+[RFC 4648, section 4](https://www.rfc-editor.org/rfc/rfc4648#section-4).
+Decoding accepts exactly that form: whitespace, line breaks, missing padding,
+and the URL-safe alphabet are errors. The output is ASCII, which makes binary
+codecs usable where bodies carry text only, such as [SQS](../../adapters/sqs.md)
+bodies.
+
+```rust
+use beavers::{Base64, Decoder, Encoder, RawBytes};
+
+let codec = Base64::new(RawBytes);
+assert_eq!(codec.encode(&vec![0xfb, 0xff])?, b"+/8=");
+assert_eq!(codec.decode(b"+/8=")?, vec![0xfb, 0xff]);
+# Ok::<(), beavers::BoxError>(())
+```
+
+`Base64::new(inner)` wraps a configured codec, and `Base64::default()` wraps
+`C::default()`. See [codec wrappers](../wrappers.md) for nesting and use with
+adapters.
+
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-51/docs/codecs/wrappers/gzip.md -->
+
+# Gzip wrapper
+
+`Gzip<C>` compresses the payload of an inner codec `C` as gzip
+([RFC 1952](https://www.rfc-editor.org/rfc/rfc1952)) through `flate2`. Enable
+the `gzip` Cargo feature to use it:
+
+```toml
+[dependencies]
+beavers = { version = "0.1", features = ["gzip"] }
+```
+
+Encoding runs the inner codec and writes its output as one gzip member.
+Decoding decompresses every concatenated member and passes the result to the
+inner codec, so payloads from other gzip writers decode as well.
+
+| Setting | Default | Range |
+|---|---|---|
+| `with_level` | 6 | 0 (store only) to 9 (smallest output) |
+| `with_max_decoded_len` | 64 MiB | Any byte count |
+
+```rust
+use beavers::{Decoder, Encoder, Gzip, Json};
+
+let codec = Gzip::new(Json).with_level(9);
+let bytes = codec.encode(&vec!["beaver"; 100])?;
+let value: Vec<String> = codec.decode(&bytes)?;
+assert_eq!(value.len(), 100);
+# Ok::<(), beavers::BoxError>(())
+```
+
+`with_level` panics on a level above 9, because the value is fixed when the
+codec is constructed. Decoding fails when the decompressed payload would exceed
+`with_max_decoded_len`, and malformed compressed data is also a decode failure.
+See [codec wrappers](../wrappers.md#choosing-compression) for when to compress
+in the codec rather than in the broker client.
+
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-51/docs/codecs/wrappers/zstd.md -->
+
+# Zstd wrapper
+
+`Zstd<C>` compresses the payload of an inner codec `C` as Zstandard
+([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878)) through the `zstd` crate,
+which compiles the reference C library. Enable the `zstd` Cargo feature to use
+it:
+
+```toml
+[dependencies]
+beavers = { version = "0.1", features = ["zstd"] }
+```
+
+Encoding runs the inner codec and writes its output as one Zstandard frame.
+Decoding decompresses every concatenated frame and passes the result to the
+inner codec, so payloads from other Zstandard writers decode as well.
+
+| Setting | Default | Range |
+|---|---|---|
+| `with_level` | 3 | Negative levels for speed up to 22; the linked library's range |
+| `with_max_decoded_len` | 64 MiB | Any byte count |
+
+```rust
+use beavers::{Decoder, Encoder, Json, Zstd};
+
+let codec = Zstd::new(Json)
+    .with_level(9)
+    .with_max_decoded_len(1024 * 1024);
+let bytes = codec.encode(&vec!["beaver"; 100])?;
+let value: Vec<String> = codec.decode(&bytes)?;
+assert_eq!(value.len(), 100);
+# Ok::<(), beavers::BoxError>(())
+```
+
+`with_level` panics on a level outside the library's range, because the value
+is fixed when the codec is constructed. Decoding fails when the decompressed
+payload would exceed `with_max_decoded_len`, and malformed compressed data is
+also a decode failure. See
+[codec wrappers](../wrappers.md#choosing-compression) for when to compress in
+the codec rather than in the broker client.
 
 <!-- https://cafeal.github.io/beave-rs/pr-preview/pr-51/docs/development.md -->
 
@@ -4399,17 +4856,17 @@ the broker accepts from the host through the published port. It starts without
 queues; the live tests declare their own through the management API.
 
 ElasticMQ implements the SQS API in memory and accepts any credentials and
-region. Point `SqsSourceConfig::endpoint_url` and `SqsSinkConfig::endpoint_url`
-at it. It starts without queues; create one with the AWS CLI
+region. Point a handle at it with
+`Sqs::new().region("elasticmq").endpoint_url("http://localhost:9324")` and
+static credentials such as `.credentials(SqsCredentials::new("local", "local"))`.
+It starts without queues; create one with the AWS CLI
 (`aws --endpoint-url http://localhost:9324 sqs create-queue --queue-name orders`)
 or the query API, as the live tests do. It does not reproduce every AWS limit
 and behavior, so verify production settings against SQS itself.
 
 The Pub/Sub emulator, from the `google/cloud-sdk` emulators image, keeps topics
-and subscriptions in memory and needs no credentials. Point
-`PubSubSourceConfig::endpoint` and `PubSubSinkConfig::endpoint` at
-`http://localhost:8085` and set their `credentials` to
-`PubSubCredentials::Anonymous`. It starts without topics; create them through
+and subscriptions in memory and needs no credentials. Connect to it with
+`PubSub::new().endpoint("http://localhost:8085").anonymous()`. It starts without topics; create them through
 its REST API, as the live tests do:
 
 ```sh
@@ -4423,7 +4880,10 @@ settings against Pub/Sub itself.
 
 The Service Bus emulator stores its entities in the `servicebus-sql` SQL Server
 container and reads its namespace from `dev/servicebus/config.json`, which
-defines the `beavers-events` topic with the `beavers-test` subscription. Its
+defines the `beavers-events` topic with the `beavers-test` subscription.
+Connect to it with `ServiceBus::from_connection_string(...)` and the connection
+string listed above; `UseDevelopmentEmulator=true` selects plain AMQP, which
+`.emulator()` sets on a handle built with `ServiceBus::new`. Its
 management API on port 5300 creates and deletes queues
 (`PUT /{queue}?api-version=2021-05` with an Atom `QueueDescription`), as the
 live tests do, but cannot create topic subscriptions, so add topics and
@@ -4594,10 +5054,12 @@ The asynchronous `pre_handler` and `post_handler` hooks are described in the
 
 Potential codec work includes:
 
-- MessagePack support;
 - Schema Registry integration for Avro;
 - writer-schema and reader-schema resolution;
-- evaluation of typed key codecs where a broker supports typed keys.
+- evaluation of typed key codecs where a broker supports typed keys;
+- recording a wrapper's content encoding, such as gzip, in message metadata so
+  one subscription can accept both wrapped and unwrapped payloads. `Decoder`
+  receives payload bytes only, so this needs metadata in the decoding contract.
 
 Schema Registry support must keep wire framing separate from raw Avro datum
 encoding and define schema lookup caching, compatibility failures, and behavior
@@ -4753,78 +5215,17 @@ The ignored live tests check that completions resolve on delivery and that
 - Shutdown with pending completions drains them before the sink closes, within
   the subscription's shutdown timeout.
 
-## Shared connections
+## Shared connection follow-ups
 
-Each source and sink currently opens its own client and authenticates on its
-own: a Kafka consumer or producer, a Pulsar client, a RabbitMQ or Service Bus
-AMQP connection, an SQS client built from a fresh `aws_config` load, and a
-Pub/Sub client that resolves its own credentials. Only clones of one sink share
-a connection. Authentication settings are also expressed differently per
-adapter: raw librdkafka properties, a Pulsar method name and data, credentials
-in a RabbitMQ URI, an SQS credentials field, Pub/Sub credential modes, and a
-`ServiceBusConnection` embedded in the Service Bus configurations.
+Sources and sinks share their adapter handle's connection; the adapter
+documents describe what each handle shares. Remaining work:
 
-Each adapter will gain a connection handle that is created first and builds
-the sources and sinks that share it. Configuration types go away: required
-values are arguments, and optional settings are builder methods on the handle,
-the source, and the sink.
-
-```rust,ignore
-let kafka = Kafka::new("broker:9092").sasl_plain(user, password);
-
-let articles = kafka.source::<Utf8, String>("summarizer", ["articles"]);
-let summaries = kafka.sink::<Utf8, String>("summaries").max_pending(500);
-
-// A single source or sink is still one expression.
-let articles = Kafka::new("broker:9092").source::<Utf8, String>("summarizer", ["articles"]);
-```
-
-Decisions:
-
-- The public types per adapter are the handle (`Kafka`, `Pulsar`, `RabbitMq`,
-  `Sqs`, `PubSub`, `ServiceBus`, and an HTTP client handle for sinks), its
-  source, and its sink. `XxxSourceConfig`, `XxxSinkConfig`, and the Service Bus
-  `ServiceBusConnection` are removed, and so are the `XxxSource::new` and
-  `XxxSink::new` constructors. The HTTP source listens rather than
-  connects, so it keeps a constructor of its own with builder methods instead
-  of a configuration type.
-- The handle holds the endpoint, authentication, and client-wide settings. It
-  is a cheap clone around shared state, connects on first use, owns
-  reconnection, and closes once the last source or sink built from it has
-  closed. Closing one subscription never closes a connection another
-  subscription still uses.
-- Settings are validated without contacting the broker when the first source
-  or sink connects, as the configurations are validated today.
-- A codec that needs a value uses `source_with_codec` and `sink_with_codec`.
-- Authentication gets typed builder methods where the platform has common
-  mechanisms, such as SASL and TLS for Kafka. Raw client properties remain
-  available as an escape hatch.
-- A lost shared connection affects every subscription that uses it.
-  Subscription failure stays fail-fast, so this does not change how
-  applications detect failures.
-- Building sources and sinks from configuration files is left to
-  applications. A deserializable configuration type can be added later if
-  applications need one.
-
-What each handle shares:
-
-| Adapter | Shared | Kept per source or sink |
-|---|---|---|
-| Kafka | One producer for every non-transactional sink | One consumer per source; one producer per transactional sink |
-| Pulsar | One client for every producer and consumer | Producers and consumers |
-| Service Bus | One AMQP connection and session | Links and their entity authorization |
-| RabbitMQ | One publishing and one consuming connection, as RabbitMQ recommends | Channels |
-| SQS | One client and its credential provider | Nothing |
-| Pub/Sub | Credentials and one subscriber client | One publisher per topic |
-| HTTP sink | One HTTP client and its connection pool | Nothing |
-
-Open points:
-
-- Whether a shared Kafka producer keeps per-sink `max_pending` limits and
-  close semantics on top of one librdkafka queue.
-- Whether HTTP sources should share one listener and route by path.
-- Whether to add Entra ID authentication to Service Bus as part of this work.
-- Naming of the HTTP handle.
+- Verify against live brokers that the shared Service Bus connection authorizes
+  entities added after it opened, renews their tokens, and reopens for every
+  link after it is lost, and that the RabbitMQ handle reopens a lost
+  connection for every channel.
+- Decide whether HTTP sources should share one listener and route by path.
+- Decide whether to add Entra ID authentication to the Service Bus handle.
 
 ## Kafka rebalance behavior
 
@@ -4974,8 +5375,7 @@ request per message. Remaining decisions:
 
 - batching acknowledgements with `DeleteMessageBatch` and publications with
   `SendMessageBatch`, which needs completions that resolve per entry;
-- a text representation, such as base64, for binary codecs, whose output SQS
-  bodies cannot carry, and the extended client's S3 payloads beyond 256 KiB;
+- the extended client's S3 payloads beyond 256 KiB;
 - whether an error policy should leave a failed delivery visible again so the
   queue's redrive policy moves it, instead of publishing dead letters through a
   sink;
@@ -5076,13 +5476,12 @@ the first crates.io release:
 
 | Priority | Scope |
 |---|---|
-| 1 | Shared connections, starting with Pulsar, before `0.1.0` |
-| 2 | Adapter pause/resume backpressure and graceful rebalance handoff |
-| 3 | Cross-platform metadata mapping policy |
-| 4 | Observability refinements |
-| 5 | Live verification of batched Kafka transactions |
-| 6 | NATS JetStream adapter |
-| 7 | Schema Registry and additional codecs |
+| 1 | Adapter pause/resume backpressure and graceful rebalance handoff |
+| 2 | Cross-platform metadata mapping policy |
+| 3 | Observability refinements |
+| 4 | Live verification of batched Kafka transactions and shared connections |
+| 5 | NATS JetStream adapter |
+| 6 | Schema Registry and additional codecs |
 
 The order may change when a concrete application requires a later capability.
 When work begins, update this document with any newly resolved decisions. When

@@ -52,10 +52,9 @@ maps to an array. For Avro `bytes` and `fixed`, use the byte helper modules
 documented by `apache-avro` when deriving Serde implementations.
 
 The codec intentionally has no `Default` implementation because a schema is
-required. The local stdin and stdout adapters currently default-construct their
-codecs, so an `Avro` instance cannot be plugged into those constructors. Use the
-codec directly until an adapter constructor that accepts an existing configured
-codec is implemented.
+required. Pass an instance to an adapter that accepts an existing codec, such
+as `kafka.source_with_codec(codec, group_id, topics)`,
+`kafka.sink_with_codec(codec, topic)`, or `StdoutSink::with_codec(codec)`.
 
 Schema evolution is not implicit: this API has no separate reader schema. If a
 producer and consumer use different schemas, create a codec with the producer's

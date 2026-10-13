@@ -9,33 +9,46 @@ beavers = { version = "0.1", features = ["sqs"] }
 
 ## Configuration
 
-`SqsSourceConfig` and `SqsSinkConfig` take the URL of one queue. A URL ending in
-`.fifo` names a FIFO queue. `region`, `endpoint_url`, and `credentials` are
-optional: unset, the SDK's default chains resolve the region and credentials
-from the environment, shared configuration files, web identity, or container
-and instance metadata. Set `endpoint_url` to use an SQS-compatible emulator
-such as ElasticMQ or LocalStack. `validate` checks the values without contacting
-AWS, and both adapters create their SDK client on first use. The `Debug` output
-of `SqsCredentials` hides the secret key and session token.
+An `Sqs` handle holds how the adapter reaches SQS. `region`, `endpoint_url`,
+and `credentials` are optional builder methods on it: unset, the SDK's default
+chains resolve the region and credentials from the environment, shared
+configuration files, web identity, or container and instance metadata. Set
+`endpoint_url` to use an SQS-compatible emulator such as ElasticMQ or
+LocalStack. `SqsCredentials::new` takes an access key ID and secret access key;
+the `Debug` output of `SqsCredentials` hides the secret key and session token.
+
+`handle.source::<C, T>(queue_url)` and `handle.sink::<C, T>(queue_url)` build a
+source and a sink for one queue; `source_with_codec` and `sink_with_codec` take
+a codec value as their first argument instead of using the codec's default. A
+URL ending in `.fifo` names a FIFO queue.
 
 ```rust
-use beavers::{Utf8, adapters::sqs::{SqsPublish, SqsSink, SqsSinkConfig, SqsSource, SqsSourceConfig}};
+use beavers::{Utf8, adapters::sqs::{Sqs, SqsPublish}};
 
-let source = SqsSource::<Utf8, String>::new(SqsSourceConfig::new(
+let sqs = Sqs::new().region("eu-west-1");
+let source = sqs.source::<Utf8, String>(
     "https://sqs.eu-west-1.amazonaws.com/123456789012/orders",
-));
-let sink = SqsSink::<Utf8, String>::new(SqsSinkConfig::new(
+);
+let sink = sqs.sink::<Utf8, String>(
     "https://sqs.eu-west-1.amazonaws.com/123456789012/processed-orders.fifo",
-));
+);
 
 let output = SqsPublish::new("created".to_owned()).with_message_group_id("customer-7");
 ```
 
+All sources and sinks built from one handle share one SDK client, with its
+credential provider and HTTP connection pool. The client is created on the
+first `receive` or publication of any of them, which also validates the
+settings. Each builder method on the handle returns a handle with a client of
+its own, so configure the handle before building sources and sinks from it.
+The handle, the source, and the sink each have `validate`, which checks the
+values without contacting AWS.
+
 The adapters create no queues and set no queue attributes such as a redrive
 policy. Create them with infrastructure tooling before the subscription starts.
 
-The source receives with long polling. `SqsSourceConfig::max_messages` (1 to
-10, default 10) is the batch size of each `ReceiveMessage` call and `wait_time`
+The source receives with long polling. Its `max_messages` (1 to 10, default
+10) is the batch size of each `ReceiveMessage` call and `wait_time`
 (at most 20 seconds, the default) how long a call waits for messages.
 `visibility_timeout`, 30 seconds by default, is requested with every receive and
 overrides the queue's own default.
@@ -46,7 +59,8 @@ overrides the queue's own default.
 applies to the message body. SQS has no null body, so the value is always
 present and SQS records support no tombstones. SQS bodies are text: `prepare`
 rejects an encoded value that is not UTF-8, so binary codecs such as Protobuf
-and Avro need a text representation before they can be sent.
+and Avro need a text representation, such as the
+[`Base64` wrapper](../codecs/wrappers/base64.md), before they can be sent.
 
 `attributes` holds the message attributes as `SqsAttributeValue::String`,
 `Number` in its decimal text form, or `Binary`. A custom type label such as
@@ -72,8 +86,8 @@ invisible: a background task extends a message's visibility with
 is acknowledged or released. SQS limits visibility to 12 hours from the receipt;
 a message held longer becomes visible again.
 
-A successful ACK deletes the message with `DeleteMessage`, retried under
-`SqsSourceConfig::ack_retry`. Dropping an `SqsMessage` without acknowledging it,
+A successful ACK deletes the message with `DeleteMessage`, retried under the
+source's `ack_retry`. Dropping an `SqsMessage` without acknowledging it,
 or closing the source, changes the visibility of its remaining messages to zero,
 so another receive takes them at once with an incremented receive count.
 

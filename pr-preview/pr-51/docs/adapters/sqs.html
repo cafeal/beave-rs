@@ -24,7 +24,7 @@
 
   <div class="wrap layout">
     <nav class="toc" aria-label="Guides">
-<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="../runtime/handlers.html">Handlers</a></li><li><a href="../runtime/middleware.html">Middleware</a></li><li><a href="../runtime/errors.html">Errors and retries</a></li><li><a href="../runtime/tombstones.html">Tombstones</a></li><li><a href="../runtime/transactions.html">Transactions</a></li><li><a href="../runtime/observability.html">Observability</a></li><li><a href="../runtime/health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="local.html">Local adapters</a></li><li><a href="channel.html">Channel</a></li><li><a href="kafka.html">Kafka</a></li><li><a href="pulsar.html">Pulsar</a></li><li><a href="rabbitmq.html">RabbitMQ</a></li><li><a href="sqs.html" aria-current="page">SQS</a></li><li><a href="pubsub.html">Pub/Sub</a></li><li><a href="servicebus.html">Azure Service Bus</a></li><li><a href="http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="../runtime/handlers.html">Handlers</a></li><li><a href="../runtime/middleware.html">Middleware</a></li><li><a href="../runtime/errors.html">Errors and retries</a></li><li><a href="../runtime/tombstones.html">Tombstones</a></li><li><a href="../runtime/transactions.html">Transactions</a></li><li><a href="../runtime/observability.html">Observability</a></li><li><a href="../runtime/health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="local.html">Local adapters</a></li><li><a href="channel.html">Channel</a></li><li><a href="kafka.html">Kafka</a></li><li><a href="pulsar.html">Pulsar</a></li><li><a href="rabbitmq.html">RabbitMQ</a></li><li><a href="sqs.html" aria-current="page">SQS</a></li><li><a href="pubsub.html">Pub/Sub</a></li><li><a href="servicebus.html">Azure Service Bus</a></li><li><a href="http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-bytes.html">Raw bytes</a></li><li><a href="../codecs/utf8.html">UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li><li><a href="../codecs/msgpack.html">MessagePack</a></li><li><a href="../codecs/cbor.html">CBOR</a></li><li><a href="../codecs/wrappers.html">Codec wrappers</a><ul><li><a href="../codecs/wrappers/base64.html">Base64</a></li><li><a href="../codecs/wrappers/gzip.html">Gzip</a></li><li><a href="../codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
     </nav>
     <main class="doc">
 <h1 id="sqs-adapter">SQS adapter</h1>
@@ -32,28 +32,39 @@
 backed by the AWS SDK for Rust (<code>aws-sdk-sqs</code>).</p>
 <pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;sqs&quot;</span>] }
 </code></pre><h2 id="configuration">Configuration</h2>
-<p><code>SqsSourceConfig</code> and <code>SqsSinkConfig</code> take the URL of one queue. A URL ending in
-<code>.fifo</code> names a FIFO queue. <code>region</code>, <code>endpoint_url</code>, and <code>credentials</code> are
-optional: unset, the SDK&#39;s default chains resolve the region and credentials
-from the environment, shared configuration files, web identity, or container
-and instance metadata. Set <code>endpoint_url</code> to use an SQS-compatible emulator
-such as ElasticMQ or LocalStack. <code>validate</code> checks the values without contacting
-AWS, and both adapters create their SDK client on first use. The <code>Debug</code> output
-of <code>SqsCredentials</code> hides the secret key and session token.</p>
-<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::sqs::{SqsPublish, SqsSink, SqsSinkConfig, SqsSource, SqsSourceConfig}};
+<p>An <code>Sqs</code> handle holds how the adapter reaches SQS. <code>region</code>, <code>endpoint_url</code>,
+and <code>credentials</code> are optional builder methods on it: unset, the SDK&#39;s default
+chains resolve the region and credentials from the environment, shared
+configuration files, web identity, or container and instance metadata. Set
+<code>endpoint_url</code> to use an SQS-compatible emulator such as ElasticMQ or
+LocalStack. <code>SqsCredentials::new</code> takes an access key ID and secret access key;
+the <code>Debug</code> output of <code>SqsCredentials</code> hides the secret key and session token.</p>
+<p><code>handle.source::&lt;C, T&gt;(queue_url)</code> and <code>handle.sink::&lt;C, T&gt;(queue_url)</code> build a
+source and a sink for one queue; <code>source_with_codec</code> and <code>sink_with_codec</code> take
+a codec value as their first argument instead of using the codec&#39;s default. A
+URL ending in <code>.fifo</code> names a FIFO queue.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::sqs::{Sqs, SqsPublish}};
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = SqsSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(SqsSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sqs</span> = Sqs::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">region</span>(<span class="hljs-string">&quot;eu-west-1&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = sqs.source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(
     <span class="hljs-string">&quot;https://sqs.eu-west-1.amazonaws.com/123456789012/orders&quot;</span>,
-));
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = SqsSink::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(SqsSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
+);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = sqs.sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(
     <span class="hljs-string">&quot;https://sqs.eu-west-1.amazonaws.com/123456789012/processed-orders.fifo&quot;</span>,
-));
+);
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = SqsPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()).<span class="hljs-title function_ invoke__">with_message_group_id</span>(<span class="hljs-string">&quot;customer-7&quot;</span>);
-</code></pre><p>The adapters create no queues and set no queue attributes such as a redrive
+</code></pre><p>All sources and sinks built from one handle share one SDK client, with its
+credential provider and HTTP connection pool. The client is created on the
+first <code>receive</code> or publication of any of them, which also validates the
+settings. Each builder method on the handle returns a handle with a client of
+its own, so configure the handle before building sources and sinks from it.
+The handle, the source, and the sink each have <code>validate</code>, which checks the
+values without contacting AWS.</p>
+<p>The adapters create no queues and set no queue attributes such as a redrive
 policy. Create them with infrastructure tooling before the subscription starts.</p>
-<p>The source receives with long polling. <code>SqsSourceConfig::max_messages</code> (1 to
-10, default 10) is the batch size of each <code>ReceiveMessage</code> call and <code>wait_time</code>
+<p>The source receives with long polling. Its <code>max_messages</code> (1 to 10, default
+10) is the batch size of each <code>ReceiveMessage</code> call and <code>wait_time</code>
 (at most 20 seconds, the default) how long a call waits for messages.
 <code>visibility_timeout</code>, 30 seconds by default, is requested with every receive and
 overrides the queue&#39;s own default.</p>
@@ -62,7 +73,8 @@ overrides the queue&#39;s own default.</p>
 applies to the message body. SQS has no null body, so the value is always
 present and SQS records support no tombstones. SQS bodies are text: <code>prepare</code>
 rejects an encoded value that is not UTF-8, so binary codecs such as Protobuf
-and Avro need a text representation before they can be sent.</p>
+and Avro need a text representation, such as the
+<a href="../codecs/wrappers/base64.html"><code>Base64</code> wrapper</a>, before they can be sent.</p>
 <p><code>attributes</code> holds the message attributes as <code>SqsAttributeValue::String</code>,
 <code>Number</code> in its decimal text form, or <code>Binary</code>. A custom type label such as
 <code>Number.float</code> is read as its base type and not published again. SQS accepts at
@@ -82,8 +94,8 @@ invisible: a background task extends a message&#39;s visibility with
 <code>ChangeMessageVisibilityBatch</code> once a third of its timeout has passed, until it
 is acknowledged or released. SQS limits visibility to 12 hours from the receipt;
 a message held longer becomes visible again.</p>
-<p>A successful ACK deletes the message with <code>DeleteMessage</code>, retried under
-<code>SqsSourceConfig::ack_retry</code>. Dropping an <code>SqsMessage</code> without acknowledging it,
+<p>A successful ACK deletes the message with <code>DeleteMessage</code>, retried under the
+source&#39;s <code>ack_retry</code>. Dropping an <code>SqsMessage</code> without acknowledging it,
 or closing the source, changes the visibility of its remaining messages to zero,
 so another receive takes them at once with an incremented receive count.</p>
 <p>A receipt handle is valid only for the receipt that returned it. When an

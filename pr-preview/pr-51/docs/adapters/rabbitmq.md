@@ -9,42 +9,56 @@ beavers = { version = "0.1", features = ["rabbitmq"] }
 
 ## Configuration
 
-`RabbitMqSourceConfig` takes a broker URI and the queue to consume;
-`RabbitMqSinkConfig` takes a broker URI, the exchange every output is published
-to, and the routing key of outputs that do not set their own. The empty
-exchange name is RabbitMQ's default exchange, which routes a message to the
-queue named by its routing key. `validate` checks the values without contacting
-the broker, and both adapters connect on first use. The `Debug` output of both
-configurations hides the URI's password.
+A `RabbitMq` handle holds the broker URI. `handle.source::<C, T>(queue)` builds
+a source that consumes `queue`, and `handle.sink::<C, T>(exchange, routing_key)`
+a sink that publishes to `exchange` with `routing_key` for outputs that do not
+set their own; `source_with_codec` and `sink_with_codec` take a codec value as
+their first argument instead of using the codec's default. The empty exchange
+name is RabbitMQ's default exchange, which routes a message to the queue named
+by its routing key. Optional settings are builder methods on the handle, the
+source, and the sink.
 
 ```rust
-use beavers::{Utf8, adapters::rabbitmq::{
-    RabbitMqPublish, RabbitMqSink, RabbitMqSinkConfig, RabbitMqSource, RabbitMqSourceConfig,
-}};
+use beavers::{Utf8, adapters::rabbitmq::{RabbitMq, RabbitMqPublish}};
 
-let source = RabbitMqSource::<Utf8, String>::new(RabbitMqSourceConfig::new(
-    "amqp://guest:guest@localhost:5672/%2f",
-    "orders",
-));
-let sink = RabbitMqSink::<Utf8, String>::new(RabbitMqSinkConfig::new(
-    "amqp://guest:guest@localhost:5672/%2f",
-    "",
-    "processed-orders",
-));
+let rabbit = RabbitMq::new("amqp://guest:guest@localhost:5672/%2f")
+    .connection_name("orders-service");
+let source = rabbit.source::<Utf8, String>("orders").prefetch(32);
+let sink = rabbit.sink::<Utf8, String>("", "processed-orders");
 
 let output = RabbitMqPublish::new("created".to_owned()).with_routing_key("audit");
 ```
+
+The handle opens one connection for all of its sources and one for all of its
+sinks, as RabbitMQ recommends, because the broker blocks a publishing
+connection under memory or disk alarms and consumers on it would stall too.
+Each source and sink uses a channel of its own on them. A connection opens on
+the first use that needs it, which also validates the settings, and is opened
+again after it is lost. Closing a source or sink closes only its channel; the
+connections close once the handle and every source and sink built from it have
+been dropped. `connection_name` names the connections `{name} consumer` and
+`{name} publisher` in the management tools; the default name is `beavers`.
+Each builder method on the handle returns a handle with connections of its
+own, so configure the handle before building sources and sinks from it.
+
+A lost connection ends the channel of every source and sink that uses it. Each
+source reports a retryable error and opens a new channel on the next
+`receive`, while each sink fails the completions still waiting for a
+confirmation, which stops their subscriptions as described under
+[publication](#publication).
+
+The handle, the source, and the sink each have `validate`, which checks the
+values without contacting the broker. The handle's `Debug` output hides the
+URI's password.
 
 The adapters declare no exchanges, queues, or bindings. Create the topology
 with broker definitions, the management tools, or application code before the
 subscription starts; a source whose queue does not exist fails its receive and
 retries under the subscription's `receive_retry`.
 
-`RabbitMqSourceConfig::prefetch` is the `basic.qos` prefetch count, 100 by
-default: the number of unacknowledged messages the broker sends ahead. It bounds
+The source's `prefetch` is the `basic.qos` prefetch count, 100 by default: the number of unacknowledged messages the broker sends ahead. It bounds
 the source's buffered and in-flight deliveries together, so keep it at least as
-large as the subscription's `max_in_flight`. Each connection is named
-`beavers source <queue>` or `beavers sink <exchange>` in the management tools.
+large as the subscription's `max_in_flight`.
 
 ## Records
 
@@ -81,7 +95,7 @@ so a connection lost right after it can still requeue the message, which is
 then processed again. Dropping a `RabbitMqMessage` leaves its message
 unacknowledged until its channel closes, when the broker requeues it with the
 redelivered flag set; this happens when the source closes or loses its
-connection.
+channel or connection.
 
 A delivery tag is valid only on the channel that delivered it. When the
 connection or channel is lost, or the broker cancels the consumer, `receive`
@@ -95,7 +109,7 @@ connection loss.
 RabbitMQ delivers a queue's messages to one consumer in order, but distributes
 them among several consumers and requeues unacknowledged messages, so
 deliveries have no ordering key by default and run in parallel up to the
-subscription's `concurrency`. Set `RabbitMqSourceConfig::ordered` to give every
+subscription's `concurrency`. Set the source's `ordered` to give every
 delivery the queue as its ordering key, so that `ProcessingOrder::PerKey`
 processes one message at a time in delivery order. Combine it with a queue that
 has a single active consumer (`x-single-active-consumer`) for order across
@@ -110,8 +124,8 @@ delivery.
 
 `prepare` encodes the value and converts the routing key, headers, and
 properties to their AMQP form once, so publish retries reuse them. The sink
-opens its connection and a channel in publisher-confirm mode on first use, and
-again after the previous channel was lost.
+opens a channel in publisher-confirm mode on the handle's publishing connection
+on first use, and again after the previous channel or its connection was lost.
 
 `RabbitMqSink::submit` returns once the message is written to the channel, with
 a completion that resolves on the broker's publisher confirmation. The runtime
@@ -121,18 +135,19 @@ confirmation. A broker `nack`, a channel lost before the confirmation, or a
 message returned as unroutable fails the completion, which stops the
 subscription without acknowledging the input, and the input is redelivered.
 
-`RabbitMqSinkConfig::mandatory`, enabled by default, asks the broker to return
+The sink's `mandatory`, enabled by default, asks the broker to return
 a message no queue receives, so a missing binding fails the subscription
 instead of losing outputs. Disable it to let the broker discard such messages.
 `persistent`, also enabled by default, publishes with the persistent delivery
 mode, so durable queues keep the messages across a broker restart; the
 confirmation then arrives after the broker has written them.
 
-`RabbitMqSinkConfig::max_pending` bounds the messages submitted whose
-confirmation has not arrived; the default is 1000. `submit` waits while that
+`max_pending` bounds the messages submitted to one sink whose confirmation has
+not arrived; the default is 1000. `submit` waits while that
 many are outstanding. Messages on one channel are confirmed in publication
 order. `close` stops new submissions, waits for outstanding confirmations, and
-closes the connection.
+closes the sink's channel. The publishing connection stays open for the
+handle's other sinks.
 
 ## Metadata inheritance
 

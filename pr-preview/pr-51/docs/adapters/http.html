@@ -24,7 +24,7 @@
 
   <div class="wrap layout">
     <nav class="toc" aria-label="Guides">
-<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="../runtime/handlers.html">Handlers</a></li><li><a href="../runtime/middleware.html">Middleware</a></li><li><a href="../runtime/errors.html">Errors and retries</a></li><li><a href="../runtime/tombstones.html">Tombstones</a></li><li><a href="../runtime/transactions.html">Transactions</a></li><li><a href="../runtime/observability.html">Observability</a></li><li><a href="../runtime/health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="local.html">Local adapters</a></li><li><a href="channel.html">Channel</a></li><li><a href="kafka.html">Kafka</a></li><li><a href="pulsar.html">Pulsar</a></li><li><a href="rabbitmq.html">RabbitMQ</a></li><li><a href="sqs.html">SQS</a></li><li><a href="pubsub.html">Pub/Sub</a></li><li><a href="servicebus.html">Azure Service Bus</a></li><li><a href="http.html" aria-current="page">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="../runtime/handlers.html">Handlers</a></li><li><a href="../runtime/middleware.html">Middleware</a></li><li><a href="../runtime/errors.html">Errors and retries</a></li><li><a href="../runtime/tombstones.html">Tombstones</a></li><li><a href="../runtime/transactions.html">Transactions</a></li><li><a href="../runtime/observability.html">Observability</a></li><li><a href="../runtime/health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="local.html">Local adapters</a></li><li><a href="channel.html">Channel</a></li><li><a href="kafka.html">Kafka</a></li><li><a href="pulsar.html">Pulsar</a></li><li><a href="rabbitmq.html">RabbitMQ</a></li><li><a href="sqs.html">SQS</a></li><li><a href="pubsub.html">Pub/Sub</a></li><li><a href="servicebus.html">Azure Service Bus</a></li><li><a href="http.html" aria-current="page">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-bytes.html">Raw bytes</a></li><li><a href="../codecs/utf8.html">UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li><li><a href="../codecs/msgpack.html">MessagePack</a></li><li><a href="../codecs/cbor.html">CBOR</a></li><li><a href="../codecs/wrappers.html">Codec wrappers</a><ul><li><a href="../codecs/wrappers/base64.html">Base64</a></li><li><a href="../codecs/wrappers/gzip.html">Gzip</a></li><li><a href="../codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
     </nav>
     <main class="doc">
 <h1 id="http-adapter">HTTP adapter</h1>
@@ -43,7 +43,7 @@ accepted every output.</li>
 <h2 id="source">Source</h2>
 <pre><code class="hljs language-rust,no_run"><span class="hljs-keyword">use</span> beavers::{
     App, Json, <span class="hljs-type">Result</span>, StdoutSink,
-    adapters::http::{HttpRecord, HttpSource, HttpSourceConfig},
+    adapters::http::{HttpRecord, HttpSource},
 };
 <span class="hljs-keyword">use</span> serde::{Deserialize, Serialize};
 
@@ -58,9 +58,7 @@ accepted every output.</li>
 
 <span class="hljs-meta">#[tokio::main]</span>
 <span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">main</span>() <span class="hljs-punctuation">-&gt;</span> anyhow::<span class="hljs-type">Result</span>&lt;()&gt; {
-    <span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = HttpSource::&lt;Json, Order&gt;::<span class="hljs-title function_ invoke__">new</span>(HttpSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
-        <span class="hljs-string">&quot;0.0.0.0:8080&quot;</span>.<span class="hljs-title function_ invoke__">parse</span>()?,
-    ))?;
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = HttpSource::&lt;Json, Order&gt;::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;0.0.0.0:8080&quot;</span>.<span class="hljs-title function_ invoke__">parse</span>()?)?;
     App::<span class="hljs-title function_ invoke__">new</span>()
         .<span class="hljs-title function_ invoke__">subscribe</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, StdoutSink::&lt;Json&gt;::<span class="hljs-title function_ invoke__">new</span>(), accept)
         .<span class="hljs-title function_ invoke__">run</span>()
@@ -69,10 +67,11 @@ accepted every output.</li>
 }
 </code></pre><pre><code class="hljs language-sh">curl -i -X POST localhost:8080/orders -d <span class="hljs-string">&#x27;{&quot;id&quot;:7}&#x27;</span>
 </code></pre><h3 id="server-configuration">Server configuration</h3>
+<p>The HTTP source has no shared handle; each source is its own server.</p>
 <table>
 <thead>
 <tr>
-<th>Field</th>
+<th>Setting</th>
 <th>Default</th>
 <th>Meaning</th>
 </tr>
@@ -80,25 +79,32 @@ accepted every output.</li>
 <tbody><tr>
 <td><code>bind</code></td>
 <td>required</td>
-<td>Listen address. Port 0 selects a free port.</td>
+<td>Listen address passed to <code>new</code>. Port 0 selects a free port.</td>
 </tr>
 <tr>
-<td><code>max_body_bytes</code></td>
+<td><code>max_body_bytes(n)</code></td>
 <td>1 MiB</td>
 <td>Larger bodies are answered with <code>413</code> and never become deliveries.</td>
 </tr>
 <tr>
-<td><code>response</code></td>
+<td><code>response(timing)</code></td>
 <td><code>ResponseTiming::Ack</code></td>
 <td>When a received request is answered; see <a href="#response-timing">response timing</a>.</td>
 </tr>
 </tbody></table>
-<p><code>HttpSource::new(config)</code> validates the configuration and binds the listener
-immediately, so an address in use is reported by the constructor and
-<code>local_addr()</code> returns the bound address, including a port chosen for port 0.
-The server starts accepting connections on the first <code>receive</code>.
-<code>with_codec(config, codec)</code> accepts a configured codec.</p>
-<h3 id="records">Records</h3>
+<p><code>HttpSource::new(bind)</code> binds the listener immediately, so an address in use is
+reported by the constructor and <code>local_addr()</code> returns the bound address,
+including a port chosen for port 0. <code>HttpSource::with_codec(codec, bind)</code>
+accepts a configured codec. <code>validate</code> checks the settings, and the server
+validates them again when it starts accepting connections on the first
+<code>receive</code>.</p>
+<pre><code class="hljs language-rust,no_run"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::http::{HttpSource, ResponseTiming}};
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = HttpSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;0.0.0.0:8080&quot;</span>.<span class="hljs-title function_ invoke__">parse</span>()?)?
+    .<span class="hljs-title function_ invoke__">max_body_bytes</span>(<span class="hljs-number">64</span> * <span class="hljs-number">1024</span>)
+    .<span class="hljs-title function_ invoke__">response</span>(ResponseTiming::Receive);
+# Ok::&lt;(), <span class="hljs-type">Box</span>&lt;<span class="hljs-keyword">dyn</span> std::error::Error&gt;&gt;(())
+</code></pre><h3 id="records">Records</h3>
 <p>Handlers receive <code>HttpRecord&lt;T&gt;</code>:</p>
 <table>
 <thead>
@@ -285,13 +291,13 @@ long shutdown waits for open requests.</li>
 </ul>
 <h2 id="sink">Sink</h2>
 <p><code>HttpSink&lt;C, T&gt;</code> accepts <code>HttpPublish&lt;T&gt;</code> outputs. It encodes each body with
-its codec and sends one request per output to the configured URL. A typical use
+its codec and sends one request per output to its URL. A typical use
 is handing events consumed from a broker to a service with an HTTP API:</p>
 <pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{
     App, Json, <span class="hljs-type">Result</span>,
     adapters::{
-        http::{HttpPublish, HttpSink, HttpSinkConfig},
-        kafka::{KafkaRecord, KafkaSource, KafkaSourceConfig},
+        http::{HttpClient, HttpPublish},
+        kafka::{Kafka, KafkaRecord},
     },
 };
 
@@ -303,22 +309,47 @@ is handing events consumed from a broker to a service with an HTTP API:</p>
     <span class="hljs-title function_ invoke__">Ok</span>(HttpPublish::<span class="hljs-title function_ invoke__">new</span>(order).<span class="hljs-title function_ invoke__">with_header</span>(<span class="hljs-string">&quot;idempotency-key&quot;</span>, key))
 }
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = KafkaSource::&lt;Json, Order&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
-    <span class="hljs-string">&quot;localhost:9092&quot;</span>,
-    <span class="hljs-string">&quot;orders-to-billing&quot;</span>,
-    [<span class="hljs-string">&quot;orders&quot;</span>],
-));
-<span class="hljs-keyword">let</span> <span class="hljs-keyword">mut </span><span class="hljs-variable">config</span> = HttpSinkConfig::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;https://billing.internal/orders&quot;</span>);
-config
-    .headers
-    .<span class="hljs-title function_ invoke__">push</span>((<span class="hljs-string">&quot;content-type&quot;</span>.<span class="hljs-title function_ invoke__">into</span>(), <span class="hljs-string">&quot;application/json&quot;</span>.<span class="hljs-title function_ invoke__">into</span>()));
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = HttpSink::&lt;Json, Order&gt;::<span class="hljs-title function_ invoke__">new</span>(config)?;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>).source::&lt;Json, Order&gt;(<span class="hljs-string">&quot;orders-to-billing&quot;</span>, [<span class="hljs-string">&quot;orders&quot;</span>]);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = HttpClient::<span class="hljs-title function_ invoke__">new</span>()
+    .sink::&lt;Json, Order&gt;(<span class="hljs-string">&quot;https://billing.internal/orders&quot;</span>)
+    .<span class="hljs-title function_ invoke__">header</span>(<span class="hljs-string">&quot;content-type&quot;</span>, <span class="hljs-string">&quot;application/json&quot;</span>);
 App::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">subscribe</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, to_request).<span class="hljs-title function_ invoke__">run</span>().<span class="hljs-keyword">await</span>?;
 </code></pre><h3 id="sink-configuration">Sink configuration</h3>
+<p>An <code>HttpClient</code> handle holds the settings and the connection pool that the
+sinks built from it share. Its sinks send through one pool per handle, which
+keeps idle connections to each destination for reuse. The handle creates
+separate pools for <code>http</code> and <code>https</code> destinations, each on its first request,
+and loads the platform&#39;s root certificates only for the <code>https</code> pool. Idle
+connections close once the handle and every sink built from it have been
+dropped. Each handle builder method returns a handle with a pool of its own, so
+configure the handle before building sinks from it. The <code>Debug</code> output of the
+handle shows header names only.</p>
 <table>
 <thead>
 <tr>
-<th>Field</th>
+<th>Handle method</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>header(name, value)</code></td>
+<td>none</td>
+<td>Header sent with every request of every sink, such as <code>authorization</code></td>
+</tr>
+<tr>
+<td><code>timeout(duration)</code></td>
+<td>30 s</td>
+<td>Limit for one attempt, from connecting until the response body is read, for sinks that set none</td>
+</tr>
+</tbody></table>
+<p><code>sink::&lt;C, T&gt;(url)</code> builds a sink with the codec&#39;s default value, and
+<code>sink_with_codec(codec, url)</code> with a configured codec. The URL is required; the
+other settings are sink builder methods:</p>
+<table>
+<thead>
+<tr>
+<th>Sink setting</th>
 <th>Default</th>
 <th>Meaning</th>
 </tr>
@@ -329,32 +360,45 @@ App::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-
 <td>Absolute <code>http</code> or <code>https</code> URL, including any path and query</td>
 </tr>
 <tr>
-<td><code>method</code></td>
+<td><code>method(method)</code></td>
 <td><code>HttpMethod::Post</code></td>
 <td><code>Post</code>, <code>Put</code>, or <code>Patch</code></td>
 </tr>
 <tr>
-<td><code>headers</code></td>
-<td>none</td>
-<td>Headers sent with every request, such as <code>content-type</code> or <code>authorization</code></td>
+<td><code>header(name, value)</code></td>
+<td>handle headers</td>
+<td>Header sent with every request, such as <code>content-type</code>; replaces the handle&#39;s headers of the same name</td>
 </tr>
 <tr>
-<td><code>timeout</code></td>
-<td>30 s</td>
-<td>Limit for one attempt, from connecting until the response body is read</td>
+<td><code>timeout(duration)</code></td>
+<td>handle timeout</td>
+<td>Limit for one attempt, replacing the handle&#39;s timeout</td>
 </tr>
 </tbody></table>
-<p><code>HttpSink::new(config)</code> validates the configuration and returns an error for a
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Json, adapters::http::{HttpClient, HttpMethod}};
+<span class="hljs-keyword">use</span> std::time::Duration;
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">http</span> = HttpClient::<span class="hljs-title function_ invoke__">new</span>()
+    .<span class="hljs-title function_ invoke__">header</span>(<span class="hljs-string">&quot;authorization&quot;</span>, <span class="hljs-string">&quot;Bearer token&quot;</span>)
+    .<span class="hljs-title function_ invoke__">timeout</span>(Duration::<span class="hljs-title function_ invoke__">from_secs</span>(<span class="hljs-number">10</span>));
+<span class="hljs-keyword">let</span> <span class="hljs-variable">orders</span> = http
+    .sink::&lt;Json, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;https://billing.example.com/orders&quot;</span>)
+    .<span class="hljs-title function_ invoke__">header</span>(<span class="hljs-string">&quot;content-type&quot;</span>, <span class="hljs-string">&quot;application/json&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">refunds</span> = http
+    .sink::&lt;Json, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;https://billing.example.com/refunds&quot;</span>)
+    .<span class="hljs-title function_ invoke__">method</span>(HttpMethod::Put)
+    .<span class="hljs-title function_ invoke__">timeout</span>(Duration::<span class="hljs-title function_ invoke__">from_secs</span>(<span class="hljs-number">60</span>));
+</code></pre><p>The handle and the sink each have <code>validate</code>. The sink&#39;s returns an error for a
 URL without a host, a scheme other than <code>http</code> or <code>https</code>, credentials in the
-URL, invalid header names or values, or a zero timeout. The client is created
-on the first publication. <code>with_codec(config, codec)</code> accepts a configured
-codec. Clones share one connection pool and closing state.</p>
-<p><code>https</code> servers are verified against the platform&#39;s root certificates, loaded
-with the client; a platform without any fails every publication. The codec does
-not set <code>content-type</code>, so configure it in <code>headers</code>.</p>
+URL, invalid header names or values, or a zero timeout, and the sink validates
+its settings again when it prepares its first output. Clones of a sink share
+its closing state.</p>
+<p><code>https</code> servers are verified against the platform&#39;s root certificates; a
+platform without any fails every <code>https</code> publication. The codec does not set
+<code>content-type</code>, so set it with <code>header</code>.</p>
 <h3 id="requests">Requests</h3>
 <p><code>HttpPublish&lt;T&gt;</code> carries the body and optional <code>headers</code>. A header name set on
-an output replaces every configured header of that name; repeating a name on
+an output replaces every handle and sink header of that name; repeating a name on
 the output sends each value. Header names are case-insensitive, and invalid
 names or values fail <code>prepare</code>, which the error policy routes as <code>Encode</code>. The
 prepared request keeps the encoded body and complete header set, so a retry
@@ -407,9 +451,9 @@ and <code>Retry-After</code> is not honored; retry delays come from <code>publis
 send their requests concurrently over pooled HTTP/1.1 connections, so the
 subscription&#39;s <code>concurrency</code> bounds the requests in flight to one destination.</p>
 <h3 id="closing-the-sink">Closing the sink</h3>
-<p><code>close</code> refuses further publications from the sink and all its clones. Requests
-already in progress finish, and idle connections close when the last of them
-releases the pool.</p>
+<p><code>close</code> only refuses further publications from the sink and all its clones.
+Requests already in progress finish, and the handle&#39;s connection pool stays
+open for its other sinks.</p>
 <h3 id="client-metrics">Client metrics</h3>
 <p>Each attempt is recorded through the <code>metrics</code> facade with a <code>url</code> label
 holding the scheme, host, and path, without the query, and an <code>outcome</code> label

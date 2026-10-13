@@ -25,7 +25,8 @@ runs any number of subscriptions side by side and shuts them down together.
 - **Pipelines** — chain subscriptions through in-process channels with
   end-to-end acknowledgement.
 - **Adapters** — Kafka, Apache Pulsar, RabbitMQ, Amazon SQS, Google Cloud
-  Pub/Sub, Azure Service Bus, and HTTP; JSON, Avro, and Protobuf codecs.
+  Pub/Sub, Azure Service Bus, and HTTP; JSON, Avro, Protobuf, MessagePack,
+  and CBOR codecs, with Base64 and gzip or Zstandard compression wrappers.
 - **Operations** — graceful shutdown, `tracing` spans, `metrics`,
   OpenTelemetry trace propagation, and `/livez` and `/readyz` probes.
 
@@ -53,6 +54,11 @@ application uses:
 | `http` | HTTP source and sink |
 | `avro` | Avro codec |
 | `protobuf` | Protobuf codec |
+| `msgpack` | MessagePack codec |
+| `cbor` | CBOR codec |
+| `base64` | Base64 wrapper for another codec |
+| `gzip` | Gzip compression wrapper for another codec |
+| `zstd` | Zstandard compression wrapper for another codec |
 | `opentelemetry` | Trace-context propagation through broker metadata |
 | `health` | `/livez` and `/readyz` endpoints |
 | `testing` | Fabricated broker records for handler tests |
@@ -65,7 +71,7 @@ to another topic:
 ```rust
 use beavers::{
     App, Classify, Result, Utf8,
-    adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
+    adapters::kafka::Kafka,
 };
 
 async fn summarize(article: String) -> Result<String> {
@@ -75,8 +81,9 @@ async fn summarize(article: String) -> Result<String> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let articles = KafkaSource::<Utf8, _>::new(KafkaSourceConfig::new("localhost:9092", "summarizer", ["articles"]));
-    let summaries = KafkaSink::<Utf8, _>::new(KafkaSinkConfig::new("localhost:9092", "summaries"));
+    let kafka = Kafka::new("localhost:9092");
+    let articles = kafka.source::<Utf8, _>("summarizer", ["articles"]);
+    let summaries = kafka.sink::<Utf8, _>("summaries");
 
     App::new()
         .subscribe("summarize", articles, summaries, summarize)
@@ -88,6 +95,8 @@ async fn main() -> anyhow::Result<()> {
 
 The handler sees only the decoded value. A transient API failure is retried
 with backoff, and each offset is committed after its summary is published.
+Sources and sinks built from one `Kafka` handle share its connection settings,
+and its sinks share one producer.
 
 The repository's examples run against local brokers started with Docker
 Compose, which also provides web consoles for Kafka and Pulsar:

@@ -24,7 +24,7 @@
 
   <div class="wrap layout">
     <nav class="toc" aria-label="Guides">
-<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html">Architecture</a></li><li><a href="runtime.html">Runtime guide</a><ul><li><a href="runtime/handlers.html">Handlers</a></li><li><a href="runtime/middleware.html">Middleware</a></li><li><a href="runtime/errors.html">Errors and retries</a></li><li><a href="runtime/tombstones.html">Tombstones</a></li><li><a href="runtime/transactions.html">Transactions</a></li><li><a href="runtime/observability.html">Observability</a></li><li><a href="runtime/health.html">Health checks</a></li></ul></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/local.html">Local adapters</a></li><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/json.html">JSON</a></li><li><a href="codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html" aria-current="page">Local development brokers</a></li><li><a href="plan.html">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
+<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html">Architecture</a></li><li><a href="runtime.html">Runtime guide</a><ul><li><a href="runtime/handlers.html">Handlers</a></li><li><a href="runtime/middleware.html">Middleware</a></li><li><a href="runtime/errors.html">Errors and retries</a></li><li><a href="runtime/tombstones.html">Tombstones</a></li><li><a href="runtime/transactions.html">Transactions</a></li><li><a href="runtime/observability.html">Observability</a></li><li><a href="runtime/health.html">Health checks</a></li></ul></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/local.html">Local adapters</a></li><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/json.html">JSON</a></li><li><a href="codecs/raw-bytes.html">Raw bytes</a></li><li><a href="codecs/utf8.html">UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li><li><a href="codecs/msgpack.html">MessagePack</a></li><li><a href="codecs/cbor.html">CBOR</a></li><li><a href="codecs/wrappers.html">Codec wrappers</a><ul><li><a href="codecs/wrappers/base64.html">Base64</a></li><li><a href="codecs/wrappers/gzip.html">Gzip</a></li><li><a href="codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html" aria-current="page">Local development brokers</a></li><li><a href="plan.html">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
     </nav>
     <main class="doc">
 <h1 id="local-development-brokers">Local development brokers</h1>
@@ -226,16 +226,16 @@ environment pointing at the broker. The credentials are for local use only.</p>
 the broker accepts from the host through the published port. It starts without
 queues; the live tests declare their own through the management API.</p>
 <p>ElasticMQ implements the SQS API in memory and accepts any credentials and
-region. Point <code>SqsSourceConfig::endpoint_url</code> and <code>SqsSinkConfig::endpoint_url</code>
-at it. It starts without queues; create one with the AWS CLI
+region. Point a handle at it with
+<code>Sqs::new().region(&quot;elasticmq&quot;).endpoint_url(&quot;http://localhost:9324&quot;)</code> and
+static credentials such as <code>.credentials(SqsCredentials::new(&quot;local&quot;, &quot;local&quot;))</code>.
+It starts without queues; create one with the AWS CLI
 (<code>aws --endpoint-url http://localhost:9324 sqs create-queue --queue-name orders</code>)
 or the query API, as the live tests do. It does not reproduce every AWS limit
 and behavior, so verify production settings against SQS itself.</p>
 <p>The Pub/Sub emulator, from the <code>google/cloud-sdk</code> emulators image, keeps topics
-and subscriptions in memory and needs no credentials. Point
-<code>PubSubSourceConfig::endpoint</code> and <code>PubSubSinkConfig::endpoint</code> at
-<code>http://localhost:8085</code> and set their <code>credentials</code> to
-<code>PubSubCredentials::Anonymous</code>. It starts without topics; create them through
+and subscriptions in memory and needs no credentials. Connect to it with
+<code>PubSub::new().endpoint(&quot;http://localhost:8085&quot;).anonymous()</code>. It starts without topics; create them through
 its REST API, as the live tests do:</p>
 <pre><code class="hljs language-sh">curl -X PUT http://localhost:8085/v1/projects/beavers/topics/orders
 curl -X PUT http://localhost:8085/v1/projects/beavers/subscriptions/orders \
@@ -244,7 +244,10 @@ curl -X PUT http://localhost:8085/v1/projects/beavers/subscriptions/orders \
 settings against Pub/Sub itself.</p>
 <p>The Service Bus emulator stores its entities in the <code>servicebus-sql</code> SQL Server
 container and reads its namespace from <code>dev/servicebus/config.json</code>, which
-defines the <code>beavers-events</code> topic with the <code>beavers-test</code> subscription. Its
+defines the <code>beavers-events</code> topic with the <code>beavers-test</code> subscription.
+Connect to it with <code>ServiceBus::from_connection_string(...)</code> and the connection
+string listed above; <code>UseDevelopmentEmulator=true</code> selects plain AMQP, which
+<code>.emulator()</code> sets on a handle built with <code>ServiceBus::new</code>. Its
 management API on port 5300 creates and deletes queues
 (<code>PUT /{queue}?api-version=2021-05</code> with an Atom <code>QueueDescription</code>), as the
 live tests do, but cannot create topic subscriptions, so add topics and

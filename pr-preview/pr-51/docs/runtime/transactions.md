@@ -17,7 +17,8 @@ Subscription::new("orders", kafka_source, kafka_transactional_sink, handler)
 The method only compiles when the sink implements
 `TransactionalSink<Source::Message, Output>`, which an adapter provides for the
 source messages whose acknowledgement can join its transactions. The
-Kafka adapter implements it for a `KafkaSource` and a `KafkaTransactionalSink`;
+Kafka adapter implements it for a `KafkaSource` and a `KafkaTransactionalSink`,
+which `kafka.sink(topic).transactional(id)` builds;
 see the [Kafka guide](../adapters/kafka.md#transactions). The runtime never calls
 the delivery's own ACK in a transactional subscription.
 
