@@ -31,11 +31,18 @@ All pages in one file: https://cafeal.github.io/beave-rs/llms-full.txt
 - [Pub/Sub adapter](https://cafeal.github.io/beave-rs/docs/adapters/pubsub.md)
 - [Azure Service Bus adapter](https://cafeal.github.io/beave-rs/docs/adapters/servicebus.md)
 - [HTTP adapter](https://cafeal.github.io/beave-rs/docs/adapters/http.md)
-- [Codecs](https://cafeal.github.io/beave-rs/docs/codecs.md): Serialization contracts and JSON, raw bytes, UTF-8, Protobuf, and Avro codecs
+- [Codecs](https://cafeal.github.io/beave-rs/docs/codecs.md): Serialization contracts; JSON, raw bytes, UTF-8, Protobuf, Avro, MessagePack, and CBOR codecs; Base64 and compression wrappers
 - [JSON codec](https://cafeal.github.io/beave-rs/docs/codecs/json.md)
-- [Raw bytes and UTF-8 codecs](https://cafeal.github.io/beave-rs/docs/codecs/raw-utf8.md)
+- [Raw bytes codec](https://cafeal.github.io/beave-rs/docs/codecs/raw-bytes.md)
+- [UTF-8 codec](https://cafeal.github.io/beave-rs/docs/codecs/utf8.md)
 - [Protobuf codec](https://cafeal.github.io/beave-rs/docs/codecs/protobuf.md)
 - [Avro codec](https://cafeal.github.io/beave-rs/docs/codecs/avro.md)
+- [MessagePack codec](https://cafeal.github.io/beave-rs/docs/codecs/msgpack.md)
+- [CBOR codec](https://cafeal.github.io/beave-rs/docs/codecs/cbor.md)
+- [Codec wrappers](https://cafeal.github.io/beave-rs/docs/codecs/wrappers.md)
+- [Base64 wrapper](https://cafeal.github.io/beave-rs/docs/codecs/wrappers/base64.md)
+- [Gzip wrapper](https://cafeal.github.io/beave-rs/docs/codecs/wrappers/gzip.md)
+- [Zstd wrapper](https://cafeal.github.io/beave-rs/docs/codecs/wrappers/zstd.md)
 - [Testing](https://cafeal.github.io/beave-rs/docs/testing.md): Testing handlers, middleware, and error policies with fabricated broker records
 - [Handling dead letters](https://cafeal.github.io/beave-rs/docs/dead-letter-handling.md): Finding the cause of dead letters, and reprocessing, parking, or dropping them on log and queue brokers
 - [Monitoring and alerting](https://cafeal.github.io/beave-rs/docs/monitoring-and-alerting/index.md): Signals to alert on, alert rules, and setups for Kubernetes, AWS, Google Cloud, and Azure

@@ -7,7 +7,7 @@
 | [Architecture](architecture.md) | How sources, handlers, and sinks fit together, their trait contracts, and errors |
 | [Runtime guide](runtime.md) | Registration, configuration, processing behavior, shutdown, and limitations, with topic guides for handlers, middleware, errors, tombstones, transactions, observability, and health checks |
 | [Adapters](adapters.md) | Local, channel, Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, Azure Service Bus, and HTTP adapters, usage, and extension contracts |
-| [Codecs](codecs.md) | Serialization contracts and JSON, raw bytes, UTF-8, Protobuf, and Avro codecs |
+| [Codecs](codecs.md) | Serialization contracts; JSON, raw bytes, UTF-8, Protobuf, Avro, MessagePack, and CBOR codecs; Base64 and compression wrappers |
 | [Testing](testing.md) | Testing handlers, middleware, and error policies with fabricated broker records |
 | [Handling dead letters](dead-letter-handling.md) | Finding the cause of dead letters, and reprocessing, parking, or dropping them on log and queue brokers |
 | [Monitoring and alerting](monitoring-and-alerting/README.md) | Signals to alert on, alert rules, and setups for Kubernetes, AWS, Google Cloud, and Azure |
@@ -23,9 +23,11 @@ Adapter references: [Local adapters](adapters/local.md),
 [SQS](adapters/sqs.md), [Pub/Sub](adapters/pubsub.md),
 [Azure Service Bus](adapters/servicebus.md), and [HTTP](adapters/http.md).
 
-Codec references: [JSON](codecs/json.md),
-[Raw bytes and UTF-8](codecs/raw-utf8.md),
-[Protobuf](codecs/protobuf.md), and [Avro](codecs/avro.md).
+Codec references: [JSON](codecs/json.md), [Raw bytes](codecs/raw-bytes.md),
+[UTF-8](codecs/utf8.md), [Protobuf](codecs/protobuf.md), [Avro](codecs/avro.md),
+[MessagePack](codecs/msgpack.md), [CBOR](codecs/cbor.md), and
+[codec wrappers](codecs/wrappers.md): [Base64](codecs/wrappers/base64.md),
+[Gzip](codecs/wrappers/gzip.md), and [Zstd](codecs/wrappers/zstd.md).
 
 ## Contributing
 
