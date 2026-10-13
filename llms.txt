@@ -1,0 +1,46 @@
+# beave-rs
+
+> A lightweight Rust message processing framework built around typed handlers.
+
+Every page is available as Markdown at the page URL with `.html` replaced by `.md`.
+All pages in one file: https://cafeal.github.io/beave-rs/llms-full.txt
+
+## Overview
+
+- [README](https://cafeal.github.io/beave-rs/index.md): Project overview, installation, quick start, and Cargo features
+- [Guides](https://cafeal.github.io/beave-rs/docs/index.md): Index of the guides
+
+## Using beave-rs
+
+- [Architecture](https://cafeal.github.io/beave-rs/docs/architecture.md): How sources, handlers, and sinks fit together, their trait contracts, and errors
+- [Runtime guide](https://cafeal.github.io/beave-rs/docs/runtime.md): Implemented APIs, processing behavior, configuration, and limitations
+- [Adapters](https://cafeal.github.io/beave-rs/docs/adapters.md): Local, channel, Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, Azure Service Bus, and HTTP adapters, usage, and extension contracts
+- [Channel adapter](https://cafeal.github.io/beave-rs/docs/adapters/channel.md)
+- [Kafka adapter](https://cafeal.github.io/beave-rs/docs/adapters/kafka.md)
+- [Pulsar adapter](https://cafeal.github.io/beave-rs/docs/adapters/pulsar.md)
+- [RabbitMQ adapter](https://cafeal.github.io/beave-rs/docs/adapters/rabbitmq.md)
+- [SQS adapter](https://cafeal.github.io/beave-rs/docs/adapters/sqs.md)
+- [Pub/Sub adapter](https://cafeal.github.io/beave-rs/docs/adapters/pubsub.md)
+- [Azure Service Bus adapter](https://cafeal.github.io/beave-rs/docs/adapters/servicebus.md)
+- [HTTP adapter](https://cafeal.github.io/beave-rs/docs/adapters/http.md)
+- [Codecs](https://cafeal.github.io/beave-rs/docs/codecs.md): Serialization contracts and JSON, raw bytes, UTF-8, Protobuf, and Avro codecs
+- [Raw bytes and UTF-8 codecs](https://cafeal.github.io/beave-rs/docs/codecs/raw-utf8.md)
+- [Protobuf codec](https://cafeal.github.io/beave-rs/docs/codecs/protobuf.md)
+- [Avro codec](https://cafeal.github.io/beave-rs/docs/codecs/avro.md)
+- [Testing](https://cafeal.github.io/beave-rs/docs/testing.md): Testing handlers, middleware, and error policies with fabricated broker records
+- [Handling dead letters](https://cafeal.github.io/beave-rs/docs/dead-letter-handling.md): Finding the cause of dead letters, and reprocessing, parking, or dropping them on log and queue brokers
+- [Monitoring and alerting](https://cafeal.github.io/beave-rs/docs/monitoring-and-alerting/index.md): Signals to alert on, alert rules, and setups for Kubernetes, AWS, Google Cloud, and Azure
+- [Kubernetes](https://cafeal.github.io/beave-rs/docs/monitoring-and-alerting/kubernetes.md)
+- [AWS](https://cafeal.github.io/beave-rs/docs/monitoring-and-alerting/aws.md)
+- [Google Cloud](https://cafeal.github.io/beave-rs/docs/monitoring-and-alerting/gcp.md)
+- [Azure](https://cafeal.github.io/beave-rs/docs/monitoring-and-alerting/azure.md)
+
+## Contributing
+
+- [Local development brokers](https://cafeal.github.io/beave-rs/docs/development.md): Docker Compose Kafka, Pulsar, RabbitMQ, ElasticMQ, Pub/Sub emulator, and Service Bus emulator brokers, web consoles, broker examples, and live tests
+- [beave-rs — Design plan](https://cafeal.github.io/beave-rs/docs/plan.md): Product goals, agreed design direction, future work, and open questions
+- [Versioning and releases](https://cafeal.github.io/beave-rs/docs/releasing.md): Version numbers, the compatibility contract, the minimum supported Rust version, and the website
+
+## Optional
+
+- [API reference](https://docs.rs/beavers): Rust API documentation on docs.rs

@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Google Cloud - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="gcp.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/channel.html">Channel</a></li><li><a href="../adapters/kafka.html">Kafka</a></li><li><a href="../adapters/pulsar.html">Pulsar</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="../adapters/sqs.html">SQS</a></li><li><a href="../adapters/pubsub.html">Pub/Sub</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus</a></li><li><a href="../adapters/http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="index.html">Monitoring and alerting</a><ul><li><a href="kubernetes.html">Kubernetes</a></li><li><a href="aws.html">AWS</a></li><li><a href="gcp.html" aria-current="page">Google Cloud</a></li><li><a href="azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="google-cloud">Google Cloud</h1>
+<p>Google Cloud Managed Service for Prometheus stores the metrics in Cloud
+Monitoring, and Cloud Monitoring alerting policies evaluate the
+<a href="index.html#alert-rules">shared PromQL rules</a> against them. Notifications go to
+Cloud Monitoring notification channels, such as email, Slack, PagerDuty, SMS,
+webhooks, or Pub/Sub, so no Alertmanager is needed.</p>
+<h2 id="collect-on-gke">Collect on GKE</h2>
+<p>Managed collection is enabled by default on recent GKE Autopilot and Standard
+clusters. Expose the ports and probes as in the
+<a href="kubernetes.html#deployment">Kubernetes Deployment</a>, then select the pods with a
+<code>PodMonitoring</code> resource:</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">monitoring.googleapis.com/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">PodMonitoring</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">beavers</span>
+  <span class="hljs-attr">namespace:</span> <span class="hljs-string">orders</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">selector:</span>
+    <span class="hljs-attr">matchLabels:</span>
+      <span class="hljs-attr">app:</span> <span class="hljs-string">orders-consumer</span>
+  <span class="hljs-attr">endpoints:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">port:</span> <span class="hljs-string">metrics</span>
+      <span class="hljs-attr">interval:</span> <span class="hljs-string">30s</span>
+</code></pre><p>The <code>job</code> label of the collected series is the <code>PodMonitoring</code> name,
+<code>beavers</code>, which the <code>BeaversMetricsDown</code> rule expects.</p>
+<h2 id="collect-on-cloud-run">Collect on Cloud Run</h2>
+<p>A Cloud Run service that consumes from a broker must keep running between
+requests: use instance-based billing and at least one minimum instance. Run
+the OpenTelemetry Collector as a sidecar container that scrapes the exporter
+and writes to Managed Service for Prometheus:</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">receivers:</span>
+  <span class="hljs-attr">prometheus:</span>
+    <span class="hljs-attr">config:</span>
+      <span class="hljs-attr">scrape_configs:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">job_name:</span> <span class="hljs-string">beavers</span>
+          <span class="hljs-attr">scrape_interval:</span> <span class="hljs-string">30s</span>
+          <span class="hljs-attr">static_configs:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">targets:</span> [<span class="hljs-string">&quot;localhost:9000&quot;</span>]
+
+<span class="hljs-attr">processors:</span>
+  <span class="hljs-attr">resourcedetection:</span>
+    <span class="hljs-attr">detectors:</span> [<span class="hljs-string">env</span>, <span class="hljs-string">gcp</span>]
+  <span class="hljs-attr">batch:</span> {}
+
+<span class="hljs-attr">exporters:</span>
+  <span class="hljs-attr">googlemanagedprometheus:</span> {}
+
+<span class="hljs-attr">service:</span>
+  <span class="hljs-attr">pipelines:</span>
+    <span class="hljs-attr">metrics:</span>
+      <span class="hljs-attr">receivers:</span> [<span class="hljs-string">prometheus</span>]
+      <span class="hljs-attr">processors:</span> [<span class="hljs-string">resourcedetection</span>, <span class="hljs-string">batch</span>]
+      <span class="hljs-attr">exporters:</span> [<span class="hljs-string">googlemanagedprometheus</span>]
+</code></pre><p>The <code>googlemanagedprometheus</code> exporter is part of the <code>otelcol-contrib</code>
+distribution and of Google&#39;s built OpenTelemetry Collector image. The service
+account needs the <code>roles/monitoring.metricWriter</code> role. Add a liveness probe on
+<code>/livez</code> to the application container; Cloud Run then replaces an instance
+whose subscription failed.</p>
+<h2 id="alerting-policies">Alerting policies</h2>
+<p>Create one alerting policy per rule. Each condition holds the PromQL
+expression of a <a href="index.html#alert-rules">shared rule</a> unchanged:</p>
+<pre><code class="hljs language-yaml"><span class="hljs-comment"># dead-letters.yaml</span>
+<span class="hljs-attr">displayName:</span> <span class="hljs-string">&quot;beavers: dead letters&quot;</span>
+<span class="hljs-attr">severity:</span> <span class="hljs-string">WARNING</span>
+<span class="hljs-attr">combiner:</span> <span class="hljs-string">OR</span>
+<span class="hljs-attr">conditions:</span>
+  <span class="hljs-bullet">-</span> <span class="hljs-attr">displayName:</span> <span class="hljs-string">Deliveries</span> <span class="hljs-string">were</span> <span class="hljs-string">dead-lettered</span>
+    <span class="hljs-attr">conditionPrometheusQueryLanguage:</span>
+      <span class="hljs-attr">query:</span> <span class="hljs-string">sum</span> <span class="hljs-string">by</span> <span class="hljs-string">(subscription)</span> <span class="hljs-string">(increase(beavers_delivery_failures_total{action=&quot;dead_letter&quot;}[10m]))</span> <span class="hljs-string">&gt;</span> <span class="hljs-number">0</span>
+      <span class="hljs-attr">duration:</span> <span class="hljs-string">0s</span>
+      <span class="hljs-attr">evaluationInterval:</span> <span class="hljs-string">60s</span>
+      <span class="hljs-attr">disableMetricValidation:</span> <span class="hljs-literal">true</span>
+<span class="hljs-attr">notificationChannels:</span>
+  <span class="hljs-bullet">-</span> <span class="hljs-string">projects/my-project/notificationChannels/1234567890</span>
+<span class="hljs-attr">documentation:</span>
+  <span class="hljs-attr">mimeType:</span> <span class="hljs-string">text/markdown</span>
+  <span class="hljs-attr">content:</span> <span class="hljs-string">|</span>
+    <span class="hljs-string">Inspect</span> <span class="hljs-string">the</span> <span class="hljs-string">dead-letter</span> <span class="hljs-string">topic</span> <span class="hljs-string">and</span> <span class="hljs-string">redrive</span> <span class="hljs-string">the</span> <span class="hljs-string">deliveries</span> <span class="hljs-string">once</span> <span class="hljs-string">the</span> <span class="hljs-string">cause</span> <span class="hljs-string">is</span> <span class="hljs-string">fixed.</span>
+</code></pre><pre><code class="hljs language-yaml"><span class="hljs-comment"># stalled.yaml</span>
+<span class="hljs-attr">displayName:</span> <span class="hljs-string">&quot;beavers: stalled subscription&quot;</span>
+<span class="hljs-attr">severity:</span> <span class="hljs-string">CRITICAL</span>
+<span class="hljs-attr">combiner:</span> <span class="hljs-string">OR</span>
+<span class="hljs-attr">conditions:</span>
+  <span class="hljs-bullet">-</span> <span class="hljs-attr">displayName:</span> <span class="hljs-string">Unfinished</span> <span class="hljs-string">deliveries</span> <span class="hljs-string">without</span> <span class="hljs-string">acknowledgements</span>
+    <span class="hljs-attr">conditionPrometheusQueryLanguage:</span>
+      <span class="hljs-attr">query:</span> <span class="hljs-string">|
+        max by (subscription) (beavers_deliveries_in_flight) &gt; 0
+          and sum by (subscription) (increase(beavers_deliveries_acknowledged_total[15m])) == 0
+</span>      <span class="hljs-attr">duration:</span> <span class="hljs-string">300s</span>
+      <span class="hljs-attr">evaluationInterval:</span> <span class="hljs-string">60s</span>
+      <span class="hljs-attr">disableMetricValidation:</span> <span class="hljs-literal">true</span>
+<span class="hljs-attr">notificationChannels:</span>
+  <span class="hljs-bullet">-</span> <span class="hljs-string">projects/my-project/notificationChannels/9876543210</span>
+</code></pre><pre><code class="hljs language-sh">gcloud monitoring policies create --policy-from-file=dead-letters.yaml
+gcloud monitoring policies create --policy-from-file=stalled.yaml
+</code></pre><p>The rule&#39;s <code>for</code> becomes <code>duration</code>, and the policy&#39;s <code>severity</code> takes the
+value of the rule&#39;s <code>severity</code> label. A PromQL policy holds exactly one
+condition. <code>disableMetricValidation</code> lets the policy be created before the
+application has written its first metrics; without it, creation fails for a
+metric that does not exist yet. A PromQL incident closes on its own once the
+query stops matching, so these policies need no <code>autoClose</code>. Give <code>critical</code> policies the on-call channel and
+<code>warning</code> policies the team&#39;s channel. Each time series that matches the
+query opens its own incident, so a policy notifies once per failing
+subscription.</p>
+<p>On GKE, restarts are available as a Cloud Monitoring system metric, which
+PromQL reads under its converted name:</p>
+<pre><code class="hljs language-text">increase(kubernetes_io:container_restart_count{namespace_name=&quot;orders&quot;, container_name=&quot;app&quot;}[15m]) &gt; 0
+</code></pre><h2 id="log-based-alert">Log-based alert</h2>
+<p>GKE and Cloud Run parse <a href="index.html#what-to-expose">JSON logs</a> on standard
+output into <code>jsonPayload</code>, so a log-based alerting policy can fire on the
+<code>subscription failed</code> event even when the process exits before its last
+scrape:</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">displayName:</span> <span class="hljs-string">&quot;beavers: subscription failed&quot;</span>
+<span class="hljs-attr">severity:</span> <span class="hljs-string">CRITICAL</span>
+<span class="hljs-attr">combiner:</span> <span class="hljs-string">OR</span>
+<span class="hljs-attr">conditions:</span>
+  <span class="hljs-bullet">-</span> <span class="hljs-attr">displayName:</span> <span class="hljs-string">subscription</span> <span class="hljs-string">failed</span> <span class="hljs-string">was</span> <span class="hljs-string">logged</span>
+    <span class="hljs-attr">conditionMatchedLog:</span>
+      <span class="hljs-attr">filter:</span> <span class="hljs-string">jsonPayload.fields.message=&quot;subscription</span> <span class="hljs-string">failed&quot;</span>
+      <span class="hljs-attr">labelExtractors:</span>
+        <span class="hljs-attr">error:</span> <span class="hljs-string">EXTRACT(jsonPayload.fields.error)</span>
+<span class="hljs-attr">alertStrategy:</span>
+  <span class="hljs-attr">notificationRateLimit:</span>
+    <span class="hljs-attr">period:</span> <span class="hljs-string">300s</span>
+  <span class="hljs-attr">autoClose:</span> <span class="hljs-string">1800s</span>
+<span class="hljs-attr">notificationChannels:</span>
+  <span class="hljs-bullet">-</span> <span class="hljs-string">projects/my-project/notificationChannels/9876543210</span>
+</code></pre><p>Log-based policies require <code>notificationRateLimit</code>, which limits notifications
+to one per period while matching entries keep arriving.</p>
+<h2 id="backlog">Backlog</h2>
+<p>Scrape kafka-exporter or the Pulsar broker with a <code>PodMonitoring</code> resource, or
+a Collector sidecar outside GKE, and alert on the metrics listed in
+<a href="index.html#backlog">Backlog</a> with the same kind of PromQL policy.</p>
+
+      <p class="source"><a href="gcp.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/monitoring-and-alerting/gcp.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>
