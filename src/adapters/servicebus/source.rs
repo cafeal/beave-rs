@@ -1,5 +1,6 @@
 use super::{
-    config::ServiceBusSourceConfig,
+    client::ServiceBus,
+    config::SourceConfig,
     connection::{Connection, unique_name},
     convert::{
         DEAD_LETTER_SOURCE, ENQUEUED_TIME, LOCK_TOKEN, LOCKED_UNTIL, SCHEDULED_ENQUEUE_TIME,
@@ -42,10 +43,14 @@ use tokio::{
 };
 use tracing::{debug, warn};
 
-/// Receives from one queue or subscription in peek-lock mode. It connects on
-/// the first `receive`, and again after the connection or link is lost.
+/// Receives from one queue or subscription in peek-lock mode.
+///
+/// Built with [`ServiceBus::source`]. It attaches its links to the handle's
+/// connection on the first `receive`, which also validates the settings, and
+/// again after the connection or a link is lost.
 pub struct ServiceBusSource<C, T> {
-    config: ServiceBusSourceConfig,
+    bus: ServiceBus,
+    config: SourceConfig,
     codec: Arc<C>,
     link: Option<Link>,
     closed: bool,
@@ -54,10 +59,10 @@ pub struct ServiceBusSource<C, T> {
 
 type Received = Result<Delivery<Body<Value>>, RecvError>;
 
-/// One connection with its receive link, which a task owns, and the task that
-/// renews the locks of its messages.
+/// The receive link, which a task owns, and the task that renews the locks of
+/// its messages, on the handle's connection.
 struct Link {
-    connection: Connection,
+    _connection: Arc<Connection>,
     requests: mpsc::Sender<oneshot::Sender<Received>>,
     abandoned: mpsc::UnboundedSender<DeliveryInfo>,
     disposer: ReceiverDisposer,
@@ -90,7 +95,7 @@ impl Drop for Tasks {
 
 impl Link {
     /// Revokes the link's deliveries, whose settlements can no longer reach
-    /// Service Bus, and closes the connection in the background.
+    /// Service Bus, and detaches the links in the background.
     fn end(self) {
         self.locks.revoke_all();
         tokio::spawn(self.close());
@@ -99,7 +104,6 @@ impl Link {
     async fn close(self) {
         self.tasks.stop().await;
         self.locks.revoke_all();
-        self.connection.close().await;
     }
 
     /// The next delivery from the receiving task.
@@ -213,17 +217,10 @@ async fn abandon(receiver: &Receiver, info: DeliveryInfo) {
     }
 }
 
-impl<C: Default, T> ServiceBusSource<C, T> {
-    /// A source with a default-constructed codec.
-    pub fn new(config: ServiceBusSourceConfig) -> Self {
-        Self::with_codec(config, C::default())
-    }
-}
-
 impl<C, T> ServiceBusSource<C, T> {
-    /// A source that uses an existing codec instance, such as a configured `Avro` codec.
-    pub fn with_codec(config: ServiceBusSourceConfig, codec: C) -> Self {
+    pub(super) fn new(bus: ServiceBus, config: SourceConfig, codec: C) -> Self {
         Self {
+            bus,
             config,
             codec: Arc::new(codec),
             link: None,
@@ -232,14 +229,32 @@ impl<C, T> ServiceBusSource<C, T> {
         }
     }
 
+    /// Messages Service Bus may send ahead of `receive` (the link credit).
+    /// Each is locked from the moment Service Bus sends it, so keep it small
+    /// enough that prefetched messages are received well within the lock
+    /// duration. Defaults to 10.
+    pub fn prefetch(mut self, prefetch: u32) -> Self {
+        self.config.prefetch = prefetch;
+        self
+    }
+
+    /// Checks the handle and source settings without contacting Service Bus.
+    ///
+    /// Fails when the handle is invalid, the entity path is empty or has
+    /// surrounding slashes or whitespace, or `prefetch` is zero.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.bus.validate()?;
+        self.config.validate()
+    }
+
     async fn connect(&self) -> Result<Link, Error> {
         let entity = &self.config.entity_path;
-        let mut connection = Connection::open(
-            &self.config.connection,
-            &[entity.clone(), format!("{entity}/$management")],
-        )
-        .await?;
-        let links = async {
+        let connection = self
+            .bus
+            .connection(&[entity.clone(), format!("{entity}/$management")])
+            .await?;
+        let (receiver, management) = {
+            let mut session = connection.session().await;
             let name = unique_name("receiver");
             let receiver = Receiver::builder()
                 .name(name.as_str())
@@ -249,18 +264,15 @@ impl<C, T> ServiceBusSource<C, T> {
                 .receiver_settle_mode(ReceiverSettleMode::First)
                 .credit_mode(CreditMode::Auto(self.config.prefetch))
                 .auto_accept(false)
-                .attach(&mut connection.session)
+                .attach(&mut *session)
                 .await
                 .with_context(|| format!("attaching a Service Bus receiver to {entity}"))?;
-            let management = Management::attach(&mut connection.session, entity, name).await?;
-            Ok::<_, Error>((receiver, management))
-        }
-        .await;
-        let (receiver, management) = match links {
-            Ok(links) => links,
-            Err(error) => {
-                connection.close().await;
-                return Err(error);
+            match Management::attach(&mut session, entity, name).await {
+                Ok(management) => (receiver, management),
+                Err(error) => {
+                    let _ = receiver.close().await;
+                    return Err(error);
+                }
             }
         };
         let disposer = receiver.disposer();
@@ -274,7 +286,7 @@ impl<C, T> ServiceBusSource<C, T> {
             stop,
         };
         Ok(Link {
-            connection,
+            _connection: connection,
             requests,
             abandoned,
             disposer,
@@ -312,8 +324,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for ServiceBusSourc
             return Ok(Receive::End);
         }
         if self.link.is_none() {
-            self.config
-                .validate()
+            self.validate()
                 .map_err(|error| ReceiveError::Fatal(error.into()))?;
             self.link = Some(
                 self.connect()
@@ -369,7 +380,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for ServiceBusSourc
     }
 
     /// Abandons the messages that were dropped without an acknowledgement and
-    /// closes the connection.
+    /// detaches the links. The handle's connection stays open.
     async fn close(&mut self) -> Result<(), BoxError> {
         self.closed = true;
         if let Some(link) = self.link.take() {

@@ -225,7 +225,30 @@ accept a separate `*Publish<T>` type for user-controlled output. Prepared
 payloads hold encoded bytes for retries. See the dedicated guides for each
 broker's configuration and delivery behavior.
 
-Broker adapter constructors use `C::default()` for a codec. Their
-`with_codec(config, codec)` constructors accept an existing codec instance,
-which is required for configured codecs such as `Avro`. `StdinSource` and
-`StdoutSink` take a codec the same way with `with_codec(codec)`.
+Each broker adapter starts from a connection handle: `Kafka`, `Pulsar`,
+`RabbitMq`, `Sqs`, `PubSub`, or `ServiceBus`. The handle holds the broker
+address and credentials, and its `source` and `sink` methods build sources and
+sinks that share its connection, so they authenticate once; the broker guides
+list the clients an adapter keeps per source or sink, such as Kafka consumers.
+The connection opens on first use. A lost shared connection affects every
+subscription that uses it, while each subscription still fails fast on its own
+receive, publish, and ACK failures. `HttpClient` builds HTTP sinks that share
+one connection pool, and `HttpSource::new(addr)` binds a server.
+
+```rust,ignore
+use beavers::{Json, adapters::kafka::Kafka};
+
+let kafka = Kafka::new("localhost:9092").sasl_plain("user", "password");
+let orders = kafka.source::<Json, Order>("billing", ["orders"]);
+let invoices = kafka.sink::<Json, Invoice>("invoices").max_pending(500);
+```
+
+Builder methods consume and return the value, and every handle, source, and
+sink has a `validate()` that checks its settings without network access. A
+builder method on a handle returns a handle with a connection of its own, so
+configure the handle before building sources and sinks from it.
+`source` and `sink` use `C::default()` for a codec. `source_with_codec(codec,
+...)` and `sink_with_codec(codec, ...)` take an existing codec instance first,
+which is required for configured codecs such as `Avro`; `HttpSource` has
+`with_codec(codec, addr)`. `StdinSource` and `StdoutSink` take a codec with
+`with_codec(codec)`.

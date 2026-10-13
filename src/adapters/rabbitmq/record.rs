@@ -91,7 +91,7 @@ pub type RabbitMqHeaders = BTreeMap<String, RabbitMqValue>;
 /// AMQP basic properties that applications set and read.
 ///
 /// The delivery mode is chosen by the sink's
-/// [`persistent`](super::RabbitMqSinkConfig::persistent) setting and reported
+/// [`persistent`](super::RabbitMqSink::persistent) setting and reported
 /// in [`RabbitMqMetadata::persistent`]. Text properties are limited to 255
 /// bytes by the protocol.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]

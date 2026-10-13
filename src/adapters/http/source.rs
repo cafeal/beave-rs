@@ -1,5 +1,5 @@
 use super::{
-    config::{HttpSourceConfig, ResponseTiming},
+    config::{ResponseTiming, SourceConfig},
     metrics::ServerMetrics,
     record::HttpRecord,
     server::{Intake, Pending, serve},
@@ -36,14 +36,15 @@ enum State<T> {
 ///
 /// The listener is bound on construction, so address errors surface immediately
 /// and [`local_addr`](Self::local_addr) is known before the subscription runs.
-/// The server starts on the first receive and decodes each body before it
+/// The server starts on the first receive, which also validates the settings,
+/// and decodes each body before it
 /// becomes a delivery; a body that fails to decode is answered with
 /// `400 Bad Request` and the codec error. With [`ResponseTiming::Ack`], each
 /// request is answered only when its delivery completes: `200 OK` on
 /// ACK, and `503 Service Unavailable` when the delivery is dropped without ACK.
 /// With [`ResponseTiming::Receive`], it is answered `202 Accepted` on receive.
 pub struct HttpSource<C, T> {
-    config: HttpSourceConfig,
+    config: SourceConfig,
     codec: Arc<C>,
     local_addr: SocketAddr,
     state: State<T>,
@@ -51,35 +52,55 @@ pub struct HttpSource<C, T> {
 }
 
 impl<C: Default, T> HttpSource<C, T> {
-    /// Validates `config` and binds the listener, using the codec's default value.
+    /// Binds the listener to `bind` and decodes bodies with the codec's default
+    /// value. Port 0 selects a free port, which
+    /// [`local_addr`](Self::local_addr) reports.
     ///
-    /// Fails when the configuration is invalid or the address cannot be bound.
-    pub fn new(config: HttpSourceConfig) -> Result<Self, Error> {
-        Self::with_codec(config, C::default())
+    /// Defaults: a `max_body_bytes` of 1 MiB and [`ResponseTiming::Ack`].
+    ///
+    /// Fails when the address cannot be bound.
+    pub fn new(bind: SocketAddr) -> Result<Self, Error> {
+        Self::with_codec(C::default(), bind)
     }
 }
 
 impl<C, T> HttpSource<C, T> {
-    /// Validates `config` and binds the listener, decoding bodies with `codec`.
-    ///
-    /// Fails when the configuration is invalid or the address cannot be bound.
-    pub fn with_codec(config: HttpSourceConfig, codec: C) -> Result<Self, Error> {
-        config.validate()?;
-        let bind = || -> io::Result<(net::TcpListener, SocketAddr)> {
-            let listener = net::TcpListener::bind(config.bind)?;
+    /// A source like [`new`](Self::new) that decodes bodies with `codec`.
+    pub fn with_codec(codec: C, bind: SocketAddr) -> Result<Self, Error> {
+        let bind_listener = || -> io::Result<(net::TcpListener, SocketAddr)> {
+            let listener = net::TcpListener::bind(bind)?;
             listener.set_nonblocking(true)?;
             let local_addr = listener.local_addr()?;
             Ok((listener, local_addr))
         };
         let (listener, local_addr) =
-            bind().with_context(|| format!("binding the HTTP source to {}", config.bind))?;
+            bind_listener().with_context(|| format!("binding the HTTP source to {bind}"))?;
         Ok(Self {
             local_addr,
-            config,
+            config: SourceConfig::default(),
             codec: Arc::new(codec),
             state: State::Bound(listener),
             shutdown: CancellationToken::new(),
         })
+    }
+
+    /// Larger request bodies are answered with `413 Payload Too Large` without
+    /// becoming deliveries. Defaults to 1 MiB.
+    pub fn max_body_bytes(mut self, max: usize) -> Self {
+        self.config.max_body_bytes = max;
+        self
+    }
+
+    /// When a received request is answered. Defaults to
+    /// [`ResponseTiming::Ack`].
+    pub fn response(mut self, response: ResponseTiming) -> Self {
+        self.config.response = response;
+        self
+    }
+
+    /// Checks the settings; fails when `max_body_bytes` is zero.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.config.validate()
     }
 
     /// The bound address, including the port chosen for port 0.
@@ -94,10 +115,13 @@ where
     T: Send + 'static,
 {
     fn start(&mut self) -> Result<(), ReceiveError> {
-        let state = mem::replace(&mut self.state, State::Closed);
-        let State::Bound(listener) = state else {
-            self.state = state;
+        if !matches!(self.state, State::Bound(_)) {
             return Ok(());
+        }
+        self.validate()
+            .map_err(|error| ReceiveError::Fatal(error.into()))?;
+        let State::Bound(listener) = mem::replace(&mut self.state, State::Closed) else {
+            unreachable!("checked above");
         };
         let listener =
             TcpListener::from_std(listener).map_err(|error| ReceiveError::Fatal(error.into()))?;

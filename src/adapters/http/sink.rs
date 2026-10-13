@@ -1,7 +1,12 @@
-use super::{config::HttpSinkConfig, metrics::ClientMetrics, record::HttpPublish};
+use super::{
+    client::{HttpClient, Pool},
+    config::{self, HttpMethod, SinkConfig},
+    metrics::ClientMetrics,
+    record::HttpPublish,
+};
 use crate::{
     codec::Encoder,
-    error::{BoxError, Context, Error, ensure},
+    error::{BoxError, Error, ensure},
     sink::{PublishRejected, Sink},
 };
 use bytes::Bytes;
@@ -11,26 +16,18 @@ use hyper::{
     body::Incoming,
     header::{HeaderName, HeaderValue},
 };
-use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
-use hyper_util::{
-    client::legacy::{Client, connect::HttpConnector},
-    rt::TokioExecutor,
-};
-use rustls::{ClientConfig, RootCertStore, crypto::ring};
 use std::{
     collections::HashSet,
     marker::PhantomData,
     sync::{
-        Arc, Mutex,
+        Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 /// Bytes of an unsuccessful response body kept for the error message.
 const ERROR_BODY_EXCERPT: usize = 512;
-
-type HttpClient = Client<HttpsConnector<HttpConnector>, Full<Bytes>>;
 
 /// An encoded request body with its complete, validated header set.
 /// Preparing an output performs all codec work once.
@@ -59,17 +56,32 @@ struct Target {
     uri: Uri,
     method: Method,
     headers: HeaderMap,
+    timeout: Duration,
     /// `METHOD scheme://host/path` for error messages, without the query.
     display: String,
+    metrics: ClientMetrics,
 }
 
 struct State {
-    client: Mutex<Option<HttpClient>>,
+    target: OnceLock<Target>,
     closed: AtomicBool,
+}
+
+impl State {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            target: OnceLock::new(),
+            closed: AtomicBool::new(false),
+        })
+    }
 }
 
 /// Sends each output as one HTTP request and succeeds when the destination
 /// answers with a `2xx` status.
+///
+/// Built with [`HttpClient::sink`]. It validates its settings when it
+/// prepares its first output and sends through the handle's connection pool.
+/// Clones share the closure state.
 ///
 /// Failed connections, timeouts, `408 Request Timeout`,
 /// `429 Too Many Requests`, and `5xx` responses are retried under the
@@ -77,10 +89,9 @@ struct State {
 /// redirects, is a [`PublishRejected`] error that the error policy routes as
 /// [`FailureKind::PublishRejected`](crate::FailureKind::PublishRejected).
 pub struct HttpSink<C, T> {
-    config: HttpSinkConfig,
+    http: HttpClient,
+    config: SinkConfig,
     codec: Arc<C>,
-    target: Arc<Target>,
-    metrics: Arc<ClientMetrics>,
     state: Arc<State>,
     marker: PhantomData<fn(T)>,
 }
@@ -88,78 +99,113 @@ pub struct HttpSink<C, T> {
 impl<C, T> Clone for HttpSink<C, T> {
     fn clone(&self) -> Self {
         Self {
+            http: self.http.clone(),
             config: self.config.clone(),
             codec: self.codec.clone(),
-            target: self.target.clone(),
-            metrics: self.metrics.clone(),
             state: self.state.clone(),
             marker: PhantomData,
         }
     }
 }
 
-impl<C: Default, T> HttpSink<C, T> {
-    /// Creates a sink with the default codec; see [`HttpSink::with_codec`].
-    pub fn new(config: HttpSinkConfig) -> Result<Self, Error> {
-        Self::with_codec(config, C::default())
-    }
-}
-
 impl<C, T> HttpSink<C, T> {
-    /// Validates the configuration. The client connects on the first publish.
-    pub fn with_codec(config: HttpSinkConfig, codec: C) -> Result<Self, Error> {
-        config.validate()?;
-        let uri = config.uri()?;
-        let mut headers = HeaderMap::new();
-        for (name, value) in &config.headers {
-            headers.append(
-                HeaderName::from_bytes(name.as_bytes()).expect("validated header name"),
-                HeaderValue::from_str(value).expect("validated header value"),
-            );
+    pub(super) fn new(http: HttpClient, config: SinkConfig, codec: C) -> Self {
+        Self {
+            http,
+            config,
+            codec: Arc::new(codec),
+            state: State::new(),
+            marker: PhantomData,
         }
+    }
+
+    /// The request method. Defaults to [`HttpMethod::Post`].
+    pub fn method(mut self, method: HttpMethod) -> Self {
+        self.config.method = method;
+        self.state = State::new();
+        self
+    }
+
+    /// Adds a header sent with every request, such as `content-type`. It
+    /// replaces the handle's headers of the same name, and a header name set
+    /// on an output replaces every configured header of that name.
+    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.config.headers.push((name.into(), value.into()));
+        self.state = State::new();
+        self
+    }
+
+    /// Maximum time for one attempt, from connecting until the response body
+    /// is read, replacing the handle's timeout. An attempt that times out is
+    /// retried.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.config.timeout = Some(timeout);
+        self.state = State::new();
+        self
+    }
+
+    /// Checks the handle and sink settings without connecting.
+    ///
+    /// Fails for a URL without a host, a scheme other than `http` or `https`,
+    /// credentials in the URL, an invalid header name or value, or a zero
+    /// timeout.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.http.validate()?;
+        self.config.validate()
+    }
+
+    /// The request target, validated and built on first use.
+    fn target(&self) -> Result<&Target, Error> {
+        if let Some(target) = self.state.target.get() {
+            return Ok(target);
+        }
+        self.validate()?;
+        let uri = self.config.uri()?;
+        let mut headers = self.http.headers()?;
+        let own = config::headers(&self.config.headers)?;
+        for name in own.keys() {
+            headers.remove(name);
+        }
+        headers.extend(own);
         let location = format!(
             "{}://{}{}",
             uri.scheme_str().unwrap_or_default(),
             uri.authority().map(|a| a.as_str()).unwrap_or_default(),
             uri.path()
         );
-        let method = config.method.as_hyper();
-        Ok(Self {
-            metrics: Arc::new(ClientMetrics::new(&location)),
-            target: Arc::new(Target {
-                display: format!("{method} {location}"),
-                uri,
-                method,
-                headers,
-            }),
-            codec: Arc::new(codec),
-            state: Arc::new(State {
-                client: Mutex::new(None),
-                closed: AtomicBool::new(false),
-            }),
-            config,
-            marker: PhantomData,
-        })
+        let method = self.config.method.as_hyper();
+        let target = Target {
+            metrics: ClientMetrics::new(&location),
+            display: format!("{method} {location}"),
+            timeout: self.config.timeout.unwrap_or(self.http.default_timeout()),
+            uri,
+            method,
+            headers,
+        };
+        let _ = self.state.target.set(target);
+        Ok(self.state.target.get().expect("target was set"))
     }
 
-    fn client(&self) -> Result<HttpClient, BoxError> {
+    fn client(&self) -> Result<(Pool, &Target), BoxError> {
         ensure!(
             !self.state.closed.load(Ordering::Acquire),
             Error::closed,
             "HTTP sink is closed"
         );
-        let mut slot = self.state.client.lock().unwrap();
-        if slot.is_none() {
-            let connector = connector(self.target.uri.scheme_str() == Some("https"))?;
-            *slot = Some(Client::builder(TokioExecutor::new()).build(connector));
-        }
-        Ok(slot.as_ref().unwrap().clone())
+        let target = self.target()?;
+        let pool = self.http.pool(target.uri.scheme_str() == Some("https"))?;
+        Ok((pool, target))
     }
 
-    async fn send(&self, client: HttpClient, output: &HttpPrepared) -> Result<(), BoxError> {
+    async fn send(
+        &self,
+        client: Pool,
+        target: &Target,
+        output: &HttpPrepared,
+    ) -> Result<(), BoxError> {
         let mut request = Request::new(Full::new(output.body.clone()));
-        *request.method_mut() = self.target.method.clone();
-        *request.uri_mut() = self.target.uri.clone();
+        *request.method_mut() = target.method.clone();
+        *request.uri_mut() = target.uri.clone();
         *request.headers_mut() = output.headers.clone();
         let started = Instant::now();
         let exchange = async {
@@ -172,35 +218,33 @@ impl<C, T> HttpSink<C, T> {
             };
             Ok::<_, BoxError>((parts.status, read_body(body, keep).await))
         };
-        let (status, body) = match tokio::time::timeout(self.config.timeout, exchange).await {
+        let (status, body) = match tokio::time::timeout(target.timeout, exchange).await {
             Ok(Ok(response)) => response,
             Ok(Err(error)) => {
-                self.metrics.attempt("error", started);
-                return Err(
-                    Error::wrap(format!("HTTP {} failed", self.target.display), error).into(),
-                );
+                target.metrics.attempt("error", started);
+                return Err(Error::wrap(format!("HTTP {} failed", target.display), error).into());
             }
             Err(_) => {
-                self.metrics.attempt("timeout", started);
+                target.metrics.attempt("timeout", started);
                 return Err(Error::msg(format!(
                     "HTTP {} timed out after {:?}",
-                    self.target.display, self.config.timeout
+                    target.display, target.timeout
                 ))
                 .into());
             }
         };
-        self.metrics.attempt(status.as_str(), started);
+        target.metrics.attempt(status.as_str(), started);
         if status.is_success() {
             return Ok(());
         }
         let excerpt = String::from_utf8_lossy(&body);
         let excerpt = excerpt.trim();
         let error = if excerpt.is_empty() {
-            Error::msg(format!("HTTP {} answered {status}", self.target.display))
+            Error::msg(format!("HTTP {} answered {status}", target.display))
         } else {
             Error::msg(format!(
                 "HTTP {} answered {status}: {excerpt}",
-                self.target.display
+                target.display
             ))
         };
         if retryable(status) {
@@ -220,7 +264,7 @@ where
 
     fn prepare(&self, record: HttpPublish<T>) -> Result<Self::Prepared, BoxError> {
         let body = Bytes::from(self.codec.encode(&record.body)?);
-        let mut headers = self.target.headers.clone();
+        let mut headers = self.target()?.headers.clone();
         let mut replaced = HashSet::new();
         for (name, value) in record.headers {
             let name = HeaderName::from_bytes(name.as_bytes())
@@ -240,15 +284,14 @@ where
     /// future abandons the request; the destination may still have processed
     /// it, so a retried output can arrive twice.
     async fn publish(&self, output: &Self::Prepared) -> Result<(), BoxError> {
-        let client = self.client()?;
-        self.send(client, output).await
+        let (client, target) = self.client()?;
+        self.send(client, target, output).await
     }
 
-    /// Refuses further publications. Idle connections close once no request
-    /// in progress holds the client.
+    /// Refuses further publications. The handle's connection pool stays open
+    /// for its other sinks.
     async fn close(&self) -> Result<(), BoxError> {
         self.state.closed.store(true, Ordering::Release);
-        self.state.client.lock().unwrap().take();
         Ok(())
     }
 }
@@ -271,24 +314,4 @@ async fn read_body(mut body: Incoming, keep: usize) -> Vec<u8> {
         }
     }
     kept
-}
-
-/// Verifies `https` servers against the platform's root certificates, which
-/// are loaded only when the URL uses `https`.
-fn connector(https: bool) -> Result<HttpsConnector<HttpConnector>, BoxError> {
-    let provider = Arc::new(ring::default_provider());
-    let builder = HttpsConnectorBuilder::new();
-    let builder = if https {
-        builder
-            .with_provider_and_native_roots(provider)
-            .context("failed to load the platform's root certificates")?
-    } else {
-        builder.with_tls_config(
-            ClientConfig::builder_with_provider(provider)
-                .with_safe_default_protocol_versions()?
-                .with_root_certificates(RootCertStore::empty())
-                .with_no_client_auth(),
-        )
-    };
-    Ok(builder.https_or_http().enable_http1().build())
 }

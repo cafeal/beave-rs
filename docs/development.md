@@ -93,17 +93,17 @@ the broker accepts from the host through the published port. It starts without
 queues; the live tests declare their own through the management API.
 
 ElasticMQ implements the SQS API in memory and accepts any credentials and
-region. Point `SqsSourceConfig::endpoint_url` and `SqsSinkConfig::endpoint_url`
-at it. It starts without queues; create one with the AWS CLI
+region. Point a handle at it with
+`Sqs::new().region("elasticmq").endpoint_url("http://localhost:9324")` and
+static credentials such as `.credentials(SqsCredentials::new("local", "local"))`.
+It starts without queues; create one with the AWS CLI
 (`aws --endpoint-url http://localhost:9324 sqs create-queue --queue-name orders`)
 or the query API, as the live tests do. It does not reproduce every AWS limit
 and behavior, so verify production settings against SQS itself.
 
 The Pub/Sub emulator, from the `google/cloud-sdk` emulators image, keeps topics
-and subscriptions in memory and needs no credentials. Point
-`PubSubSourceConfig::endpoint` and `PubSubSinkConfig::endpoint` at
-`http://localhost:8085` and set their `credentials` to
-`PubSubCredentials::Anonymous`. It starts without topics; create them through
+and subscriptions in memory and needs no credentials. Connect to it with
+`PubSub::new().endpoint("http://localhost:8085").anonymous()`. It starts without topics; create them through
 its REST API, as the live tests do:
 
 ```sh
@@ -117,7 +117,10 @@ settings against Pub/Sub itself.
 
 The Service Bus emulator stores its entities in the `servicebus-sql` SQL Server
 container and reads its namespace from `dev/servicebus/config.json`, which
-defines the `beavers-events` topic with the `beavers-test` subscription. Its
+defines the `beavers-events` topic with the `beavers-test` subscription.
+Connect to it with `ServiceBus::from_connection_string(...)` and the connection
+string listed above; `UseDevelopmentEmulator=true` selects plain AMQP, which
+`.emulator()` sets on a handle built with `ServiceBus::new`. Its
 management API on port 5300 creates and deletes queues
 (`PUT /{queue}?api-version=2021-05` with an Atom `QueueDescription`), as the
 live tests do, but cannot create topic subscriptions, so add topics and

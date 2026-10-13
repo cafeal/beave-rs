@@ -65,7 +65,7 @@ to another topic:
 ```rust
 use beavers::{
     App, Classify, Result, Utf8,
-    adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
+    adapters::kafka::Kafka,
 };
 
 async fn summarize(article: String) -> Result<String> {
@@ -75,8 +75,9 @@ async fn summarize(article: String) -> Result<String> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let articles = KafkaSource::<Utf8, _>::new(KafkaSourceConfig::new("localhost:9092", "summarizer", ["articles"]));
-    let summaries = KafkaSink::<Utf8, _>::new(KafkaSinkConfig::new("localhost:9092", "summaries"));
+    let kafka = Kafka::new("localhost:9092");
+    let articles = kafka.source::<Utf8, _>("summarizer", ["articles"]);
+    let summaries = kafka.sink::<Utf8, _>("summaries");
 
     App::new()
         .subscribe("summarize", articles, summaries, summarize)
@@ -88,6 +89,8 @@ async fn main() -> anyhow::Result<()> {
 
 The handler sees only the decoded value. A transient API failure is retried
 with backoff, and each offset is committed after its summary is published.
+Sources and sinks built from one `Kafka` handle share its connection settings,
+and its sinks share one producer.
 
 The repository's examples run against local brokers started with Docker
 Compose, which also provides web consoles for Kafka and Pulsar:

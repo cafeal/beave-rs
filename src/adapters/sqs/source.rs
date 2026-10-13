@@ -1,6 +1,6 @@
 use super::{
-    client::client,
-    config::SqsSourceConfig,
+    client::Sqs,
+    config::{SourceConfig, is_fifo},
     convert::attributes_from_sqs,
     lease::{Leases, keep, release},
     record::{SqsMetadata, SqsRecord},
@@ -9,6 +9,7 @@ use crate::{
     codec::Decoder,
     error::{BoxError, Error},
     message::{OrderingKey, SourceMessage},
+    retry::RetryPolicy,
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
 };
@@ -17,16 +18,21 @@ use aws_sdk_sqs::{
     error::{DisplayErrorContext, ProvideErrorMetadata},
     types::{Message, MessageSystemAttributeName},
 };
-use std::{collections::VecDeque, convert::Infallible, marker::PhantomData, sync::Arc};
+use std::{
+    collections::VecDeque, convert::Infallible, marker::PhantomData, sync::Arc, time::Duration,
+};
 use tokio::{sync::mpsc, task::JoinHandle, time::Instant};
 
 /// Error code of a receipt handle that no longer refers to a received message.
 const INVALID_RECEIPT_HANDLE: &str = "ReceiptHandleIsInvalid";
 
-/// Consumes one queue with long polling. It creates its client on the first
-/// `receive`.
+/// Consumes one queue with long polling.
+///
+/// Built with [`Sqs::source`]. It starts polling on the first `receive`, which
+/// also validates the settings.
 pub struct SqsSource<C, T> {
-    config: SqsSourceConfig,
+    sqs: Sqs,
+    config: SourceConfig,
     codec: Arc<C>,
     connection: Option<Connection>,
     closed: bool,
@@ -73,17 +79,10 @@ impl Drop for Keeper {
     }
 }
 
-impl<C: Default, T> SqsSource<C, T> {
-    /// A source with a default-constructed codec.
-    pub fn new(config: SqsSourceConfig) -> Self {
-        Self::with_codec(config, C::default())
-    }
-}
-
 impl<C, T> SqsSource<C, T> {
-    /// A source that uses an existing codec instance, such as a configured `Avro` codec.
-    pub fn with_codec(config: SqsSourceConfig, codec: C) -> Self {
+    pub(super) fn new(sqs: Sqs, config: SourceConfig, codec: C) -> Self {
         Self {
+            sqs,
             config,
             codec: Arc::new(codec),
             connection: None,
@@ -92,8 +91,48 @@ impl<C, T> SqsSource<C, T> {
         }
     }
 
-    async fn connect(&self) -> Connection {
-        let client = client(&self.config.endpoint()).await;
+    /// Messages one `ReceiveMessage` call returns at most, from 1 to 10.
+    /// Defaults to 10.
+    pub fn max_messages(mut self, max_messages: i32) -> Self {
+        self.config.max_messages = max_messages;
+        self
+    }
+
+    /// How long `ReceiveMessage` waits for a message (long polling), up to 20
+    /// seconds. Defaults to 20 seconds.
+    pub fn wait_time(mut self, wait_time: Duration) -> Self {
+        self.config.wait_time = wait_time;
+        self
+    }
+
+    /// How long a received message stays invisible to other consumers. The
+    /// source extends it while the delivery is buffered or in flight, up to
+    /// SQS's limit of 12 hours from its receipt. Defaults to 30 seconds.
+    pub fn visibility_timeout(mut self, visibility_timeout: Duration) -> Self {
+        self.config.visibility_timeout = visibility_timeout;
+        self
+    }
+
+    /// Attempts to delete a message when it is acknowledged. Defaults to 5
+    /// attempts with delays from 100 ms up to 2 s.
+    pub fn ack_retry(mut self, ack_retry: RetryPolicy) -> Self {
+        self.config.ack_retry = ack_retry;
+        self
+    }
+
+    /// Checks the handle and source settings without contacting SQS.
+    ///
+    /// Fails when the handle is invalid, the queue URL is not an http or https
+    /// URL, `max_messages` is outside 1 to 10, `wait_time` exceeds 20 seconds,
+    /// `visibility_timeout` is outside 1 second to 12 hours, or `ack_retry` is
+    /// invalid.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.sqs.validate()?;
+        self.config.validate()
+    }
+
+    async fn connect(&self) -> Result<Connection, BoxError> {
+        let client = self.sqs.client().await?.clone();
         let leases = Arc::new(Leases::new(self.config.visibility_timeout));
         let (released, releases) = mpsc::unbounded_channel();
         let stop = CancellationToken::new();
@@ -104,14 +143,14 @@ impl<C, T> SqsSource<C, T> {
             releases,
             stop.clone(),
         ));
-        Connection {
+        Ok(Connection {
             client,
             leases,
             released,
             keeper: Keeper { stop, task },
             buffered: VecDeque::new(),
             polling: None,
-        }
+        })
     }
 
     /// Starts a `ReceiveMessage` call whose messages get leases as they arrive.
@@ -159,10 +198,9 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for SqsSource<C, T>
             return Ok(Receive::End);
         }
         if self.connection.is_none() {
-            self.config
-                .validate()
+            self.validate()
                 .map_err(|error| ReceiveError::Fatal(error.into()))?;
-            self.connection = Some(self.connect().await);
+            self.connection = Some(self.connect().await.map_err(ReceiveError::Fatal)?);
         }
         loop {
             let connection = self.connection.as_mut().expect("connected source");
@@ -216,7 +254,7 @@ pub struct SqsMessage<C, T> {
     released: mpsc::UnboundedSender<Arc<str>>,
     lease: u64,
     revoked: CancellationToken,
-    ack_retry: crate::retry::RetryPolicy,
+    ack_retry: RetryPolicy,
     codec: Arc<C>,
     acknowledged: bool,
     marker: PhantomData<T>,
@@ -228,7 +266,7 @@ impl<C, T> SqsMessage<C, T> {
         Self {
             message: received.message,
             queue_url: source.config.queue_url.clone(),
-            fifo: source.config.endpoint().is_fifo(),
+            fifo: is_fifo(&source.config.queue_url),
             client: connection.client.clone(),
             leases: connection.leases.clone(),
             released: connection.released.clone(),

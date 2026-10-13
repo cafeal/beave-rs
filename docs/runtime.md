@@ -108,9 +108,10 @@ and can produce a duplicate.
 See the [adapter guide](adapters.md) for IterSource, StdinSource, InMemorySink,
 StdoutSink, and the Channel adapter that chains subscriptions, including examples, EOF behavior,
 ACK guarantees, and I/O limits. These components do not provide durable
-redelivery after process exit. Optional Kafka and Pulsar adapters provide
-broker-specific source and sink implementations; their documentation covers
-configuration and acknowledgement semantics.
+redelivery after process exit. Optional broker adapters provide
+broker-specific sources and sinks built from a connection handle, such as
+`Kafka` or `RabbitMq`; their documentation covers configuration and
+acknowledgement semantics.
 
 ## Per-message lifecycle
 
@@ -159,8 +160,8 @@ Subscription::new("orders", kafka_source, kafka_transactional_sink, handler)
 The method only compiles when the sink implements
 `TransactionalSink<Source::Message, Output>`, which an adapter provides for the
 source messages whose acknowledgement can join its transactions. The
-Kafka adapter implements it for a `KafkaSource` and a `KafkaTransactionalSink`;
-see the [Kafka guide](adapters/kafka.md#transactions). The runtime never calls
+Kafka adapter implements it for a `KafkaSource` and a `KafkaTransactionalSink`,
+which `kafka.sink(topic).transactional(id)` builds; see the [Kafka guide](adapters/kafka.md#transactions). The runtime never calls
 the delivery's own ACK in a transactional subscription.
 
 ### Batches
@@ -588,7 +589,7 @@ JSON object into the `beavers-dlq-details` string attribute:
 The sink must publish raw bytes:
 
 ```rust,ignore
-let dead_letters = KafkaSink::<RawBytes, Vec<u8>>::new(KafkaSinkConfig::new(brokers, "orders-dlq"));
+let dead_letters = kafka.sink::<RawBytes, Vec<u8>>("orders-dlq");
 
 Subscription::new("orders", source, sink, handle)
     .dlq_with(dead_letters, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)));
@@ -640,6 +641,11 @@ queue brokers, and complete examples.
 
 Publication, dead-letter publication, and ACK results are never assumed. An
 interrupted or failed attempt is not treated as success.
+
+Sources and sinks built from one broker handle share its connection. A lost
+shared connection therefore affects every subscription that uses it at once:
+each one sees its own receive, publish, or ACK failure and handles it as
+above, so a subscription still stops on its own fatal or exhausted failure.
 
 ## End of input and shutdown
 

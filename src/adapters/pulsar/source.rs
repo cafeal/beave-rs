@@ -1,6 +1,6 @@
 use super::{
-    client::{SharedClient, connect, partition_topics},
-    config::{PulsarSourceConfig, PulsarSubscriptionType},
+    client::{Pulsar, partition_topics},
+    config::{PulsarSubscriptionType, SourceConfig},
     record::{PulsarMessageId, PulsarMetadata, PulsarRecord},
 };
 use crate::{
@@ -25,11 +25,14 @@ use std::{
     },
 };
 
-/// Establishes its broker client and subscription on the first `receive` call.
+/// Subscribes on the first `receive` call, which also validates the settings.
 ///
-/// A partitioned topic is consumed through one consumer per partition.
+/// Built with [`Pulsar::source`]. A partitioned topic is consumed through one
+/// consumer per partition. Closing the source closes its consumers; the client
+/// stays open for the other sources and sinks of the handle.
 pub struct PulsarSource<C, T> {
-    config: PulsarSourceConfig,
+    pulsar: Pulsar,
+    config: SourceConfig,
     codec: Arc<C>,
     connection: Option<Connection>,
     closed: bool,
@@ -37,7 +40,6 @@ pub struct PulsarSource<C, T> {
 }
 
 struct Connection {
-    client: Arc<SharedClient>,
     consumers: Vec<Consumer>,
     closed: Arc<AtomicBool>,
     ack_retry: Arc<RetryPolicy>,
@@ -46,23 +48,10 @@ struct Connection {
     next: usize,
 }
 
-impl<C: Default, T> PulsarSource<C, T> {
-    /// Creates a source that decodes with the codec's default value.
-    ///
-    /// The client and consumers are created on the first receive, which also
-    /// validates the configuration.
-    pub fn new(config: PulsarSourceConfig) -> Self {
-        Self::with_codec(config, C::default())
-    }
-}
-
 impl<C, T> PulsarSource<C, T> {
-    /// Creates a source that decodes with `codec`.
-    ///
-    /// The client and consumers are created on the first receive, which also
-    /// validates the configuration.
-    pub fn with_codec(config: PulsarSourceConfig, codec: C) -> Self {
+    pub(super) fn new(pulsar: Pulsar, config: SourceConfig, codec: C) -> Self {
         Self {
+            pulsar,
             config,
             codec: Arc::new(codec),
             connection: None,
@@ -71,15 +60,50 @@ impl<C, T> PulsarSource<C, T> {
         }
     }
 
+    /// How the broker distributes the subscription's messages among its
+    /// consumers. Defaults to [`Shared`](PulsarSubscriptionType::Shared).
+    pub fn subscription_type(mut self, subscription_type: PulsarSubscriptionType) -> Self {
+        self.config.subscription_type = subscription_type;
+        self
+    }
+
+    /// Messages each partition's consumer prefetches from the broker. Defaults
+    /// to 100.
+    pub fn buffer_size(mut self, buffer_size: usize) -> Self {
+        self.config.buffer_size = buffer_size;
+        self
+    }
+
+    /// Whether an empty payload is a null value, matching topic compaction,
+    /// which deletes a key on an empty payload. Enabled by default.
+    pub fn empty_payload_is_tombstone(mut self, enabled: bool) -> Self {
+        self.config.empty_payload_is_tombstone = enabled;
+        self
+    }
+
+    /// Attempts to acknowledge a delivery. An acknowledgement sent while the
+    /// client reconnects after a topic unload or broker restart fails or times
+    /// out, and a later attempt on the new session succeeds. Defaults to 5
+    /// attempts with delays from 100 ms up to 2 s.
+    pub fn ack_retry(mut self, ack_retry: RetryPolicy) -> Self {
+        self.config.ack_retry = ack_retry;
+        self
+    }
+
+    /// Checks the handle and source settings without network access.
+    ///
+    /// Fails when the handle is invalid, when the topic or subscription is
+    /// empty, when `buffer_size` is zero, or when `ack_retry` is invalid.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.pulsar.validate()?;
+        self.config.validate()
+    }
+
     async fn connect(&self) -> Result<Connection, BoxError> {
         self.config.validate()?;
-        let client = connect(
-            &self.config.service_url,
-            self.config.authentication.as_ref(),
-        )
-        .await?;
+        let client = self.pulsar.client().await?;
         let mut consumers = Vec::new();
-        for topic in partition_topics(&client, &self.config.topic).await? {
+        for topic in partition_topics(client, &self.config.topic).await? {
             let consumer = client
                 .consumer(topic)
                 .subscription(&self.config.subscription)
@@ -90,7 +114,6 @@ impl<C, T> PulsarSource<C, T> {
             consumers.push(consumer);
         }
         Ok(Connection {
-            client: SharedClient::new(client),
             consumers,
             closed: Arc::new(AtomicBool::new(false)),
             ack_retry: Arc::new(self.config.ack_retry.clone()),
@@ -117,7 +140,7 @@ impl Connection {
     }
 
     /// Closes the consumers. Deliveries still held fail to acknowledge from
-    /// now on, and the client closes when the last of them is dropped.
+    /// now on.
     async fn close(self) -> Result<(), BoxError> {
         self.closed.store(true, Ordering::Release);
         let mut result = Ok(());
@@ -158,7 +181,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PulsarSource<C,
                 id: message.message_id,
                 closed: connection.closed.clone(),
                 retry: connection.ack_retry.clone(),
-                _client: connection.client.clone(),
+                _pulsar: self.pulsar.clone(),
             },
             marker: PhantomData,
         }))
@@ -282,7 +305,8 @@ struct Acknowledgement {
     id: MessageId,
     closed: Arc<AtomicBool>,
     retry: Arc<RetryPolicy>,
-    _client: Arc<SharedClient>,
+    /// Keeps the client open while the delivery can acknowledge through it.
+    _pulsar: Pulsar,
 }
 
 impl Acknowledgement {

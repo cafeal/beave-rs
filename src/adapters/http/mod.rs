@@ -4,6 +4,7 @@
 //! Enabled by the `http` Cargo feature. See `docs/adapters/http.md` for the
 //! response, delivery, and publication contracts.
 
+mod client;
 mod config;
 mod metrics;
 mod record;
@@ -11,7 +12,8 @@ mod server;
 mod sink;
 mod source;
 
-pub use config::{HttpMethod, HttpSinkConfig, HttpSourceConfig, ResponseTiming};
+pub use client::HttpClient;
+pub use config::{HttpMethod, ResponseTiming};
 pub use record::{HttpMetadata, HttpPublish, HttpRecord};
 pub use sink::{HttpPrepared, HttpSink};
 pub use source::{HttpMessage, HttpSource};

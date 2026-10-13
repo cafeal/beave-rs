@@ -30,7 +30,7 @@
     <p>Summarize each article on a Kafka topic with an LLM and publish the summaries to another topic:</p>
 <pre><code class="language-rust">use beavers::{
     App, Classify, Result, Utf8,
-    adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
+    adapters::kafka::Kafka,
 };
 
 async fn summarize(article: String) -&gt; Result&lt;String&gt; {
@@ -40,15 +40,9 @@ async fn summarize(article: String) -&gt; Result&lt;String&gt; {
 
 #[tokio::main]
 async fn main() -&gt; anyhow::Result&lt;()&gt; {
-    let articles = KafkaSource::&lt;Utf8, _&gt;::new(KafkaSourceConfig::new(
-        "localhost:9092",
-        "summarizer",
-        ["articles"],
-    ));
-    let summaries = KafkaSink::&lt;Utf8, _&gt;::new(KafkaSinkConfig::new(
-        "localhost:9092",
-        "summaries",
-    ));
+    let kafka = Kafka::new("localhost:9092");
+    let articles = kafka.source::&lt;Utf8, _&gt;("summarizer", ["articles"]);
+    let summaries = kafka.sink::&lt;Utf8, _&gt;("summaries");
 
     App::new()
         .subscribe("summarize", articles, summaries, summarize)

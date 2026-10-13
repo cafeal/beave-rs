@@ -7,26 +7,20 @@ const TLS_PORT: u16 = 5671;
 /// Port of plain AMQP, which the Service Bus emulator serves.
 const PLAIN_PORT: u16 = 5672;
 
-/// How a source or sink authenticates to a Service Bus namespace.
+/// How a handle authenticates to a Service Bus namespace.
 ///
 /// The `Debug` output hides the key and the signature.
 #[derive(Clone)]
-pub enum ServiceBusCredential {
+pub(super) enum Credential {
     /// A shared access policy name and key. The adapter signs a token for each
     /// entity it uses and renews it before it expires.
-    SharedAccessKey {
-        /// The policy name, such as `RootManageSharedAccessKey`.
-        name: String,
-        /// The policy's primary or secondary key.
-        key: String,
-    },
-    /// A signed token, `SharedAccessSignature sr=...&sig=...&se=...&skn=...`,
-    /// whose resource covers the entity. It cannot be renewed, so the
-    /// connection fails once it expires.
+    SharedAccessKey { name: String, key: String },
+    /// A signed token whose resource covers the entities. It cannot be
+    /// renewed, so the connection fails once it expires.
     SharedAccessSignature(String),
 }
 
-impl fmt::Debug for ServiceBusCredential {
+impl fmt::Debug for Credential {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::SharedAccessKey { name, .. } => f
@@ -38,39 +32,27 @@ impl fmt::Debug for ServiceBusCredential {
     }
 }
 
-/// A Service Bus namespace and the credential to reach it with.
+/// The namespace and credential of a [`ServiceBus`](super::ServiceBus) handle.
 #[derive(Clone, Debug)]
-pub struct ServiceBusConnection {
-    /// The fully qualified namespace, such as `contoso.servicebus.windows.net`,
-    /// optionally followed by `:port`.
-    pub namespace: String,
-    /// The credential the source or sink authenticates with.
-    pub credential: ServiceBusCredential,
-    /// Connects with plain AMQP to port 5672 instead of AMQP over TLS to port
-    /// 5671, as the Service Bus emulator requires. A port in `namespace`
-    /// overrides either default.
-    pub emulator: bool,
+pub(super) struct Settings {
+    /// The fully qualified namespace, optionally followed by `:port`.
+    pub(super) namespace: String,
+    pub(super) credential: Option<Credential>,
+    /// Plain AMQP to port 5672 instead of AMQP over TLS to port 5671.
+    pub(super) emulator: bool,
 }
 
-impl ServiceBusConnection {
-    /// A TLS connection to `namespace` with `credential`.
-    pub fn new(namespace: impl Into<String>, credential: ServiceBusCredential) -> Self {
+impl Settings {
+    pub(super) fn new(namespace: String) -> Self {
         Self {
-            namespace: namespace.into(),
-            credential,
+            namespace,
+            credential: None,
             emulator: false,
         }
     }
 
-    /// Reads a connection string as the Azure portal and the emulator show it,
-    /// such as `Endpoint=sb://contoso.servicebus.windows.net/;SharedAccessKeyName=...;SharedAccessKey=...`.
-    ///
-    /// It accepts `Endpoint`, `SharedAccessKeyName` with `SharedAccessKey` or
-    /// `SharedAccessSignature`, and `UseDevelopmentEmulator=true`. A string with
-    /// `EntityPath` is refused: set the entity in the source or sink
-    /// configuration instead, where the key of an entity-level policy still
-    /// works for that entity.
-    pub fn from_connection_string(connection_string: &str) -> Result<Self, Error> {
+    /// Reads a connection string as the Azure portal and the emulator show it.
+    pub(super) fn from_connection_string(connection_string: &str) -> Result<Self, Error> {
         let mut endpoint = None;
         let mut key_name = None;
         let mut key = None;
@@ -95,7 +77,7 @@ impl ServiceBusConnection {
                 "entitypath" => {
                     return Err(Error::config(
                         "Service Bus connection string names an entity; remove EntityPath and \
-                     set the entity in the source or sink configuration",
+                     pass the entity to the source or sink",
                     ));
                 }
                 other => {
@@ -112,12 +94,12 @@ impl ServiceBusConnection {
             .ok_or_else(|| Error::config("Service Bus Endpoint must start with sb://"))?
             .trim_end_matches('/');
         let credential = match (key_name, key, signature) {
-            (Some(name), Some(key), None) => ServiceBusCredential::SharedAccessKey {
+            (Some(name), Some(key), None) => Credential::SharedAccessKey {
                 name: name.to_owned(),
                 key: key.to_owned(),
             },
             (None, None, Some(signature)) => {
-                ServiceBusCredential::SharedAccessSignature(signature.to_owned())
+                Credential::SharedAccessSignature(signature.to_owned())
             }
             _ => {
                 return Err(Error::config(
@@ -126,16 +108,16 @@ impl ServiceBusConnection {
                 ));
             }
         };
-        let connection = Self {
+        let settings = Self {
             namespace: namespace.to_owned(),
-            credential,
+            credential: Some(credential),
             emulator,
         };
-        connection.validate()?;
-        Ok(connection)
+        settings.validate()?;
+        Ok(settings)
     }
 
-    fn validate(&self) -> Result<(), Error> {
+    pub(super) fn validate(&self) -> Result<(), Error> {
         ensure!(
             !self.namespace.is_empty()
                 && !self
@@ -150,18 +132,30 @@ impl ServiceBusConnection {
                 .map_err(|_| Error::config("Service Bus namespace has an invalid port"))?;
         }
         match &self.credential {
-            ServiceBusCredential::SharedAccessKey { name, key } => ensure!(
+            None => {
+                return Err(Error::config(
+                    "Service Bus needs a shared access key or signature",
+                ));
+            }
+            Some(Credential::SharedAccessKey { name, key }) => ensure!(
                 !name.is_empty() && !key.is_empty(),
                 Error::config,
                 "Service Bus shared access key needs a name and a key"
             ),
-            ServiceBusCredential::SharedAccessSignature(signature) => ensure!(
+            Some(Credential::SharedAccessSignature(signature)) => ensure!(
                 signature.starts_with("SharedAccessSignature "),
                 Error::config,
                 "Service Bus shared access signature must start with \"SharedAccessSignature \""
             ),
         }
         Ok(())
+    }
+
+    /// The validated credential.
+    pub(super) fn credential(&self) -> Result<&Credential, Error> {
+        self.credential
+            .as_ref()
+            .ok_or_else(|| Error::config("Service Bus needs a shared access key or signature"))
     }
 
     /// The namespace's host name, without a port.
@@ -196,35 +190,22 @@ fn validate_entity_path(path: &str) -> Result<(), Error> {
     Ok(())
 }
 
-/// Configuration of a [`ServiceBusSource`](super::ServiceBusSource).
+/// Settings of a [`ServiceBusSource`](super::ServiceBusSource).
 #[derive(Clone, Debug)]
-pub struct ServiceBusSourceConfig {
-    /// The namespace and credential.
-    pub connection: ServiceBusConnection,
-    /// The entity to receive from: a queue such as `orders`, a topic
-    /// subscription as `events/Subscriptions/billing`, or a dead-letter
-    /// subqueue such as `orders/$DeadLetterQueue`. Session-enabled entities are
-    /// not supported.
-    pub entity_path: String,
-    /// Messages Service Bus may send ahead of `receive` (the link credit). Each
-    /// is locked from the moment Service Bus sends it, so keep it small enough
-    /// that prefetched messages are received well within the lock duration.
-    pub prefetch: u32,
+pub(super) struct SourceConfig {
+    pub(super) entity_path: String,
+    pub(super) prefetch: u32,
 }
 
-impl ServiceBusSourceConfig {
-    /// A configuration with a `prefetch` of 10.
-    pub fn new(connection: ServiceBusConnection, entity_path: impl Into<String>) -> Self {
+impl SourceConfig {
+    pub(super) fn new(entity_path: String) -> Self {
         Self {
-            connection,
-            entity_path: entity_path.into(),
+            entity_path,
             prefetch: 10,
         }
     }
 
-    /// Checks the settings without contacting Service Bus.
-    pub fn validate(&self) -> Result<(), Error> {
-        self.connection.validate()?;
+    pub(super) fn validate(&self) -> Result<(), Error> {
         validate_entity_path(&self.entity_path)?;
         ensure!(
             self.prefetch > 0,
@@ -235,31 +216,22 @@ impl ServiceBusSourceConfig {
     }
 }
 
-/// Configuration of a [`ServiceBusSink`](super::ServiceBusSink).
+/// Settings of a [`ServiceBusSink`](super::ServiceBusSink).
 #[derive(Clone, Debug)]
-pub struct ServiceBusSinkConfig {
-    /// The namespace and credential.
-    pub connection: ServiceBusConnection,
-    /// The queue or topic every output is sent to.
-    pub entity_path: String,
-    /// Messages sent and not yet accepted by Service Bus. `submit` waits while
-    /// this many are outstanding.
-    pub max_pending: usize,
+pub(super) struct SinkConfig {
+    pub(super) entity_path: String,
+    pub(super) max_pending: usize,
 }
 
-impl ServiceBusSinkConfig {
-    /// A configuration with a `max_pending` of 1000.
-    pub fn new(connection: ServiceBusConnection, entity_path: impl Into<String>) -> Self {
+impl SinkConfig {
+    pub(super) fn new(entity_path: String) -> Self {
         Self {
-            connection,
-            entity_path: entity_path.into(),
+            entity_path,
             max_pending: 1000,
         }
     }
 
-    /// Checks the settings without contacting Service Bus.
-    pub fn validate(&self) -> Result<(), Error> {
-        self.connection.validate()?;
+    pub(super) fn validate(&self) -> Result<(), Error> {
         validate_entity_path(&self.entity_path)?;
         PendingLimit::validate(self.max_pending, "Service Bus")
     }
@@ -273,15 +245,15 @@ mod tests {
 
     #[test]
     fn connection_strings_are_read() {
-        let emulator = ServiceBusConnection::from_connection_string(EMULATOR).unwrap();
+        let emulator = Settings::from_connection_string(EMULATOR).unwrap();
         assert_eq!((emulator.host(), emulator.port()), ("localhost", 5672));
         assert!(matches!(
             emulator.credential,
-            ServiceBusCredential::SharedAccessKey { ref name, ref key }
+            Some(Credential::SharedAccessKey { ref name, ref key })
                 if name == "RootManageSharedAccessKey" && key == "SAS_KEY_VALUE"
         ));
 
-        let azure = ServiceBusConnection::from_connection_string(
+        let azure = Settings::from_connection_string(
             "Endpoint=sb://contoso.servicebus.windows.net/;SharedAccessKeyName=send;SharedAccessKey=a2V5=",
         )
         .unwrap();
@@ -290,7 +262,7 @@ mod tests {
             ("contoso.servicebus.windows.net", 5671, false)
         );
 
-        let custom_port = ServiceBusConnection::from_connection_string(
+        let custom_port = Settings::from_connection_string(
             "Endpoint=sb://localhost:5673;SharedAccessSignature=SharedAccessSignature sr=x&sig=y&se=1&skn=z;UseDevelopmentEmulator=true",
         )
         .unwrap();
@@ -311,7 +283,7 @@ mod tests {
             "Endpoint=sb://localhost;SharedAccessSignature=sig",
         ] {
             assert!(
-                ServiceBusConnection::from_connection_string(invalid).is_err(),
+                Settings::from_connection_string(invalid).is_err(),
                 "{invalid}"
             );
         }
@@ -319,39 +291,37 @@ mod tests {
 
     #[test]
     fn validation_checks_values_locally() {
-        let connection = ServiceBusConnection::from_connection_string(EMULATOR).unwrap();
-        let valid = ServiceBusSourceConfig::new(connection.clone(), "events/Subscriptions/billing");
+        let valid = SourceConfig::new("events/Subscriptions/billing".into());
         valid.validate().unwrap();
         for invalid in [
-            ServiceBusSourceConfig {
-                entity_path: "/orders".into(),
-                ..valid.clone()
-            },
-            ServiceBusSourceConfig {
-                entity_path: String::new(),
-                ..valid.clone()
-            },
-            ServiceBusSourceConfig {
+            SourceConfig::new("/orders".into()),
+            SourceConfig::new(String::new()),
+            SourceConfig {
                 prefetch: 0,
                 ..valid.clone()
             },
         ] {
             assert!(invalid.validate().is_err(), "{invalid:?}");
         }
-        let mut sink = ServiceBusSinkConfig::new(connection, "orders");
+        let mut sink = SinkConfig::new("orders".into());
         sink.validate().unwrap();
         sink.max_pending = 0;
         assert!(sink.validate().is_err());
+        assert!(
+            Settings::new("contoso.servicebus.windows.net".into())
+                .validate()
+                .is_err()
+        );
     }
 
     #[test]
     fn debug_output_hides_secrets() {
-        let connection = ServiceBusConnection::from_connection_string(EMULATOR).unwrap();
+        let connection = Settings::from_connection_string(EMULATOR).unwrap();
         let debug = format!("{connection:?}");
         assert!(debug.contains("RootManageSharedAccessKey"));
         assert!(!debug.contains("SAS_KEY_VALUE"));
         let signature =
-            ServiceBusCredential::SharedAccessSignature("SharedAccessSignature sig=secret".into());
+            Credential::SharedAccessSignature("SharedAccessSignature sig=secret".into());
         assert!(!format!("{signature:?}").contains("secret"));
     }
 }

@@ -1,6 +1,6 @@
 use super::{
-    config::RabbitMqSinkConfig,
-    connection::{close, connect},
+    config::SinkConfig,
+    connection::{RabbitMq, Role, close},
     convert::{properties_to_amqp, short_string},
     record::RabbitMqPublish,
 };
@@ -11,7 +11,7 @@ use crate::{
     sink::{Completion, Sink},
 };
 use lapin::{
-    BasicProperties, Channel, Confirmation, Connection,
+    BasicProperties, Channel, Confirmation,
     options::{BasicPublishOptions, ConfirmSelectOptions},
     types::ShortString,
 };
@@ -57,22 +57,33 @@ impl fmt::Debug for RabbitMqPrepared {
     }
 }
 
-/// A connection and its channel in confirm mode.
-struct Publisher {
-    connection: Connection,
-    channel: Channel,
-}
-
 struct State {
-    publisher: Mutex<Option<Publisher>>,
+    /// The channel in confirm mode.
+    channel: Mutex<Option<Channel>>,
     closed: AtomicBool,
     pending: PendingLimit,
 }
 
-/// Publishes to one exchange and completes each message on its publisher
-/// confirmation.
+impl State {
+    fn new(max_pending: usize) -> Arc<Self> {
+        Arc::new(Self {
+            channel: Mutex::new(None),
+            closed: AtomicBool::new(false),
+            pending: PendingLimit::new(max_pending, "RabbitMQ"),
+        })
+    }
+}
+
+/// Publishes to one exchange on a channel of its own and completes each message
+/// on its publisher confirmation.
+///
+/// Built with [`RabbitMq::sink`]. It opens its channel on the first
+/// publication, which also validates the settings, and again after the channel
+/// or connection is lost. Clones share the channel, closure state, and
+/// `max_pending` limit.
 pub struct RabbitMqSink<C, T> {
-    config: RabbitMqSinkConfig,
+    rabbit: RabbitMq,
+    config: SinkConfig,
     codec: Arc<C>,
     state: Arc<State>,
     marker: PhantomData<fn(T)>,
@@ -81,6 +92,7 @@ pub struct RabbitMqSink<C, T> {
 impl<C, T> Clone for RabbitMqSink<C, T> {
     fn clone(&self) -> Self {
         Self {
+            rabbit: self.rabbit.clone(),
             config: self.config.clone(),
             codec: self.codec.clone(),
             state: self.state.clone(),
@@ -89,76 +101,76 @@ impl<C, T> Clone for RabbitMqSink<C, T> {
     }
 }
 
-impl<C: Default, T> RabbitMqSink<C, T> {
-    /// Creates a sink that encodes with the codec's default value.
-    ///
-    /// The connection is opened on the first publication, which also validates
-    /// the configuration.
-    pub fn new(config: RabbitMqSinkConfig) -> Self {
-        Self::with_codec(config, C::default())
-    }
-}
-
 impl<C, T> RabbitMqSink<C, T> {
-    /// Creates a sink that encodes with `codec`.
-    ///
-    /// The connection is opened on the first publication, which also validates
-    /// the configuration.
-    pub fn with_codec(config: RabbitMqSinkConfig, codec: C) -> Self {
+    pub(super) fn new(rabbit: RabbitMq, config: SinkConfig, codec: C) -> Self {
         Self {
-            codec: Arc::new(codec),
-            state: Arc::new(State {
-                publisher: Mutex::new(None),
-                closed: AtomicBool::new(false),
-                pending: PendingLimit::new(config.max_pending, "RabbitMQ"),
-            }),
+            rabbit,
+            state: State::new(config.max_pending),
             config,
+            codec: Arc::new(codec),
             marker: PhantomData,
         }
     }
 
-    /// The channel to publish on, connecting on first use and again after the
-    /// previous connection or channel was lost.
+    /// Whether messages use the persistent delivery mode, so durable queues
+    /// keep them across a broker restart. Enabled by default.
+    pub fn persistent(mut self, persistent: bool) -> Self {
+        self.config.persistent = persistent;
+        self
+    }
+
+    /// Whether the broker returns a message that no queue receives, which
+    /// fails its completion. Enabled by default; when disabled, such a message
+    /// is confirmed and discarded by the broker.
+    pub fn mandatory(mut self, mandatory: bool) -> Self {
+        self.config.mandatory = mandatory;
+        self
+    }
+
+    /// Messages published by `submit` whose publisher confirmation has not
+    /// arrived. `submit` waits while this many are outstanding. Defaults to
+    /// 1000.
+    pub fn max_pending(mut self, max_pending: usize) -> Self {
+        self.config.max_pending = max_pending;
+        self.state = State::new(max_pending);
+        self
+    }
+
+    /// Checks the handle and sink settings without connecting.
+    ///
+    /// Fails when the handle is invalid, the exchange name or routing key is
+    /// longer than 255 bytes, or `max_pending` is zero or too large.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.rabbit.validate()?;
+        self.config.validate()
+    }
+
+    /// The channel to publish on, opening it on first use and again after the
+    /// previous channel or its connection was lost.
     async fn channel(&self) -> Result<Channel, BoxError> {
-        let mut publisher = self.state.publisher.lock().await;
+        let mut slot = self.state.channel.lock().await;
         ensure!(
             !self.state.closed.load(Ordering::Acquire),
             Error::closed,
             "RabbitMQ sink is closed"
         );
-        if let Some(current) = publisher.as_ref() {
-            if current.channel.status().connected() {
-                return Ok(current.channel.clone());
+        if let Some(channel) = slot.as_ref() {
+            if channel.status().connected() {
+                return Ok(channel.clone());
             }
-            let _ = close(&current.connection).await;
-            *publisher = None;
+            *slot = None;
         }
-        self.config.validate()?;
-        let connection = connect(
-            &self.config.uri,
-            format!("beavers sink {}", self.config.exchange),
-        )
-        .await?;
-        let channel = async {
-            let channel = connection.create_channel().await?;
-            channel
-                .confirm_select(ConfirmSelectOptions::default())
-                .await?;
-            Ok::<_, BoxError>(channel)
+        self.validate()?;
+        let channel = self.rabbit.channel(Role::Publish).await?;
+        if let Err(error) = channel
+            .confirm_select(ConfirmSelectOptions::default())
+            .await
+            .context("enabling RabbitMQ publisher confirms")
+        {
+            let _ = close(&channel).await;
+            return Err(error.into());
         }
-        .await
-        .context("opening a RabbitMQ publisher channel");
-        let channel = match channel {
-            Ok(channel) => channel,
-            Err(error) => {
-                let _ = close(&connection).await;
-                return Err(error.into());
-            }
-        };
-        *publisher = Some(Publisher {
-            connection,
-            channel: channel.clone(),
-        });
+        *slot = Some(channel.clone());
         Ok(channel)
     }
 }
@@ -220,14 +232,14 @@ where
     }
 
     /// Stops new submissions, waits for outstanding confirmations, and closes
-    /// the connection.
+    /// the channel. The connection stays open for the handle's other sinks.
     async fn close(&self) -> Result<(), BoxError> {
         self.state.closed.store(true, Ordering::Release);
         self.state.pending.close();
-        let publisher = self.state.publisher.lock().await.take();
-        if let Some(publisher) = publisher {
-            let _ = publisher.channel.wait_for_confirms().await;
-            close(&publisher.connection).await?;
+        let channel = self.state.channel.lock().await.take();
+        if let Some(channel) = channel {
+            let _ = channel.wait_for_confirms().await;
+            close(&channel).await?;
         }
         Ok(())
     }

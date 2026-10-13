@@ -3,10 +3,7 @@
 use beavers::{
     App, BoxError, CancellationToken, RawBytes, Receive, ReceiveError, Sink, Source, SourceMessage,
     Subscription, Utf8,
-    adapters::pubsub::{
-        PubSubCredentials, PubSubMessage, PubSubPublish, PubSubSink, PubSubSinkConfig,
-        PubSubSource, PubSubSourceConfig,
-    },
+    adapters::pubsub::{PubSub, PubSubMessage, PubSubPublish, PubSubSink, PubSubSource},
 };
 use std::{
     env,
@@ -20,8 +17,7 @@ use tokio::{
 
 #[test]
 fn prepared_messages_respect_attribute_limits() {
-    let sink =
-        PubSubSink::<RawBytes, Vec<u8>>::new(PubSubSinkConfig::new("projects/p/topics/orders"));
+    let sink = PubSub::new().sink::<RawBytes, Vec<u8>>("projects/p/topics/orders");
     assert!(sink.prepare(PubSubPublish::new(Vec::new())).is_err());
     let mut reserved = PubSubPublish::new(b"order".to_vec());
     reserved.attributes.insert("googclient".into(), "x".into());
@@ -125,23 +121,20 @@ async fn create_topic(prefix: &str, ordered: bool) -> Result<Topic, BoxError> {
     })
 }
 
-fn source_config(subscription: &str) -> PubSubSourceConfig {
-    let mut config = PubSubSourceConfig::new(subscription);
-    config.endpoint = Some(format!("http://{}", emulator_host()));
-    config.credentials = PubSubCredentials::Anonymous;
-    config.ack_deadline = Duration::from_secs(10);
-    config
+fn pubsub() -> PubSub {
+    PubSub::new()
+        .endpoint(format!("http://{}", emulator_host()))
+        .anonymous()
 }
 
 fn source(subscription: &str) -> PubSubSource<Utf8, String> {
-    PubSubSource::new(source_config(subscription))
+    pubsub()
+        .source(subscription)
+        .ack_deadline(Duration::from_secs(10))
 }
 
 fn sink(topic: &str) -> PubSubSink<Utf8, String> {
-    let mut config = PubSubSinkConfig::new(topic);
-    config.endpoint = Some(format!("http://{}", emulator_host()));
-    config.credentials = PubSubCredentials::Anonymous;
-    PubSubSink::new(config)
+    pubsub().sink(topic)
 }
 
 async fn send(
@@ -255,9 +248,7 @@ async fn deliveries_held_past_the_max_lease_are_revoked() -> Result<(), BoxError
     } = create_topic("beavers-pubsub-max-lease", false).await?;
     send(&sink(&topic), PubSubPublish::new("stuck".to_owned())).await?;
 
-    let mut config = source_config(&subscription);
-    config.max_lease = Duration::from_secs(10);
-    let mut holder = PubSubSource::<Utf8, String>::new(config);
+    let mut holder = source(&subscription).max_lease(Duration::from_secs(10));
     let message = next_message(&mut holder, Duration::from_secs(20))
         .await?
         .expect("no Pub/Sub message");

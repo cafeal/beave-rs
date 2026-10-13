@@ -12,7 +12,7 @@ mod record;
 mod sink;
 mod source;
 
-pub use config::{RabbitMqSinkConfig, RabbitMqSourceConfig};
+pub use connection::RabbitMq;
 pub use dead_letter::{RabbitMqDeadLetter, RabbitMqOrigin};
 pub use inherit::RabbitMqInherit;
 #[cfg(feature = "testing")]

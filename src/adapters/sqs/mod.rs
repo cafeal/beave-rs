@@ -10,7 +10,8 @@ mod record;
 mod sink;
 mod source;
 
-pub use config::{SqsCredentials, SqsSinkConfig, SqsSourceConfig};
+pub use client::Sqs;
+pub use config::SqsCredentials;
 pub use dead_letter::{SqsDeadLetter, SqsOrigin};
 pub use inherit::SqsInherit;
 #[cfg(feature = "testing")]

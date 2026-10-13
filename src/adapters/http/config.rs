@@ -1,9 +1,9 @@
 use crate::error::{Context, Error, ensure};
 use hyper::{
-    Method, Uri,
+    HeaderMap, Method, Uri,
     header::{HeaderName, HeaderValue},
 };
-use std::{net::SocketAddr, time::Duration};
+use std::time::Duration;
 
 /// Default limit for a request body: 1 MiB.
 const DEFAULT_MAX_BODY_BYTES: usize = 1024 * 1024;
@@ -21,33 +21,24 @@ pub enum ResponseTiming {
     Receive,
 }
 
-/// Configuration for an [`HttpSource`](super::HttpSource).
+/// Settings of an [`HttpSource`](super::HttpSource).
 #[derive(Clone, Debug)]
-pub struct HttpSourceConfig {
-    /// Address the server listens on. Port 0 selects a free port, which
-    /// [`HttpSource::local_addr`](super::HttpSource::local_addr) reports.
-    pub bind: SocketAddr,
-    /// Larger request bodies are answered with `413 Payload Too Large` without
-    /// becoming deliveries.
-    pub max_body_bytes: usize,
-    /// When a received request is answered. Defaults to [`ResponseTiming::Ack`].
-    pub response: ResponseTiming,
+pub(super) struct SourceConfig {
+    pub(super) max_body_bytes: usize,
+    pub(super) response: ResponseTiming,
 }
 
-impl HttpSourceConfig {
-    /// Creates a configuration for `bind` with a 1 MiB body limit and
-    /// [`ResponseTiming::Ack`].
-    pub fn new(bind: SocketAddr) -> Self {
+impl Default for SourceConfig {
+    fn default() -> Self {
         Self {
-            bind,
             max_body_bytes: DEFAULT_MAX_BODY_BYTES,
             response: ResponseTiming::default(),
         }
     }
+}
 
-    /// Checks the configuration without binding the address; fails when
-    /// `max_body_bytes` is zero.
-    pub fn validate(&self) -> Result<(), Error> {
+impl SourceConfig {
+    pub(super) fn validate(&self) -> Result<(), Error> {
         ensure!(
             self.max_body_bytes > 0,
             Error::config,
@@ -58,7 +49,7 @@ impl HttpSourceConfig {
 }
 
 /// Default time allowed for one request, from connecting to reading the response.
-const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+pub(super) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Request method of an [`HttpSink`](super::HttpSink).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -82,53 +73,33 @@ impl HttpMethod {
     }
 }
 
-/// Configuration for an [`HttpSink`](super::HttpSink).
+/// Settings of an [`HttpSink`](super::HttpSink).
 #[derive(Clone, Debug)]
-pub struct HttpSinkConfig {
-    /// Absolute `http` or `https` URL every output is sent to. Credentials
-    /// belong in `headers`, not in the URL.
-    pub url: String,
-    /// Request method. Defaults to [`HttpMethod::Post`].
-    pub method: HttpMethod,
-    /// Headers sent with every request, such as `content-type` or
-    /// `authorization`. A header name set on an output replaces every
-    /// configured header of that name.
-    pub headers: Vec<(String, String)>,
-    /// Maximum time for one attempt, from connecting until the response body
-    /// is read. An attempt that times out is retried.
-    pub timeout: Duration,
+pub(super) struct SinkConfig {
+    pub(super) url: String,
+    pub(super) method: HttpMethod,
+    /// Headers that replace the handle's headers of the same name.
+    pub(super) headers: Vec<(String, String)>,
+    /// Replaces the handle's timeout when set.
+    pub(super) timeout: Option<Duration>,
 }
 
-impl HttpSinkConfig {
-    /// Creates a configuration for `url` with [`HttpMethod::Post`], no headers,
-    /// and a 30 second timeout.
-    pub fn new(url: impl Into<String>) -> Self {
+impl SinkConfig {
+    pub(super) fn new(url: String) -> Self {
         Self {
-            url: url.into(),
+            url,
             method: HttpMethod::default(),
             headers: Vec::new(),
-            timeout: DEFAULT_REQUEST_TIMEOUT,
+            timeout: None,
         }
     }
 
-    /// Checks the configuration without connecting.
-    ///
-    /// Fails for a URL without a host, a scheme other than `http` or `https`,
-    /// credentials in the URL, an invalid header name or value, or a zero
-    /// timeout.
-    pub fn validate(&self) -> Result<(), Error> {
+    pub(super) fn validate(&self) -> Result<(), Error> {
         self.uri()?;
-        for (name, value) in &self.headers {
-            HeaderName::from_bytes(name.as_bytes())
-                .map_err(|_| Error::config(format!("invalid HTTP header name {name:?}")))?;
-            HeaderValue::from_str(value)
-                .map_err(|_| Error::config(format!("invalid value for HTTP header {name:?}")))?;
+        headers(&self.headers)?;
+        if let Some(timeout) = self.timeout {
+            validate_timeout(timeout)?;
         }
-        ensure!(
-            !self.timeout.is_zero(),
-            Error::config,
-            "HTTP request timeout must be greater than zero"
-        );
         Ok(())
     }
 
@@ -151,4 +122,26 @@ impl HttpSinkConfig {
         );
         Ok(uri)
     }
+}
+
+/// Parses configured headers into a header map.
+pub(super) fn headers(headers: &[(String, String)]) -> Result<HeaderMap, Error> {
+    let mut map = HeaderMap::new();
+    for (name, value) in headers {
+        let name = HeaderName::from_bytes(name.as_bytes())
+            .map_err(|_| Error::config(format!("invalid HTTP header name {name:?}")))?;
+        let value = HeaderValue::from_str(value)
+            .map_err(|_| Error::config(format!("invalid value for HTTP header {name:?}")))?;
+        map.append(name, value);
+    }
+    Ok(map)
+}
+
+pub(super) fn validate_timeout(timeout: Duration) -> Result<(), Error> {
+    ensure!(
+        !timeout.is_zero(),
+        Error::config,
+        "HTTP request timeout must be greater than zero"
+    );
+    Ok(())
 }

@@ -10,13 +10,8 @@ use beavers::{
     App, CancellationToken, Error, IterSource, Json, MapMetadata, Receive, ReceiveError, Result,
     Source, SourceMessage, Subscription,
     adapters::{
-        kafka::{
-            KafkaPublish, KafkaRecord, KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig,
-        },
-        pulsar::{
-            PulsarPublish, PulsarRecord, PulsarSink, PulsarSinkConfig, PulsarSource,
-            PulsarSourceConfig,
-        },
+        kafka::{Kafka, KafkaPublish, KafkaRecord},
+        pulsar::{Pulsar, PulsarPublish, PulsarRecord},
     },
 };
 use rdkafka::{
@@ -68,8 +63,12 @@ fn kafka_brokers() -> String {
     env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into())
 }
 
-fn pulsar_url() -> String {
-    env::var("PULSAR_URL").unwrap_or_else(|_| "pulsar://localhost:6650".into())
+fn kafka() -> Kafka {
+    Kafka::new(kafka_brokers())
+}
+
+fn pulsar() -> Pulsar {
+    Pulsar::new(env::var("PULSAR_URL").unwrap_or_else(|_| "pulsar://localhost:6650".into()))
 }
 
 fn pulsar_topic(name: &str) -> String {
@@ -139,12 +138,9 @@ async fn read_kafka<T>(topic: &str, count: u64) -> Vec<KafkaRecord<T>>
 where
     T: Clone + Send + Sync + for<'de> Deserialize<'de> + 'static,
 {
-    let mut config =
-        KafkaSourceConfig::new(kafka_brokers(), unique_name("beavers-reader"), [topic]);
-    config
-        .properties
-        .insert("auto.offset.reset".into(), "earliest".into());
-    let mut source = KafkaSource::<Json, T>::new(config);
+    let mut source = kafka()
+        .source::<Json, T>(unique_name("beavers-reader"), [topic])
+        .property("auto.offset.reset", "earliest");
     let records = receive(&mut source, count, |message| message.decode().unwrap()).await;
     source.close().await.unwrap();
     records
@@ -154,15 +150,14 @@ async fn read_pulsar<T>(topic: &str, subscription: &str, count: u64) -> Vec<Puls
 where
     T: Clone + Send + Sync + for<'de> Deserialize<'de> + 'static,
 {
-    let mut source =
-        PulsarSource::<Json, T>::new(PulsarSourceConfig::new(pulsar_url(), topic, subscription));
+    let mut source = pulsar().source::<Json, T>(topic, subscription);
     let records = receive(&mut source, count, |message| message.decode().unwrap()).await;
     source.close().await.unwrap();
     records
 }
 
 async fn produce_kafka_orders(topic: &str) {
-    let sink = KafkaSink::<Json, Order>::new(KafkaSinkConfig::new(kafka_brokers(), topic));
+    let sink = kafka().sink::<Json, Order>(topic);
     let app = App::new().subscribe(
         "produce-orders",
         IterSource::new(orders()),
@@ -183,7 +178,7 @@ async fn produce_kafka_orders(topic: &str) {
 }
 
 async fn produce_pulsar_orders(topic: &str) {
-    let sink = PulsarSink::<Json, Order>::new(PulsarSinkConfig::new(pulsar_url(), topic));
+    let sink = pulsar().sink::<Json, Order>(topic);
     let app = App::new().subscribe(
         "produce-orders",
         IterSource::new(orders()),
@@ -308,16 +303,15 @@ async fn kafka_pipeline_forwards_keys_and_commits_offsets() {
     let group = unique_name("beavers-pipeline");
     produce_kafka_orders(&input).await;
 
-    let mut source = KafkaSourceConfig::new(kafka_brokers(), &group, [&input]);
-    source
-        .properties
-        .insert("auto.offset.reset".into(), "earliest".into());
+    let kafka = kafka();
     let (shutdown, app) = spawn_app(
         App::new().subscription(
             Subscription::new(
                 "ship-orders",
-                KafkaSource::<Json, Order>::new(source),
-                KafkaSink::<Json, Shipment>::new(KafkaSinkConfig::new(kafka_brokers(), &output)),
+                kafka
+                    .source::<Json, Order>(&group, [&input])
+                    .property("auto.offset.reset", "earliest"),
+                kafka.sink::<Json, Shipment>(&output),
                 ship,
             )
             .concurrency(3),
@@ -356,16 +350,13 @@ async fn pulsar_pipeline_forwards_keys_and_acknowledges() {
     create_pulsar_subscription(&output, &reader).await;
     produce_pulsar_orders(&input).await;
 
+    let pulsar = pulsar();
     let (shutdown, app) = spawn_app(
         App::new().subscription(
             Subscription::new(
                 "ship-orders",
-                PulsarSource::<Json, Order>::new(PulsarSourceConfig::new(
-                    pulsar_url(),
-                    &input,
-                    &subscription,
-                )),
-                PulsarSink::<Json, Shipment>::new(PulsarSinkConfig::new(pulsar_url(), &output)),
+                pulsar.source::<Json, Order>(&input, &subscription),
+                pulsar.sink::<Json, Shipment>(&output),
                 ship,
             )
             .concurrency(3),
@@ -402,17 +393,14 @@ async fn kafka_to_pulsar_pipeline_maps_metadata_explicitly() {
     create_pulsar_subscription(&output, &reader).await;
     produce_kafka_orders(&input).await;
 
-    let mut source =
-        KafkaSourceConfig::new(kafka_brokers(), unique_name("beavers-bridge"), [&input]);
-    source
-        .properties
-        .insert("auto.offset.reset".into(), "earliest".into());
     let (shutdown, app) = spawn_app(
         App::new().subscription(
             Subscription::new(
                 "bridge-orders",
-                KafkaSource::<Json, Order>::new(source),
-                PulsarSink::<Json, Order>::new(PulsarSinkConfig::new(pulsar_url(), &output)),
+                kafka()
+                    .source::<Json, Order>(unique_name("beavers-bridge"), [&input])
+                    .property("auto.offset.reset", "earliest"),
+                pulsar().sink::<Json, Order>(&output),
                 |record: KafkaRecord<Order>| async move {
                     Ok(PulsarPublish::new(
                         record.value.expect("orders are not tombstones"),

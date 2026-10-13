@@ -2,45 +2,25 @@ use crate::adapters::pending::PendingLimit;
 use crate::error::{Error, ensure};
 use std::{collections::HashMap, time::Duration};
 
-/// Configuration for a [`KafkaSource`](super::KafkaSource).
+/// Settings of a [`KafkaSource`](super::KafkaSource).
 #[derive(Clone, Debug)]
-pub struct KafkaSourceConfig {
-    /// Bootstrap servers, set as librdkafka `bootstrap.servers`.
-    pub brokers: String,
-    /// Consumer group ID, set as librdkafka `group.id`.
-    pub group_id: String,
-    /// Topics the consumer subscribes to.
-    pub topics: Vec<String>,
-    /// Additional librdkafka consumer settings. Automatic offset storage and
-    /// commits are always disabled; the source commits acknowledged offsets.
-    pub properties: HashMap<String, String>,
+pub(super) struct SourceConfig {
+    pub(super) group_id: String,
+    pub(super) topics: Vec<String>,
+    /// Consumer settings applied after the handle's properties.
+    pub(super) properties: HashMap<String, String>,
 }
 
-impl KafkaSourceConfig {
-    /// Creates a configuration with the required values and no additional properties.
-    pub fn new(
-        brokers: impl Into<String>,
-        group_id: impl Into<String>,
-        topics: impl IntoIterator<Item = impl Into<String>>,
-    ) -> Self {
+impl SourceConfig {
+    pub(super) fn new(group_id: String, topics: Vec<String>) -> Self {
         Self {
-            brokers: brokers.into(),
-            group_id: group_id.into(),
-            topics: topics.into_iter().map(Into::into).collect(),
+            group_id,
+            topics,
             properties: HashMap::new(),
         }
     }
 
-    /// Checks the configuration without network access.
-    ///
-    /// Fails when the brokers, group ID, or topic list is empty, a topic name is
-    /// blank, or a property has an empty name or a value containing a NUL byte.
-    pub fn validate(&self) -> Result<(), Error> {
-        ensure!(
-            !self.brokers.trim().is_empty(),
-            Error::config,
-            "Kafka brokers are required"
-        );
+    pub(super) fn validate(&self) -> Result<(), Error> {
         ensure!(
             !self.group_id.trim().is_empty(),
             Error::config,
@@ -62,72 +42,62 @@ impl KafkaSourceConfig {
     }
 }
 
-/// Configuration for a [`KafkaSink`](super::KafkaSink).
+/// Settings of a [`KafkaSink`](super::KafkaSink).
 #[derive(Clone, Debug)]
-pub struct KafkaSinkConfig {
-    /// Bootstrap servers, set as librdkafka `bootstrap.servers`.
-    pub brokers: String,
-    /// Topic every record is published to.
-    pub topic: String,
-    /// Additional librdkafka producer settings.
-    pub properties: HashMap<String, String>,
-    /// Maximum number of records queued by `submit` whose delivery report
-    /// has not arrived. `submit` waits while this many are outstanding.
-    pub max_pending: usize,
-    /// Maximum time `close` waits for queued delivery reports.
-    pub close_timeout: Duration,
-    /// Maximum time each blocking operation of a
-    /// [`transactional`](super::KafkaSink::transactional) sink waits:
-    /// initialization, sending consumer offsets, commit, and abort.
-    pub transaction_timeout: Duration,
+pub(super) struct SinkConfig {
+    pub(super) topic: String,
+    pub(super) max_pending: usize,
+    pub(super) close_timeout: Duration,
 }
 
-impl KafkaSinkConfig {
-    /// Creates a configuration with the required values.
-    ///
-    /// Defaults: no additional properties, `max_pending` of 1000, a 30 second
-    /// `close_timeout`, and a 60 second `transaction_timeout`.
-    pub fn new(brokers: impl Into<String>, topic: impl Into<String>) -> Self {
+impl SinkConfig {
+    pub(super) fn new(topic: String) -> Self {
         Self {
-            brokers: brokers.into(),
-            topic: topic.into(),
-            properties: HashMap::new(),
+            topic,
             max_pending: 1000,
             close_timeout: Duration::from_secs(30),
-            transaction_timeout: Duration::from_secs(60),
         }
     }
 
-    /// Checks the configuration without network access.
-    ///
-    /// Fails when the brokers or topic is empty, `max_pending` is zero or larger
-    /// than the semaphore limit, `transactional.id` is set as a property (use
-    /// [`KafkaSink::transactional`](super::KafkaSink::transactional)), or a
-    /// property has an empty name or a value containing a NUL byte.
-    pub fn validate(&self) -> Result<(), Error> {
-        ensure!(
-            !self.brokers.trim().is_empty(),
-            Error::config,
-            "Kafka brokers are required"
-        );
-        ensure!(
-            !self.topic.trim().is_empty(),
-            Error::config,
-            "Kafka topic is required"
-        );
-        PendingLimit::validate(self.max_pending, "Kafka")?;
-        ensure!(
-            !self.properties.contains_key(TRANSACTIONAL_ID),
-            Error::config,
-            "set the Kafka transactional ID with KafkaSink::transactional"
-        );
-        validate_properties(&self.properties)
+    pub(super) fn validate(&self) -> Result<(), Error> {
+        validate_topic(&self.topic)?;
+        PendingLimit::validate(self.max_pending, "Kafka")
     }
 }
 
-const TRANSACTIONAL_ID: &str = "transactional.id";
+/// Settings of a [`KafkaTransactionalSink`](super::KafkaTransactionalSink).
+#[derive(Clone, Debug)]
+pub(super) struct TransactionalConfig {
+    pub(super) topic: String,
+    pub(super) transactional_id: String,
+    pub(super) close_timeout: Duration,
+    pub(super) transaction_timeout: Duration,
+}
 
-fn validate_properties(properties: &HashMap<String, String>) -> Result<(), Error> {
+impl TransactionalConfig {
+    pub(super) fn validate(&self) -> Result<(), Error> {
+        validate_topic(&self.topic)?;
+        ensure!(
+            !self.transactional_id.trim().is_empty(),
+            Error::config,
+            "Kafka transactional ID is required"
+        );
+        Ok(())
+    }
+}
+
+pub(super) const TRANSACTIONAL_ID: &str = "transactional.id";
+
+fn validate_topic(topic: &str) -> Result<(), Error> {
+    ensure!(
+        !topic.trim().is_empty(),
+        Error::config,
+        "Kafka topic is required"
+    );
+    Ok(())
+}
+
+pub(super) fn validate_properties(properties: &HashMap<String, String>) -> Result<(), Error> {
     for (key, value) in properties {
         ensure!(
             !key.trim().is_empty(),

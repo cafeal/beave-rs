@@ -108,7 +108,12 @@ first delivery before processing it. See the
 ### Configuration ownership
 
 `SubscriptionConfig` holds processing policy. Source and Sink connection settings
-belong to their adapters. Codecs own serialization behavior. Broker-specific
+belong to their adapters. Each broker adapter keeps its address and credentials
+on a connection handle, such as `Kafka` or `ServiceBus`, whose `source` and
+`sink` methods build sources and sinks with their own entity settings. They
+share the handle's connection and authenticate once, so a lost connection
+affects every subscription that uses it, while each subscription still fails
+fast on its own failures. Codecs own serialization behavior. Broker-specific
 metadata must not become a universal configuration or message struct.
 
 Metadata mapping is typed subscription middleware rather than a shared

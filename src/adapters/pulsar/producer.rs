@@ -1,13 +1,13 @@
 use super::{
-    client::{connect, partition_topics},
-    config::PulsarSinkConfig,
+    client::{Pulsar, partition_topics},
+    config::SinkConfig,
     resend::Resender,
     sink::PulsarPrepared,
 };
 use crate::error::BoxError;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use magnetar::{
-    PulsarClient, java_string_hash,
+    java_string_hash,
     proto::{pb::KeyValue, pb::MessageMetadata, producer::OutgoingMessage},
     runtime_tokio::Producer,
 };
@@ -16,10 +16,10 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-/// A client with one producer per partition of the sink topic, or a single
-/// producer for a non-partitioned topic.
+/// One producer per partition of the sink topic, or a single producer for a
+/// non-partitioned topic, on the shared client.
 pub(super) struct Producers {
-    pub(super) client: PulsarClient,
+    _pulsar: Pulsar,
     partitions: Vec<Partition>,
     /// Round-robin position for keyless messages.
     next: AtomicUsize,
@@ -31,11 +31,11 @@ pub(super) struct Partition {
 }
 
 impl Producers {
-    pub(super) async fn connect(config: &PulsarSinkConfig) -> Result<Self, BoxError> {
+    pub(super) async fn connect(pulsar: &Pulsar, config: &SinkConfig) -> Result<Self, BoxError> {
         config.validate()?;
-        let client = connect(&config.service_url, config.authentication.as_ref()).await?;
+        let client = pulsar.client().await?;
         let mut partitions = Vec::new();
-        for topic in partition_topics(&client, &config.topic).await? {
+        for topic in partition_topics(client, &config.topic).await? {
             let mut builder = client.producer(&topic);
             if let Some(name) = &config.producer_name {
                 builder = builder.name(name);
@@ -47,7 +47,7 @@ impl Producers {
             });
         }
         Ok(Self {
-            client,
+            _pulsar: pulsar.clone(),
             partitions,
             next: AtomicUsize::new(0),
         })
@@ -73,7 +73,6 @@ impl Producers {
                 result = Err(error.into());
             }
         }
-        self.client.close().await;
         result
     }
 }

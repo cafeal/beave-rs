@@ -34,7 +34,7 @@ impl PulsarAuthentication {
         Arc::new(self.clone())
     }
 
-    fn validate(&self) -> Result<(), Error> {
+    pub(super) fn validate(&self) -> Result<(), Error> {
         ensure!(
             !self.name.trim().is_empty(),
             Error::config,
@@ -84,49 +84,23 @@ impl From<PulsarSubscriptionType> for SubType {
     }
 }
 
-/// Configuration for a [`PulsarSource`](super::PulsarSource).
+/// Settings of a [`PulsarSource`](super::PulsarSource).
 #[derive(Clone, Debug)]
-pub struct PulsarSourceConfig {
-    /// Broker service URL, using the `pulsar://` or `pulsar+ssl://` scheme.
-    pub service_url: String,
-    /// Topic to consume. A partitioned topic is consumed through one consumer
-    /// per partition.
-    pub topic: String,
-    /// Subscription name shared by every consumer of this source.
-    pub subscription: String,
-    /// How the broker distributes messages among the subscription's consumers.
-    pub subscription_type: PulsarSubscriptionType,
-    /// Static credentials, or `None` for an unauthenticated broker.
-    pub authentication: Option<PulsarAuthentication>,
-    /// Messages each partition's consumer prefetches from the broker.
-    pub buffer_size: usize,
-    /// Treat an empty payload as a null value, matching topic compaction,
-    /// which deletes a key on an empty payload. Enabled by default.
-    pub empty_payload_is_tombstone: bool,
-    /// Attempts to acknowledge a delivery. An acknowledgement sent while the
-    /// client reconnects after a topic unload or broker restart fails or
-    /// times out, and a later attempt on the new session succeeds.
-    pub ack_retry: RetryPolicy,
+pub(super) struct SourceConfig {
+    pub(super) topic: String,
+    pub(super) subscription: String,
+    pub(super) subscription_type: PulsarSubscriptionType,
+    pub(super) buffer_size: usize,
+    pub(super) empty_payload_is_tombstone: bool,
+    pub(super) ack_retry: RetryPolicy,
 }
 
-impl PulsarSourceConfig {
-    /// Creates a configuration with the required values.
-    ///
-    /// Defaults: a [`Shared`](PulsarSubscriptionType::Shared) subscription, no
-    /// authentication, a `buffer_size` of 100, empty payloads treated as
-    /// tombstones, and an `ack_retry` of 5 attempts with delays from 100 ms up
-    /// to 2 s.
-    pub fn new(
-        service_url: impl Into<String>,
-        topic: impl Into<String>,
-        subscription: impl Into<String>,
-    ) -> Self {
+impl SourceConfig {
+    pub(super) fn new(topic: String, subscription: String) -> Self {
         Self {
-            service_url: service_url.into(),
-            topic: topic.into(),
-            subscription: subscription.into(),
+            topic,
+            subscription,
             subscription_type: PulsarSubscriptionType::Shared,
-            authentication: None,
             buffer_size: 100,
             empty_payload_is_tombstone: true,
             ack_retry: RetryPolicy {
@@ -138,14 +112,8 @@ impl PulsarSourceConfig {
         }
     }
 
-    /// Checks the configuration without network access.
-    ///
-    /// Fails when the service URL is empty, contains whitespace, or does not
-    /// use `pulsar://` or `pulsar+ssl://`, when the topic or subscription is
-    /// empty, when `buffer_size` is zero, or when `ack_retry` or the
-    /// authentication is invalid.
-    pub fn validate(&self) -> Result<(), Error> {
-        validate_endpoint(&self.service_url, &self.topic)?;
+    pub(super) fn validate(&self) -> Result<(), Error> {
+        validate_topic(&self.topic)?;
         ensure!(
             !self.subscription.trim().is_empty(),
             Error::config,
@@ -156,46 +124,24 @@ impl PulsarSourceConfig {
             Error::config,
             "Pulsar buffer size must be greater than zero"
         );
-        self.ack_retry.validate()?;
-        if let Some(authentication) = &self.authentication {
-            authentication.validate()?;
-        }
-        Ok(())
+        self.ack_retry.validate()
     }
 }
 
-/// Configuration for a [`PulsarSink`](super::PulsarSink).
+/// Settings of a [`PulsarSink`](super::PulsarSink).
 #[derive(Clone, Debug)]
-pub struct PulsarSinkConfig {
-    /// Broker service URL, using the `pulsar://` or `pulsar+ssl://` scheme.
-    pub service_url: String,
-    /// Topic every message is published to.
-    pub topic: String,
-    /// Name given to each partition's producer, or `None` to let the broker
-    /// assign one.
-    pub producer_name: Option<String>,
-    /// Static credentials, or `None` for an unauthenticated broker.
-    pub authentication: Option<PulsarAuthentication>,
-    /// Maximum number of messages queued by `submit` whose broker receipt has
-    /// not arrived. `submit` waits while this many are outstanding.
-    pub max_pending: usize,
-    /// Sends of a message, including the first, when the broker rejects it.
-    /// A broker that is shutting down or unloading the topic rejects the
-    /// sends in flight, and a later send reaches the topic's next owner.
-    pub send_retry: RetryPolicy,
+pub(super) struct SinkConfig {
+    pub(super) topic: String,
+    pub(super) producer_name: Option<String>,
+    pub(super) max_pending: usize,
+    pub(super) send_retry: RetryPolicy,
 }
 
-impl PulsarSinkConfig {
-    /// Creates a configuration with the required values.
-    ///
-    /// Defaults: no producer name or authentication, a `max_pending` of 1000,
-    /// and a `send_retry` of 10 attempts with delays from 100 ms up to 5 s.
-    pub fn new(service_url: impl Into<String>, topic: impl Into<String>) -> Self {
+impl SinkConfig {
+    pub(super) fn new(topic: String) -> Self {
         Self {
-            service_url: service_url.into(),
-            topic: topic.into(),
+            topic,
             producer_name: None,
-            authentication: None,
             max_pending: 1000,
             send_retry: RetryPolicy {
                 max_attempts: 10,
@@ -206,17 +152,8 @@ impl PulsarSinkConfig {
         }
     }
 
-    /// Checks the configuration without network access.
-    ///
-    /// Fails when the service URL is empty, contains whitespace, or does not
-    /// use `pulsar://` or `pulsar+ssl://`, when the topic or a set producer
-    /// name is empty, when `max_pending` is zero or too large, or when
-    /// `send_retry` or the authentication is invalid.
-    pub fn validate(&self) -> Result<(), Error> {
-        validate_endpoint(&self.service_url, &self.topic)?;
-        if let Some(authentication) = &self.authentication {
-            authentication.validate()?;
-        }
+    pub(super) fn validate(&self) -> Result<(), Error> {
+        validate_topic(&self.topic)?;
         if let Some(name) = &self.producer_name {
             ensure!(
                 !name.trim().is_empty(),
@@ -225,12 +162,12 @@ impl PulsarSinkConfig {
             );
         }
         PendingLimit::validate(self.max_pending, "Pulsar")?;
-        self.send_retry.validate()?;
-        Ok(())
+        self.send_retry.validate()
     }
 }
 
-fn validate_endpoint(service_url: &str, topic: &str) -> Result<(), Error> {
+/// Checks a broker service URL.
+pub(super) fn validate_service_url(service_url: &str) -> Result<(), Error> {
     ensure!(
         !service_url.trim().is_empty(),
         Error::config,
@@ -246,6 +183,10 @@ fn validate_endpoint(service_url: &str, topic: &str) -> Result<(), Error> {
         Error::config,
         "Pulsar service URL must use pulsar:// or pulsar+ssl://"
     );
+    Ok(())
+}
+
+fn validate_topic(topic: &str) -> Result<(), Error> {
     ensure!(
         !topic.trim().is_empty(),
         Error::config,
