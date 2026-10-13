@@ -4,19 +4,28 @@ use crate::error::BoxError;
 mod json;
 pub use json::Json;
 
-/// Converts a delivery payload into a typed value.
+/// Names the typed value a codec converts to and from bytes.
+///
+/// Sources and sinks take the payload type from their codec, so
+/// `KafkaSink<Json<Invoice>>` publishes `Invoice` values as JSON.
+pub trait Codec: Send + Sync + 'static {
+    /// The typed payload value.
+    type Value;
+}
+
+/// Converts a delivery payload into the codec's typed value.
 ///
 /// A decode failure is routed as [`FailureKind::Decode`](crate::FailureKind), which stops
 /// the subscription by default.
-pub trait Decoder<T>: Send + Sync + 'static {
+pub trait Decoder: Codec {
     /// Decode one payload.
-    fn decode(&self, bytes: &[u8]) -> Result<T, BoxError>;
+    fn decode(&self, bytes: &[u8]) -> Result<Self::Value, BoxError>;
 }
 
-/// Converts a typed value into a payload for publication.
-pub trait Encoder<T>: Send + Sync + 'static {
+/// Converts the codec's typed value into a payload for publication.
+pub trait Encoder: Codec {
     /// Encode one value.
-    fn encode(&self, value: &T) -> Result<Vec<u8>, BoxError>;
+    fn encode(&self, value: &Self::Value) -> Result<Vec<u8>, BoxError>;
 }
 
 #[cfg(feature = "avro")]
@@ -34,6 +43,7 @@ mod msgpack;
 #[cfg(feature = "protobuf")]
 mod protobuf;
 mod raw_bytes;
+mod typed;
 mod utf8;
 #[cfg(feature = "zstd")]
 mod zstd;
@@ -41,6 +51,8 @@ mod zstd;
 pub use self::base64::Base64;
 #[cfg(feature = "zstd")]
 pub use self::zstd::Zstd;
+#[cfg(feature = "avro")]
+pub use apache_avro::AvroSchema;
 #[cfg(feature = "avro")]
 pub use avro::Avro;
 #[cfg(feature = "cbor")]

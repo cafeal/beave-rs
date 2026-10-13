@@ -21,7 +21,7 @@ struct Envelope {
 
 #[test]
 fn roundtrip_nested_repeated_and_empty_messages() {
-    let codec = Protobuf;
+    let codec = Protobuf::new();
     let value = Envelope {
         id: 42,
         children: vec![
@@ -47,7 +47,7 @@ fn roundtrip_nested_repeated_and_empty_messages() {
 
 #[test]
 fn malformed_and_truncated_input_is_rejected() {
-    let codec = Protobuf;
+    let codec = Protobuf::new();
 
     let malformed: Result<Envelope, BoxError> = codec.decode(&[0x80]);
     assert!(malformed.is_err());
@@ -57,7 +57,7 @@ fn malformed_and_truncated_input_is_rejected() {
 
 #[test]
 fn interoperates_with_prost_directly_without_framing() {
-    let codec = Protobuf;
+    let codec = Protobuf::new();
     let value = Envelope {
         id: 7,
         children: vec![Child {
@@ -77,5 +77,5 @@ fn interoperates_with_prost_directly_without_framing() {
 
 #[test]
 fn codec_is_default_constructible() {
-    let _: Protobuf = Default::default();
+    let _: Protobuf<Envelope> = Default::default();
 }

@@ -24,7 +24,7 @@ fn prepared_messages_are_checked_against_service_bus_limits() {
         "Endpoint=sb://contoso.servicebus.windows.net/;SharedAccessKeyName=send;SharedAccessKey=a2V5",
     )
     .unwrap();
-    let sink = ServiceBusSink::<Utf8, String>::new(ServiceBusSinkConfig::new(connection, "orders"));
+    let sink = ServiceBusSink::<Utf8>::new(ServiceBusSinkConfig::new(connection, "orders"));
     let mut mismatched = ServiceBusPublish::new("order".to_owned()).with_session_id("a");
     mismatched.properties.partition_key = Some("b".into());
     assert!(sink.prepare(mismatched).is_err());
@@ -124,16 +124,16 @@ impl Drop for Queue {
     }
 }
 
-fn source(entity: &str) -> ServiceBusSource<Utf8, String> {
+fn source(entity: &str) -> ServiceBusSource<Utf8> {
     ServiceBusSource::new(ServiceBusSourceConfig::new(connection(), entity))
 }
 
-fn sink(entity: &str) -> ServiceBusSink<Utf8, String> {
+fn sink(entity: &str) -> ServiceBusSink<Utf8> {
     ServiceBusSink::new(ServiceBusSinkConfig::new(connection(), entity))
 }
 
 async fn send(
-    sink: &ServiceBusSink<Utf8, String>,
+    sink: &ServiceBusSink<Utf8>,
     output: ServiceBusPublish<String>,
 ) -> Result<(), BoxError> {
     let prepared = sink.prepare(output)?;
@@ -144,9 +144,9 @@ async fn send(
 
 /// Receives the next message, retrying receive errors, or `None` after `timeout`.
 async fn next_message(
-    source: &mut ServiceBusSource<Utf8, String>,
+    source: &mut ServiceBusSource<Utf8>,
     timeout: Duration,
-) -> Result<Option<ServiceBusMessage<Utf8, String>>, BoxError> {
+) -> Result<Option<ServiceBusMessage<Utf8>>, BoxError> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());

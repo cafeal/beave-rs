@@ -23,10 +23,10 @@ contacting Google Cloud, and both adapters create their client on first use.
 ```rust
 use beavers::{Utf8, adapters::pubsub::{PubSubPublish, PubSubSink, PubSubSinkConfig, PubSubSource, PubSubSourceConfig}};
 
-let source = PubSubSource::<Utf8, String>::new(PubSubSourceConfig::new(
+let source = PubSubSource::<Utf8>::new(PubSubSourceConfig::new(
     "projects/my-project/subscriptions/orders",
 ));
-let sink = PubSubSink::<Utf8, String>::new(PubSubSinkConfig::new(
+let sink = PubSubSink::<Utf8>::new(PubSubSinkConfig::new(
     "projects/my-project/topics/processed-orders",
 ));
 

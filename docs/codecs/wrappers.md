@@ -22,11 +22,11 @@ use beavers::adapters::sqs::{SqsSink, SqsSinkConfig};
 use beavers::{Base64, Gzip, Protobuf};
 
 // Protobuf bytes, gzip-compressed, carried as text in an SQS body.
-let sink = SqsSink::<Base64<Gzip<Protobuf>>, Event>::new(config);
+let sink = SqsSink::<Base64<Gzip<Protobuf<Event>>>>::new(config);
 ```
 
 The order of nested wrappers is the order of the encoding steps from the inside
-out: `Base64<Gzip<Json>>` compresses JSON and then encodes the compressed bytes
+out: `Base64<Gzip<Json<T>>>` compresses JSON and then encodes the compressed bytes
 as Base64. The reader of the payload must use the same nesting.
 
 Wrappers do not record what they did in the payload or in message metadata. A

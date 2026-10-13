@@ -1,5 +1,8 @@
 use serde::{Serialize, de::DeserializeOwned};
 
+use std::marker::PhantomData;
+
+use super::typed::typed_codec;
 use super::{Decoder, Encoder};
 use crate::error::{BoxError, Error};
 
@@ -7,10 +10,11 @@ use crate::error::{BoxError, Error};
 ///
 /// Decoding rejects bytes after the value so one payload cannot silently
 /// contain more than one value.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Cbor;
+pub struct Cbor<T>(PhantomData<fn() -> T>);
 
-impl<T: DeserializeOwned> Decoder<T> for Cbor {
+typed_codec!(Cbor);
+
+impl<T: DeserializeOwned + 'static> Decoder for Cbor<T> {
     fn decode(&self, bytes: &[u8]) -> Result<T, BoxError> {
         let mut input = bytes;
         let value = ciborium::from_reader(&mut input)?;
@@ -25,7 +29,7 @@ impl<T: DeserializeOwned> Decoder<T> for Cbor {
     }
 }
 
-impl<T: Serialize> Encoder<T> for Cbor {
+impl<T: Serialize + 'static> Encoder for Cbor<T> {
     fn encode(&self, value: &T) -> Result<Vec<u8>, BoxError> {
         let mut bytes = Vec::new();
         ciborium::into_writer(value, &mut bytes)?;

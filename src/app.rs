@@ -26,7 +26,7 @@ type Runner = Box<
 ///
 /// # async fn run() -> Result<(), beavers::Error> {
 /// App::new()
-///     .subscribe("double", IterSource::new([1, 2, 3]), StdoutSink::<Json>::new(), double)
+///     .subscribe("double", IterSource::new([1, 2, 3]), StdoutSink::<Json<_>>::new(), double)
 ///     .run()
 ///     .await
 /// # }

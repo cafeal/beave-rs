@@ -5,7 +5,8 @@ and encodes a `String` using its UTF-8 representation. It does not trim text,
 strip a byte-order mark, normalize Unicode, or remove line endings. An empty
 payload decodes to an empty string. Malformed UTF-8 returns an error. It is a
 unit struct that implements `Default`, so adapters that construct their codec
-internally can use it, and it needs no Cargo feature.
+internally can use it, and it needs no Cargo feature. Its value type is fixed,
+so a source or sink names it without a type argument, as in `KafkaSink<Utf8>`.
 
 ```rust
 use beavers::{Decoder, Encoder, Utf8};

@@ -20,7 +20,7 @@ use tokio::{
 
 #[test]
 fn prepared_messages_need_text_bodies_and_fifo_groups() {
-    let sink = SqsSink::<beavers::RawBytes, Vec<u8>>::new(SqsSinkConfig::new(
+    let sink = SqsSink::<beavers::RawBytes>::new(SqsSinkConfig::new(
         "https://sqs.eu-west-1.amazonaws.com/1/orders",
     ));
     assert!(sink.prepare(SqsPublish::new(vec![0xff])).is_err());
@@ -34,7 +34,7 @@ fn prepared_messages_need_text_bodies_and_fifo_groups() {
         "order"
     );
 
-    let fifo = SqsSink::<Utf8, String>::new(SqsSinkConfig::new(
+    let fifo = SqsSink::<Utf8>::new(SqsSinkConfig::new(
         "https://sqs.eu-west-1.amazonaws.com/1/orders.fifo",
     ));
     assert!(fifo.prepare(SqsPublish::new("order".to_owned())).is_err());
@@ -98,11 +98,11 @@ fn source_config(queue_url: &str) -> SqsSourceConfig {
     config
 }
 
-fn source(queue_url: &str) -> SqsSource<Utf8, String> {
+fn source(queue_url: &str) -> SqsSource<Utf8> {
     SqsSource::new(source_config(queue_url))
 }
 
-fn sink(queue_url: &str) -> SqsSink<Utf8, String> {
+fn sink(queue_url: &str) -> SqsSink<Utf8> {
     let mut config = SqsSinkConfig::new(queue_url);
     config.region = Some("elasticmq".into());
     config.endpoint_url = Some(endpoint());
@@ -110,7 +110,7 @@ fn sink(queue_url: &str) -> SqsSink<Utf8, String> {
     SqsSink::new(config)
 }
 
-async fn send(sink: &SqsSink<Utf8, String>, output: SqsPublish<String>) -> Result<(), BoxError> {
+async fn send(sink: &SqsSink<Utf8>, output: SqsPublish<String>) -> Result<(), BoxError> {
     let prepared = sink.prepare(output)?;
     tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
         .await
@@ -119,9 +119,9 @@ async fn send(sink: &SqsSink<Utf8, String>, output: SqsPublish<String>) -> Resul
 
 /// Receives the next message, retrying receive errors, or `None` after `timeout`.
 async fn next_message(
-    source: &mut SqsSource<Utf8, String>,
+    source: &mut SqsSource<Utf8>,
     timeout: Duration,
-) -> Result<Option<SqsMessage<Utf8, String>>, BoxError> {
+) -> Result<Option<SqsMessage<Utf8>>, BoxError> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -200,7 +200,7 @@ async fn visibility_is_extended_while_a_delivery_is_held() -> Result<(), BoxErro
 
     let mut config = source_config(&queue);
     config.visibility_timeout = Duration::from_secs(2);
-    let mut holder = SqsSource::<Utf8, String>::new(config);
+    let mut holder = SqsSource::<Utf8>::new(config);
     let message = next_message(&mut holder, Duration::from_secs(20))
         .await?
         .expect("no SQS message");

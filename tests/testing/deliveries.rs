@@ -12,7 +12,7 @@ fn payloads(values: &[&str]) -> Vec<Vec<u8>> {
 
 #[tokio::test]
 async fn records_are_pending_until_received_and_acknowledged_on_ack() {
-    let mut source = TestSource::<Json, u32, _>::new(payloads(&["1", "2"]));
+    let mut source = TestSource::<Json<u32>, _>::new(payloads(&["1", "2"]));
     let deliveries = source.deliveries();
     assert_eq!(
         deliveries.states(),
@@ -49,7 +49,7 @@ async fn records_are_pending_until_received_and_acknowledged_on_ack() {
 
 #[tokio::test]
 async fn a_stopped_subscription_leaves_its_failed_record_unacknowledged() {
-    let source = TestSource::<Json, u32, _>::new(payloads(&["1", "2", "3"]));
+    let source = TestSource::<Json<u32>, _>::new(payloads(&["1", "2", "3"]));
     let deliveries = source.deliveries();
     let sink = InMemorySink::default();
     let result = App::new()

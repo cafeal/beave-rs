@@ -61,12 +61,12 @@ fn config_rejects_an_empty_body_limit() {
     let mut config = config();
     config.max_body_bytes = 0;
     assert!(config.validate().is_err());
-    assert!(HttpSource::<Utf8, String>::new(config).is_err());
+    assert!(HttpSource::<Utf8>::new(config).is_err());
 }
 
 #[tokio::test]
 async fn acknowledged_request_is_answered_with_ok() {
-    let source = HttpSource::<Json, Order>::new(config()).unwrap();
+    let source = HttpSource::<Json<Order>>::new(config()).unwrap();
     let addr = source.local_addr();
     assert_ne!(addr.port(), 0);
     let sink = InMemorySink::default();
@@ -109,7 +109,7 @@ async fn acknowledged_request_is_answered_with_ok() {
 
 #[tokio::test]
 async fn delivery_dropped_without_ack_is_answered_with_service_unavailable() {
-    let source = HttpSource::<Utf8, String>::new(config()).unwrap();
+    let source = HttpSource::<Utf8>::new(config()).unwrap();
     let addr = source.local_addr();
     let shutdown = CancellationToken::new();
     let app = run(
@@ -131,7 +131,7 @@ async fn delivery_dropped_without_ack_is_answered_with_service_unavailable() {
 
 #[tokio::test]
 async fn undecodable_body_is_answered_with_bad_request_without_a_delivery() {
-    let source = HttpSource::<Json, Order>::new(config()).unwrap();
+    let source = HttpSource::<Json<Order>>::new(config()).unwrap();
     let addr = source.local_addr();
     let sink = InMemorySink::default();
     let shutdown = CancellationToken::new();
@@ -156,7 +156,7 @@ async fn undecodable_body_is_answered_with_bad_request_without_a_delivery() {
 
 #[tokio::test]
 async fn dead_letter_keeps_the_raw_request() {
-    let source = HttpSource::<Utf8, String>::new(config()).unwrap();
+    let source = HttpSource::<Utf8>::new(config()).unwrap();
     let addr = source.local_addr();
     let dlq = InMemorySink::default();
     let shutdown = CancellationToken::new();
@@ -192,7 +192,7 @@ async fn dead_letter_keeps_the_raw_request() {
 async fn invalid_requests_do_not_become_deliveries() {
     let mut config = config();
     config.max_body_bytes = 8;
-    let mut source = HttpSource::<Utf8, String>::new(config).unwrap();
+    let mut source = HttpSource::<Utf8>::new(config).unwrap();
     let addr = source.local_addr();
     let client = tokio::spawn(async move {
         (
@@ -213,7 +213,7 @@ async fn invalid_requests_do_not_become_deliveries() {
 
 #[tokio::test]
 async fn received_request_exposes_raw_form_and_trace_headers() {
-    let mut source = HttpSource::<Utf8, String>::new(config()).unwrap();
+    let mut source = HttpSource::<Utf8>::new(config()).unwrap();
     let addr = source.local_addr();
     let traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
     let client = tokio::spawn(async move {
@@ -237,7 +237,7 @@ async fn received_request_exposes_raw_form_and_trace_headers() {
 
 #[tokio::test]
 async fn close_answers_queued_requests_and_stops_listening() {
-    let mut source = HttpSource::<Utf8, String>::new(config()).unwrap();
+    let mut source = HttpSource::<Utf8>::new(config()).unwrap();
     let addr = source.local_addr();
     let first = tokio::spawn(post(addr, b"first"));
     let Receive::Message(message) = source.receive().await.unwrap() else {
@@ -265,7 +265,7 @@ async fn close_answers_queued_requests_and_stops_listening() {
 async fn receive_timing_answers_accepted_before_processing() {
     let mut config = config();
     config.response = ResponseTiming::Receive;
-    let mut source = HttpSource::<Json, Order>::new(config).unwrap();
+    let mut source = HttpSource::<Json<Order>>::new(config).unwrap();
     let addr = source.local_addr();
     let accepted = tokio::spawn(post(addr, br#"{"id":1}"#));
     let Receive::Message(message) = source.receive().await.unwrap() else {
@@ -289,7 +289,7 @@ async fn receive_timing_answers_accepted_before_processing() {
 #[tokio::test]
 async fn server_metrics_count_requests_by_status() {
     let snapshotter = snapshotter();
-    let mut source = HttpSource::<Json, Order>::new(config()).unwrap();
+    let mut source = HttpSource::<Json<Order>>::new(config()).unwrap();
     let addr = source.local_addr();
     let listener = addr.to_string();
     let client = tokio::spawn(async move {
@@ -347,7 +347,7 @@ async fn server_metrics_count_requests_by_status() {
 
 #[tokio::test]
 async fn shutdown_stops_accepting_while_received_requests_complete() {
-    let source = HttpSource::<Utf8, String>::new(config()).unwrap();
+    let source = HttpSource::<Utf8>::new(config()).unwrap();
     let addr = source.local_addr();
     let started = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());

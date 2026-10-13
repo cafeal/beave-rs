@@ -4,7 +4,10 @@ use super::{
     metrics::ServerMetrics,
     record::{HttpMetadata, HttpRecord},
 };
-use crate::{codec::Decoder, shutdown::CancellationToken};
+use crate::{
+    codec::{Codec, Decoder},
+    shutdown::CancellationToken,
+};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
 use hyper::{
@@ -37,14 +40,14 @@ pub(super) struct Pending<T> {
 }
 
 /// What a request handler needs, shared by every connection.
-pub(super) struct Intake<C, T> {
-    pub requests: mpsc::Sender<Pending<T>>,
+pub(super) struct Intake<C: Codec> {
+    pub requests: mpsc::Sender<Pending<C::Value>>,
     pub codec: Arc<C>,
     pub max_body_bytes: usize,
     pub metrics: Arc<ServerMetrics>,
 }
 
-impl<C, T> Clone for Intake<C, T> {
+impl<C: Codec> Clone for Intake<C> {
     fn clone(&self) -> Self {
         Self {
             requests: self.requests.clone(),
@@ -57,13 +60,9 @@ impl<C, T> Clone for Intake<C, T> {
 
 /// Serves connections until `shutdown` is cancelled, then waits for open
 /// connections to finish their current request.
-pub(super) async fn serve<C, T>(
-    listener: TcpListener,
-    intake: Intake<C, T>,
-    shutdown: CancellationToken,
-) where
-    C: Decoder<T>,
-    T: Send + 'static,
+pub(super) async fn serve<C>(listener: TcpListener, intake: Intake<C>, shutdown: CancellationToken)
+where
+    C: Decoder<Value: Send + 'static>,
 {
     let graceful = GracefulShutdown::new();
     loop {
@@ -95,10 +94,10 @@ pub(super) async fn serve<C, T>(
     graceful.shutdown().await;
 }
 
-async fn handle<C: Decoder<T>, T>(
+async fn handle<C: Decoder>(
     request: Request<Incoming>,
     remote_addr: SocketAddr,
-    intake: Intake<C, T>,
+    intake: Intake<C>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let started = Instant::now();
     let _open = intake.metrics.request();
@@ -121,10 +120,10 @@ fn status(status: StatusCode) -> Response<Full<Bytes>> {
     response
 }
 
-async fn deliver<C: Decoder<T>, T>(
+async fn deliver<C: Decoder>(
     request: Request<Incoming>,
     remote_addr: SocketAddr,
-    intake: &Intake<C, T>,
+    intake: &Intake<C>,
 ) -> Response<Full<Bytes>> {
     let (parts, body) = request.into_parts();
     let body = match Limited::new(body, intake.max_body_bytes).collect().await {

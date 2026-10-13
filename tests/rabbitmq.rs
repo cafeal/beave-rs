@@ -20,7 +20,7 @@ use tokio::{
 
 #[test]
 fn prepared_messages_use_the_configured_routing_key_unless_set() {
-    let sink = RabbitMqSink::<Utf8, String>::new(RabbitMqSinkConfig::new(
+    let sink = RabbitMqSink::<Utf8>::new(RabbitMqSinkConfig::new(
         "amqp://localhost",
         "shop",
         "orders",
@@ -115,19 +115,19 @@ async fn close_connections(name: &str) -> Result<usize, BoxError> {
     Ok(closed)
 }
 
-fn source(queue: &str) -> RabbitMqSource<Utf8, String> {
+fn source(queue: &str) -> RabbitMqSource<Utf8> {
     RabbitMqSource::new(RabbitMqSourceConfig::new(uri(), queue))
 }
 
-fn queue_sink(queue: &str) -> RabbitMqSink<Utf8, String> {
+fn queue_sink(queue: &str) -> RabbitMqSink<Utf8> {
     RabbitMqSink::new(RabbitMqSinkConfig::new(uri(), "", queue))
 }
 
 /// Receives the next message, retrying receive errors, or `None` after `timeout`.
 async fn next_message(
-    source: &mut RabbitMqSource<Utf8, String>,
+    source: &mut RabbitMqSource<Utf8>,
     timeout: Duration,
-) -> Result<Option<RabbitMqMessage<Utf8, String>>, BoxError> {
+) -> Result<Option<RabbitMqMessage<Utf8>>, BoxError> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -145,7 +145,7 @@ async fn next_message(
     }
 }
 
-async fn publish(sink: &RabbitMqSink<Utf8, String>, value: &str) -> Result<(), BoxError> {
+async fn publish(sink: &RabbitMqSink<Utf8>, value: &str) -> Result<(), BoxError> {
     let prepared = sink.prepare(RabbitMqPublish::new(value.to_owned()))?;
     tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
         .await
@@ -272,7 +272,7 @@ async fn a_lost_connection_revokes_its_deliveries() -> Result<(), BoxError> {
 #[tokio::test]
 #[ignore = "requires a RabbitMQ broker; run with cargo test --features rabbitmq -- --ignored"]
 async fn unroutable_messages_fail_their_completion() -> Result<(), BoxError> {
-    let sink = RabbitMqSink::<Utf8, String>::new(RabbitMqSinkConfig::new(
+    let sink = RabbitMqSink::<Utf8>::new(RabbitMqSinkConfig::new(
         uri(),
         "amq.direct",
         unique_name("beavers-unbound"),
@@ -282,7 +282,7 @@ async fn unroutable_messages_fail_their_completion() -> Result<(), BoxError> {
 
     let mut config = RabbitMqSinkConfig::new(uri(), "amq.direct", unique_name("beavers-unbound"));
     config.mandatory = false;
-    let discarding = RabbitMqSink::<Utf8, String>::new(config);
+    let discarding = RabbitMqSink::<Utf8>::new(config);
     publish(&discarding, "discarded").await?;
     sink.close().await?;
     discarding.close().await?;
@@ -295,7 +295,7 @@ async fn submitted_messages_complete_on_their_confirmations() -> Result<(), BoxE
     let queue = declare_queue("beavers-rabbitmq-submit").await?;
     let mut config = RabbitMqSinkConfig::new(uri(), "", &queue);
     config.max_pending = 2;
-    let sink = RabbitMqSink::<Utf8, String>::new(config);
+    let sink = RabbitMqSink::<Utf8>::new(config);
     let prepared = sink.prepare(RabbitMqPublish::new("a".to_owned()))?;
 
     let first = tokio::time::timeout(Duration::from_secs(20), sink.submit(&prepared))

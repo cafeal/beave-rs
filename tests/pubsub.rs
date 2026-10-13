@@ -20,8 +20,7 @@ use tokio::{
 
 #[test]
 fn prepared_messages_respect_attribute_limits() {
-    let sink =
-        PubSubSink::<RawBytes, Vec<u8>>::new(PubSubSinkConfig::new("projects/p/topics/orders"));
+    let sink = PubSubSink::<RawBytes>::new(PubSubSinkConfig::new("projects/p/topics/orders"));
     assert!(sink.prepare(PubSubPublish::new(Vec::new())).is_err());
     let mut reserved = PubSubPublish::new(b"order".to_vec());
     reserved.attributes.insert("googclient".into(), "x".into());
@@ -133,21 +132,18 @@ fn source_config(subscription: &str) -> PubSubSourceConfig {
     config
 }
 
-fn source(subscription: &str) -> PubSubSource<Utf8, String> {
+fn source(subscription: &str) -> PubSubSource<Utf8> {
     PubSubSource::new(source_config(subscription))
 }
 
-fn sink(topic: &str) -> PubSubSink<Utf8, String> {
+fn sink(topic: &str) -> PubSubSink<Utf8> {
     let mut config = PubSubSinkConfig::new(topic);
     config.endpoint = Some(format!("http://{}", emulator_host()));
     config.credentials = PubSubCredentials::Anonymous;
     PubSubSink::new(config)
 }
 
-async fn send(
-    sink: &PubSubSink<Utf8, String>,
-    output: PubSubPublish<String>,
-) -> Result<(), BoxError> {
+async fn send(sink: &PubSubSink<Utf8>, output: PubSubPublish<String>) -> Result<(), BoxError> {
     let prepared = sink.prepare(output)?;
     tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
         .await
@@ -156,9 +152,9 @@ async fn send(
 
 /// Receives the next message, retrying receive errors, or `None` after `timeout`.
 async fn next_message(
-    source: &mut PubSubSource<Utf8, String>,
+    source: &mut PubSubSource<Utf8>,
     timeout: Duration,
-) -> Result<Option<PubSubMessage<Utf8, String>>, BoxError> {
+) -> Result<Option<PubSubMessage<Utf8>>, BoxError> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -257,7 +253,7 @@ async fn deliveries_held_past_the_max_lease_are_revoked() -> Result<(), BoxError
 
     let mut config = source_config(&subscription);
     config.max_lease = Duration::from_secs(10);
-    let mut holder = PubSubSource::<Utf8, String>::new(config);
+    let mut holder = PubSubSource::<Utf8>::new(config);
     let message = next_message(&mut holder, Duration::from_secs(20))
         .await?
         .expect("no Pub/Sub message");

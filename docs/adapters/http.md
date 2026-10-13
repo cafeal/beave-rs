@@ -35,11 +35,11 @@ async fn accept(record: HttpRecord<Order>) -> Result<Order> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let source = HttpSource::<Json, Order>::new(HttpSourceConfig::new(
+    let source = HttpSource::<Json<Order>>::new(HttpSourceConfig::new(
         "0.0.0.0:8080".parse()?,
     ))?;
     App::new()
-        .subscribe("orders", source, StdoutSink::<Json>::new(), accept)
+        .subscribe("orders", source, StdoutSink::<Json<_>>::new(), accept)
         .run()
         .await?;
     Ok(())
@@ -195,7 +195,7 @@ never reach the subscription's `beavers_delivery_failures_total`.
 
 ## Sink
 
-`HttpSink<C, T>` accepts `HttpPublish<T>` outputs. It encodes each body with
+`HttpSink<C>` accepts `HttpPublish<T>` outputs, where `T` is the codec's value type. It encodes each body with
 its codec and sends one request per output to the configured URL. A typical use
 is handing events consumed from a broker to a service with an HTTP API:
 
@@ -216,7 +216,7 @@ async fn to_request(record: KafkaRecord<Order>) -> Result<HttpPublish<Order>> {
     Ok(HttpPublish::new(order).with_header("idempotency-key", key))
 }
 
-let source = KafkaSource::<Json, Order>::new(KafkaSourceConfig::new(
+let source = KafkaSource::<Json<Order>>::new(KafkaSourceConfig::new(
     "localhost:9092",
     "orders-to-billing",
     ["orders"],
@@ -225,7 +225,7 @@ let mut config = HttpSinkConfig::new("https://billing.internal/orders");
 config
     .headers
     .push(("content-type".into(), "application/json".into()));
-let sink = HttpSink::<Json, Order>::new(config)?;
+let sink = HttpSink::<Json<Order>>::new(config)?;
 App::new().subscribe("orders", source, sink, to_request).run().await?;
 ```
 

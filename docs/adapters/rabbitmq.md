@@ -22,11 +22,11 @@ use beavers::{Utf8, adapters::rabbitmq::{
     RabbitMqPublish, RabbitMqSink, RabbitMqSinkConfig, RabbitMqSource, RabbitMqSourceConfig,
 }};
 
-let source = RabbitMqSource::<Utf8, String>::new(RabbitMqSourceConfig::new(
+let source = RabbitMqSource::<Utf8>::new(RabbitMqSourceConfig::new(
     "amqp://guest:guest@localhost:5672/%2f",
     "orders",
 ));
-let sink = RabbitMqSink::<Utf8, String>::new(RabbitMqSinkConfig::new(
+let sink = RabbitMqSink::<Utf8>::new(RabbitMqSinkConfig::new(
     "amqp://guest:guest@localhost:5672/%2f",
     "",
     "processed-orders",

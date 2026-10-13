@@ -5,7 +5,7 @@ use super::{
     server::{Intake, Pending, serve},
 };
 use crate::{
-    codec::Decoder,
+    codec::{Codec, Decoder},
     error::{BoxError, Context, Error},
     message::SourceMessage,
     shutdown::CancellationToken,
@@ -42,15 +42,15 @@ enum State<T> {
 /// request is answered only when its delivery completes: `200 OK` on
 /// ACK, and `503 Service Unavailable` when the delivery is dropped without ACK.
 /// With [`ResponseTiming::Receive`], it is answered `202 Accepted` on receive.
-pub struct HttpSource<C, T> {
+pub struct HttpSource<C: Codec> {
     config: HttpSourceConfig,
     codec: Arc<C>,
     local_addr: SocketAddr,
-    state: State<T>,
+    state: State<C::Value>,
     shutdown: CancellationToken,
 }
 
-impl<C: Default, T> HttpSource<C, T> {
+impl<C: Codec + Default> HttpSource<C> {
     /// Validates `config` and binds the listener, using the codec's default value.
     ///
     /// Fails when the configuration is invalid or the address cannot be bound.
@@ -59,7 +59,7 @@ impl<C: Default, T> HttpSource<C, T> {
     }
 }
 
-impl<C, T> HttpSource<C, T> {
+impl<C: Codec> HttpSource<C> {
     /// Validates `config` and binds the listener, decoding bodies with `codec`.
     ///
     /// Fails when the configuration is invalid or the address cannot be bound.
@@ -88,10 +88,9 @@ impl<C, T> HttpSource<C, T> {
     }
 }
 
-impl<C, T> HttpSource<C, T>
+impl<C> HttpSource<C>
 where
-    C: Decoder<T>,
-    T: Send + 'static,
+    C: Decoder<Value: Send + 'static>,
 {
     fn start(&mut self) -> Result<(), ReceiveError> {
         let state = mem::replace(&mut self.state, State::Closed);
@@ -114,12 +113,11 @@ where
     }
 }
 
-impl<C, T> Source for HttpSource<C, T>
+impl<C> Source for HttpSource<C>
 where
-    C: Decoder<T>,
-    T: Clone + Send + Sync + 'static,
+    C: Decoder<Value: Clone + Send + Sync + 'static>,
 {
-    type Message = HttpMessage<T>;
+    type Message = HttpMessage<C::Value>;
 
     async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
         self.start()?;
@@ -165,7 +163,7 @@ where
     }
 }
 
-impl<C, T> Drop for HttpSource<C, T> {
+impl<C: Codec> Drop for HttpSource<C> {
     fn drop(&mut self) {
         self.shutdown.cancel();
     }

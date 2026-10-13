@@ -76,8 +76,8 @@ async fn main() -> anyhow::Result<()> {
         .subscription(
             Subscription::new(
                 "kafka-to-pulsar",
-                KafkaSource::<Json, Order>::new(source),
-                PulsarSink::<Json, Order>::new(PulsarSinkConfig::new(&service_url, PULSAR_TOPIC)),
+                KafkaSource::<Json<Order>>::new(source),
+                PulsarSink::<Json<Order>>::new(PulsarSinkConfig::new(&service_url, PULSAR_TOPIC)),
                 republish,
             )
             .middleware(Tombstones::skip())

@@ -27,9 +27,9 @@ impl<C> StdoutSink<C> {
         }
     }
 }
-impl<T: Sync, C: Encoder<T>> Sink<T> for StdoutSink<C> {
+impl<C: Encoder<Value: Sync>> Sink<C::Value> for StdoutSink<C> {
     type Prepared = Vec<u8>;
-    fn prepare(&self, value: T) -> Result<Vec<u8>, BoxError> {
+    fn prepare(&self, value: C::Value) -> Result<Vec<u8>, BoxError> {
         let mut bytes = self.codec.encode(&value)?;
         bytes.push(b'\n');
         Ok(bytes)
@@ -49,7 +49,7 @@ mod tests {
 
     #[test]
     fn prepared_values_are_one_line_each() {
-        let sink = StdoutSink::<Json>::new();
+        let sink = StdoutSink::<Json<_>>::new();
         assert_eq!(
             sink.prepare(serde_json::json!({"id": 1})).unwrap(),
             b"{\"id\":1}\n"

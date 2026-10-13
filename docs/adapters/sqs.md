@@ -21,10 +21,10 @@ of `SqsCredentials` hides the secret key and session token.
 ```rust
 use beavers::{Utf8, adapters::sqs::{SqsPublish, SqsSink, SqsSinkConfig, SqsSource, SqsSourceConfig}};
 
-let source = SqsSource::<Utf8, String>::new(SqsSourceConfig::new(
+let source = SqsSource::<Utf8>::new(SqsSourceConfig::new(
     "https://sqs.eu-west-1.amazonaws.com/123456789012/orders",
 ));
-let sink = SqsSink::<Utf8, String>::new(SqsSinkConfig::new(
+let sink = SqsSink::<Utf8>::new(SqsSinkConfig::new(
     "https://sqs.eu-west-1.amazonaws.com/123456789012/processed-orders.fifo",
 ));
 

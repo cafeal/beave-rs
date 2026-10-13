@@ -75,7 +75,7 @@ async fn main() -> anyhow::Result<()> {
                 .subscribe(
                     "produce-orders",
                     IterSource::new(orders),
-                    KafkaSink::<Json, Order>::new(KafkaSinkConfig::new(&brokers, ORDERS)),
+                    KafkaSink::<Json<Order>>::new(KafkaSinkConfig::new(&brokers, ORDERS)),
                     keyed_by_customer,
                 )
                 .run()
@@ -93,8 +93,8 @@ async fn main() -> anyhow::Result<()> {
                 .subscription(
                     Subscription::new(
                         "process-orders",
-                        KafkaSource::<Json, Order>::new(source),
-                        KafkaSink::<Json, OrderEvent>::new(KafkaSinkConfig::new(&brokers, EVENTS)),
+                        KafkaSource::<Json<Order>>::new(source),
+                        KafkaSink::<Json<OrderEvent>>::new(KafkaSinkConfig::new(&brokers, EVENTS)),
                         to_event,
                     )
                     .concurrency(3),

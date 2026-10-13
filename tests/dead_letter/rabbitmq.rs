@@ -57,7 +57,7 @@ async fn dead_letter(
         .subscription(
             Subscription::new(
                 name,
-                RabbitMqTestSource::<Json, u32>::new(records),
+                RabbitMqTestSource::<Json<u32>>::new(records),
                 InMemorySink::<u32>::default(),
                 reject_odd,
             )
@@ -171,7 +171,7 @@ async fn inheritance_skips_dead_letter_headers() {
         .subscription(
             Subscription::new(
                 "orders-redrive",
-                RabbitMqTestSource::<Json, u32>::new([received(dead[0].clone(), 1)]),
+                RabbitMqTestSource::<Json<u32>>::new([received(dead[0].clone(), 1)]),
                 sink.clone(),
                 |record: RabbitMqRecord<u32>| async move {
                     Ok(RabbitMqPublish::new(record.value + 1))

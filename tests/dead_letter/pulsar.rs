@@ -62,7 +62,7 @@ async fn dead_letter(
         .subscription(
             Subscription::new(
                 name,
-                PulsarTestSource::<Json, u32>::new(records),
+                PulsarTestSource::<Json<u32>>::new(records),
                 InMemorySink::<u32>::default(),
                 reject_odd,
             )
@@ -152,7 +152,7 @@ async fn inheritance_skips_dead_letter_properties() {
         .subscription(
             Subscription::new(
                 "orders-redrive",
-                PulsarTestSource::<Json, u32>::new([received(dead[0].clone(), 0)]),
+                PulsarTestSource::<Json<u32>>::new([received(dead[0].clone(), 0)]),
                 sink.clone(),
                 |record: PulsarRecord<u32>| async move {
                     Ok(PulsarPublish::new(record.value.unwrap_or_default() + 1))

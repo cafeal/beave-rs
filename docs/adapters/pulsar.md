@@ -19,7 +19,7 @@ same subscription; the partition list is read when the source connects.
 use beavers::{Source, Utf8};
 use beavers::adapters::pulsar::{PulsarSource, PulsarSourceConfig};
 
-let mut source = PulsarSource::<Utf8, String>::new(PulsarSourceConfig::new(
+let mut source = PulsarSource::<Utf8>::new(PulsarSourceConfig::new(
     "pulsar://localhost:6650",
     "persistent://public/default/orders",
     "orders-workers",
@@ -42,7 +42,7 @@ key, ordering key, event time, and user properties before preparation:
 use beavers::{Sink, Utf8};
 use beavers::adapters::pulsar::{PulsarPublish, PulsarSink, PulsarSinkConfig};
 
-let sink = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(
+let sink = PulsarSink::<Utf8>::new(PulsarSinkConfig::new(
     "pulsar://localhost:6650",
     "persistent://public/default/processed-orders",
 ));

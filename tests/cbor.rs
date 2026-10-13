@@ -20,7 +20,7 @@ fn reading() -> Reading {
 
 #[test]
 fn roundtrips_serde_values() {
-    let codec = Cbor;
+    let codec = Cbor::new();
 
     let bytes = codec.encode(&reading()).unwrap();
     let decoded: Reading = codec.decode(&bytes).unwrap();
@@ -32,14 +32,14 @@ fn interoperates_with_ciborium_directly() {
     let mut expected = Vec::new();
     ciborium::into_writer(&reading(), &mut expected).unwrap();
 
-    assert_eq!(Cbor.encode(&reading()).unwrap(), expected);
-    let decoded: Reading = Cbor.decode(&expected).unwrap();
+    assert_eq!(Cbor::new().encode(&reading()).unwrap(), expected);
+    let decoded: Reading = Cbor::new().decode(&expected).unwrap();
     assert_eq!(decoded, reading());
 }
 
 #[test]
 fn rejects_malformed_and_trailing_input() {
-    let codec = Cbor;
+    let codec = Cbor::new();
     let mut bytes = codec.encode(&reading()).unwrap();
 
     let truncated: Result<Reading, BoxError> = codec.decode(&bytes[..bytes.len() - 1]);
@@ -53,5 +53,5 @@ fn rejects_malformed_and_trailing_input() {
 
 #[test]
 fn is_default_constructible() {
-    let _: Cbor = Default::default();
+    let _: Cbor<Reading> = Default::default();
 }

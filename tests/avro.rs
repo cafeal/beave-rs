@@ -5,7 +5,7 @@ use std::io::Cursor;
 use apache_avro::{
     Schema, from_value, reader::datum::GenericDatumReader, writer::datum::GenericDatumWriter,
 };
-use beavers::{Avro, BoxError, Decoder, Encoder};
+use beavers::{Avro, AvroSchema, BoxError, Decoder, Encoder};
 use serde::{Deserialize, Serialize};
 
 const EVENT_SCHEMA: &str = r#"
@@ -37,6 +37,12 @@ struct Event {
 enum Kind {
     Created,
     Deleted,
+}
+
+impl AvroSchema for Event {
+    fn get_schema() -> Schema {
+        Schema::parse_str(EVENT_SCHEMA).unwrap()
+    }
 }
 
 fn event() -> Event {
@@ -109,5 +115,16 @@ fn trailing_bytes_are_rejected() {
 
 #[test]
 fn invalid_schema_is_rejected_at_construction() {
-    assert!(Avro::new(r#"{"type":"record","name":"Broken"}"#).is_err());
+    assert!(Avro::<Event>::new(r#"{"type":"record","name":"Broken"}"#).is_err());
+}
+
+#[test]
+fn default_takes_the_schema_from_the_value_type() {
+    let codec = Avro::<Event>::default();
+    assert_eq!(codec.schema(), &Event::get_schema());
+
+    let explicit = Avro::<Event>::new(EVENT_SCHEMA).unwrap();
+    let bytes = codec.encode(&event()).unwrap();
+    assert_eq!(bytes, explicit.encode(&event()).unwrap());
+    assert_eq!(codec.decode(&bytes).unwrap(), event());
 }

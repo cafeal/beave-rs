@@ -5,7 +5,7 @@ use crate::{
     message::{OrderingKey, SourceMessage},
     source::{Receive, ReceiveError, Source},
 };
-use std::{collections::VecDeque, marker::PhantomData, sync::Arc};
+use std::{collections::VecDeque, sync::Arc};
 
 #[cfg(feature = "kafka")]
 use crate::adapters::kafka::KafkaRecord;
@@ -42,7 +42,7 @@ use crate::adapters::sqs::SqsRecord;
 /// }
 ///
 /// # #[tokio::main] async fn main() -> std::result::Result<(), beavers::Error> {
-/// let source = TestSource::<Json, u32, Vec<u8>>::new([b"4".to_vec(), b"3".to_vec(), b"x".to_vec()]);
+/// let source = TestSource::<Json<u32>, Vec<u8>>::new([b"4".to_vec(), b"3".to_vec(), b"x".to_vec()]);
 /// let deliveries = source.deliveries();
 /// let sink = InMemorySink::default();
 /// let dlq = InMemorySink::<DeadLetter<u32, Vec<u8>>>::default();
@@ -64,39 +64,38 @@ use crate::adapters::sqs::SqsRecord;
 /// assert!(deliveries.all_acknowledged());
 /// # Ok(()) }
 /// ```
-pub struct TestSource<C, T, R> {
+pub struct TestSource<C, R> {
     records: VecDeque<(usize, R)>,
     codec: Arc<C>,
     deliveries: Deliveries<R>,
-    marker: PhantomData<fn() -> T>,
 }
 
 /// A [`TestSource`] of Kafka records, delivering `KafkaRecord<T>` inputs.
 #[cfg(feature = "kafka")]
-pub type KafkaTestSource<C, T> = TestSource<C, T, KafkaRecord<Vec<u8>>>;
+pub type KafkaTestSource<C> = TestSource<C, KafkaRecord<Vec<u8>>>;
 
 /// A [`TestSource`] of Pulsar messages, delivering `PulsarRecord<T>` inputs.
 #[cfg(feature = "pulsar")]
-pub type PulsarTestSource<C, T> = TestSource<C, T, PulsarRecord<Vec<u8>>>;
+pub type PulsarTestSource<C> = TestSource<C, PulsarRecord<Vec<u8>>>;
 
 /// A [`TestSource`] of Pub/Sub messages, delivering `PubSubRecord<T>` inputs.
 #[cfg(feature = "pubsub")]
-pub type PubSubTestSource<C, T> = TestSource<C, T, PubSubRecord<Vec<u8>>>;
+pub type PubSubTestSource<C> = TestSource<C, PubSubRecord<Vec<u8>>>;
 
 /// A [`TestSource`] of RabbitMQ messages, delivering `RabbitMqRecord<T>` inputs.
 #[cfg(feature = "rabbitmq")]
-pub type RabbitMqTestSource<C, T> = TestSource<C, T, RabbitMqRecord<Vec<u8>>>;
+pub type RabbitMqTestSource<C> = TestSource<C, RabbitMqRecord<Vec<u8>>>;
 
 /// A [`TestSource`] of Service Bus messages, delivering `ServiceBusRecord<T>`
 /// inputs.
 #[cfg(feature = "servicebus")]
-pub type ServiceBusTestSource<C, T> = TestSource<C, T, ServiceBusRecord<Vec<u8>>>;
+pub type ServiceBusTestSource<C> = TestSource<C, ServiceBusRecord<Vec<u8>>>;
 
 /// A [`TestSource`] of SQS messages, delivering `SqsRecord<T>` inputs.
 #[cfg(feature = "sqs")]
-pub type SqsTestSource<C, T> = TestSource<C, T, SqsRecord<Vec<u8>>>;
+pub type SqsTestSource<C> = TestSource<C, SqsRecord<Vec<u8>>>;
 
-impl<C: Default, T, R: TestRecord> TestSource<C, T, R> {
+impl<C: Default, R: TestRecord> TestSource<C, R> {
     /// A source that delivers `records` in order, decoding them with the codec's default
     /// value, and then ends.
     pub fn new(records: impl IntoIterator<Item = R>) -> Self {
@@ -104,7 +103,7 @@ impl<C: Default, T, R: TestRecord> TestSource<C, T, R> {
     }
 }
 
-impl<C, T, R: TestRecord> TestSource<C, T, R> {
+impl<C, R: TestRecord> TestSource<C, R> {
     /// A source that delivers `records` in order, decoding them with `codec`, and then ends.
     pub fn with_codec(records: impl IntoIterator<Item = R>, codec: C) -> Self {
         let records: Vec<R> = records.into_iter().collect();
@@ -112,7 +111,6 @@ impl<C, T, R: TestRecord> TestSource<C, T, R> {
             deliveries: Deliveries::new(records.clone()),
             records: records.into_iter().enumerate().collect(),
             codec: Arc::new(codec),
-            marker: PhantomData,
         }
     }
 
@@ -122,13 +120,12 @@ impl<C, T, R: TestRecord> TestSource<C, T, R> {
     }
 }
 
-impl<C, T, R> Source for TestSource<C, T, R>
+impl<C, R> Source for TestSource<C, R>
 where
-    C: Decoder<T>,
-    T: Clone + Send + Sync + 'static,
+    C: Decoder<Value: Clone + Send + Sync + 'static>,
     R: TestRecord,
 {
-    type Message = TestMessage<C, T, R>;
+    type Message = TestMessage<C, R>;
 
     async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
         Ok(match self.records.pop_front() {
@@ -139,7 +136,6 @@ where
                     index,
                     codec: self.codec.clone(),
                     deliveries: self.deliveries.clone(),
-                    marker: PhantomData,
                 })
             }
             None => Receive::End,
@@ -148,21 +144,19 @@ where
 }
 
 /// A delivery of [`TestSource`]. Acknowledging it records the acknowledgement.
-pub struct TestMessage<C, T, R> {
+pub struct TestMessage<C, R> {
     record: R,
     index: usize,
     codec: Arc<C>,
     deliveries: Deliveries<R>,
-    marker: PhantomData<fn() -> T>,
 }
 
-impl<C, T, R> SourceMessage for TestMessage<C, T, R>
+impl<C, R> SourceMessage for TestMessage<C, R>
 where
-    C: Decoder<T>,
-    T: Clone + Send + Sync + 'static,
+    C: Decoder<Value: Clone + Send + Sync + 'static>,
     R: TestRecord,
 {
-    type Item = R::Decoded<T>;
+    type Item = R::Decoded<C::Value>;
     type Raw = R;
 
     fn decode(&self) -> Result<Self::Item, BoxError> {

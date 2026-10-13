@@ -144,7 +144,7 @@ where
     config
         .properties
         .insert("auto.offset.reset".into(), "earliest".into());
-    let mut source = KafkaSource::<Json, T>::new(config);
+    let mut source = KafkaSource::<Json<T>>::new(config);
     let records = receive(&mut source, count, |message| message.decode().unwrap()).await;
     source.close().await.unwrap();
     records
@@ -155,14 +155,14 @@ where
     T: Clone + Send + Sync + for<'de> Deserialize<'de> + 'static,
 {
     let mut source =
-        PulsarSource::<Json, T>::new(PulsarSourceConfig::new(pulsar_url(), topic, subscription));
+        PulsarSource::<Json<T>>::new(PulsarSourceConfig::new(pulsar_url(), topic, subscription));
     let records = receive(&mut source, count, |message| message.decode().unwrap()).await;
     source.close().await.unwrap();
     records
 }
 
 async fn produce_kafka_orders(topic: &str) {
-    let sink = KafkaSink::<Json, Order>::new(KafkaSinkConfig::new(kafka_brokers(), topic));
+    let sink = KafkaSink::<Json<Order>>::new(KafkaSinkConfig::new(kafka_brokers(), topic));
     let app = App::new().subscribe(
         "produce-orders",
         IterSource::new(orders()),
@@ -183,7 +183,7 @@ async fn produce_kafka_orders(topic: &str) {
 }
 
 async fn produce_pulsar_orders(topic: &str) {
-    let sink = PulsarSink::<Json, Order>::new(PulsarSinkConfig::new(pulsar_url(), topic));
+    let sink = PulsarSink::<Json<Order>>::new(PulsarSinkConfig::new(pulsar_url(), topic));
     let app = App::new().subscribe(
         "produce-orders",
         IterSource::new(orders()),
@@ -316,8 +316,8 @@ async fn kafka_pipeline_forwards_keys_and_commits_offsets() {
         App::new().subscription(
             Subscription::new(
                 "ship-orders",
-                KafkaSource::<Json, Order>::new(source),
-                KafkaSink::<Json, Shipment>::new(KafkaSinkConfig::new(kafka_brokers(), &output)),
+                KafkaSource::<Json<Order>>::new(source),
+                KafkaSink::<Json<Shipment>>::new(KafkaSinkConfig::new(kafka_brokers(), &output)),
                 ship,
             )
             .concurrency(3),
@@ -360,12 +360,12 @@ async fn pulsar_pipeline_forwards_keys_and_acknowledges() {
         App::new().subscription(
             Subscription::new(
                 "ship-orders",
-                PulsarSource::<Json, Order>::new(PulsarSourceConfig::new(
+                PulsarSource::<Json<Order>>::new(PulsarSourceConfig::new(
                     pulsar_url(),
                     &input,
                     &subscription,
                 )),
-                PulsarSink::<Json, Shipment>::new(PulsarSinkConfig::new(pulsar_url(), &output)),
+                PulsarSink::<Json<Shipment>>::new(PulsarSinkConfig::new(pulsar_url(), &output)),
                 ship,
             )
             .concurrency(3),
@@ -411,8 +411,8 @@ async fn kafka_to_pulsar_pipeline_maps_metadata_explicitly() {
         App::new().subscription(
             Subscription::new(
                 "bridge-orders",
-                KafkaSource::<Json, Order>::new(source),
-                PulsarSink::<Json, Order>::new(PulsarSinkConfig::new(pulsar_url(), &output)),
+                KafkaSource::<Json<Order>>::new(source),
+                PulsarSink::<Json<Order>>::new(PulsarSinkConfig::new(pulsar_url(), &output)),
                 |record: KafkaRecord<Order>| async move {
                     Ok(PulsarPublish::new(
                         record.value.expect("orders are not tombstones"),

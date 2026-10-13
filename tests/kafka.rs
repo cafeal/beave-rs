@@ -90,7 +90,7 @@ async fn submit_returns_at_acceptance_and_waits_for_pending_capacity() {
     let mut config = KafkaSinkConfig::new("127.0.0.1:1", "topic");
     config.max_pending = 1;
     config.close_timeout = Duration::from_millis(100);
-    let sink = KafkaSink::<Utf8, String>::new(config);
+    let sink = KafkaSink::<Utf8>::new(config);
     let prepared = sink.prepare(KafkaPublish::new("a".to_owned())).unwrap();
 
     let first = tokio::time::timeout(Duration::from_secs(5), sink.submit(&prepared))
@@ -117,21 +117,16 @@ async fn submit_returns_at_acceptance_and_waits_for_pending_capacity() {
 
 #[tokio::test]
 async fn transactional_sink_requires_a_transactional_id_before_connecting() {
-    let sink =
-        KafkaSink::<Utf8, String>::new(KafkaSinkConfig::new("broker", "topic")).transactional(" ");
+    let sink = KafkaSink::<Utf8>::new(KafkaSinkConfig::new("broker", "topic")).transactional(" ");
     let prepared = sink.prepare(KafkaPublish::new("a".to_owned())).unwrap();
     let error = sink.publish(&prepared).await.unwrap_err();
     assert!(error.to_string().contains("transactional ID is required"));
 }
 
 fn uppercase_pipeline(
-    source: KafkaSource<Utf8, String>,
-    sink: KafkaTransactionalSink<Utf8, String>,
-) -> Subscription<
-    KafkaSource<Utf8, String>,
-    KafkaTransactionalSink<Utf8, String>,
-    KafkaPublish<String>,
-> {
+    source: KafkaSource<Utf8>,
+    sink: KafkaTransactionalSink<Utf8>,
+) -> Subscription<KafkaSource<Utf8>, KafkaTransactionalSink<Utf8>, KafkaPublish<String>> {
     Subscription::new("uppercase", source, sink, |value: String| async move {
         Ok(value.to_uppercase())
     })
@@ -156,7 +151,7 @@ async fn transactional_pipeline_commits_outputs_with_offsets() {
     let output = unique_name("beavers-kafka-tx-out");
     let group = unique_name("beavers-kafka-tx-group");
 
-    let producer = KafkaSink::<Utf8, String>::new(KafkaSinkConfig::new(&brokers, &input));
+    let producer = KafkaSink::<Utf8>::new(KafkaSinkConfig::new(&brokers, &input));
     for value in ["a", "b", "c"] {
         let prepared = producer
             .prepare(KafkaPublish::new(value.to_owned()))
@@ -189,7 +184,7 @@ async fn transactional_pipeline_commits_outputs_with_offsets() {
     reader_config
         .properties
         .insert("isolation.level".into(), "read_committed".into());
-    let mut reader = KafkaSource::<Utf8, String>::new(reader_config);
+    let mut reader = KafkaSource::<Utf8>::new(reader_config);
     let mut values = Vec::new();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     while values.len() < 3 {
@@ -255,7 +250,7 @@ async fn publish_receive_and_ack_against_kafka() {
     let topic = unique_name("beavers-kafka-test");
     let group = unique_name("beavers-kafka-group");
 
-    let sink = KafkaSink::<Utf8, String>::new(KafkaSinkConfig::new(&brokers, &topic));
+    let sink = KafkaSink::<Utf8>::new(KafkaSinkConfig::new(&brokers, &topic));
     let mut output = KafkaPublish::new("hello kafka".to_owned());
     output.key = Some(b"test-key".to_vec());
     output.headers.push(("kind".into(), Some(b"test".to_vec())));
@@ -271,7 +266,7 @@ async fn publish_receive_and_ack_against_kafka() {
     source_config
         .properties
         .insert("auto.offset.reset".into(), "earliest".into());
-    let mut source = KafkaSource::<Utf8, String>::new(source_config);
+    let mut source = KafkaSource::<Utf8>::new(source_config);
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     let message = loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -308,7 +303,7 @@ async fn submitted_records_complete_on_their_delivery_reports() {
     let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
     let mut config = KafkaSinkConfig::new(&brokers, unique_name("beavers-kafka-submit"));
     config.max_pending = 2;
-    let sink = KafkaSink::<Utf8, String>::new(config);
+    let sink = KafkaSink::<Utf8>::new(config);
     let prepared = sink.prepare(KafkaPublish::new("a".to_owned())).unwrap();
 
     let first = sink.submit(&prepared).await.unwrap();

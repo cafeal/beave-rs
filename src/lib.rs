@@ -35,12 +35,12 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), beavers::Error> {
-//!     let articles = KafkaSource::<Utf8, _>::new(KafkaSourceConfig::new(
+//!     let articles = KafkaSource::<Utf8>::new(KafkaSourceConfig::new(
 //!         "localhost:9092",
 //!         "summarizer",
 //!         ["articles"],
 //!     ));
-//!     let summaries = KafkaSink::<Utf8, _>::new(KafkaSinkConfig::new("localhost:9092", "summaries"));
+//!     let summaries = KafkaSink::<Utf8>::new(KafkaSinkConfig::new("localhost:9092", "summaries"));
 //!
 //!     App::new()
 //!         .subscribe("summarize", articles, summaries, summarize)
@@ -135,8 +135,6 @@ pub use adapters::{
 };
 pub use app::App;
 pub use blocking::{Blocking, BlockingPool, blocking};
-#[cfg(feature = "avro")]
-pub use codec::Avro;
 #[cfg(feature = "base64")]
 pub use codec::Base64;
 #[cfg(feature = "cbor")]
@@ -149,7 +147,9 @@ pub use codec::MessagePack;
 pub use codec::Protobuf;
 #[cfg(feature = "zstd")]
 pub use codec::Zstd;
-pub use codec::{Decoder, Encoder, Json, RawBytes, Utf8};
+#[cfg(feature = "avro")]
+pub use codec::{Avro, AvroSchema};
+pub use codec::{Codec, Decoder, Encoder, Json, RawBytes, Utf8};
 pub use dead_letter::{DEAD_LETTER_HEADER_PREFIX, DeadLetter, DeadLetterDetails};
 pub use error::{BoxError, Error};
 pub use error_policy::{ErrorPolicy, FailureAction, FailureKind};

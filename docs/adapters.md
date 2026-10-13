@@ -9,19 +9,19 @@ types are also re-exported at the crate root.
 | Adapter | Role | Typical use |
 |---|---|---|
 | `IterSource<T>` | Typed input | Fixtures, examples, finite jobs |
-| `StdinSource<C, T>` | Line-delimited input | Files, pipes, interactive input |
+| `StdinSource<C>` | Line-delimited input | Files, pipes, interactive input |
 | `InMemorySink<T>` | Typed output collection | Assertions and local inspection |
 | `StdoutSink<C>` | Line-delimited output | JSON output, files, pipes |
 | `ChannelSource<T>` / `ChannelSink<T>` | Chained subscriptions and application ends | Pipeline stages whose upstream ACK waits for the downstream stage; in-process workers fed and read by application code |
-| `KafkaSource<C, T>` / `KafkaSink<C, T>` | Kafka records and publishes | Durable broker pipelines (`kafka` feature) |
-| `KafkaTransactionalSink<C, T>` | Kafka publishes in producer transactions | Exactly-once Kafka-to-Kafka pipelines (`kafka` feature) |
-| `PulsarSource<C, T>` / `PulsarSink<C, T>` | Pulsar records and publishes | Durable broker pipelines (`pulsar` feature) |
-| `RabbitMqSource<C, T>` / `RabbitMqSink<C, T>` | RabbitMQ queue deliveries and exchange publishes | Work queues and routed messaging (`rabbitmq` feature) |
-| `SqsSource<C, T>` / `SqsSink<C, T>` | Amazon SQS queue messages and sends | Managed work queues on AWS (`sqs` feature) |
-| `PubSubSource<C, T>` / `PubSubSink<C, T>` | Google Cloud Pub/Sub subscription messages and topic publishes | Managed messaging on Google Cloud (`pubsub` feature) |
-| `ServiceBusSource<C, T>` / `ServiceBusSink<C, T>` | Azure Service Bus queue and subscription messages and sends | Managed work queues and topics on Azure (`servicebus` feature) |
-| `HttpSource<C, T>` | HTTP `POST` requests answered on ACK | Webhooks and push ingestion (`http` feature) |
-| `HttpSink<C, T>` | HTTP requests that succeed on a `2xx` response | Delivering events to HTTP services (`http` feature) |
+| `KafkaSource<C>` / `KafkaSink<C>` | Kafka records and publishes | Durable broker pipelines (`kafka` feature) |
+| `KafkaTransactionalSink<C>` | Kafka publishes in producer transactions | Exactly-once Kafka-to-Kafka pipelines (`kafka` feature) |
+| `PulsarSource<C>` / `PulsarSink<C>` | Pulsar records and publishes | Durable broker pipelines (`pulsar` feature) |
+| `RabbitMqSource<C>` / `RabbitMqSink<C>` | RabbitMQ queue deliveries and exchange publishes | Work queues and routed messaging (`rabbitmq` feature) |
+| `SqsSource<C>` / `SqsSink<C>` | Amazon SQS queue messages and sends | Managed work queues on AWS (`sqs` feature) |
+| `PubSubSource<C>` / `PubSubSink<C>` | Google Cloud Pub/Sub subscription messages and topic publishes | Managed messaging on Google Cloud (`pubsub` feature) |
+| `ServiceBusSource<C>` / `ServiceBusSink<C>` | Azure Service Bus queue and subscription messages and sends | Managed work queues and topics on Azure (`servicebus` feature) |
+| `HttpSource<C>` | HTTP `POST` requests answered on ACK | Webhooks and push ingestion (`http` feature) |
+| `HttpSink<C>` | HTTP requests that succeed on a `2xx` response | Delivering events to HTTP services (`http` feature) |
 
 NATS JetStream is [planned](plan.md#future-adapters). Local and
 channel adapters do not provide durable delivery guarantees.

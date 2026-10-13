@@ -41,11 +41,11 @@ use beavers::{
 let connection = ServiceBusConnection::from_connection_string(
     "Endpoint=sb://contoso.servicebus.windows.net/;SharedAccessKeyName=app;SharedAccessKey=...",
 )?;
-let source = ServiceBusSource::<Utf8, String>::new(ServiceBusSourceConfig::new(
+let source = ServiceBusSource::<Utf8>::new(ServiceBusSourceConfig::new(
     connection.clone(),
     "orders/Subscriptions/billing",
 ));
-let sink = ServiceBusSink::<Utf8, String>::new(ServiceBusSinkConfig::new(
+let sink = ServiceBusSink::<Utf8>::new(ServiceBusSinkConfig::new(
     connection,
     "processed-orders",
 ));

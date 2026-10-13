@@ -7,7 +7,6 @@ use crate::{
 };
 use std::{
     collections::HashMap,
-    marker::PhantomData,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -85,15 +84,14 @@ impl Connection {
 
 /// Queues prepared messages on the producers and completes each one on its
 /// Pulsar broker receipt.
-pub struct PulsarSink<C, T> {
+pub struct PulsarSink<C> {
     connection: Connection,
     codec: Arc<C>,
     /// One permit per message awaiting its broker receipt.
     pending: PendingLimit,
-    marker: PhantomData<fn(T)>,
 }
 
-impl<C: Default, T> PulsarSink<C, T> {
+impl<C: Default> PulsarSink<C> {
     /// Creates a sink that encodes with the codec's default value.
     ///
     /// The producers are created on the first publication, which also
@@ -103,7 +101,7 @@ impl<C: Default, T> PulsarSink<C, T> {
     }
 }
 
-impl<C, T> PulsarSink<C, T> {
+impl<C> PulsarSink<C> {
     /// Creates a sink that encodes with `codec`.
     ///
     /// The producers are created on the first publication, which also
@@ -113,15 +111,14 @@ impl<C, T> PulsarSink<C, T> {
             pending: PendingLimit::new(config.max_pending, "Pulsar"),
             connection: Connection::new(config),
             codec: Arc::new(codec),
-            marker: PhantomData,
         }
     }
 }
 
-impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarSink<C, T> {
+impl<C: Encoder<Value: Send + Sync + 'static>> Sink<PulsarPublish<C::Value>> for PulsarSink<C> {
     type Prepared = PulsarPrepared;
 
-    fn prepare(&self, output: PulsarPublish<T>) -> Result<Self::Prepared, BoxError> {
+    fn prepare(&self, output: PulsarPublish<C::Value>) -> Result<Self::Prepared, BoxError> {
         prepare(&*self.codec, output)
     }
 
@@ -147,9 +144,9 @@ impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarS
     }
 }
 
-pub(super) fn prepare<C: Encoder<T>, T>(
+pub(super) fn prepare<C: Encoder>(
     codec: &C,
-    output: PulsarPublish<T>,
+    output: PulsarPublish<C::Value>,
 ) -> Result<PulsarPrepared, BoxError> {
     Ok(PulsarPrepared {
         value: output

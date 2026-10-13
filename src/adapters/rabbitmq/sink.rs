@@ -17,7 +17,6 @@ use lapin::{
 };
 use std::{
     fmt,
-    marker::PhantomData,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -71,25 +70,23 @@ struct State {
 
 /// Publishes to one exchange and completes each message on its publisher
 /// confirmation.
-pub struct RabbitMqSink<C, T> {
+pub struct RabbitMqSink<C> {
     config: RabbitMqSinkConfig,
     codec: Arc<C>,
     state: Arc<State>,
-    marker: PhantomData<fn(T)>,
 }
 
-impl<C, T> Clone for RabbitMqSink<C, T> {
+impl<C> Clone for RabbitMqSink<C> {
     fn clone(&self) -> Self {
         Self {
             config: self.config.clone(),
             codec: self.codec.clone(),
             state: self.state.clone(),
-            marker: PhantomData,
         }
     }
 }
 
-impl<C: Default, T> RabbitMqSink<C, T> {
+impl<C: Default> RabbitMqSink<C> {
     /// Creates a sink that encodes with the codec's default value.
     ///
     /// The connection is opened on the first publication, which also validates
@@ -99,7 +96,7 @@ impl<C: Default, T> RabbitMqSink<C, T> {
     }
 }
 
-impl<C, T> RabbitMqSink<C, T> {
+impl<C> RabbitMqSink<C> {
     /// Creates a sink that encodes with `codec`.
     ///
     /// The connection is opened on the first publication, which also validates
@@ -113,7 +110,6 @@ impl<C, T> RabbitMqSink<C, T> {
                 pending: PendingLimit::new(config.max_pending, "RabbitMQ"),
             }),
             config,
-            marker: PhantomData,
         }
     }
 
@@ -163,14 +159,13 @@ impl<C, T> RabbitMqSink<C, T> {
     }
 }
 
-impl<C, T> Sink<RabbitMqPublish<T>> for RabbitMqSink<C, T>
+impl<C> Sink<RabbitMqPublish<C::Value>> for RabbitMqSink<C>
 where
-    C: Encoder<T>,
-    T: Send + Sync + 'static,
+    C: Encoder<Value: Send + Sync + 'static>,
 {
     type Prepared = RabbitMqPrepared;
 
-    fn prepare(&self, output: RabbitMqPublish<T>) -> Result<Self::Prepared, BoxError> {
+    fn prepare(&self, output: RabbitMqPublish<C::Value>) -> Result<Self::Prepared, BoxError> {
         let routing_key = output
             .routing_key
             .as_deref()

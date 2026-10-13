@@ -135,7 +135,7 @@ JSON object into the `beavers-dlq-details` string attribute:
 The sink must publish raw bytes:
 
 ```rust,ignore
-let dead_letters = KafkaSink::<RawBytes, Vec<u8>>::new(KafkaSinkConfig::new(brokers, "orders-dlq"));
+let dead_letters = KafkaSink::<RawBytes>::new(KafkaSinkConfig::new(brokers, "orders-dlq"));
 
 Subscription::new("orders", source, sink, handle)
     .dlq_with(dead_letters, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)));

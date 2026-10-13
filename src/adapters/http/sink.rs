@@ -19,7 +19,6 @@ use hyper_util::{
 use rustls::{ClientConfig, RootCertStore, crypto::ring};
 use std::{
     collections::HashSet,
-    marker::PhantomData,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -76,16 +75,15 @@ struct State {
 /// subscription's `publish_retry` policy. Every other response, including
 /// redirects, is a [`PublishRejected`] error that the error policy routes as
 /// [`FailureKind::PublishRejected`](crate::FailureKind::PublishRejected).
-pub struct HttpSink<C, T> {
+pub struct HttpSink<C> {
     config: HttpSinkConfig,
     codec: Arc<C>,
     target: Arc<Target>,
     metrics: Arc<ClientMetrics>,
     state: Arc<State>,
-    marker: PhantomData<fn(T)>,
 }
 
-impl<C, T> Clone for HttpSink<C, T> {
+impl<C> Clone for HttpSink<C> {
     fn clone(&self) -> Self {
         Self {
             config: self.config.clone(),
@@ -93,19 +91,18 @@ impl<C, T> Clone for HttpSink<C, T> {
             target: self.target.clone(),
             metrics: self.metrics.clone(),
             state: self.state.clone(),
-            marker: PhantomData,
         }
     }
 }
 
-impl<C: Default, T> HttpSink<C, T> {
+impl<C: Default> HttpSink<C> {
     /// Creates a sink with the default codec; see [`HttpSink::with_codec`].
     pub fn new(config: HttpSinkConfig) -> Result<Self, Error> {
         Self::with_codec(config, C::default())
     }
 }
 
-impl<C, T> HttpSink<C, T> {
+impl<C> HttpSink<C> {
     /// Validates the configuration. The client connects on the first publish.
     pub fn with_codec(config: HttpSinkConfig, codec: C) -> Result<Self, Error> {
         config.validate()?;
@@ -138,7 +135,6 @@ impl<C, T> HttpSink<C, T> {
                 closed: AtomicBool::new(false),
             }),
             config,
-            marker: PhantomData,
         })
     }
 
@@ -211,14 +207,13 @@ impl<C, T> HttpSink<C, T> {
     }
 }
 
-impl<C, T> Sink<HttpPublish<T>> for HttpSink<C, T>
+impl<C> Sink<HttpPublish<C::Value>> for HttpSink<C>
 where
-    C: Encoder<T>,
-    T: Send + Sync + 'static,
+    C: Encoder<Value: Send + Sync + 'static>,
 {
     type Prepared = HttpPrepared;
 
-    fn prepare(&self, record: HttpPublish<T>) -> Result<Self::Prepared, BoxError> {
+    fn prepare(&self, record: HttpPublish<C::Value>) -> Result<Self::Prepared, BoxError> {
         let body = Bytes::from(self.codec.encode(&record.body)?);
         let mut headers = self.target.headers.clone();
         let mut replaced = HashSet::new();

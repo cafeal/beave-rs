@@ -77,7 +77,7 @@ fn tombstones_are_prepared_as_null_values() {
         PulsarSourceConfig::new("pulsar://broker", "topic", "subscription")
             .empty_payload_is_tombstone
     );
-    let sink = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new("pulsar://broker", "topic"));
+    let sink = PulsarSink::<Utf8>::new(PulsarSinkConfig::new("pulsar://broker", "topic"));
     let tombstone = sink
         .prepare(PulsarPublish::tombstone(b"customer-7".to_vec()))
         .unwrap();
@@ -177,9 +177,9 @@ async fn unload_topic(topic: &str) -> Result<(), BoxError> {
 }
 
 async fn next_message(
-    source: &mut PulsarSource<Utf8, String>,
+    source: &mut PulsarSource<Utf8>,
     timeout: Duration,
-) -> Result<Option<PulsarMessage<Utf8, String>>, BoxError> {
+) -> Result<Option<PulsarMessage<Utf8>>, BoxError> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -198,7 +198,7 @@ async fn next_message(
 }
 
 async fn publish_all(topic: &str, values: &[&str]) -> Result<(), BoxError> {
-    let sink = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(service_url(), topic));
+    let sink = PulsarSink::<Utf8>::new(PulsarSinkConfig::new(service_url(), topic));
     for value in values {
         let mut output = PulsarPublish::new((*value).to_owned());
         output.key = Some(value.as_bytes().to_vec());
@@ -207,7 +207,7 @@ async fn publish_all(topic: &str, values: &[&str]) -> Result<(), BoxError> {
     sink.close().await
 }
 
-fn exclusive_source(topic: &str, subscription: &str) -> PulsarSource<Utf8, String> {
+fn exclusive_source(topic: &str, subscription: &str) -> PulsarSource<Utf8> {
     let mut config = PulsarSourceConfig::new(service_url(), topic, subscription);
     config.subscription_type = PulsarSubscriptionType::Exclusive;
     PulsarSource::new(config)
@@ -255,7 +255,7 @@ async fn submissions_complete_across_topic_unloads() -> Result<(), BoxError> {
     create_subscription(&topic, &subscription).await?;
     let mut source = exclusive_source(&topic, &subscription);
 
-    let sink = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(service_url(), &topic));
+    let sink = PulsarSink::<Utf8>::new(PulsarSinkConfig::new(service_url(), &topic));
     let stop = Arc::new(AtomicBool::new(false));
     let publisher = tokio::spawn({
         let stop = stop.clone();
@@ -306,9 +306,9 @@ async fn tombstones_carry_the_null_value_marker() -> Result<(), BoxError> {
     create_subscription(&topic, &subscription).await?;
     let mut config = PulsarSourceConfig::new(service_url(), &topic, subscription);
     config.empty_payload_is_tombstone = false;
-    let mut source = PulsarSource::<Utf8, String>::new(config);
+    let mut source = PulsarSource::<Utf8>::new(config);
 
-    let sink = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(service_url(), &topic));
+    let sink = PulsarSink::<Utf8>::new(PulsarSinkConfig::new(service_url(), &topic));
     for output in [
         PulsarPublish::tombstone(b"customer-7".to_vec()),
         PulsarPublish::new(String::new()),
@@ -344,12 +344,9 @@ async fn publish_receive_and_ack_against_pulsar() -> Result<(), BoxError> {
     // message because a new subscription starts at the latest position.
     create_subscription(&topic, &subscription).await?;
 
-    let sink = PulsarSink::<Utf8, String>::new(PulsarSinkConfig::new(&service_url, &topic));
-    let mut source = PulsarSource::<Utf8, String>::new(PulsarSourceConfig::new(
-        &service_url,
-        &topic,
-        &subscription,
-    ));
+    let sink = PulsarSink::<Utf8>::new(PulsarSinkConfig::new(&service_url, &topic));
+    let mut source =
+        PulsarSource::<Utf8>::new(PulsarSourceConfig::new(&service_url, &topic, &subscription));
 
     let receive_task = tokio::spawn(async move {
         let message = loop {
@@ -405,7 +402,7 @@ async fn submitted_messages_complete_on_their_broker_receipts() -> Result<(), Bo
     let topic = unique_topic("beavers-pulsar-submit");
     let mut config = PulsarSinkConfig::new(service_url(), &topic);
     config.max_pending = 2;
-    let sink = PulsarSink::<Utf8, String>::new(config);
+    let sink = PulsarSink::<Utf8>::new(config);
     let prepared = sink.prepare(PulsarPublish::new("a".to_owned()))?;
 
     let first = tokio::time::timeout(Duration::from_secs(20), sink.submit(&prepared))

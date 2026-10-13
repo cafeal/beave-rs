@@ -1,7 +1,7 @@
 use std::io::BufReader;
 
 use super::bounded::{DEFAULT_MAX_DECODED_LEN, read_to_end};
-use super::{Decoder, Encoder};
+use super::{Codec, Decoder, Encoder};
 use crate::error::BoxError;
 
 /// A wrapper that Zstandard-compresses another codec's payload.
@@ -62,16 +62,20 @@ impl<C: Default> Default for Zstd<C> {
     }
 }
 
-impl<T, C: Decoder<T>> Decoder<T> for Zstd<C> {
-    fn decode(&self, bytes: &[u8]) -> Result<T, BoxError> {
+impl<C: Codec> Codec for Zstd<C> {
+    type Value = C::Value;
+}
+
+impl<C: Decoder> Decoder for Zstd<C> {
+    fn decode(&self, bytes: &[u8]) -> Result<C::Value, BoxError> {
         let reader = zstd::stream::read::Decoder::with_buffer(BufReader::new(bytes))?;
         let payload = read_to_end(reader, self.max_decoded_len, "Zstandard")?;
         self.inner.decode(&payload)
     }
 }
 
-impl<T, C: Encoder<T>> Encoder<T> for Zstd<C> {
-    fn encode(&self, value: &T) -> Result<Vec<u8>, BoxError> {
+impl<C: Encoder> Encoder for Zstd<C> {
+    fn encode(&self, value: &C::Value) -> Result<Vec<u8>, BoxError> {
         Ok(zstd::bulk::compress(
             &self.inner.encode(value)?,
             self.level,

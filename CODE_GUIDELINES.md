@@ -36,7 +36,7 @@ src/
 │   └── server.rs          # Liveness and readiness probes (`health` feature)
 ├── testing/               # Test sources for fabricated records (`testing` feature)
 ├── codec/
-│   ├── mod.rs             # Decoder and Encoder contracts
+│   ├── mod.rs             # Codec, Decoder, and Encoder contracts
 │   ├── json.rs            # JSON codec
 │   ├── raw_bytes.rs       # RawBytes codec
 │   ├── utf8.rs            # Utf8 codec
@@ -47,7 +47,8 @@ src/
 │   ├── base64.rs          # Base64 wrapper (`base64` feature)
 │   ├── gzip.rs            # Gzip wrapper (`gzip` feature)
 │   ├── zstd.rs            # Zstandard wrapper (`zstd` feature)
-│   └── bounded.rs         # Bounded decompression shared by the wrappers
+│   ├── bounded.rs         # Bounded decompression shared by the wrappers
+│   └── typed.rs           # Shared impls for codecs generic over their value type
 ├── subscription/
 │   ├── mod.rs             # Module declarations and public re-exports
 │   ├── builder.rs         # Subscription type and builder API
@@ -113,8 +114,8 @@ appropriate when they isolate a substantial state machine or lifecycle.
 - Make broker data models explicit in handler types. Do not silently translate
   keys, headers, properties, partitions, timestamps, or other metadata between
   platforms.
-- Use `SourceName<C, T>` and `SinkName<C, T>` consistently when both the codec
-  and payload type are part of an adapter's contract.
+- Use `SourceName<C>` and `SinkName<C>` consistently. The codec names the
+  payload type through `Codec::Value`, as in `KafkaSink<Json<Order>>`.
 - Provide `new(config)` when `C: Default` and
   `with_codec(config, codec)` for configured or stateful codecs.
 - Keep codec work in `decode` and `prepare`. A publish retry must reuse prepared

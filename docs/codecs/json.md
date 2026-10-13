@@ -1,8 +1,8 @@
 # JSON codec
 
-`Json` converts between JSON payloads and any type implementing Serde's
-traits. It is a unit struct that implements `Default` and is always available;
-it needs no Cargo feature. Decode into `serde_json::Value` when the payload has
+`Json<T>` converts between JSON payloads and a type `T` implementing Serde's
+traits. It holds no state, implements `Default` for every `T`, and is always
+available; it needs no Cargo feature. Decode into `serde_json::Value` when the payload has
 no fixed schema.
 
 `Json` uses `serde_json::from_slice` for decoding and `serde_json::to_vec` for
@@ -45,8 +45,8 @@ async fn main() -> anyhow::Result<()> {
     App::new()
         .subscribe(
             "orders",
-            StdinSource::<Json, _>::new(),
-            StdoutSink::<Json>::new(),
+            StdinSource::<Json<_>>::new(),
+            StdoutSink::<Json<_>>::new(),
             handler,
         )
         .run()

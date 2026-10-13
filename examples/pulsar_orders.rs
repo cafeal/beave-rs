@@ -84,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
                 .subscribe(
                     "produce-orders",
                     IterSource::new(orders),
-                    PulsarSink::<Json, Order>::new(PulsarSinkConfig::new(&service_url, ORDERS)),
+                    PulsarSink::<Json<Order>>::new(PulsarSinkConfig::new(&service_url, ORDERS)),
                     keyed_by_customer,
                 )
                 .run()
@@ -100,8 +100,8 @@ async fn main() -> anyhow::Result<()> {
                 .subscription(
                     Subscription::new(
                         "process-orders",
-                        PulsarSource::<Json, Order>::new(source),
-                        PulsarSink::<Json, OrderEvent>::new(PulsarSinkConfig::new(
+                        PulsarSource::<Json<Order>>::new(source),
+                        PulsarSink::<Json<OrderEvent>>::new(PulsarSinkConfig::new(
                             &service_url,
                             EVENTS,
                         )),

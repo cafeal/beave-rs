@@ -14,7 +14,6 @@ use aws_sdk_sqs::{
 use std::{
     collections::HashMap,
     fmt,
-    marker::PhantomData,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -66,34 +65,32 @@ impl fmt::Debug for SqsPrepared {
 
 /// Sends each output to one queue with `SendMessage`. A publication succeeds
 /// once SQS has stored the message.
-pub struct SqsSink<C, T> {
+pub struct SqsSink<C> {
     config: SqsSinkConfig,
     codec: Arc<C>,
     client: Arc<OnceCell<Client>>,
     closed: Arc<AtomicBool>,
-    marker: PhantomData<fn(T)>,
 }
 
-impl<C, T> Clone for SqsSink<C, T> {
+impl<C> Clone for SqsSink<C> {
     fn clone(&self) -> Self {
         Self {
             config: self.config.clone(),
             codec: self.codec.clone(),
             client: self.client.clone(),
             closed: self.closed.clone(),
-            marker: PhantomData,
         }
     }
 }
 
-impl<C: Default, T> SqsSink<C, T> {
+impl<C: Default> SqsSink<C> {
     /// A sink with a default-constructed codec.
     pub fn new(config: SqsSinkConfig) -> Self {
         Self::with_codec(config, C::default())
     }
 }
 
-impl<C, T> SqsSink<C, T> {
+impl<C> SqsSink<C> {
     /// A sink that uses an existing codec instance, such as a configured `Avro` codec.
     pub fn with_codec(config: SqsSinkConfig, codec: C) -> Self {
         Self {
@@ -101,7 +98,6 @@ impl<C, T> SqsSink<C, T> {
             codec: Arc::new(codec),
             client: Arc::default(),
             closed: Arc::default(),
-            marker: PhantomData,
         }
     }
 
@@ -120,16 +116,15 @@ impl<C, T> SqsSink<C, T> {
     }
 }
 
-impl<C, T> Sink<SqsPublish<T>> for SqsSink<C, T>
+impl<C> Sink<SqsPublish<C::Value>> for SqsSink<C>
 where
-    C: Encoder<T>,
-    T: Send + Sync + 'static,
+    C: Encoder<Value: Send + Sync + 'static>,
 {
     type Prepared = SqsPrepared;
 
     /// Encodes the value as the message body, which SQS requires to be text.
     /// A codec whose output is not UTF-8, such as Protobuf, fails here.
-    fn prepare(&self, output: SqsPublish<T>) -> Result<Self::Prepared, BoxError> {
+    fn prepare(&self, output: SqsPublish<C::Value>) -> Result<Self::Prepared, BoxError> {
         let body = String::from_utf8(self.codec.encode(&output.value)?)
             .context("SQS message bodies must be UTF-8 text")?;
         let fifo = self.config.endpoint().is_fifo();

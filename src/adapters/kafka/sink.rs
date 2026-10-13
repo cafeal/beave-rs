@@ -13,7 +13,6 @@ use rdkafka::{
     util::Timeout,
 };
 use std::{
-    marker::PhantomData,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -41,25 +40,23 @@ struct State {
 
 /// Queues records on the producer and completes each one when Kafka reports
 /// successful delivery.
-pub struct KafkaSink<C, T> {
+pub struct KafkaSink<C> {
     config: KafkaSinkConfig,
     codec: Arc<C>,
     state: Arc<State>,
-    marker: PhantomData<fn(T)>,
 }
 
-impl<C, T> Clone for KafkaSink<C, T> {
+impl<C> Clone for KafkaSink<C> {
     fn clone(&self) -> Self {
         Self {
             config: self.config.clone(),
             codec: self.codec.clone(),
             state: self.state.clone(),
-            marker: PhantomData,
         }
     }
 }
 
-impl<C: Default, T> KafkaSink<C, T> {
+impl<C: Default> KafkaSink<C> {
     /// Creates a sink that encodes with the codec's default value.
     ///
     /// The producer is created on the first publication, which also validates
@@ -69,7 +66,7 @@ impl<C: Default, T> KafkaSink<C, T> {
     }
 }
 
-impl<C, T> KafkaSink<C, T> {
+impl<C> KafkaSink<C> {
     /// Creates a sink that encodes with `codec`.
     ///
     /// The producer is created on the first publication, which also validates
@@ -83,7 +80,6 @@ impl<C, T> KafkaSink<C, T> {
                 pending: PendingLimit::new(config.max_pending, "Kafka"),
             }),
             config,
-            marker: PhantomData,
         }
     }
 
@@ -95,10 +91,7 @@ impl<C, T> KafkaSink<C, T> {
     /// producer fences its predecessor. Register the result with
     /// [`Subscription::transactional`](crate::Subscription::transactional)
     /// for exactly-once processing behind a `KafkaSource`.
-    pub fn transactional(
-        self,
-        transactional_id: impl Into<String>,
-    ) -> KafkaTransactionalSink<C, T> {
+    pub fn transactional(self, transactional_id: impl Into<String>) -> KafkaTransactionalSink<C> {
         KafkaTransactionalSink::new(self.config, transactional_id.into(), self.codec)
     }
 
@@ -122,14 +115,13 @@ impl<C, T> KafkaSink<C, T> {
     }
 }
 
-impl<C, T> Sink<KafkaPublish<T>> for KafkaSink<C, T>
+impl<C> Sink<KafkaPublish<C::Value>> for KafkaSink<C>
 where
-    C: Encoder<T>,
-    T: Send + Sync + 'static,
+    C: Encoder<Value: Send + Sync + 'static>,
 {
     type Prepared = KafkaPrepared;
 
-    fn prepare(&self, record: KafkaPublish<T>) -> Result<Self::Prepared, BoxError> {
+    fn prepare(&self, record: KafkaPublish<C::Value>) -> Result<Self::Prepared, BoxError> {
         prepare(&*self.codec, record)
     }
 
@@ -161,9 +153,9 @@ where
     }
 }
 
-pub(super) fn prepare<C: Encoder<T>, T>(
+pub(super) fn prepare<C: Encoder>(
     codec: &C,
-    record: KafkaPublish<T>,
+    record: KafkaPublish<C::Value>,
 ) -> Result<KafkaPrepared, BoxError> {
     Ok(KafkaPrepared {
         key: record.key,

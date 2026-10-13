@@ -50,7 +50,7 @@ async fn dead_letter(name: &str, records: Vec<SqsRecord<Vec<u8>>>) -> Vec<SqsPub
         .subscription(
             Subscription::new(
                 name,
-                SqsTestSource::<Json, u32>::new(records),
+                SqsTestSource::<Json<u32>>::new(records),
                 InMemorySink::<u32>::default(),
                 reject_odd,
             )
@@ -142,7 +142,7 @@ async fn inheritance_skips_the_details_attribute() {
         .subscription(
             Subscription::new(
                 "orders-redrive",
-                SqsTestSource::<Json, u32>::new([received(dead[0].clone(), "d-1")]),
+                SqsTestSource::<Json<u32>>::new([received(dead[0].clone(), "d-1")]),
                 sink.clone(),
                 |record: SqsRecord<u32>| async move { Ok(SqsPublish::new(record.value + 1)) },
             )

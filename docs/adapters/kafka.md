@@ -19,12 +19,12 @@ application can construct its pipeline before a broker is reachable.
 ```rust
 use beavers::{Utf8, adapters::kafka::{KafkaPublish, KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig}};
 
-let source = KafkaSource::<Utf8, String>::new(KafkaSourceConfig::new(
+let source = KafkaSource::<Utf8>::new(KafkaSourceConfig::new(
     "localhost:9092",
     "orders-workers",
     ["orders"],
 ));
-let sink = KafkaSink::<Utf8, String>::new(KafkaSinkConfig::new(
+let sink = KafkaSink::<Utf8>::new(KafkaSinkConfig::new(
     "localhost:9092",
     "processed-orders",
 ));
@@ -188,12 +188,12 @@ use beavers::{
     adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
 };
 
-let source = KafkaSource::<Utf8, String>::new(KafkaSourceConfig::new(
+let source = KafkaSource::<Utf8>::new(KafkaSourceConfig::new(
     "localhost:9092",
     "orders-workers",
     ["orders"],
 ));
-let sink = KafkaSink::<Utf8, String>::new(KafkaSinkConfig::new(
+let sink = KafkaSink::<Utf8>::new(KafkaSinkConfig::new(
     "localhost:9092",
     "processed-orders",
 ))

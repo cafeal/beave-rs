@@ -22,7 +22,7 @@ fn fast() -> RetryPolicy {
     }
 }
 
-fn sink(url: String) -> HttpSink<Utf8, String> {
+fn sink(url: String) -> HttpSink<Utf8> {
     HttpSink::new(HttpSinkConfig::new(url)).unwrap()
 }
 
@@ -43,7 +43,7 @@ fn config_rejects_invalid_targets() {
     ];
     for config in invalid {
         assert!(config.validate().is_err(), "{config:?}");
-        assert!(HttpSink::<Utf8, String>::new(config).is_err());
+        assert!(HttpSink::<Utf8>::new(config).is_err());
     }
     assert!(
         HttpSinkConfig::new("https://localhost:8443/orders?v=1")
@@ -61,7 +61,7 @@ fn prepare_merges_configured_and_output_headers() {
         ],
         ..HttpSinkConfig::new("http://localhost/orders")
     };
-    let sink = HttpSink::<Utf8, String>::new(config).unwrap();
+    let sink = HttpSink::<Utf8>::new(config).unwrap();
     let prepared = sink
         .prepare(
             HttpPublish::new("hello".to_owned())
@@ -105,7 +105,7 @@ async fn outputs_are_sent_with_configured_method_url_and_headers() {
         headers: vec![("content-type".to_owned(), "application/json".to_owned())],
         ..HttpSinkConfig::new(destination.url("/orders?source=kafka"))
     };
-    let sink = HttpSink::<Json, Order>::new(config).unwrap();
+    let sink = HttpSink::<Json<Order>>::new(config).unwrap();
     let source = IterSource::new([1, 2]);
     let acks = source.acknowledgements();
 
@@ -173,7 +173,7 @@ async fn timed_out_attempt_is_retried() {
             Subscription::new(
                 "timed_out_attempt_is_retried",
                 source,
-                HttpSink::<Utf8, String>::new(config).unwrap(),
+                HttpSink::<Utf8>::new(config).unwrap(),
                 |body: String| async move { Ok(HttpPublish::new(body)) },
             )
             .publish_retry(fast()),
