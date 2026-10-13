@@ -23,11 +23,11 @@ Adapter references: [Local adapters](adapters/local.md),
 [SQS](adapters/sqs.md), [Pub/Sub](adapters/pubsub.md),
 [Azure Service Bus](adapters/servicebus.md), and [HTTP](adapters/http.md).
 
-Codec references: [JSON](codecs/json.md),
-[Raw bytes and UTF-8](codecs/raw-utf8.md),
-[Protobuf](codecs/protobuf.md), [Avro](codecs/avro.md),
-[MessagePack and CBOR](codecs/msgpack-cbor.md), and
-[Base64 and compression wrappers](codecs/wrappers.md).
+Codec references: [JSON](codecs/json.md), [Raw bytes](codecs/raw-bytes.md),
+[UTF-8](codecs/utf8.md), [Protobuf](codecs/protobuf.md), [Avro](codecs/avro.md),
+[MessagePack](codecs/msgpack.md), [CBOR](codecs/cbor.md), and
+[codec wrappers](codecs/wrappers.md): [Base64](codecs/wrappers/base64.md),
+[Gzip](codecs/wrappers/gzip.md), and [Zstd](codecs/wrappers/zstd.md).
 
 ## Contributing
 
