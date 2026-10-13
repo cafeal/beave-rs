@@ -4,14 +4,14 @@ on:
   push:
     branches: [main]
     paths:
-      - site/**
+      - README.md
       - docs/**
       - tools/pages/**
       - .github/workflows/pages.yml
   pull_request:
     types: [opened, reopened, synchronize, closed]
     paths:
-      - site/**
+      - README.md
       - docs/**
       - tools/pages/**
       - .github/workflows/pages.yml

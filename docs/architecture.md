@@ -15,6 +15,10 @@ src/
 ├── message.rs             # SourceMessage and Delivery ownership
 ├── sink.rs                # Prepare, publish, and close contracts
 ├── handler.rs             # Handler, Emit, HandlerError, and Result
+├── forward.rs             # Value-only handlers for same-platform sources and sinks
+├── middleware.rs          # Middleware, Flow, and MapMetadata around the handler
+├── tombstone.rs           # Tombstones middleware for null-value records
+├── transaction.rs         # TransactionalSink for atomic publish and acknowledge
 ├── error.rs               # Error reported by the crate and BoxError
 ├── blocking.rs            # Synchronous handlers on a bounded worker pool
 ├── error_policy.rs        # FailureKind, FailureAction, and ErrorPolicy
@@ -30,7 +34,11 @@ src/
 ├── testing/               # Test sources for fabricated records (`testing` feature)
 ├── codec/
 │   ├── mod.rs             # Decoder and Encoder contracts
-│   └── json.rs            # JSON implementation
+│   ├── json.rs            # JSON codec
+│   ├── raw_bytes.rs       # RawBytes codec
+│   ├── utf8.rs            # Utf8 codec
+│   ├── avro.rs            # Avro codec (`avro` feature)
+│   └── protobuf.rs        # Protobuf codec (`protobuf` feature)
 ├── subscription/
 │   ├── mod.rs             # Module declarations and public re-exports
 │   ├── builder.rs         # Subscription type and builder API
@@ -39,7 +47,10 @@ src/
 │   ├── runtime.rs         # Private receive loop, draining, and cleanup
 │   ├── scheduler.rs       # Private ordering-key queues
 │   ├── instruments.rs     # Private per-subscription metric handles
-│   └── processing.rs      # Private per-message processing lifecycle
+│   ├── hooks.rs           # Private object-safe form of stored middleware
+│   ├── processing.rs      # Private per-message processing lifecycle
+│   ├── completion.rs      # Private prepare, publish, and acknowledge stage
+│   └── transaction.rs     # Private batching of deliveries into sink transactions
 └── adapters/
     ├── mod.rs
     ├── channel/           # Chained subscriptions with deferred upstream ACK

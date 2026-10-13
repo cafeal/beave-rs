@@ -87,26 +87,28 @@ A published version cannot be replaced. If a release is broken, yank it with
 
 ## Project website
 
-The project website has two parts: the landing page in `site/`, a static HTML
-and CSS page, and the guides in `docs/`. `tools/pages/build.mjs` assembles both
-into one directory. Each `docs/<path>.md` becomes `docs/<path>.html`, styled
-with `site/style.css`, and the Markdown source is published next to it at
-`docs/<path>.md`, so replacing `.html` with `.md` in a guide URL returns the
-exact source. A `README.md` becomes `index.html` and `index.md`. Links between
-guides point at the generated pages; links to files outside `docs/` point at
-the repository on GitHub, in both the HTML and the Markdown copies. The guide
-navigation follows the link order of `docs/README.md`.
+The website is generated from the repository README and the guides in `docs/`,
+so it has no content of its own. `tools/pages/build.mjs` renders every page
+with one layout and `tools/pages/style.css`: `README.md` becomes the top page,
+`index.html`, and each `docs/<path>.md` becomes `docs/<path>.html`; a
+`README.md` inside `docs/` becomes `index.html` in its directory. Each page's
+Markdown source is published at the same path with `.md` instead of `.html`, so
+replacing the extension in a page URL returns the exact source. Links between
+pages point at the generated pages; links to other repository files point at
+GitHub, in both the HTML and the Markdown copies. The navigation lists the
+README, the guide index, and then the guides in the link order of
+`docs/README.md`.
 
 For language-model tools, the site root also serves `llms.txt`, which lists the
-Markdown URL of every guide, and `llms-full.txt`, which holds all guides in one
+Markdown URL of every page, and `llms-full.txt`, which holds all pages in one
 file.
 
 The `Pages` workflow runs the build and publishes the result to the `gh-pages`
-branch on every push to `main` that touches `site/`, `docs/`, or
+branch on every push to `main` that touches `README.md`, `docs/`, or
 `tools/pages/`. GitHub Pages serves that branch, so the repository's Pages
 source must be set to deploy from the `gh-pages` branch root.
 
-A pull request that changes the site or the guides gets a preview under
+A pull request that changes the website gets a preview under
 `pr-preview/pr-<number>/` on the same branch. The workflow comments the preview
 URL on the pull request and removes the preview when the pull request closes.
 Pull requests from forks are not previewed because their workflows cannot push
@@ -119,6 +121,3 @@ npm ci --prefix tools/pages
 node tools/pages/build.mjs _site
 python3 -m http.server -d _site
 ```
-
-The character artwork slot in the hero section is a placeholder; replace the
-`mascot-slot` figure in `site/index.html` with the artwork when it exists.
