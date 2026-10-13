@@ -1,0 +1,124 @@
+# Versioning and releases
+
+beave-rs is published on crates.io as the `beavers` crate. Releases follow
+[Semantic Versioning](https://semver.org/) as Cargo interprets it.
+
+## Version numbers
+
+While the major version is `0`, the minor version is the breaking-change
+number:
+
+| Change | Before 1.0 | From 1.0 |
+|---|---|---|
+| Breaking change | `0.x.y` → `0.(x+1).0` | `x.y.z` → `(x+1).0.0` |
+| Backward-compatible addition | `0.x.y` → `0.x.(y+1)` | `x.y.z` → `x.(y+1).0` |
+| Bug fix | `0.x.y` → `0.x.(y+1)` | `x.y.z` → `x.y.(z+1)` |
+
+A dependency requirement of `beavers = "0.1"` therefore never picks up a
+breaking change.
+
+Version `0.0.1` is a placeholder published only to reserve the crate name on
+crates.io; it is not intended for use. Cargo treats every `0.0.x` version as
+incompatible with every other, so applications should wait for `0.1.0`, the
+first release intended for use.
+
+Pre-release versions such as `0.2.0-rc.1` may be published to let applications
+try a breaking release before it becomes the default.
+
+## Compatibility contract
+
+Beyond Rust signatures, the following are part of the compatibility contract
+and change only in a breaking release:
+
+- Public items reachable from the crate root, including trait methods, public
+  fields, enum variants, and the bounds on generic parameters.
+- Cargo feature names and the items each feature enables.
+- Delivery behavior that applications rely on: when a delivery is acknowledged,
+  retried, routed to a dead-letter destination, or stops its subscription.
+- Data visible outside the process: header and property names written by the
+  adapters, dead-letter metadata, trace-context propagation fields, metric
+  names and labels, span names and fields, and the health endpoint paths.
+- Types from broker client crates, such as `rdkafka`, that appear in the
+  public API. Upgrading such a dependency to a semver-incompatible version is a
+  breaking change for `beavers`.
+
+Fixing behavior that contradicts the documented contract is a bug fix, even
+when an application could observe the difference.
+
+## Minimum supported Rust version
+
+The minimum supported Rust version (MSRV) is declared as `rust-version` in
+`Cargo.toml` and checked in CI with every Cargo feature enabled. Raising it is
+allowed in a minor release before 1.0 and is called out in the release notes.
+The MSRV is not raised merely to adopt newer language features; it follows the
+requirements of the broker client dependencies.
+
+## Changelog
+
+`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Every pull request that changes behavior visible to applications adds an entry
+under `Unreleased`, in the `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`,
+or `Security` section. Breaking changes are marked with **Breaking** and say
+what applications must change.
+
+## Release procedure
+
+1. Choose the version from the changes under `Unreleased` and the table above.
+2. Rename `Unreleased` in `CHANGELOG.md` to the version and release date, and
+   start a new empty `Unreleased` section.
+3. Set `version` in `Cargo.toml` and run `cargo check` to update `Cargo.lock`.
+4. Merge these changes to `main` and wait for CI, including the package check.
+5. Run the `Release` workflow on `main` from the Actions tab. It refuses a
+   version that already has a tag or is already on crates.io, runs
+   `cargo publish`, tags the commit as `vX.Y.Z`, and creates a GitHub release
+   whose notes are the version's changelog section.
+
+The workflow publishes with the `CARGO_REGISTRY_TOKEN` secret, a crates.io API
+token with the `publish-new` and `publish-update` scopes, limited to the
+`beavers` crate once it exists and given an expiry date. Store it as a secret of
+the `crates-io` environment, restrict that environment's deployment branches to
+`main`, and add required reviewers so that each release waits for approval.
+Pull requests from forks never receive the secret. The release job does not
+restore build caches, so a cache written by another workflow cannot affect the
+published crate.
+
+A published version cannot be replaced. If a release is broken, yank it with
+`cargo yank --version X.Y.Z` and publish a fixed patch release.
+
+## Project website
+
+The project website has two parts: the landing page in `site/`, a static HTML
+and CSS page, and the guides in `docs/`. `tools/pages/build.mjs` assembles both
+into one directory. Each `docs/<path>.md` becomes `docs/<path>.html`, styled
+with `site/style.css`, and the Markdown source is published next to it at
+`docs/<path>.md`, so replacing `.html` with `.md` in a guide URL returns the
+exact source. A `README.md` becomes `index.html` and `index.md`. Links between
+guides point at the generated pages; links to files outside `docs/` point at
+the repository on GitHub, in both the HTML and the Markdown copies. The guide
+navigation follows the link order of `docs/README.md`.
+
+For language-model tools, the site root also serves `llms.txt`, which lists the
+Markdown URL of every guide, and `llms-full.txt`, which holds all guides in one
+file.
+
+The `Pages` workflow runs the build and publishes the result to the `gh-pages`
+branch on every push to `main` that touches `site/`, `docs/`, or
+`tools/pages/`. GitHub Pages serves that branch, so the repository's Pages
+source must be set to deploy from the `gh-pages` branch root.
+
+A pull request that changes the site or the guides gets a preview under
+`pr-preview/pr-<number>/` on the same branch. The workflow comments the preview
+URL on the pull request and removes the preview when the pull request closes.
+Pull requests from forks are not previewed because their workflows cannot push
+to the repository.
+
+Build and preview the site locally with Node.js 22:
+
+```sh
+npm ci --prefix tools/pages
+node tools/pages/build.mjs _site
+python3 -m http.server -d _site
+```
+
+The character artwork slot in the hero section is a placeholder; replace the
+`mascot-slot` figure in `site/index.html` with the artwork when it exists.

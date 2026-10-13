@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Raw byte and UTF-8 codecs - beave-rs</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="raw-utf8.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap wide top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html">Guides</a>
+        <a href="https://docs.rs/beavers">API</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap wide docs">
+    <nav class="toc" aria-label="Guides">
+<ul><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/channel.html">Channel adapter</a></li><li><a href="../adapters/kafka.html">Kafka adapter</a></li><li><a href="../adapters/pulsar.html">Pulsar adapter</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="../adapters/sqs.html">SQS adapter</a></li><li><a href="../adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="../adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="raw-utf8.html" aria-current="page">Raw byte and UTF-8 codecs</a></li><li><a href="protobuf.html">Protobuf codec</a></li><li><a href="avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
+    </nav>
+    <main class="doc">
+<h1 id="raw-byte-and-utf-8-codecs">Raw byte and UTF-8 codecs</h1>
+<p><code>RawBytes</code> and <code>Utf8</code> provide lossless conversions for payloads that do not
+need a structured serialization format. Both are unit structs and implement
+<code>Default</code>, so they can be used by adapters that construct codecs internally.</p>
+<h2 id="rawbytes">RawBytes</h2>
+<p><code>RawBytes</code> decodes a byte slice to <code>Vec&lt;u8&gt;</code> and encodes a <code>Vec&lt;u8&gt;</code> to bytes.
+It copies the payload without interpreting it. Empty payloads and every byte
+value are valid, including zero bytes and malformed UTF-8.</p>
+<pre><code class="language-rust">use beavers::{Decoder, Encoder, RawBytes};
+
+let codec = RawBytes;
+let value = codec.decode(&amp;[0, 0xff, b&#39;\n&#39;])?;
+assert_eq!(codec.encode(&amp;value)?, vec![0, 0xff, b&#39;\n&#39;]);
+# Ok::&lt;(), beavers::BoxError&gt;(())
+</code></pre>
+<h2 id="utf8">Utf8</h2>
+<p><code>Utf8</code> decodes bytes to <code>String</code> only when the complete payload is valid UTF-8,
+and encodes a <code>String</code> using its UTF-8 representation. It does not trim text,
+strip a byte-order mark, normalize Unicode, or remove line endings. An empty
+payload decodes to an empty string. Malformed UTF-8 returns an error.</p>
+<pre><code class="language-rust">use beavers::{Decoder, Encoder, Utf8};
+
+let codec = Utf8;
+let value = codec.decode(&quot;hello\n&quot;.as_bytes())?;
+assert_eq!(value, &quot;hello\n&quot;);
+assert_eq!(codec.encode(&amp;value)?, b&quot;hello\n&quot;);
+# Ok::&lt;(), beavers::BoxError&gt;(())
+</code></pre>
+<p>Framing remains the adapter&#39;s responsibility. In particular, a line-based
+source may remove or preserve delimiters according to its own contract, and a
+sink may append delimiters after encoding. Neither codec changes framing on its
+own.</p>
+
+      <p class="source"><a href="raw-utf8.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/codecs/raw-utf8.md">Source on GitHub</a></p>
+    </main>
+  </div>
+</body>
+</html>

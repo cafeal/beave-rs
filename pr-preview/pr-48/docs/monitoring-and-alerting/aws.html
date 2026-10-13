@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AWS - beave-rs</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="aws.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap wide top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html">Guides</a>
+        <a href="https://docs.rs/beavers">API</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap wide docs">
+    <nav class="toc" aria-label="Guides">
+<ul><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/channel.html">Channel adapter</a></li><li><a href="../adapters/kafka.html">Kafka adapter</a></li><li><a href="../adapters/pulsar.html">Pulsar adapter</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="../adapters/sqs.html">SQS adapter</a></li><li><a href="../adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="../adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="index.html">Monitoring and alerting</a><ul><li><a href="kubernetes.html">Kubernetes</a></li><li><a href="aws.html" aria-current="page">AWS</a></li><li><a href="gcp.html">Google Cloud</a></li><li><a href="azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
+    </nav>
+    <main class="doc">
+<h1 id="aws">AWS</h1>
+<p>Choose by where the application runs:</p>
+<ul>
+<li><strong>Amazon EKS:</strong> collect metrics into
+<a href="#amazon-managed-service-for-prometheus">Amazon Managed Service for Prometheus</a>
+and evaluate the <a href="index.html#alert-rules">shared PromQL rules</a> there.</li>
+<li><strong>Amazon ECS or EC2:</strong> send metrics to <a href="#cloudwatch">CloudWatch</a> with the
+AWS Distro for OpenTelemetry (ADOT) Collector and alert with CloudWatch
+alarms.</li>
+</ul>
+<p>Both paths deliver alerts through an Amazon SNS topic. Subscribe an email
+address, an HTTPS endpoint, or an incident tool that accepts SNS, such as
+PagerDuty or Opsgenie. CloudWatch alarms can also reach Slack or Microsoft
+Teams through Amazon Q Developer in chat applications.</p>
+<h2 id="amazon-managed-service-for-prometheus">Amazon Managed Service for Prometheus</h2>
+<h3 id="collect">Collect</h3>
+<p>Create a workspace and an Amazon Managed Service for Prometheus collector, the
+agentless scraper, for the EKS cluster. Give the scraper a configuration that
+discovers the application&#39;s pods:</p>
+<pre><code class="language-yaml">global:
+  scrape_interval: 30s
+scrape_configs:
+  - job_name: beavers
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        regex: orders-consumer
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_container_port_name]
+        regex: metrics
+        action: keep
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+</code></pre>
+<p>The scraper needs the cluster role and access entry described in the
+Amazon Managed Service for Prometheus documentation. A cluster that already
+runs ADOT or Prometheus in agent mode can remote-write to the workspace
+instead. Expose the ports and probes as in the
+<a href="kubernetes.html#deployment">Kubernetes Deployment</a>.</p>
+<h3 id="alert-rules">Alert rules</h3>
+<p>Save the <a href="index.html#alert-rules">shared rules</a> as <code>beavers-rules.yaml</code>, add the
+<a href="kubernetes.html#alert-rules">restart rule</a> if the cluster runs
+kube-state-metrics, and upload them as a rule groups namespace:</p>
+<pre><code class="language-sh">aws amp create-rule-groups-namespace \
+  --workspace-id ws-0123456789abcdef \
+  --name beavers \
+  --data fileb://beavers-rules.yaml
+</code></pre>
+<p>Use <code>aws amp put-rule-groups-namespace</code> with the same arguments to update it.</p>
+<h3 id="route-alerts">Route alerts</h3>
+<p>The workspace&#39;s alert manager accepts the Alertmanager configuration format,
+wrapped in <code>alertmanager_config</code>, and delivers only to SNS. Route by severity
+to two topics:</p>
+<pre><code class="language-yaml">alertmanager_config: |
+  route:
+    receiver: team
+    group_by: [alertname, subscription]
+    routes:
+      - receiver: on-call
+        matchers: [&#39;severity=&quot;critical&quot;&#39;]
+  receivers:
+    - name: team
+      sns_configs:
+        - topic_arn: arn:aws:sns:ap-northeast-1:123456789012:beavers-warning
+          sigv4:
+            region: ap-northeast-1
+          subject: &quot;{{ .CommonLabels.alertname }}&quot;
+          message: &quot;{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}&quot;
+    - name: on-call
+      sns_configs:
+        - topic_arn: arn:aws:sns:ap-northeast-1:123456789012:beavers-critical
+          sigv4:
+            region: ap-northeast-1
+          subject: &quot;{{ .CommonLabels.alertname }}&quot;
+          message: &quot;{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}&quot;
+</code></pre>
+<pre><code class="language-sh">aws amp create-alert-manager-definition \
+  --workspace-id ws-0123456789abcdef \
+  --data fileb://alertmanager.yaml
+</code></pre>
+<p>Each topic&#39;s access policy must let the service publish:</p>
+<pre><code class="language-json">{
+  &quot;Effect&quot;: &quot;Allow&quot;,
+  &quot;Principal&quot;: { &quot;Service&quot;: &quot;aps.amazonaws.com&quot; },
+  &quot;Action&quot;: [&quot;sns:Publish&quot;, &quot;sns:GetTopicAttributes&quot;],
+  &quot;Resource&quot;: &quot;arn:aws:sns:ap-northeast-1:123456789012:beavers-critical&quot;,
+  &quot;Condition&quot;: {
+    &quot;ArnEquals&quot;: { &quot;aws:SourceArn&quot;: &quot;arn:aws:aps:ap-northeast-1:123456789012:workspace/ws-0123456789abcdef&quot; },
+    &quot;StringEquals&quot;: { &quot;AWS:SourceAccount&quot;: &quot;123456789012&quot; }
+  }
+}
+</code></pre>
+<h2 id="cloudwatch">CloudWatch</h2>
+<h3 id="collect-1">Collect</h3>
+<p>Run the ADOT Collector as a sidecar container in the ECS task, or as a service
+on the EC2 instance. It scrapes the exporter and writes CloudWatch metrics
+through the embedded metric format:</p>
+<pre><code class="language-yaml">receivers:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: beavers
+          scrape_interval: 30s
+          static_configs:
+            - targets: [&quot;localhost:9000&quot;]
+
+processors:
+  batch: {}
+
+exporters:
+  awsemf:
+    namespace: Beavers
+    log_group_name: /beavers/metrics
+    dimension_rollup_option: NoDimensionRollup
+    metric_declarations:
+      - dimensions: [[subscription]]
+        metric_name_selectors:
+          - &quot;^beavers_deliveries_.*&quot;
+          - &quot;^beavers_receive_errors_total$&quot;
+      - dimensions: [[subscription, action], [subscription, failure]]
+        metric_name_selectors:
+          - &quot;^beavers_delivery_failures_total$&quot;
+      - dimensions: [[subscription, sink]]
+        metric_name_selectors:
+          - &quot;^beavers_publish_failures_total$&quot;
+
+service:
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      processors: [batch]
+      exporters: [awsemf]
+</code></pre>
+<p><code>awsemf</code> converts cumulative counters to the increase since the previous
+scrape, so the <code>Sum</code> statistic of a counter over an alarm period is the number
+of events in that period. Only metrics matched by <code>metric_declarations</code> become
+CloudWatch metrics, and each dimension set is published separately: declaring
+<code>[subscription, action]</code> lets an alarm count dead letters of every failure kind
+together. The task role needs <code>logs:PutLogEvents</code>, <code>logs:CreateLogStream</code>, and
+<code>logs:CreateLogGroup</code> on the log group.</p>
+<p><code>awsemf</code> drops the first value of each counter after the collector or the
+application restarts, because it has no previous value to subtract.</p>
+<p>The handler latency histogram is left out because <code>awsemf</code> does not convert
+the cumulative bucket counts of a scraped Prometheus histogram to deltas, so
+CloudWatch statistics on it are not meaningful; time the handler with a
+CloudWatch metric of its own if latency needs an alarm.</p>
+<h3 id="alarms">Alarms</h3>
+<p>This CloudFormation template creates the alarms for one subscription. Repeat
+the resources, or generate them, for each subscription:</p>
+<pre><code class="language-yaml">Parameters:
+  Subscription:
+    Type: String
+  CriticalTopicArn:
+    Type: String
+  WarningTopicArn:
+    Type: String
+
+Resources:
+  StoppedOnFailure:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub beavers-${Subscription}-stopped
+      Namespace: Beavers
+      MetricName: beavers_delivery_failures_total
+      Dimensions:
+        - { Name: subscription, Value: !Ref Subscription }
+        - { Name: action, Value: stop }
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref CriticalTopicArn]
+
+  DeadLetterPublishFailing:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub beavers-${Subscription}-dead-letter-publish
+      Namespace: Beavers
+      MetricName: beavers_publish_failures_total
+      Dimensions:
+        - { Name: subscription, Value: !Ref Subscription }
+        - { Name: sink, Value: dead_letter }
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref CriticalTopicArn]
+      OKActions: [!Ref CriticalTopicArn]
+
+  OutputPublishFailing:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub beavers-${Subscription}-output-publish
+      Namespace: Beavers
+      MetricName: beavers_publish_failures_total
+      Dimensions:
+        - { Name: subscription, Value: !Ref Subscription }
+        - { Name: sink, Value: output }
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref CriticalTopicArn]
+      OKActions: [!Ref CriticalTopicArn]
+
+  ReceiveFailing:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub beavers-${Subscription}-receive
+      Namespace: Beavers
+      MetricName: beavers_receive_errors_total
+      Dimensions:
+        - { Name: subscription, Value: !Ref Subscription }
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref CriticalTopicArn]
+      OKActions: [!Ref CriticalTopicArn]
+
+  Stalled:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub beavers-${Subscription}-stalled
+      Metrics:
+        - Id: inflight
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: Beavers
+              MetricName: beavers_deliveries_in_flight
+              Dimensions:
+                - { Name: subscription, Value: !Ref Subscription }
+            Period: 900
+            Stat: Minimum
+        - Id: acked
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: Beavers
+              MetricName: beavers_deliveries_acknowledged_total
+              Dimensions:
+                - { Name: subscription, Value: !Ref Subscription }
+            Period: 900
+            Stat: Sum
+        - Id: stalled
+          Expression: IF(inflight &gt; 0 AND acked == 0, 1, 0)
+          Label: stalled
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref CriticalTopicArn]
+
+  DeadLetters:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub beavers-${Subscription}-dead-letters
+      Namespace: Beavers
+      MetricName: beavers_delivery_failures_total
+      Dimensions:
+        - { Name: subscription, Value: !Ref Subscription }
+        - { Name: action, Value: dead_letter }
+      Statistic: Sum
+      Period: 600
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref WarningTopicArn]
+
+  DecodeFailureRatio:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub beavers-${Subscription}-decode-ratio
+      Metrics:
+        - Id: decode
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: Beavers
+              MetricName: beavers_delivery_failures_total
+              Dimensions:
+                - { Name: subscription, Value: !Ref Subscription }
+                - { Name: failure, Value: decode }
+            Period: 300
+            Stat: Sum
+        - Id: received
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: Beavers
+              MetricName: beavers_deliveries_received_total
+              Dimensions:
+                - { Name: subscription, Value: !Ref Subscription }
+            Period: 300
+            Stat: Sum
+        - Id: ratio
+          Expression: FILL(decode, 0) / received
+          Label: decode failure ratio
+      EvaluationPeriods: 2
+      Threshold: 0.01
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref WarningTopicArn]
+</code></pre>
+<p><code>TreatMissingData: notBreaching</code> keeps idle subscriptions quiet, but it also
+keeps the alarms quiet when the collector stops sending metrics. Cover that
+with the <a href="#task-and-log-alerts">task and log alerts</a> below.</p>
+<h3 id="task-and-log-alerts">Task and log alerts</h3>
+<p>A failed subscription makes the process exit, usually before its last metrics
+are scraped. ECS reports the stopped task to Amazon EventBridge; route it to
+the critical topic:</p>
+<pre><code class="language-json">{
+  &quot;source&quot;: [&quot;aws.ecs&quot;],
+  &quot;detail-type&quot;: [&quot;ECS Task State Change&quot;],
+  &quot;detail&quot;: {
+    &quot;clusterArn&quot;: [&quot;arn:aws:ecs:ap-northeast-1:123456789012:cluster/orders&quot;],
+    &quot;group&quot;: [&quot;service:orders-consumer&quot;],
+    &quot;lastStatus&quot;: [&quot;STOPPED&quot;],
+    &quot;stopCode&quot;: [&quot;EssentialContainerExited&quot;]
+  }
+}
+</code></pre>
+<p>With the <code>awslogs</code> log driver and <a href="index.html#what-to-expose">JSON logs</a>, a
+metric filter on the application&#39;s log group counts <code>subscription failed</code>
+events. Alarm on <code>Sum &gt; 0</code> of the resulting metric, as for the other counters:</p>
+<pre><code class="language-yaml">SubscriptionFailedFilter:
+  Type: AWS::Logs::MetricFilter
+  Properties:
+    LogGroupName: /ecs/orders-consumer
+    FilterPattern: &#39;{ $.fields.message = &quot;subscription failed&quot; }&#39;
+    MetricTransformations:
+      - MetricNamespace: Beavers
+        MetricName: subscription_failed
+        MetricValue: &quot;1&quot;
+        DefaultValue: 0
+</code></pre>
+<h3 id="health-checks">Health checks</h3>
+<p>ECS has no HTTP probe of its own. Behind an Application Load Balancer, which
+an <a href="../adapters/http.html">HTTP source</a> needs, set the target group health check
+path to <code>/readyz</code> so that a draining or retrying task stops receiving
+requests. A container health check that calls <code>/livez</code> needs an HTTP client in
+the image; a minimal image without one can rely on the process exiting after a
+subscription fails, which ECS replaces according to the service&#39;s desired
+count.</p>
+<h2 id="backlog">Backlog</h2>
+<p>Amazon MSK publishes <code>MaxOffsetLag</code>, <code>SumOffsetLag</code>, and <code>EstimatedMaxTimeLag</code>
+per consumer group and topic, and Amazon SQS publishes
+<code>ApproximateAgeOfOldestMessage</code>. Alarm on them as described in
+<a href="index.html#backlog">Backlog</a>; with Amazon Managed Service for Prometheus, a
+self-managed Kafka cluster can be scraped with kafka-exporter instead.</p>
+
+      <p class="source"><a href="aws.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/monitoring-and-alerting/aws.md">Source on GitHub</a></p>
+    </main>
+  </div>
+</body>
+</html>

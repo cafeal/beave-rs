@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pub/Sub adapter - beave-rs</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="pubsub.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap wide top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html">Guides</a>
+        <a href="https://docs.rs/beavers">API</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap wide docs">
+    <nav class="toc" aria-label="Guides">
+<ul><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html">Channel adapter</a></li><li><a href="kafka.html">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html">RabbitMQ adapter</a></li><li><a href="sqs.html">SQS adapter</a></li><li><a href="pubsub.html" aria-current="page">Pub/Sub adapter</a></li><li><a href="servicebus.html">Azure Service Bus adapter</a></li><li><a href="http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
+    </nav>
+    <main class="doc">
+<h1 id="pubsub-adapter">Pub/Sub adapter</h1>
+<p>The optional <code>pubsub</code> feature provides typed Google Cloud Pub/Sub source and
+sink adapters backed by the official Google Cloud client library for Rust
+(<code>google-cloud-pubsub</code>).</p>
+<pre><code class="language-toml">beavers = { version = &quot;0.1&quot;, features = [&quot;pubsub&quot;] }
+</code></pre>
+<h2 id="configuration">Configuration</h2>
+<p><code>PubSubSourceConfig</code> takes the full name of one subscription,
+<code>projects/{project}/subscriptions/{id}</code>, and <code>PubSubSinkConfig</code> the full name of
+one topic, <code>projects/{project}/topics/{id}</code>. <code>credentials</code> is
+<code>PubSubCredentials::Default</code> unless set: Application Default Credentials, which
+read the <code>GOOGLE_APPLICATION_CREDENTIALS</code> key file, the gcloud user
+credentials, or the metadata server of the Google Cloud environment the
+application runs in. <code>endpoint</code> replaces <code>https://pubsub.googleapis.com</code>, for
+example with a regional endpoint. <code>validate</code> checks the values without
+contacting Google Cloud, and both adapters create their client on first use.</p>
+<pre><code class="language-rust">use beavers::{Utf8, adapters::pubsub::{PubSubPublish, PubSubSink, PubSubSinkConfig, PubSubSource, PubSubSourceConfig}};
+
+let source = PubSubSource::&lt;Utf8, String&gt;::new(PubSubSourceConfig::new(
+    &quot;projects/my-project/subscriptions/orders&quot;,
+));
+let sink = PubSubSink::&lt;Utf8, String&gt;::new(PubSubSinkConfig::new(
+    &quot;projects/my-project/topics/processed-orders&quot;,
+));
+
+let output = PubSubPublish::new(&quot;created&quot;.to_owned()).with_ordering_key(&quot;customer-7&quot;);
+</code></pre>
+<p>For the <a href="../development.html#broker-configuration">Pub/Sub emulator</a>, set
+<code>endpoint</code> to its address, such as <code>http://localhost:8085</code>, and <code>credentials</code>
+to <code>PubSubCredentials::Anonymous</code>.</p>
+<p>The adapters create no topics or subscriptions and set no subscription
+properties such as message ordering, exactly-once delivery, or a dead-letter
+policy. Create them with infrastructure tooling before the subscription starts.</p>
+<p>The source receives through one streaming pull. Pub/Sub stops sending once
+<code>max_outstanding_messages</code> (1000 by default) messages or
+<code>max_outstanding_bytes</code> (100 MiB) of data are received and not yet
+acknowledged. The runtime&#39;s <code>max_in_flight</code> bounds the deliveries it holds; the
+rest of the outstanding messages wait in the client&#39;s buffer with their leases
+extended.</p>
+<p><code>PubSubSinkConfig::batch_delay</code>, 10 milliseconds by default, is how long the
+client collects outputs into one <code>Publish</code> request.</p>
+<h2 id="records">Records</h2>
+<p><code>PubSubRecord&lt;T&gt;</code> is the decoded input and <code>PubSubPublish&lt;T&gt;</code> the output. The
+codec applies to the message data. Pub/Sub has no null message, so the value
+is always present and Pub/Sub records support no tombstones. The data is bytes,
+so every codec works.</p>
+<p><code>attributes</code> holds the message attributes as strings. <code>ordering_key</code> is the key
+the message was published with, or <code>None</code>. <code>PubSubMetadata</code> contains read-only
+facts about a received message: the subscription, message ID, publish time in
+milliseconds since the Unix epoch, and the delivery attempt, which Pub/Sub
+counts only on a subscription with a dead-letter policy. <code>PubSubPublish</code> has
+none of them; it sets the value, attributes, and ordering key.</p>
+<p>The raw form of a <code>PubSubMessage</code> is a <code>PubSubRecord&lt;Vec&lt;u8&gt;&gt;</code> with the
+undecoded data. Dead letters carry it, so the original data, attributes,
+ordering key, and metadata survive even when decoding fails.</p>
+<h2 id="acknowledgements-and-ordering">Acknowledgements and ordering</h2>
+<p>Pub/Sub redelivers a message whose acknowledgement deadline passes. The client
+extends the lease of every message the source has received and not yet
+acknowledged, by <code>ack_deadline</code> (60 seconds by default, 10 seconds to 10
+minutes) at a time, for at most <code>max_lease</code> (one hour by default). When a
+delivery is still held at <code>max_lease</code>, the source cancels its revocation
+token, because the client stops extending it and Pub/Sub will redeliver it.
+The runtime abandons a revoked delivery without ACK or subscription failure.</p>
+<p>An ACK hands the acknowledgement to the client, which sends acknowledgements in
+batches without confirmation, so an acknowledged message can still be
+redelivered. On a subscription with exactly-once delivery, the ACK waits for
+Pub/Sub to confirm it, fails when the client cannot confirm it, and revokes the
+delivery when its lease expired first. Dropping a <code>PubSubMessage</code> without
+acknowledging it nacks it, so Pub/Sub redelivers it at once.</p>
+<p><code>close</code> stops the stream, waits until the deliveries the source handed out are
+acknowledged or dropped, sends the pending acknowledgements, and nacks the
+messages the client received but the source never handed out. A stream that
+fails with an error the client does not retry itself is replaced on the next
+<code>receive</code>; deliveries from the failed stream keep their leases until they
+finish.</p>
+<p>A message published with an ordering key has the subscription and that key as
+its ordering key, so <code>ProcessingOrder::PerKey</code> processes one message per key at
+a time while keys run in parallel. Pub/Sub delivers the messages of a key in
+order only on a subscription with message ordering enabled. Messages without an
+ordering key have no ordering key and run in parallel up to the subscription&#39;s
+<code>concurrency</code>.</p>
+<p>The client buffers what the stream received, so a cancelled <code>receive</code> loses no
+message.</p>
+<h2 id="publication">Publication</h2>
+<p><code>prepare</code> encodes the value and checks Pub/Sub&#39;s limits once, so publish
+retries reuse the message: at most 100 attributes, names of 1 to 256 bytes that
+do not start with <code>goog</code>, values and the ordering key of at most 1024 bytes,
+and data or at least one attribute.</p>
+<p><code>PubSubSink::publish</code> succeeds once Pub/Sub has stored the message and returned
+its ID. The client batches publications and retries transient errors itself.
+An invalid argument fails as <code>PublishRejected</code>, which the subscription&#39;s error
+policy can dead-letter instead of retrying. After a publication with an
+ordering key fails, the client pauses that key; the sink resumes it, so the
+runtime&#39;s retry or a later output of the key can be published. <code>close</code> sends
+the batched messages and stops new publications.</p>
+<h2 id="metadata-inheritance">Metadata inheritance</h2>
+<p>Register <code>PubSubInherit</code> on a Pub/Sub-to-Pub/Sub subscription to forward the
+received message attributes:</p>
+<pre><code class="language-rust,ignore">use beavers::adapters::pubsub::PubSubInherit;
+
+Subscription::new(&quot;orders&quot;, pubsub_source, pubsub_sink, handler)
+    .middleware(PubSubInherit::new().with_ordering_key())
+</code></pre>
+<p>A received attribute is added only when the output does not set that name, and
+dead-letter attributes starting with <code>beavers-dlq-</code> are never inherited.
+<code>with_ordering_key()</code> also forwards the ordering key when the output leaves it
+<code>None</code>. The message ID, publish time, and delivery attempt are never inherited.
+<code>without_attributes()</code> disables attribute inheritance.</p>
+<p>A handler that returns a plain value between a Pub/Sub source and sink gets
+<code>PubSubInherit::new()</code> automatically; register
+<code>PubSubInherit::new().with_ordering_key()</code> explicitly to forward ordering keys.
+See the <a href="../runtime.html#handler-shapes">runtime guide</a>. Register <code>TraceContext</code>
+after <code>PubSubInherit</code> to replace inherited trace-context attributes; the source
+reads trace context from attributes.</p>
+<h2 id="dead-letters">Dead letters</h2>
+<p><code>PubSubPublish::from_dead_letter</code> forwards a dead letter with its original
+data, attributes, and ordering key, and adds the failure details and the
+subscription and message ID of the first receipt as <code>beavers-dlq-*</code>
+attributes. Pub/Sub limits attribute values to 1024 bytes, so a longer error
+message is cut at a character boundary. <code>PubSubDeadLetter::from_record</code> reads
+them back; see
+<a href="../runtime.html#forwarding-dead-letters-to-a-broker-topic">forwarding dead letters</a>.</p>
+<p>A subscription&#39;s dead-letter policy moves a message to its dead-letter topic
+after <code>maxDeliveryAttempts</code> deliveries without acknowledgement. The
+subscription&#39;s error policy decides what happens to a failed delivery first,
+so the dead-letter policy applies to messages that are delivered again and
+again without being acknowledged, for example because they crash the process
+every time. Keep <code>maxDeliveryAttempts</code> high enough that the nacks of a
+source&#39;s shutdowns do not exhaust it.</p>
+<h2 id="delivery-guarantees">Delivery guarantees</h2>
+<p>A source ACK and a sink publication are separate requests, so a failure between
+them, a lease that expires before the acknowledgement, or an acknowledgement
+the client loses can produce a duplicate. Pub/Sub pipelines are at-least-once.
+Exactly-once delivery on the input subscription confirms each acknowledgement
+but does not make publication and acknowledgement atomic.</p>
+
+      <p class="source"><a href="pubsub.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/adapters/pubsub.md">Source on GitHub</a></p>
+    </main>
+  </div>
+</body>
+</html>

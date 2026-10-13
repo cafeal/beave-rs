@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Handling dead letters - beave-rs</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="alternate" type="text/markdown" href="dead-letter-handling.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap wide top-inner">
+      <a class="name" href="../">beave-rs</a>
+      <nav>
+        <a href="index.html">Guides</a>
+        <a href="https://docs.rs/beavers">API</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap wide docs">
+    <nav class="toc" aria-label="Guides">
+<ul><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html" aria-current="page">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul>
+    </nav>
+    <main class="doc">
+<h1 id="handling-dead-letters">Handling dead letters</h1>
+<p>A dead letter is a delivery that a subscription could not process and that its
+<a href="runtime.html#error-policy">error policy</a> sent to a dead-letter sink instead of
+stopping. This guide describes what to do with dead letters once they are
+there. It assumes dead letters are forwarded to a topic or queue of the same
+platform with <code>from_dead_letter</code>, so each one is the original payload with
+<code>beavers-dlq-*</code> failure details beside it, as described in
+<a href="runtime.html#forwarding-dead-letters-to-a-broker-topic">forwarding dead letters</a>.</p>
+<p>The workflow is the same on every platform: notice the dead letters, find out
+why they failed, and choose one of three outcomes. What differs is how a
+dead-letter destination can be read. Log brokers keep messages after they are
+read, so dead letters can be examined first and reprocessed later. Queue
+brokers remove a message once it is acknowledged, so reading a dead letter
+means deciding what happens to it.</p>
+<h2 id="workflow">Workflow</h2>
+<h3 id="notice">Notice</h3>
+<p>beavers sends no notifications. Alert on the number of dead-lettered deliveries
+and on the backlog of the dead-letter destination, as described in the
+<a href="monitoring-and-alerting/index.html">monitoring and alerting guide</a>, rather than
+on individual messages: a broken dependency can dead-letter thousands of
+deliveries within minutes.</p>
+<h3 id="find-the-cause">Find the cause</h3>
+<p>Three sources tell dead letters apart without reading every message:</p>
+<ul>
+<li><code>beavers_delivery_failures_total{action=&quot;dead_letter&quot;}</code> breaks the count
+down by subscription and <code>FailureKind</code>, such as <code>rejected</code> or
+<code>retry_exhausted</code>.</li>
+<li>The <code>dead-lettered delivery</code> log event carries the error message of every
+dead letter, so a log search grouped by <code>error</code> shows whether one cause
+dominates.</li>
+<li>The <code>beavers-dlq-error</code>, <code>beavers-dlq-failure</code>, <code>beavers-dlq-count</code>, and
+origin details stored with each dead letter identify the failure and where
+the payload was first received.</li>
+</ul>
+<h3 id="choose-an-outcome">Choose an outcome</h3>
+<table>
+<thead>
+<tr>
+<th>Cause</th>
+<th>Example</th>
+<th>Outcome</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A transient failure</td>
+<td>A payment API was unavailable for ten minutes and every order it saw failed</td>
+<td>Reprocess the dead letters unchanged, after a delay</td>
+</tr>
+<tr>
+<td>A bug</td>
+<td>An upstream service started sending a currency code the handler cannot parse</td>
+<td>Fix and deploy the handler, then reprocess the dead letters</td>
+</tr>
+<tr>
+<td>Bad data</td>
+<td>Load-test orders reached production, or an order has a negative amount</td>
+<td>Drop the dead letters, keeping a record, or correct a few by hand and publish them again</td>
+</tr>
+</tbody></table>
+<p>Reprocessing means running the original handler on the dead letters. A
+subscription whose source reads the dead-letter destination and whose handler
+wraps the original one does this without extra tooling; beavers has no
+separate redrive command. Reading the dead-letter destination, rather than
+publishing dead letters back to the original topic or queue, keeps other
+consumers of the original from receiving them a second time.</p>
+<h2 id="reprocessing-safely">Reprocessing safely</h2>
+<ul>
+<li><strong>Order.</strong> Reprocessed payloads arrive after newer payloads with the same
+key. A handler that overwrites state by key can replace newer state with
+older state unless it compares a version or timestamp first.</li>
+<li><strong>Loops.</strong> A payload that fails again is dead-lettered again, and
+<code>beavers-dlq-count</code> records how many times. Stop at a limit and send such
+payloads to a final destination that nothing reads automatically, called a
+parking topic or queue below.</li>
+<li><strong>Decoding.</strong> A dead letter that failed to decode in the original
+subscription fails again in the reprocessing one. The default error policy
+stops on decode failures, so reprocessing subscriptions use
+<code>ErrorPolicy::dead_letter_all()</code> to park them instead.</li>
+<li><strong>Load.</strong> Reprocessing a large backlog sends a burst to the handler&#39;s
+dependencies. Lower <code>max_in_flight</code> on the reprocessing subscription to
+limit it.</li>
+<li><strong>Retention.</strong> Dead letters are only useful while they exist. Retain the
+dead-letter destination for longer than it takes to investigate a failure,
+which is usually longer than the original. SQS keeps a message for at most
+14 days, and a Pub/Sub subscription for at most 7.</li>
+</ul>
+<h2 id="log-brokers-kafka-and-pulsar">Log brokers: Kafka and Pulsar</h2>
+<p>Kafka consumer groups and Pulsar subscriptions each track their own position,
+and reading a dead-letter topic removes nothing from it. Dead letters can be
+examined by one subscription and reprocessed later by another.</p>
+<p>A Pulsar topic keeps messages for its subscriptions; without a retention
+policy, messages published while the topic has no subscription are not kept.
+Configure retention on the dead-letter topic, or create the subscription that
+will reprocess it before dead letters arrive.</p>
+<h3 id="examine">Examine</h3>
+<p>A subscription with its own consumer group can read the whole dead-letter
+topic and print a summary of each dead letter as one JSON line:</p>
+<pre><code class="language-rust,ignore">use beavers::{
+    Json, RawBytes, StdoutSink, Subscription,
+    adapters::kafka::{KafkaDeadLetter, KafkaRecord, KafkaSource, KafkaSourceConfig},
+};
+
+#[derive(serde::Serialize)]
+struct Summary {
+    failure: Option&lt;String&gt;,
+    error: Option&lt;String&gt;,
+    count: u32,
+    origin: Option&lt;String&gt;,
+}
+
+let mut config = KafkaSourceConfig::new(brokers, &quot;orders-dlq-examine&quot;, [&quot;orders-dlq&quot;]);
+config.properties.insert(&quot;auto.offset.reset&quot;.into(), &quot;earliest&quot;.into());
+let source = KafkaSource::&lt;RawBytes, Vec&lt;u8&gt;&gt;::new(config);
+
+Subscription::new(&quot;orders-dlq-examine&quot;, source, StdoutSink::&lt;Json&gt;::new(), |record: KafkaRecord&lt;Vec&lt;u8&gt;&gt;| async move {
+    let dead = KafkaDeadLetter::from_record(&amp;record).ok().flatten();
+    Ok(Summary {
+        failure: dead.as_ref().map(|dead| dead.details.failure.as_str().to_owned()),
+        error: dead.as_ref().map(|dead| dead.details.error.clone()),
+        count: dead.as_ref().map_or(0, |dead| dead.details.count),
+        origin: dead.map(|dead| format!(&quot;{}/{}@{}&quot;, dead.origin.topic, dead.origin.partition, dead.origin.offset)),
+    })
+})
+</code></pre>
+<p>The source reads raw bytes, so payloads that failed to decode are summarized
+too, and a record without readable failure details is summarized with empty
+fields instead of stopping the subscription. Group the output by error with a tool such as <code>jq</code>:</p>
+<pre><code class="language-text">jq -s &#39;group_by(.error) | map({error: .[0].error, dead_letters: length})&#39; summaries.jsonl
+</code></pre>
+<p>The subscription keeps waiting for new dead letters; stop it once its consumer
+lag reaches zero, and delete the consumer group if it is not needed again.
+Ordinary broker tools show the same details, for example
+<code>kafka-console-consumer --property print.headers=true</code>. For Pulsar, use
+<code>PulsarDeadLetter::from_record</code> with a new subscription. A new Pulsar
+subscription starts at the end of the topic, so create it at the earliest
+position first:</p>
+<pre><code class="language-text">pulsar-admin topics create-subscription --subscription orders-dlq-examine --messageId earliest persistent://public/default/orders-dlq
+</code></pre>
+<h3 id="reprocess">Reprocess</h3>
+<p>The reprocessing subscription reads the dead-letter topic with the original
+codec and calls the original handler, parking payloads that have already been
+dead-lettered three times:</p>
+<pre><code class="language-rust,ignore">use beavers::{
+    Classify, ErrorPolicy, HandlerError, Json, RawBytes, Subscription,
+    adapters::kafka::{
+        KafkaDeadLetter, KafkaPublish, KafkaRecord, KafkaSink, KafkaSinkConfig, KafkaSource,
+        KafkaSourceConfig,
+    },
+};
+
+let source = KafkaSource::&lt;Json, Order&gt;::new(KafkaSourceConfig::new(brokers, &quot;orders-redrive&quot;, [&quot;orders-dlq&quot;]));
+let parked = KafkaSink::&lt;RawBytes, Vec&lt;u8&gt;&gt;::new(KafkaSinkConfig::new(brokers, &quot;orders-parked&quot;));
+
+Subscription::new(&quot;orders-redrive&quot;, source, invoices, |record: KafkaRecord&lt;Order&gt;| async move {
+    if let Some(dead) = KafkaDeadLetter::from_record(&amp;record).reject()?.filter(|dead| dead.details.count &gt;= 3) {
+        let error = format!(&quot;gave up after {} dead-letterings: {}&quot;, dead.details.count, dead.details.error);
+        return Err(HandlerError::Reject(error.into()));
+    }
+    handle(record).await
+})
+.dlq_with(parked, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)))
+.error_policy(ErrorPolicy::dead_letter_all())
+</code></pre>
+<p>A payload that fails on reprocessing goes to <code>orders-parked</code> with its origin
+details kept and its count incremented. Publishing failures back to
+<code>orders-dlq</code> instead, so that a later run retries them, also works when the
+count limit is in place.</p>
+<p>Two operating styles are common:</p>
+<ul>
+<li><strong>After a fix.</strong> An operator starts the subscription once the fix is
+deployed and stops it once its consumer lag reaches zero.</li>
+<li><strong>Continuously, for transient failures.</strong> The subscription runs alongside
+the original one and waits before reprocessing: the handler sleeps until the
+record&#39;s timestamp plus a delay, then calls the original handler. Later
+records of a partition are newer, so waiting at the head of the partition
+delays them by no more than the same delay.</li>
+</ul>
+<p>A Kafka handler that sleeps longer than <code>max.poll.interval.ms</code> (5 minutes by
+default) while <code>max_in_flight</code> deliveries are waiting makes the consumer leave
+its group; raise that property for longer delays. Shutdown does not wait for a
+sleeping handler beyond <code>drain_timeout</code>; its delivery stays unacknowledged and
+is received again.</p>
+<h2 id="queue-brokers-rabbitmq-sqs-pubsub-and-azure-service-bus">Queue brokers: RabbitMQ, SQS, Pub/Sub, and Azure Service Bus</h2>
+<p>An acknowledged message is removed from a queue or subscription, and even
+looking at a message without acknowledging it has side effects:</p>
+<ul>
+<li><strong>RabbitMQ.</strong> Fetching messages in the management UI and requeuing them
+marks them redelivered, and on a quorum queue each requeue counts toward
+the delivery limit.</li>
+<li><strong>SQS.</strong> Receiving a message, including from the console, hides it for the
+visibility timeout and increments its receive count. Messages cannot be
+listed without receiving them.</li>
+<li><strong>Pub/Sub.</strong> A pulled message that is not acknowledged is delivered again
+after its acknowledgement deadline. Seeking back to a time or snapshot
+replays messages only on a subscription that retains acknowledged messages.</li>
+<li><strong>Azure Service Bus.</strong> Peeking reads messages without locking them, for
+example in Service Bus Explorer, so dead letters can be browsed. Reading
+them through a source still locks and completes them.</li>
+</ul>
+<p>Instead of examining dead letters in place, a subscription either decides each
+dead letter&#39;s outcome as it reads it, or copies dead letters to storage that
+can be read repeatedly. The metrics and log events above provide the
+breakdown by cause without reading the queue.</p>
+<h3 id="decide-on-read">Decide on read</h3>
+<p>One subscription reads the dead-letter queue and applies the outcomes as
+rules: it parks payloads that keep failing, drops payloads known to be bad,
+and reprocesses everything else with the original handler. The examples use
+SQS; the other platforms have the same shape with <code>RabbitMqDeadLetter</code>,
+<code>PubSubDeadLetter</code>, or <code>ServiceBusDeadLetter</code>.</p>
+<pre><code class="language-rust,ignore">use beavers::{
+    Classify, Emit, ErrorPolicy, HandlerError, Json, RawBytes, Subscription,
+    adapters::sqs::{
+        SqsDeadLetter, SqsPublish, SqsRecord, SqsSink, SqsSinkConfig, SqsSource, SqsSourceConfig,
+    },
+};
+
+let source = SqsSource::&lt;Json, Order&gt;::new(SqsSourceConfig::new(orders_dlq_url));
+let parked = SqsSink::&lt;RawBytes, Vec&lt;u8&gt;&gt;::new(SqsSinkConfig::new(orders_parked_url));
+
+Subscription::new_emitting(&quot;orders-dlq-triage&quot;, source, invoices, |record: SqsRecord&lt;Order&gt;| async move {
+    if let Some(dead) = SqsDeadLetter::from_record(&amp;record).reject()?.filter(|dead| dead.details.count &gt;= 3) {
+        let error = format!(&quot;gave up after {} dead-letterings: {}&quot;, dead.details.count, dead.details.error);
+        return Err(HandlerError::Reject(error.into()));
+    }
+    if record.value.customer_id.starts_with(&quot;load-test-&quot;) {
+        tracing::warn!(message_id = %record.metadata.message_id, &quot;dropping a load-test order&quot;);
+        return Ok(Emit::None);
+    }
+    handle(record).await.map(Emit::One)
+})
+.dlq_with(parked, |dead_letter| Ok(SqsPublish::from_dead_letter(dead_letter)))
+.error_policy(ErrorPolicy::dead_letter_all())
+</code></pre>
+<p><code>Emit::None</code> acknowledges the dead letter without publishing anything, so the
+handler logs what it drops; nothing else records it. Run the subscription
+after a fix and stop it once the queue is empty, or keep it running to retry
+transient failures.</p>
+<p>To retry transient failures after a delay, delay the dead letters themselves.
+An SQS message can be delayed by up to 15 minutes when it is sent to a
+standard queue, so the original subscription can delay its dead letters and
+the triage subscription receives them only after that:</p>
+<pre><code class="language-rust,ignore">Subscription::new(&quot;orders&quot;, source, invoices, handle)
+    .dlq_with(dead_letters, |dead_letter| {
+        let mut publish = SqsPublish::from_dead_letter(dead_letter);
+        publish.delay = Some(Duration::from_secs(300));
+        Ok(publish)
+    })
+</code></pre>
+<p>FIFO queues accept only a queue-wide delay. On the other platforms, the
+triage handler can sleep before calling the original handler, as in the
+continuous style above. The message stays locked or leased to the source
+while the handler sleeps; see the <a href="adapters/pubsub.html">Pub/Sub</a> and
+<a href="adapters/servicebus.html">Azure Service Bus</a> adapter pages for how long a
+source holds a message.</p>
+<h3 id="copy-out">Copy out</h3>
+<p>When dead letters need investigation before anyone decides what to do, copy
+them to storage that can be read repeatedly. This subscription writes each
+dead letter as one JSON line to standard output, so a one-off run can be
+redirected to a file:</p>
+<pre><code class="language-rust,ignore">use beavers::{
+    Json, RawBytes, StdoutSink, Subscription,
+    adapters::sqs::{SqsDeadLetter, SqsRecord, SqsSource, SqsSourceConfig},
+};
+
+#[derive(serde::Serialize)]
+struct Archived {
+    message_id: String,
+    failure: Option&lt;String&gt;,
+    error: Option&lt;String&gt;,
+    count: u32,
+    body: String,
+}
+
+let source = SqsSource::&lt;RawBytes, Vec&lt;u8&gt;&gt;::new(SqsSourceConfig::new(orders_dlq_url));
+
+Subscription::new(&quot;orders-dlq-archive&quot;, source, StdoutSink::&lt;Json&gt;::new(), |record: SqsRecord&lt;Vec&lt;u8&gt;&gt;| async move {
+    let dead = SqsDeadLetter::from_record(&amp;record).ok().flatten();
+    Ok(Archived {
+        message_id: record.metadata.message_id.clone(),
+        failure: dead.as_ref().map(|dead| dead.details.failure.as_str().to_owned()),
+        error: dead.as_ref().map(|dead| dead.details.error.clone()),
+        count: dead.map_or(0, |dead| dead.details.count),
+        body: String::from_utf8_lossy(&amp;record.value).into_owned(),
+    })
+})
+</code></pre>
+<p>Each line is written before its message is deleted from the queue, so a
+crash can repeat a line but not lose one. Stop the run once the queue is
+empty. A long-term archive uses a durable sink instead of standard output,
+such as an <a href="adapters/http.html">HTTP sink</a> in front of object storage or a
+Kafka topic. The archived payloads can be published again later by a
+subscription that reads the file with <code>StdinSource</code> and publishes to the
+original queue.</p>
+<h2 id="native-broker-dead-lettering">Native broker dead-lettering</h2>
+<p>The adapters never ask the broker to dead-letter a message: they acknowledge a
+delivery after the error policy has published its dead letter. A native
+dead-letter mechanism, such as a RabbitMQ dead-letter exchange with a delivery
+limit, an SQS redrive policy, a Pub/Sub dead-letter topic, or the Azure
+Service Bus dead-letter subqueue, therefore receives only messages that were
+delivered again and again without being acknowledged, typically because they
+crash the process every time. Keep one configured as a safety net for such
+messages, as each adapter page describes.</p>
+<p>Messages moved there carry no <code>beavers-dlq-*</code> details, so <code>from_record</code>
+returns <code>None</code> for them; the examples above treat that as a count of zero.
+Handle them with the same subscriptions, reading the native destination as a
+source, such as the Service Bus path <code>orders/$DeadLetterQueue</code>. Because such a
+message crashed the process before, reprocess it only after the cause is
+fixed.</p>
+
+      <p class="source"><a href="dead-letter-handling.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/dead-letter-handling.md">Source on GitHub</a></p>
+    </main>
+  </div>
+</body>
+</html>

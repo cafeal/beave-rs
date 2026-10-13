@@ -1,0 +1,40 @@
+# beave-rs
+
+> A lightweight Rust message processing framework built around typed handlers.
+
+Every guide is available as Markdown at the page URL with `.html` replaced by `.md`.
+All guides in one file: https://cafeal.github.io/beave-rs/pr-preview/pr-48/llms-full.txt
+
+## Guides
+
+- [Documentation](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/index.md)
+- [Architecture](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/architecture.md): Module layout, trait contracts, and extension boundaries
+- [Adapters](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters.md): Local, channel, Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, Azure Service Bus, and HTTP adapters, usage, and extension contracts
+- [Codecs](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/codecs.md): Serialization contracts and JSON, raw bytes, UTF-8, Protobuf, and Avro codecs
+- [Handling dead letters](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/dead-letter-handling.md): Finding the cause of dead letters, and reprocessing, parking, or dropping them on log and queue brokers
+- [Monitoring and alerting](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/monitoring-and-alerting/index.md): Signals to alert on, alert rules, and setups for Kubernetes, AWS, Google Cloud, and Azure
+- [Testing](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/testing.md): Testing handlers, middleware, and error policies with fabricated broker records
+- [Runtime guide](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/runtime.md): Implemented APIs, processing behavior, configuration, and limitations
+- [beave-rs — Design plan](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/plan.md): Product goals, agreed design direction, future work, and open questions
+- [Local development brokers](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/development.md): Docker Compose Kafka, Pulsar, RabbitMQ, ElasticMQ, Pub/Sub emulator, and Service Bus emulator brokers, web consoles, broker examples, and live tests
+- [Versioning and releases](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/releasing.md): Version numbers, the compatibility contract, and the minimum supported Rust version
+- [Channel adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters/channel.md)
+- [Kafka adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters/kafka.md)
+- [Pulsar adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters/pulsar.md)
+- [RabbitMQ adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters/rabbitmq.md)
+- [SQS adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters/sqs.md)
+- [Pub/Sub adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters/pubsub.md)
+- [Azure Service Bus adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters/servicebus.md)
+- [HTTP adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters/http.md)
+- [Raw byte and UTF-8 codecs](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/codecs/raw-utf8.md)
+- [Protobuf codec](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/codecs/protobuf.md)
+- [Avro codec](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/codecs/avro.md)
+- [Kubernetes](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/monitoring-and-alerting/kubernetes.md)
+- [AWS](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/monitoring-and-alerting/aws.md)
+- [Google Cloud](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/monitoring-and-alerting/gcp.md)
+- [Azure](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/monitoring-and-alerting/azure.md)
+
+## Optional
+
+- [API reference](https://docs.rs/beavers): Rust API documentation on docs.rs
+- [Repository README](https://github.com/cafeal/beave-rs/blob/main/README.md): Project overview and quick start
