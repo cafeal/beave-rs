@@ -4765,47 +4765,46 @@ in a RabbitMQ URI, an SQS credentials field, Pub/Sub credential modes, and a
 `ServiceBusConnection` embedded in the Service Bus configurations.
 
 Each adapter will gain a connection handle that is created first and builds
-the sources and sinks that share it:
+the sources and sinks that share it. Configuration types go away: required
+values are arguments, and optional settings are builder methods on the handle,
+the source, and the sink.
 
 ```rust,ignore
-let kafka = Kafka::new(KafkaConnection::new("broker:9092").sasl_plain(user, password));
+let kafka = Kafka::new("broker:9092").sasl_plain(user, password);
 
-let articles = kafka.source::<Utf8, String>(KafkaSourceConfig::new("summarizer", ["articles"]));
-let summaries = kafka.sink::<Utf8, String>(KafkaSinkConfig::new("summaries"));
-```
+let articles = kafka.source::<Utf8, String>("summarizer", ["articles"]);
+let summaries = kafka.sink::<Utf8, String>("summaries").max_pending(500);
 
-Construction from configuration values stays available and uses the same
-implementation:
-
-```rust,ignore
-let articles = KafkaSource::<Utf8, String>::new(
-    KafkaConnection::new("broker:9092"),
-    KafkaSourceConfig::new("summarizer", ["articles"]),
-);
+// A single source or sink is still one expression.
+let articles = Kafka::new("broker:9092").source::<Utf8, String>("summarizer", ["articles"]);
 ```
 
 Decisions:
 
-- Configuration is split into a connection configuration, `XxxConnection`,
-  holding the endpoint, authentication, and client-wide settings, and the
-  existing source and sink configurations, which keep only per-endpoint
-  settings such as topics, queues, groups, and limits. Both remain plain data
-  that applications can build from files or the environment.
-- The handle (`Kafka`, `Pulsar`, `RabbitMq`, `Sqs`, `PubSub`, `ServiceBus`, and
-  an HTTP client handle for sinks) is a cheap clone around shared state. It
-  validates its configuration on creation, connects on first use, owns
+- The public types per adapter are the handle (`Kafka`, `Pulsar`, `RabbitMq`,
+  `Sqs`, `PubSub`, `ServiceBus`, and an HTTP client handle for sinks), its
+  source, and its sink. `XxxSourceConfig`, `XxxSinkConfig`, and the Service Bus
+  `ServiceBusConnection` are removed, and so are the `XxxSource::new` and
+  `XxxSink::new` constructors. The HTTP source listens rather than
+  connects, so it keeps a constructor of its own with builder methods instead
+  of a configuration type.
+- The handle holds the endpoint, authentication, and client-wide settings. It
+  is a cheap clone around shared state, connects on first use, owns
   reconnection, and closes once the last source or sink built from it has
   closed. Closing one subscription never closes a connection another
   subscription still uses.
-- `XxxSource::new(connection, config)` creates a private handle and builds the
-  source from it, so both entry points produce the same type with the same
-  behavior. `with_codec` variants exist on both entry points.
-- Authentication moves into the connection configuration with typed settings
-  where the platform has common mechanisms, such as SASL and TLS for Kafka.
-  Raw client properties remain available as an escape hatch.
+- Settings are validated without contacting the broker when the first source
+  or sink connects, as the configurations are validated today.
+- A codec that needs a value uses `source_with_codec` and `sink_with_codec`.
+- Authentication gets typed builder methods where the platform has common
+  mechanisms, such as SASL and TLS for Kafka. Raw client properties remain
+  available as an escape hatch.
 - A lost shared connection affects every subscription that uses it.
   Subscription failure stays fail-fast, so this does not change how
   applications detect failures.
+- Building sources and sinks from configuration files is left to
+  applications. A deserializable configuration type can be added later if
+  applications need one.
 
 What each handle shares:
 
@@ -4825,8 +4824,7 @@ Open points:
   close semantics on top of one librdkafka queue.
 - Whether HTTP sources should share one listener and route by path.
 - Whether to add Entra ID authentication to Service Bus as part of this work.
-- Naming of the HTTP handle, and whether `XxxConnection` reads clearly for a
-  configuration type next to a handle that owns the live connection.
+- Naming of the HTTP handle.
 
 ## Kafka rebalance behavior
 

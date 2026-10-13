@@ -228,39 +228,42 @@ adapter: raw librdkafka properties, a Pulsar method name and data, credentials
 in a RabbitMQ URI, an SQS credentials field, Pub/Sub credential modes, and a
 <code>ServiceBusConnection</code> embedded in the Service Bus configurations.</p>
 <p>Each adapter will gain a connection handle that is created first and builds
-the sources and sinks that share it:</p>
-<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(KafkaConnection::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;broker:9092&quot;</span>).<span class="hljs-title function_ invoke__">sasl_plain</span>(user, password));
+the sources and sinks that share it. Configuration types go away: required
+values are arguments, and optional settings are builder methods on the handle,
+the source, and the sink.</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;broker:9092&quot;</span>).<span class="hljs-title function_ invoke__">sasl_plain</span>(user, password);
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">articles</span> = kafka.source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(KafkaSourceConfig::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;summarizer&quot;</span>, [<span class="hljs-string">&quot;articles&quot;</span>]));
-<span class="hljs-keyword">let</span> <span class="hljs-variable">summaries</span> = kafka.sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(KafkaSinkConfig::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;summaries&quot;</span>));
-</code></pre><p>Construction from configuration values stays available and uses the same
-implementation:</p>
-<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">let</span> <span class="hljs-variable">articles</span> = KafkaSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(
-    KafkaConnection::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;broker:9092&quot;</span>),
-    KafkaSourceConfig::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;summarizer&quot;</span>, [<span class="hljs-string">&quot;articles&quot;</span>]),
-);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">articles</span> = kafka.source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;summarizer&quot;</span>, [<span class="hljs-string">&quot;articles&quot;</span>]);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">summaries</span> = kafka.sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;summaries&quot;</span>).<span class="hljs-title function_ invoke__">max_pending</span>(<span class="hljs-number">500</span>);
+
+<span class="hljs-comment">// A single source or sink is still one expression.</span>
+<span class="hljs-keyword">let</span> <span class="hljs-variable">articles</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;broker:9092&quot;</span>).source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;summarizer&quot;</span>, [<span class="hljs-string">&quot;articles&quot;</span>]);
 </code></pre><p>Decisions:</p>
 <ul>
-<li>Configuration is split into a connection configuration, <code>XxxConnection</code>,
-holding the endpoint, authentication, and client-wide settings, and the
-existing source and sink configurations, which keep only per-endpoint
-settings such as topics, queues, groups, and limits. Both remain plain data
-that applications can build from files or the environment.</li>
-<li>The handle (<code>Kafka</code>, <code>Pulsar</code>, <code>RabbitMq</code>, <code>Sqs</code>, <code>PubSub</code>, <code>ServiceBus</code>, and
-an HTTP client handle for sinks) is a cheap clone around shared state. It
-validates its configuration on creation, connects on first use, owns
+<li>The public types per adapter are the handle (<code>Kafka</code>, <code>Pulsar</code>, <code>RabbitMq</code>,
+<code>Sqs</code>, <code>PubSub</code>, <code>ServiceBus</code>, and an HTTP client handle for sinks), its
+source, and its sink. <code>XxxSourceConfig</code>, <code>XxxSinkConfig</code>, and the Service Bus
+<code>ServiceBusConnection</code> are removed, and so are the <code>XxxSource::new</code> and
+<code>XxxSink::new</code> constructors. The HTTP source listens rather than
+connects, so it keeps a constructor of its own with builder methods instead
+of a configuration type.</li>
+<li>The handle holds the endpoint, authentication, and client-wide settings. It
+is a cheap clone around shared state, connects on first use, owns
 reconnection, and closes once the last source or sink built from it has
 closed. Closing one subscription never closes a connection another
 subscription still uses.</li>
-<li><code>XxxSource::new(connection, config)</code> creates a private handle and builds the
-source from it, so both entry points produce the same type with the same
-behavior. <code>with_codec</code> variants exist on both entry points.</li>
-<li>Authentication moves into the connection configuration with typed settings
-where the platform has common mechanisms, such as SASL and TLS for Kafka.
-Raw client properties remain available as an escape hatch.</li>
+<li>Settings are validated without contacting the broker when the first source
+or sink connects, as the configurations are validated today.</li>
+<li>A codec that needs a value uses <code>source_with_codec</code> and <code>sink_with_codec</code>.</li>
+<li>Authentication gets typed builder methods where the platform has common
+mechanisms, such as SASL and TLS for Kafka. Raw client properties remain
+available as an escape hatch.</li>
 <li>A lost shared connection affects every subscription that uses it.
 Subscription failure stays fail-fast, so this does not change how
 applications detect failures.</li>
+<li>Building sources and sinks from configuration files is left to
+applications. A deserializable configuration type can be added later if
+applications need one.</li>
 </ul>
 <p>What each handle shares:</p>
 <table>
@@ -313,8 +316,7 @@ applications detect failures.</li>
 close semantics on top of one librdkafka queue.</li>
 <li>Whether HTTP sources should share one listener and route by path.</li>
 <li>Whether to add Entra ID authentication to Service Bus as part of this work.</li>
-<li>Naming of the HTTP handle, and whether <code>XxxConnection</code> reads clearly for a
-configuration type next to a handle that owns the live connection.</li>
+<li>Naming of the HTTP handle.</li>
 </ul>
 <h2 id="kafka-rebalance-behavior">Kafka rebalance behavior</h2>
 <p>Revoked partitions currently abandon in-flight work immediately. Evaluate an
