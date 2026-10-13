@@ -616,46 +616,11 @@ record before conversion.
 beavers has no dedicated redrive command. A dead-letter topic is an ordinary
 topic, so dead letters are reprocessed by a subscription whose source reads the
 dead-letter topic and whose handler is the original one, or a wrapper around
-it that inspects `KafkaDeadLetter::from_record` first:
-
-```rust,ignore
-let source = KafkaSource::<Json, Order>::new(KafkaSourceConfig::new(
-    brokers,
-    "orders-redrive",
-    ["orders-dlq"],
-));
-
-Subscription::new("orders-redrive", source, sink, |record: KafkaRecord<Order>| async move {
-    let dead_letter = KafkaDeadLetter::from_record(&record).reject()?;
-    if dead_letter.is_some_and(|dead| dead.details.count >= 3) {
-        return Err(HandlerError::Fatal("dead-lettered too often".into()));
-    }
-    handle(record).await
-})
-.dlq_with(dead_letters, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)));
-```
-
-Reading the dead-letter topic, rather than publishing dead letters back to the
-original topic, keeps other consumers of the original topic from receiving
-them again. Two operating styles are common:
-
-- **After a fix.** An operator runs the subscription once the cause is fixed
-  and stops it once its consumer lag reaches zero.
-- **Continuously, for transient failures.** The subscription runs alongside
-  the original one and waits before reprocessing: the handler sleeps until the
-  record's timestamp plus a delay. Later records of a partition are newer, so
-  waiting at the head of the partition delays them by no more than the same
-  delay. Payloads that keep failing return to the dead-letter topic, so the
-  handler must stop them after a limit on `details.count`, for example by
-  failing or by routing them to a final topic that nothing reads automatically.
-
-Reprocessed payloads arrive after newer payloads with the same key, so a
-handler that overwrites state by key can replace newer state with older state.
-A Kafka handler that sleeps longer than `max.poll.interval.ms` (5 minutes by
-default) while `max_in_flight` deliveries are waiting makes the consumer leave
-its group; raise that property for longer delays. Shutdown does not wait for a
-sleeping handler beyond `drain_timeout`; its delivery stays unacknowledged and
-is received again.
+it that inspects `KafkaDeadLetter::from_record` first, for example to stop
+after a limit on `details.count`. The
+[dead-letter handling guide](dead-letter-handling.md) describes how to find
+the cause of dead letters, how to reprocess, park, or drop them on log and
+queue brokers, and complete examples.
 
 ### Other failures
 

@@ -65,7 +65,7 @@ alert on `subscription failed`. Each platform guide shows both.
 | The source keeps failing | `beavers_receive_errors_total` for several minutes | critical | The broker is unreachable or rejects the client; readiness is `503` during backoff |
 | Work is stuck | `beavers_deliveries_in_flight` above zero with no acknowledgement | critical | A handler or acknowledgement never completes; liveness does not detect this |
 | Metrics disappeared | The scrape target is down | critical | Nothing else on this list can fire |
-| Deliveries were dead-lettered | `beavers_delivery_failures_total{action="dead_letter"}` | warning | Someone needs to inspect and redrive them; see [reprocessing dead letters](../runtime.md#reprocessing-dead-letters) |
+| Deliveries were dead-lettered | `beavers_delivery_failures_total{action="dead_letter"}` | warning | Someone needs to inspect and redrive them; see the [dead-letter handling guide](../dead-letter-handling.md) |
 | Producers send undecodable records | Ratio of `failure="decode"` to received deliveries | warning | Usually a schema or producer change |
 | Handlers are slow | The 99th percentile of `beavers_stage_duration_seconds{stage="handler"}` | warning | The backlog grows when processing falls behind the input rate |
 | The backlog grows | Consumer lag or queue depth from the broker | warning | beavers does not report lag; see [Backlog](#backlog) |
