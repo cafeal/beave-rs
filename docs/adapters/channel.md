@@ -4,7 +4,7 @@ The channel adapter chains subscriptions inside one application while keeping th
 upstream delivery unacknowledged until the downstream subscription finishes the
 value. Each stage keeps its own handler, concurrency, retries, error policy, and
 dead-letter sink, so a pipeline can separate I/O-bound work in async handlers
-from CPU-bound work in [blocking handlers](../runtime.md#blocking-handlers):
+from CPU-bound work in [blocking handlers](../runtime/handlers.md#blocking-handlers):
 
 ```rust,ignore
 use beavers::{App, BlockingPool, Subscription, blocking, channel};
@@ -90,7 +90,7 @@ their raw delivery. Through several channels, `ChannelRaw` stays the delivery
 of the first subscription. It serializes as that record, so a JSON dead-letter
 sink publishes it unchanged, and `ChannelRaw::downcast_ref` reads it as its
 concrete type in `dlq_with`, and `DeadLetter::try_map_raw` replaces it so
-the dead letter can be [forwarded to a broker topic](../runtime.md#forwarding-dead-letters-to-a-broker-topic):
+the dead letter can be [forwarded to a broker topic](../runtime/errors.md#forwarding-dead-letters-to-a-broker-topic):
 
 ```rust,ignore
 type Raw = KafkaRecord<Vec<u8>>;
@@ -109,7 +109,7 @@ as `None`.
 
 With the `opentelemetry` feature, the channel carries the sender's trace
 context with each value, and the downstream `message` span continues that
-trace. See [trace-context propagation](../runtime.md#trace-context-propagation).
+trace. See [trace-context propagation](../runtime/observability.md#trace-context-propagation).
 
 ## Revocation
 

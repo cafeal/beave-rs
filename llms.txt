@@ -13,8 +13,16 @@ All pages in one file: https://cafeal.github.io/beave-rs/llms-full.txt
 ## Using beave-rs
 
 - [Architecture](https://cafeal.github.io/beave-rs/docs/architecture.md): How sources, handlers, and sinks fit together, their trait contracts, and errors
-- [Runtime guide](https://cafeal.github.io/beave-rs/docs/runtime.md): Implemented APIs, processing behavior, configuration, and limitations
+- [Runtime guide](https://cafeal.github.io/beave-rs/docs/runtime.md): Registration, configuration, processing behavior, shutdown, and limitations, with topic guides for handlers, middleware, errors, tombstones, transactions, observability, and health checks
+- [Handlers](https://cafeal.github.io/beave-rs/docs/runtime/handlers.md)
+- [Middleware](https://cafeal.github.io/beave-rs/docs/runtime/middleware.md)
+- [Errors and retries](https://cafeal.github.io/beave-rs/docs/runtime/errors.md)
+- [Tombstones](https://cafeal.github.io/beave-rs/docs/runtime/tombstones.md)
+- [Transactions](https://cafeal.github.io/beave-rs/docs/runtime/transactions.md)
+- [Observability](https://cafeal.github.io/beave-rs/docs/runtime/observability.md)
+- [Health checks](https://cafeal.github.io/beave-rs/docs/runtime/health.md)
 - [Adapters](https://cafeal.github.io/beave-rs/docs/adapters.md): Local, channel, Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, Azure Service Bus, and HTTP adapters, usage, and extension contracts
+- [Local adapters](https://cafeal.github.io/beave-rs/docs/adapters/local.md)
 - [Channel adapter](https://cafeal.github.io/beave-rs/docs/adapters/channel.md)
 - [Kafka adapter](https://cafeal.github.io/beave-rs/docs/adapters/kafka.md)
 - [Pulsar adapter](https://cafeal.github.io/beave-rs/docs/adapters/pulsar.md)
@@ -24,6 +32,7 @@ All pages in one file: https://cafeal.github.io/beave-rs/llms-full.txt
 - [Azure Service Bus adapter](https://cafeal.github.io/beave-rs/docs/adapters/servicebus.md)
 - [HTTP adapter](https://cafeal.github.io/beave-rs/docs/adapters/http.md)
 - [Codecs](https://cafeal.github.io/beave-rs/docs/codecs.md): Serialization contracts and JSON, raw bytes, UTF-8, Protobuf, and Avro codecs
+- [JSON codec](https://cafeal.github.io/beave-rs/docs/codecs/json.md)
 - [Raw bytes and UTF-8 codecs](https://cafeal.github.io/beave-rs/docs/codecs/raw-utf8.md)
 - [Protobuf codec](https://cafeal.github.io/beave-rs/docs/codecs/protobuf.md)
 - [Avro codec](https://cafeal.github.io/beave-rs/docs/codecs/avro.md)

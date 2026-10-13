@@ -24,7 +24,7 @@
 
   <div class="wrap layout">
     <nav class="toc" aria-label="Guides">
-<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html" aria-current="page">Channel</a></li><li><a href="kafka.html">Kafka</a></li><li><a href="pulsar.html">Pulsar</a></li><li><a href="rabbitmq.html">RabbitMQ</a></li><li><a href="sqs.html">SQS</a></li><li><a href="pubsub.html">Pub/Sub</a></li><li><a href="servicebus.html">Azure Service Bus</a></li><li><a href="http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="../runtime/handlers.html">Handlers</a></li><li><a href="../runtime/middleware.html">Middleware</a></li><li><a href="../runtime/errors.html">Errors and retries</a></li><li><a href="../runtime/tombstones.html">Tombstones</a></li><li><a href="../runtime/transactions.html">Transactions</a></li><li><a href="../runtime/observability.html">Observability</a></li><li><a href="../runtime/health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="local.html">Local adapters</a></li><li><a href="channel.html" aria-current="page">Channel</a></li><li><a href="kafka.html">Kafka</a></li><li><a href="pulsar.html">Pulsar</a></li><li><a href="rabbitmq.html">RabbitMQ</a></li><li><a href="sqs.html">SQS</a></li><li><a href="pubsub.html">Pub/Sub</a></li><li><a href="servicebus.html">Azure Service Bus</a></li><li><a href="http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
     </nav>
     <main class="doc">
 <h1 id="channel-adapter">Channel adapter</h1>
@@ -32,7 +32,7 @@
 upstream delivery unacknowledged until the downstream subscription finishes the
 value. Each stage keeps its own handler, concurrency, retries, error policy, and
 dead-letter sink, so a pipeline can separate I/O-bound work in async handlers
-from CPU-bound work in <a href="../runtime.html#blocking-handlers">blocking handlers</a>:</p>
+from CPU-bound work in <a href="../runtime/handlers.html#blocking-handlers">blocking handlers</a>:</p>
 <pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{App, BlockingPool, Subscription, blocking, channel};
 
 <span class="hljs-keyword">let</span> (to_score, fetched) = <span class="hljs-title function_ invoke__">channel</span>(<span class="hljs-number">16</span>);
@@ -121,7 +121,7 @@ their raw delivery. Through several channels, <code>ChannelRaw</code> stays the 
 of the first subscription. It serializes as that record, so a JSON dead-letter
 sink publishes it unchanged, and <code>ChannelRaw::downcast_ref</code> reads it as its
 concrete type in <code>dlq_with</code>, and <code>DeadLetter::try_map_raw</code> replaces it so
-the dead letter can be <a href="../runtime.html#forwarding-dead-letters-to-a-broker-topic">forwarded to a broker topic</a>:</p>
+the dead letter can be <a href="../runtime/errors.html#forwarding-dead-letters-to-a-broker-topic">forwarded to a broker topic</a>:</p>
 <pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">type</span> <span class="hljs-title class_">Raw</span> = KafkaRecord&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;;
 
 Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;score&quot;</span>, fetched, kafka_sink, score)
@@ -135,7 +135,7 @@ Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class
 as <code>None</code>.</p>
 <p>With the <code>opentelemetry</code> feature, the channel carries the sender&#39;s trace
 context with each value, and the downstream <code>message</code> span continues that
-trace. See <a href="../runtime.html#trace-context-propagation">trace-context propagation</a>.</p>
+trace. See <a href="../runtime/observability.html#trace-context-propagation">trace-context propagation</a>.</p>
 <h2 id="revocation">Revocation</h2>
 <p>When the upstream subscription stops waiting before the downstream stage
 completes the value, the channel delivery is revoked: the downstream runtime abandons it without

@@ -24,7 +24,7 @@
 
   <div class="wrap layout">
     <nav class="toc" aria-label="Guides">
-<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html">Architecture</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html">Local development brokers</a></li><li><a href="plan.html" aria-current="page">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
+<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html">Architecture</a></li><li><a href="runtime.html">Runtime guide</a><ul><li><a href="runtime/handlers.html">Handlers</a></li><li><a href="runtime/middleware.html">Middleware</a></li><li><a href="runtime/errors.html">Errors and retries</a></li><li><a href="runtime/tombstones.html">Tombstones</a></li><li><a href="runtime/transactions.html">Transactions</a></li><li><a href="runtime/observability.html">Observability</a></li><li><a href="runtime/health.html">Health checks</a></li></ul></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/local.html">Local adapters</a></li><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/json.html">JSON</a></li><li><a href="codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html">Local development brokers</a></li><li><a href="plan.html" aria-current="page">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
     </nav>
     <main class="doc">
 <h1 id="beave-rs--design-plan">beave-rs — Design plan</h1>
@@ -46,7 +46,7 @@ according to the actual source and sink capabilities.</p>
 watermarks, state stores, distributed scheduling, SQL, or general DAG execution.</p>
 <h2 id="cross-platform-metadata-mapping">Cross-platform metadata mapping</h2>
 <p>Typed output middleware and same-platform inheritance are described in the
-<a href="runtime.html#middleware">runtime guide</a>. Cross-platform mappings are
+<a href="runtime/middleware.html">runtime guide</a>. Cross-platform mappings are
 currently application-written <code>MapMetadata</code> functions. Remaining decisions:</p>
 <ul>
 <li>whether adapters should provide reusable conversions between platforms, such
@@ -59,7 +59,7 @@ startup;</li>
 </ul>
 <h2 id="middleware">Middleware</h2>
 <p>The asynchronous <code>pre_handler</code> and <code>post_handler</code> hooks are described in the
-<a href="runtime.html#middleware">runtime guide</a>. Remaining decisions:</p>
+<a href="runtime/middleware.html">runtime guide</a>. Remaining decisions:</p>
 <ul>
 <li>whether a middleware <code>Retry</code> error should be retried with a policy of its
 own, as handler errors are, instead of stopping the subscription without ACK
@@ -81,9 +81,9 @@ encoding and define schema lookup caching, compatibility failures, and behavior
 when the registry is unavailable.</p>
 <h2 id="delivery-semantics-and-transactions">Delivery semantics and transactions</h2>
 <p>Kafka-to-Kafka transactions are described in the
-<a href="runtime.html#transactions">runtime guide</a> and the
+<a href="runtime/transactions.html">runtime guide</a> and the
 <a href="adapters/kafka.html#transactions">Kafka guide</a>, including the
-<a href="runtime.html#batches">batching</a> of deliveries into one transaction. Remaining
+<a href="runtime/transactions.html#batches">batching</a> of deliveries into one transaction. Remaining
 work:</p>
 <ul>
 <li>A commit that times out after its retriable retries has an unknown outcome.
@@ -156,7 +156,7 @@ subscription before new ones are refused with <code>503</code>.</li>
 </ul>
 <h2 id="dead-letter-handling">Dead-letter handling</h2>
 <p>Forwarding dead letters with failure headers is described in the
-<a href="runtime.html#forwarding-dead-letters-to-a-broker-topic">runtime guide</a>, and
+<a href="runtime/errors.html#forwarding-dead-letters-to-a-broker-topic">runtime guide</a>, and
 examining, reprocessing, parking, and dropping them in the
 <a href="dead-letter-handling.html">dead-letter handling guide</a>.
 The library deliberately sends no notifications and has no redrive command.
@@ -260,7 +260,7 @@ one partition. Keeping the order needs a client that replays rejected sends.</li
 </ul>
 <h2 id="observability">Observability</h2>
 <p>Spans, events, metrics, and trace-context propagation are described in the
-<a href="runtime.html#observability">runtime guide</a>. Remaining decisions:</p>
+<a href="runtime/observability.html">runtime guide</a>. Remaining decisions:</p>
 <ul>
 <li>OpenTelemetry messaging semantic-convention attributes, such as destination,
 partition, and offset, which need an adapter-provided description of each
@@ -269,7 +269,7 @@ delivery;</li>
 span&#39;s context into every output.</li>
 </ul>
 <p>Health checks report runtime-observed state, as described in the
-<a href="runtime.html#health-checks">runtime guide</a>. Remaining decisions:</p>
+<a href="runtime/health.html">runtime guide</a>. Remaining decisions:</p>
 <ul>
 <li>consumer lag in the health report, which needs an adapter-provided
 measurement such as the distance from a Kafka partition&#39;s committed offset to
@@ -282,7 +282,7 @@ unreachable one;</li>
 never completes, without restarting instances that are merely idle.</li>
 </ul>
 <p>Trace-context propagation and the
-<a href="runtime.html#exporting-metrics-to-opentelemetry">Prometheus export path</a> have not
+<a href="runtime/observability.html#exporting-metrics-to-opentelemetry">Prometheus export path</a> have not
 been verified against live brokers or an OpenTelemetry Collector.</p>
 <p>The <a href="monitoring-and-alerting/index.html">monitoring and alerting guide</a> has not
 been verified against live cloud accounts. In particular, check the CloudWatch
