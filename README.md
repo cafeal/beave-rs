@@ -117,7 +117,7 @@ async fn handle(order: Order) -> Result<Output> {
 ```
 
 `.fatal()?` stops the subscription. See
-[errors and retries](docs/runtime.md#errors-and-retries) for retry policies
+[errors and retries](docs/runtime/errors.md) for retry policies
 and the error policy.
 
 ## Documentation

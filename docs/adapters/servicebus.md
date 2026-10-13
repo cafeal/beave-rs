@@ -165,7 +165,7 @@ type, time to live, and schedule are never inherited.
 
 A handler that returns a plain value between a Service Bus source and sink gets
 `ServiceBusInherit::new()` automatically. See the
-[runtime guide](../runtime.md#handler-shapes). Register `TraceContext` after
+[runtime guide](../runtime/handlers.md#handler-shapes). Register `TraceContext` after
 `ServiceBusInherit` to replace inherited trace-context properties; the source
 reads trace context from string application properties.
 
@@ -178,7 +178,7 @@ details and the entity path and sequence number of the first receipt as
 duplicate detection on the dead-letter entity does not drop a payload
 dead-lettered again, and the time to live, so the dead letter does not expire
 with the original. `ServiceBusDeadLetter::from_record` reads the details back;
-see [forwarding dead letters](../runtime.md#forwarding-dead-letters-to-a-broker-topic).
+see [forwarding dead letters](../runtime/errors.md#forwarding-dead-letters-to-a-broker-topic).
 
 Every queue and subscription also has a dead-letter subqueue, to which Service
 Bus moves a message once its delivery count exceeds the entity's

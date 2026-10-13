@@ -29,72 +29,6 @@ payload bounds. `Decoder`, `Encoder`, `Json`, `RawBytes`, and `Utf8` are availab
 through `beavers::codec` and re-exported at the crate root. `Protobuf` and `Avro`
 are available when their corresponding Cargo features are enabled.
 
-## JSON
-
-`Json` uses `serde_json::from_slice` for decoding and `serde_json::to_vec` for
-encoding.
-
-| Operation | Payload requirement | Result |
-|---|---|---|
-| Decode | `serde::de::DeserializeOwned` | Owned typed value |
-| Encode | `serde::Serialize` | Compact JSON bytes |
-
-Json does not itself append a newline or split a stream into messages. Input
-framing belongs to the source; output framing belongs to the sink. In particular,
-StdinSource reads one line at a time and StdoutSink appends a newline after encoding.
-
-### Using JSON with adapters
-
-Select the codec through the adapter's type parameters. The handler determines
-the input and output payload types:
-
-```rust
-use beavers::{App, Json, Result, StdinSource, StdoutSink};
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Deserialize)]
-struct Order {
-    id: u64,
-}
-
-#[derive(Serialize)]
-struct Event {
-    order_id: u64,
-}
-
-async fn handler(order: Order) -> Result<Event> {
-    Ok(Event { order_id: order.id })
-}
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    App::new()
-        .subscribe(
-            "orders",
-            StdinSource::<Json, _>::new(),
-            StdoutSink::<Json>::new(),
-            handler,
-        )
-        .run()
-        .await?;
-    Ok(())
-}
-```
-
-The second StdinSource type argument is the decoded input type, inferred here as
-Order. Input values also need the runtime's `Clone + Send + Sync + 'static`
-bounds; those are not additional requirements of the JSON format.
-
-The [transform example](../examples/transform.rs) provides this pipeline. Feed it
-one order object per line:
-
-```sh
-printf '%s\n' '{"id":10}' '{"id":20}' | cargo run --example transform -- --stdin
-```
-
-IterSource and InMemorySink already exchange typed values, so they require no
-serialization codec.
-
 ## Lifecycle and failures
 
 For the current stdin-to-stdout pipeline:
@@ -118,7 +52,7 @@ Codec errors return as `BoxError`, so an implementation can propagate any error
 type with `?`. Neither decode nor preparation failures are retried, because the
 same bytes or value would fail again. By
 default both stop processing without ACK; the subscription's
-[error policy](runtime.md#error-policy) can instead dead-letter or discard them
+[error policy](runtime/errors.md#error-policy) can instead dead-letter or discard them
 as `FailureKind::Decode` and `FailureKind::Encode`. An invalid JSON line is a
 decode failure, whereas a failed stdin read is a receive failure.
 
@@ -160,6 +94,8 @@ example preserves all bytes, including any newline supplied by the source.
 
 ## Available formats and broker integration
 
+`Json` converts between JSON and any Serde type. See [JSON](codecs/json.md).
+
 `RawBytes` preserves arbitrary `Vec<u8>` payloads and `Utf8` converts valid UTF-8
 between bytes and `String`. See [Raw bytes and UTF-8](codecs/raw-utf8.md).
 
@@ -174,4 +110,4 @@ codec to a non-null payload while exposing key and properties as metadata; by
 default an empty payload is a null value. A null value never reaches the codec.
 Neither adapter implicitly carries received metadata into outgoing records.
 Metadata mapping is explicit output middleware; see the
-[runtime guide](runtime.md#middleware).
+[runtime guide](runtime/middleware.md).
