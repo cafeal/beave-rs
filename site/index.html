@@ -4,19 +4,17 @@
   root.
 -->
 <section class="hero">
-  <div class="wrap hero-inner">
-    <div>
-      <h1>beave-rs</h1>
-      <p class="lead">A lightweight Rust message processing framework built around typed handlers.</p>
-      <pre class="install"><code>cargo add beavers --features kafka</code></pre>
-      <p class="actions">
-        <a class="button primary" href="docs/index.html">Get started</a>
-        <a class="button" href="https://docs.rs/beavers">API reference</a>
-      </p>
-      <p class="note">Pre-release. The API may change until 0.1.0.</p>
-    </div>
+  <div class="wrap">
     <!-- Replace this figure with the project character artwork. -->
     <figure class="character" aria-label="Character artwork placeholder"></figure>
+    <h1>beave-rs</h1>
+    <p class="lead">A lightweight Rust message processing framework built around typed handlers.</p>
+    <pre class="install"><code>cargo add beavers --features kafka</code></pre>
+    <p class="actions">
+      <a class="button primary" href="docs/index.html">Read the guides</a>
+      <a class="button" href="https://docs.rs/beavers">API reference</a>
+    </p>
+    <p class="note">Pre-release. The API may change until 0.1.0.</p>
   </div>
 </section>
 
@@ -61,7 +59,7 @@ async fn main() -&gt; anyhow::Result&lt;()&gt; {
     <h2>Subscriptions</h2>
     <p>Each <code>Subscription</code> connects one source, one handler, and one sink. An <code>App</code> runs any number of subscriptions side by side and shuts them down together.</p>
     <img class="diagram" src="docs/assets/overview.svg" width="760" height="330" alt="An App running three subscriptions: Kafka source to handler to Kafka sink, Pulsar source to handler to HTTP sink, and SQS source to handler to RabbitMQ sink">
-    <p><a href="docs/architecture.html">Architecture and trait contracts</a></p>
+    <p><a class="more" href="docs/architecture.html">Architecture and trait contracts</a></p>
   </div>
 </section>
 
@@ -69,27 +67,27 @@ async fn main() -&gt; anyhow::Result&lt;()&gt; {
   <div class="wrap">
     <h2>Features</h2>
     <div class="grid">
-      <div>
+      <div class="green">
         <h3><a href="docs/runtime.html#handler-shapes">Typed handlers</a></h3>
         <p>Write <code>async fn(Input) -&gt; Result&lt;Output&gt;</code>; decoding, publishing, and acknowledgement are handled for you.</p>
       </div>
-      <div>
+      <div class="blue">
         <h3><a href="docs/runtime.html#per-message-lifecycle">At-least-once delivery</a></h3>
         <p>An input is acknowledged only after its output is published.</p>
       </div>
-      <div>
+      <div class="orange">
         <h3><a href="docs/runtime.html#errors-and-retries">Explicit failure handling</a></h3>
         <p>Classify errors as retry, reject (dead-letter), or fatal; retries back off.</p>
       </div>
-      <div>
+      <div class="purple">
         <h3><a href="docs/runtime.html#ordering-and-backpressure">Concurrency with ordering</a></h3>
         <p>Bounded concurrency, per-key ordering, and a worker pool for blocking handlers.</p>
       </div>
-      <div>
+      <div class="pink">
         <h3><a href="docs/adapters/channel.html">Pipelines</a></h3>
         <p>Chain subscriptions through in-process channels with end-to-end acknowledgement.</p>
       </div>
-      <div>
+      <div class="teal">
         <h3><a href="docs/runtime.html#observability">Operations</a></h3>
         <p>Graceful shutdown, <code>tracing</code> spans, <code>metrics</code>, OpenTelemetry trace propagation, and <code>/livez</code> and <code>/readyz</code> probes.</p>
       </div>
@@ -140,7 +138,6 @@ async fn main() -&gt; anyhow::Result&lt;()&gt; {
     <p>Configuration, delivery behavior for each broker, testing, monitoring, and local development brokers.</p>
     <p class="actions">
       <a class="button primary" href="docs/index.html">Read the guides</a>
-      <a class="button" href="https://github.com/cafeal/beave-rs">GitHub</a>
     </p>
   </div>
 </section>
