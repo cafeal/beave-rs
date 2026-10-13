@@ -70,10 +70,9 @@ unit enums map to Avro enums, <code>Option&lt;T&gt;</code> maps to a nullable un
 maps to an array. For Avro <code>bytes</code> and <code>fixed</code>, use the byte helper modules
 documented by <code>apache-avro</code> when deriving Serde implementations.</p>
 <p>The codec intentionally has no <code>Default</code> implementation because a schema is
-required. The local stdin and stdout adapters currently default-construct their
-codecs, so an <code>Avro</code> instance cannot be plugged into those constructors. Use the
-codec directly until an adapter constructor that accepts an existing configured
-codec is implemented.</p>
+required. Pass an instance to an adapter that accepts an existing codec, such
+as <code>kafka.source_with_codec(codec, group_id, topics)</code>,
+<code>kafka.sink_with_codec(codec, topic)</code>, or <code>StdoutSink::with_codec(codec)</code>.</p>
 <p>Schema evolution is not implicit: this API has no separate reader schema. If a
 producer and consumer use different schemas, create a codec with the producer&#39;s
 schema only when they are known to be compatible, or use Apache Avro&#39;s datum

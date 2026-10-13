@@ -9,63 +9,72 @@ beavers = { version = "0.1", features = ["servicebus"] }
 
 ## Configuration
 
-`ServiceBusConnection` names a namespace, such as
-`contoso.servicebus.windows.net`, and a `ServiceBusCredential`:
+A `ServiceBus` handle names a namespace, such as
+`contoso.servicebus.windows.net`, and a credential:
 
-- `SharedAccessKey { name, key }` signs a shared access signature for each
+- `shared_access_key(name, key)` signs a shared access signature for each
   entity the adapter uses and renews it before it expires.
-- `SharedAccessSignature(token)` uses a token signed elsewhere. It cannot be
+- `shared_access_signature(token)` uses a token signed elsewhere. It cannot be
   renewed, so the connection fails once the token expires.
 
-`ServiceBusConnection::from_connection_string` reads a connection string as the
-Azure portal and the Service Bus emulator show it. A connection string with
-`EntityPath` is refused; name the entity in the source or sink configuration
-instead. The `Debug` output of `ServiceBusCredential` hides the key and the
-signature.
+`ServiceBus::from_connection_string` reads a connection string as the Azure
+portal and the Service Bus emulator show it. A connection string with
+`EntityPath` is refused; pass the entity to the source or sink instead. The
+`Debug` output of the handle hides the key and the signature.
 
 The adapters connect with AMQP over TLS on port 5671 and authenticate with
 claims-based security. `UseDevelopmentEmulator=true` in a connection string, or
-`emulator = true`, selects plain AMQP on port 5672 for the emulator; a port in
-the namespace overrides either default. Microsoft Entra ID credentials are not
+`emulator()`, selects plain AMQP on port 5672 for the emulator; a port in the
+namespace overrides either default. Microsoft Entra ID credentials are not
 supported yet.
 
-```rust
-use beavers::{
-    Utf8,
-    adapters::servicebus::{
-        ServiceBusConnection, ServiceBusPublish, ServiceBusSink, ServiceBusSinkConfig,
-        ServiceBusSource, ServiceBusSourceConfig,
-    },
-};
+The handle opens one AMQP connection with one session, and every source and
+sink built from it attaches its links to that session. Each entity is
+authorized once on the connection through claims-based security, and tokens
+signed with a shared access key are renewed before they expire. The connection
+opens on the first use that needs it, which also validates the settings, and is
+opened again after it is lost. Closing a source or sink detaches its links
+only; the connection closes once the handle and every source and sink built
+from it have been dropped. Each handle builder method returns a handle with a
+connection of its own, so configure the handle before building sources and
+sinks from it.
 
-let connection = ServiceBusConnection::from_connection_string(
+```rust
+use beavers::{Utf8, adapters::servicebus::{ServiceBus, ServiceBusPublish}};
+
+let bus = ServiceBus::from_connection_string(
     "Endpoint=sb://contoso.servicebus.windows.net/;SharedAccessKeyName=app;SharedAccessKey=...",
 )?;
-let source = ServiceBusSource::<Utf8, String>::new(ServiceBusSourceConfig::new(
-    connection.clone(),
-    "orders/Subscriptions/billing",
-));
-let sink = ServiceBusSink::<Utf8, String>::new(ServiceBusSinkConfig::new(
-    connection,
-    "processed-orders",
-));
+let source = bus.source::<Utf8, String>("orders/Subscriptions/billing");
+let sink = bus.sink::<Utf8, String>("processed-orders");
 
 let output = ServiceBusPublish::new("created".to_owned()).with_message_id("order-7");
 # Ok::<(), beavers::Error>(())
 ```
 
-`ServiceBusSourceConfig` receives from a queue, a topic subscription written as
+`source` receives from a queue, a topic subscription written as
 `{topic}/Subscriptions/{subscription}`, or a dead-letter subqueue such as
-`orders/$DeadLetterQueue`. Session-enabled entities are not supported.
-`prefetch`, 10 by default, is how many messages Service Bus may send ahead of
-`receive`. Each is locked from the moment it is sent, so keep `prefetch` small
-enough that prefetched messages reach a handler well within the lock duration.
+`orders/$DeadLetterQueue`. Session-enabled entities are not supported. The
+source's `prefetch`, 10 by default, is how many messages Service Bus may send
+ahead of `receive`. Each is locked from the moment it is sent, so keep
+`prefetch` small enough that prefetched messages reach a handler well within
+the lock duration.
 
-`ServiceBusSinkConfig` sends to one queue or topic. `max_pending`, 1000 by
-default, limits the messages sent and not yet accepted.
+`sink` sends to one queue or topic. The sink's `max_pending`, 1000 by default,
+limits the messages sent and not yet accepted.
 
-`validate` checks the values without contacting Service Bus. Both adapters
-connect on first use. They create no entities; create queues, topics,
+```rust
+use beavers::{Utf8, adapters::servicebus::ServiceBus};
+
+let bus = ServiceBus::new("contoso.servicebus.windows.net")
+    .shared_access_key("app", "...");
+let source = bus.source::<Utf8, String>("orders").prefetch(20);
+let sink = bus.sink::<Utf8, String>("processed-orders").max_pending(100);
+```
+
+`source_with_codec` and `sink_with_codec` take a codec value first. The handle,
+source, and sink each have `validate`, which checks the values without
+contacting Service Bus. The adapters create no entities; create queues, topics,
 subscriptions, and their rules with infrastructure tooling before the
 subscription starts.
 
@@ -113,15 +122,16 @@ lost leaves the message to be delivered again. Dropping a `ServiceBusMessage`
 without acknowledging it abandons the message, which Service Bus delivers again
 at once with an incremented delivery count. Closing the source releases the
 messages Service Bus sent ahead and the application never received, without
-counting a delivery, and then closes the connection.
+counting a delivery, and detaches its links; the handle's connection stays
+open.
 
 A lock that renewal reports lost, or that ends before it is renewed, means
 Service Bus may already have handed the message to another receiver, so the
 adapter cancels that delivery's revocation token. The runtime abandons a
 revoked delivery without ACK or subscription failure. An ACK whose lock has
 already ended also revokes the delivery and fails. When the connection or link
-is lost, every unsettled delivery is revoked and the next `receive` connects
-again.
+is lost, every unsettled delivery is revoked and the next `receive` attaches
+again, reopening the handle's connection when it was lost.
 
 Without sessions, Service Bus delivers messages in no guaranteed order, so the
 deliveries have no ordering key and run in parallel up to the subscription's
@@ -138,8 +148,9 @@ link and returns a completion that resolves when Service Bus accepts it;
 `publish` waits for that completion. A message larger than the link's maximum
 message size fails as `PublishRejected`, which the subscription's error policy
 can dead-letter instead of retrying. A lost connection fails the publication,
-and the next one connects again. `close` stops new publications and closes the
-connection.
+and the next one attaches again, reopening the handle's connection. `close`
+stops new publications and detaches the send link; the handle's connection
+stays open.
 
 A scheduled message is stored at once, so a completed publication of a
 scheduled message is as durable as any other.

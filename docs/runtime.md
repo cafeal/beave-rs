@@ -122,9 +122,10 @@ See the [local adapters](adapters/local.md) for IterSource, StdinSource,
 InMemorySink, and StdoutSink, and the [Channel adapter](adapters/channel.md)
 that chains subscriptions, including examples, EOF behavior, ACK guarantees,
 and I/O limits. These components do not provide durable
-redelivery after process exit. Optional Kafka and Pulsar adapters provide
-broker-specific source and sink implementations; their documentation covers
-configuration and acknowledgement semantics.
+redelivery after process exit. Optional broker adapters provide
+broker-specific sources and sinks built from a connection handle, such as
+`Kafka` or `RabbitMq`; their documentation covers configuration and
+acknowledgement semantics.
 
 ## Per-message lifecycle
 

@@ -32,37 +32,48 @@
 for AMQP 0-9-1, backed by the <code>lapin</code> 4 client.</p>
 <pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;rabbitmq&quot;</span>] }
 </code></pre><h2 id="configuration">Configuration</h2>
-<p><code>RabbitMqSourceConfig</code> takes a broker URI and the queue to consume;
-<code>RabbitMqSinkConfig</code> takes a broker URI, the exchange every output is published
-to, and the routing key of outputs that do not set their own. The empty
-exchange name is RabbitMQ&#39;s default exchange, which routes a message to the
-queue named by its routing key. <code>validate</code> checks the values without contacting
-the broker, and both adapters connect on first use. The <code>Debug</code> output of both
-configurations hides the URI&#39;s password.</p>
-<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::rabbitmq::{
-    RabbitMqPublish, RabbitMqSink, RabbitMqSinkConfig, RabbitMqSource, RabbitMqSourceConfig,
-}};
+<p>A <code>RabbitMq</code> handle holds the broker URI. <code>handle.source::&lt;C, T&gt;(queue)</code> builds
+a source that consumes <code>queue</code>, and <code>handle.sink::&lt;C, T&gt;(exchange, routing_key)</code>
+a sink that publishes to <code>exchange</code> with <code>routing_key</code> for outputs that do not
+set their own; <code>source_with_codec</code> and <code>sink_with_codec</code> take a codec value as
+their first argument instead of using the codec&#39;s default. The empty exchange
+name is RabbitMQ&#39;s default exchange, which routes a message to the queue named
+by its routing key. Optional settings are builder methods on the handle, the
+source, and the sink.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::rabbitmq::{RabbitMq, RabbitMqPublish}};
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = RabbitMqSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(RabbitMqSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
-    <span class="hljs-string">&quot;amqp://guest:guest@localhost:5672/%2f&quot;</span>,
-    <span class="hljs-string">&quot;orders&quot;</span>,
-));
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = RabbitMqSink::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(RabbitMqSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
-    <span class="hljs-string">&quot;amqp://guest:guest@localhost:5672/%2f&quot;</span>,
-    <span class="hljs-string">&quot;&quot;</span>,
-    <span class="hljs-string">&quot;processed-orders&quot;</span>,
-));
+<span class="hljs-keyword">let</span> <span class="hljs-variable">rabbit</span> = RabbitMq::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;amqp://guest:guest@localhost:5672/%2f&quot;</span>)
+    .<span class="hljs-title function_ invoke__">connection_name</span>(<span class="hljs-string">&quot;orders-service&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = rabbit.source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;orders&quot;</span>).<span class="hljs-title function_ invoke__">prefetch</span>(<span class="hljs-number">32</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = rabbit.sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;&quot;</span>, <span class="hljs-string">&quot;processed-orders&quot;</span>);
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = RabbitMqPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()).<span class="hljs-title function_ invoke__">with_routing_key</span>(<span class="hljs-string">&quot;audit&quot;</span>);
-</code></pre><p>The adapters declare no exchanges, queues, or bindings. Create the topology
+</code></pre><p>The handle opens one connection for all of its sources and one for all of its
+sinks, as RabbitMQ recommends, because the broker blocks a publishing
+connection under memory or disk alarms and consumers on it would stall too.
+Each source and sink uses a channel of its own on them. A connection opens on
+the first use that needs it, which also validates the settings, and is opened
+again after it is lost. Closing a source or sink closes only its channel; the
+connections close once the handle and every source and sink built from it have
+been dropped. <code>connection_name</code> names the connections <code>{name} consumer</code> and
+<code>{name} publisher</code> in the management tools; the default name is <code>beavers</code>.
+Each builder method on the handle returns a handle with connections of its
+own, so configure the handle before building sources and sinks from it.</p>
+<p>A lost connection ends the channel of every source and sink that uses it. Each
+source reports a retryable error and opens a new channel on the next
+<code>receive</code>, while each sink fails the completions still waiting for a
+confirmation, which stops their subscriptions as described under
+<a href="#publication">publication</a>.</p>
+<p>The handle, the source, and the sink each have <code>validate</code>, which checks the
+values without contacting the broker. The handle&#39;s <code>Debug</code> output hides the
+URI&#39;s password.</p>
+<p>The adapters declare no exchanges, queues, or bindings. Create the topology
 with broker definitions, the management tools, or application code before the
 subscription starts; a source whose queue does not exist fails its receive and
 retries under the subscription&#39;s <code>receive_retry</code>.</p>
-<p><code>RabbitMqSourceConfig::prefetch</code> is the <code>basic.qos</code> prefetch count, 100 by
-default: the number of unacknowledged messages the broker sends ahead. It bounds
+<p>The source&#39;s <code>prefetch</code> is the <code>basic.qos</code> prefetch count, 100 by default: the number of unacknowledged messages the broker sends ahead. It bounds
 the source&#39;s buffered and in-flight deliveries together, so keep it at least as
-large as the subscription&#39;s <code>max_in_flight</code>. Each connection is named
-<code>beavers source &lt;queue&gt;</code> or <code>beavers sink &lt;exchange&gt;</code> in the management tools.</p>
+large as the subscription&#39;s <code>max_in_flight</code>.</p>
 <h2 id="records">Records</h2>
 <p><code>RabbitMqRecord&lt;T&gt;</code> is the decoded input and <code>RabbitMqPublish&lt;T&gt;</code> the output.
 The codec applies to the message body. AMQP has no null body, so the value is
@@ -92,7 +103,7 @@ so a connection lost right after it can still requeue the message, which is
 then processed again. Dropping a <code>RabbitMqMessage</code> leaves its message
 unacknowledged until its channel closes, when the broker requeues it with the
 redelivered flag set; this happens when the source closes or loses its
-connection.</p>
+channel or connection.</p>
 <p>A delivery tag is valid only on the channel that delivered it. When the
 connection or channel is lost, or the broker cancels the consumer, <code>receive</code>
 cancels the revocation token of every delivery of that channel and reports a
@@ -104,7 +115,7 @@ connection loss.</p>
 <p>RabbitMQ delivers a queue&#39;s messages to one consumer in order, but distributes
 them among several consumers and requeues unacknowledged messages, so
 deliveries have no ordering key by default and run in parallel up to the
-subscription&#39;s <code>concurrency</code>. Set <code>RabbitMqSourceConfig::ordered</code> to give every
+subscription&#39;s <code>concurrency</code>. Set the source&#39;s <code>ordered</code> to give every
 delivery the queue as its ordering key, so that <code>ProcessingOrder::PerKey</code>
 processes one message at a time in delivery order. Combine it with a queue that
 has a single active consumer (<code>x-single-active-consumer</code>) for order across
@@ -116,8 +127,8 @@ delivery.</p>
 <h2 id="publication">Publication</h2>
 <p><code>prepare</code> encodes the value and converts the routing key, headers, and
 properties to their AMQP form once, so publish retries reuse them. The sink
-opens its connection and a channel in publisher-confirm mode on first use, and
-again after the previous channel was lost.</p>
+opens a channel in publisher-confirm mode on the handle&#39;s publishing connection
+on first use, and again after the previous channel or its connection was lost.</p>
 <p><code>RabbitMqSink::submit</code> returns once the message is written to the channel, with
 a completion that resolves on the broker&#39;s publisher confirmation. The runtime
 frees the job&#39;s concurrency slot at submission and acknowledges the input when
@@ -125,17 +136,18 @@ the confirmation arrives. <code>publish</code> writes the message and waits for 
 confirmation. A broker <code>nack</code>, a channel lost before the confirmation, or a
 message returned as unroutable fails the completion, which stops the
 subscription without acknowledging the input, and the input is redelivered.</p>
-<p><code>RabbitMqSinkConfig::mandatory</code>, enabled by default, asks the broker to return
+<p>The sink&#39;s <code>mandatory</code>, enabled by default, asks the broker to return
 a message no queue receives, so a missing binding fails the subscription
 instead of losing outputs. Disable it to let the broker discard such messages.
 <code>persistent</code>, also enabled by default, publishes with the persistent delivery
 mode, so durable queues keep the messages across a broker restart; the
 confirmation then arrives after the broker has written them.</p>
-<p><code>RabbitMqSinkConfig::max_pending</code> bounds the messages submitted whose
-confirmation has not arrived; the default is 1000. <code>submit</code> waits while that
+<p><code>max_pending</code> bounds the messages submitted to one sink whose confirmation has
+not arrived; the default is 1000. <code>submit</code> waits while that
 many are outstanding. Messages on one channel are confirmed in publication
 order. <code>close</code> stops new submissions, waits for outstanding confirmations, and
-closes the connection.</p>
+closes the sink&#39;s channel. The publishing connection stays open for the
+handle&#39;s other sinks.</p>
 <h2 id="metadata-inheritance">Metadata inheritance</h2>
 <p>Register <code>RabbitMqInherit</code> on a RabbitMQ-to-RabbitMQ subscription to forward the
 received headers and the properties that describe the payload or its

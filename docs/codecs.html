@@ -92,9 +92,9 @@ codec needs no Serde dependency:</p>
 </code></pre><p><code>Utf8</code> is an exported built-in codec; see <a href="codecs/utf8.html">Utf8</a>
 for its exact behavior and <a href="codecs/raw-bytes.html"><code>RawBytes</code></a> for arbitrary payloads. The local stdin and
 stdout adapters default-construct their codec, so using a custom codec with them
-requires <code>Default</code>. The codec traits themselves do not require it. Kafka and
-Pulsar adapters also provide <code>with_codec(config, codec)</code> for existing configured
-codec instances.</p>
+requires <code>Default</code>. The codec traits themselves do not require it. Broker
+adapter handles also provide <code>source_with_codec(codec, ...)</code> and
+<code>sink_with_codec(codec, ...)</code> for existing configured codec instances.</p>
 <p>Choose framing-compatible codecs for line-based adapters. A binary encoding can
 contain newline bytes, and an arbitrary string may contain embedded newlines;
 neither automatically forms a safe one-record-per-line protocol. The UTF-8

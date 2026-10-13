@@ -33,40 +33,57 @@ sink adapters backed by the official Google Cloud client library for Rust
 (<code>google-cloud-pubsub</code>).</p>
 <pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;pubsub&quot;</span>] }
 </code></pre><h2 id="configuration">Configuration</h2>
-<p><code>PubSubSourceConfig</code> takes the full name of one subscription,
-<code>projects/{project}/subscriptions/{id}</code>, and <code>PubSubSinkConfig</code> the full name of
-one topic, <code>projects/{project}/topics/{id}</code>. <code>credentials</code> is
-<code>PubSubCredentials::Default</code> unless set: Application Default Credentials, which
-read the <code>GOOGLE_APPLICATION_CREDENTIALS</code> key file, the gcloud user
-credentials, or the metadata server of the Google Cloud environment the
-application runs in. <code>endpoint</code> replaces <code>https://pubsub.googleapis.com</code>, for
-example with a regional endpoint. <code>validate</code> checks the values without
-contacting Google Cloud, and both adapters create their client on first use.</p>
-<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::pubsub::{PubSubPublish, PubSubSink, PubSubSinkConfig, PubSubSource, PubSubSourceConfig}};
+<p>A <code>PubSub</code> handle holds the connection settings that its sources and sinks
+share. It resolves its credentials once and keeps one subscriber client for all
+of its sources. Each sink has a publisher client of its own, because a Pub/Sub
+publisher batches messages for one topic, and uses the handle&#39;s credentials.
+Credentials and clients are created on the first <code>receive</code> or publication that
+needs them, which also validates the settings.</p>
+<p>The handle uses Application Default Credentials unless <code>anonymous()</code> is set:
+the <code>GOOGLE_APPLICATION_CREDENTIALS</code> key file, the gcloud user credentials, or
+the metadata server of the Google Cloud environment the application runs in.
+<code>endpoint</code> replaces <code>https://pubsub.googleapis.com</code>, for example with a
+regional endpoint. Each handle builder method returns a handle with
+credentials and clients of its own, so configure the handle before building
+sources and sinks from it.</p>
+<p><code>source</code> takes the full name of one subscription,
+<code>projects/{project}/subscriptions/{id}</code>, and <code>sink</code> the full name of one topic,
+<code>projects/{project}/topics/{id}</code>. <code>source_with_codec</code> and <code>sink_with_codec</code>
+take a codec value first. The handle, source, and sink each have <code>validate</code>,
+which checks the values without contacting Google Cloud.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::pubsub::{PubSub, PubSubPublish}};
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = PubSubSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(PubSubSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
-    <span class="hljs-string">&quot;projects/my-project/subscriptions/orders&quot;</span>,
-));
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = PubSubSink::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(PubSubSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
-    <span class="hljs-string">&quot;projects/my-project/topics/processed-orders&quot;</span>,
-));
+<span class="hljs-keyword">let</span> <span class="hljs-variable">pubsub</span> = PubSub::<span class="hljs-title function_ invoke__">new</span>();
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = pubsub.source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;projects/my-project/subscriptions/orders&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = pubsub.sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;projects/my-project/topics/processed-orders&quot;</span>);
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = PubSubPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()).<span class="hljs-title function_ invoke__">with_ordering_key</span>(<span class="hljs-string">&quot;customer-7&quot;</span>);
-</code></pre><p>For the <a href="../development.html#broker-configuration">Pub/Sub emulator</a>, set
-<code>endpoint</code> to its address, such as <code>http://localhost:8085</code>, and <code>credentials</code>
-to <code>PubSubCredentials::Anonymous</code>.</p>
+</code></pre><p>For the <a href="../development.html#broker-configuration">Pub/Sub emulator</a>, set the
+endpoint to its address and send no credentials:
+<code>PubSub::new().endpoint(&quot;http://localhost:8085&quot;).anonymous()</code>.</p>
 <p>The adapters create no topics or subscriptions and set no subscription
 properties such as message ordering, exactly-once delivery, or a dead-letter
 policy. Create them with infrastructure tooling before the subscription starts.</p>
 <p>The source receives through one streaming pull. Pub/Sub stops sending once
 <code>max_outstanding_messages</code> (1000 by default) messages or
 <code>max_outstanding_bytes</code> (100 MiB) of data are received and not yet
-acknowledged. The runtime&#39;s <code>max_in_flight</code> bounds the deliveries it holds; the
-rest of the outstanding messages wait in the client&#39;s buffer with their leases
-extended.</p>
-<p><code>PubSubSinkConfig::batch_delay</code>, 10 milliseconds by default, is how long the
-client collects outputs into one <code>Publish</code> request.</p>
-<h2 id="records">Records</h2>
+acknowledged; zero or less sets no limit. The runtime&#39;s <code>max_in_flight</code> bounds
+the deliveries it holds; the rest of the outstanding messages wait in the
+client&#39;s buffer with their leases extended.</p>
+<p>The sink&#39;s <code>batch_delay</code>, 10 milliseconds by default, is how long the client
+collects outputs into one <code>Publish</code> request.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::pubsub::PubSub};
+<span class="hljs-keyword">use</span> std::time::Duration;
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">pubsub</span> = PubSub::<span class="hljs-title function_ invoke__">new</span>();
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = pubsub
+    .source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;projects/my-project/subscriptions/orders&quot;</span>)
+    .<span class="hljs-title function_ invoke__">max_outstanding_messages</span>(<span class="hljs-number">200</span>)
+    .<span class="hljs-title function_ invoke__">ack_deadline</span>(Duration::<span class="hljs-title function_ invoke__">from_secs</span>(<span class="hljs-number">120</span>));
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = pubsub
+    .sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;projects/my-project/topics/processed-orders&quot;</span>)
+    .<span class="hljs-title function_ invoke__">batch_delay</span>(Duration::<span class="hljs-title function_ invoke__">from_millis</span>(<span class="hljs-number">50</span>));
+</code></pre><h2 id="records">Records</h2>
 <p><code>PubSubRecord&lt;T&gt;</code> is the decoded input and <code>PubSubPublish&lt;T&gt;</code> the output. The
 codec applies to the message data. Pub/Sub has no null message, so the value
 is always present and Pub/Sub records support no tombstones. The data is bytes,

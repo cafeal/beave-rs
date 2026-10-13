@@ -54,7 +54,7 @@
     <p>Summarize each article on a Kafka topic with an LLM and publish the summaries to another topic:</p>
 <pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{
     App, Classify, <span class="hljs-type">Result</span>, Utf8,
-    adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
+    adapters::kafka::Kafka,
 };
 
 <span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">summarize</span>(article: <span class="hljs-type">String</span>) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;<span class="hljs-type">String</span>&gt; {
@@ -64,15 +64,9 @@
 
 <span class="hljs-meta">#[tokio::main]</span>
 <span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">main</span>() <span class="hljs-punctuation">-&gt;</span> anyhow::<span class="hljs-type">Result</span>&lt;()&gt; {
-    <span class="hljs-keyword">let</span> <span class="hljs-variable">articles</span> = KafkaSource::&lt;Utf8, _&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
-        <span class="hljs-string">&quot;localhost:9092&quot;</span>,
-        <span class="hljs-string">&quot;summarizer&quot;</span>,
-        [<span class="hljs-string">&quot;articles&quot;</span>],
-    ));
-    <span class="hljs-keyword">let</span> <span class="hljs-variable">summaries</span> = KafkaSink::&lt;Utf8, _&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
-        <span class="hljs-string">&quot;localhost:9092&quot;</span>,
-        <span class="hljs-string">&quot;summaries&quot;</span>,
-    ));
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>);
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">articles</span> = kafka.source::&lt;Utf8, _&gt;(<span class="hljs-string">&quot;summarizer&quot;</span>, [<span class="hljs-string">&quot;articles&quot;</span>]);
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">summaries</span> = kafka.sink::&lt;Utf8, _&gt;(<span class="hljs-string">&quot;summaries&quot;</span>);
 
     App::<span class="hljs-title function_ invoke__">new</span>()
         .<span class="hljs-title function_ invoke__">subscribe</span>(<span class="hljs-string">&quot;summarize&quot;</span>, articles, summaries, summarize)

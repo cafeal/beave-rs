@@ -198,9 +198,10 @@ and can produce a duplicate.</p>
 InMemorySink, and StdoutSink, and the <a href="adapters/channel.html">Channel adapter</a>
 that chains subscriptions, including examples, EOF behavior, ACK guarantees,
 and I/O limits. These components do not provide durable
-redelivery after process exit. Optional Kafka and Pulsar adapters provide
-broker-specific source and sink implementations; their documentation covers
-configuration and acknowledgement semantics.</p>
+redelivery after process exit. Optional broker adapters provide
+broker-specific sources and sinks built from a connection handle, such as
+<code>Kafka</code> or <code>RabbitMq</code>; their documentation covers configuration and
+acknowledgement semantics.</p>
 <h2 id="per-message-lifecycle">Per-message lifecycle</h2>
 <pre><code class="hljs language-text">receive → decode → pre_handler → handler → post_handler → prepare all outputs → submit → complete → ACK
 </code></pre><p>Use <code>Subscription::new_emitting</code> to register a handler returning

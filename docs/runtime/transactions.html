@@ -38,7 +38,8 @@ sink transactions that each commit a batch of deliveries:</p>
 </code></pre><p>The method only compiles when the sink implements
 <code>TransactionalSink&lt;Source::Message, Output&gt;</code>, which an adapter provides for the
 source messages whose acknowledgement can join its transactions. The
-Kafka adapter implements it for a <code>KafkaSource</code> and a <code>KafkaTransactionalSink</code>;
+Kafka adapter implements it for a <code>KafkaSource</code> and a <code>KafkaTransactionalSink</code>,
+which <code>kafka.sink(topic).transactional(id)</code> builds;
 see the <a href="../adapters/kafka.html#transactions">Kafka guide</a>. The runtime never calls
 the delivery&#39;s own ACK in a transactional subscription.</p>
 <h2 id="batches">Batches</h2>
