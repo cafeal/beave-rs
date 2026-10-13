@@ -64,7 +64,9 @@ async fn main() -&gt; anyhow::Result&lt;()&gt; {
   <div class="wrap">
     <h2>Subscriptions</h2>
     <p>Each <code>Subscription</code> connects one source, one handler, and one sink. An <code>App</code> runs any number of subscriptions side by side and shuts them down together.</p>
-    <img class="diagram" src="docs/assets/overview.svg" width="760" height="330" alt="An App running three subscriptions: Kafka source to handler to Kafka sink, Pulsar source to handler to HTTP sink, and SQS source to handler to RabbitMQ sink">
+    <div class="diagram-wrap">
+      <img class="diagram" src="docs/assets/overview.svg" width="760" height="330" alt="An App running three subscriptions: Kafka source to handler to Kafka sink, Pulsar source to handler to HTTP sink, and SQS source to handler to RabbitMQ sink">
+    </div>
     <p><a class="more" href="docs/architecture.html">Architecture and trait contracts</a></p>
   </div>
 </section>
@@ -73,30 +75,30 @@ async fn main() -&gt; anyhow::Result&lt;()&gt; {
   <div class="wrap">
     <h2>Features</h2>
     <div class="grid">
-      <div>
-        <h3><a href="docs/runtime.html#handler-shapes">Typed handlers</a></h3>
-        <p>Write <code>async fn(Input) -&gt; Result&lt;Output&gt;</code>; decoding, publishing, and acknowledgement are handled for you.</p>
-      </div>
-      <div>
-        <h3><a href="docs/runtime.html#per-message-lifecycle">At-least-once delivery</a></h3>
+      <a class="card" href="docs/runtime.html#handler-shapes">
+        <h3>Typed handlers</h3>
+        <p>Write <code>async fn(T) -&gt; Result&lt;U&gt;</code>; decoding, publishing, and acknowledgement are handled for you.</p>
+      </a>
+      <a class="card" href="docs/runtime.html#per-message-lifecycle">
+        <h3>At-least-once delivery</h3>
         <p>An input is acknowledged only after its output is published.</p>
-      </div>
-      <div>
-        <h3><a href="docs/runtime.html#errors-and-retries">Explicit failure handling</a></h3>
+      </a>
+      <a class="card" href="docs/runtime.html#errors-and-retries">
+        <h3>Explicit failure handling</h3>
         <p>Classify errors as retry, reject (dead-letter), or fatal; retries back off.</p>
-      </div>
-      <div>
-        <h3><a href="docs/runtime.html#ordering-and-backpressure">Concurrency with ordering</a></h3>
+      </a>
+      <a class="card" href="docs/runtime.html#ordering-and-backpressure">
+        <h3>Concurrency with ordering</h3>
         <p>Bounded concurrency, per-key ordering, and a worker pool for blocking handlers.</p>
-      </div>
-      <div>
-        <h3><a href="docs/adapters/channel.html">Pipelines</a></h3>
+      </a>
+      <a class="card" href="docs/adapters/channel.html">
+        <h3>Pipelines</h3>
         <p>Chain subscriptions through in-process channels with end-to-end acknowledgement.</p>
-      </div>
-      <div>
-        <h3><a href="docs/runtime.html#observability">Operations</a></h3>
+      </a>
+      <a class="card" href="docs/runtime.html#observability">
+        <h3>Operations</h3>
         <p>Graceful shutdown, <code>tracing</code> spans, <code>metrics</code>, OpenTelemetry trace propagation, and <code>/livez</code> and <code>/readyz</code> probes.</p>
-      </div>
+      </a>
     </div>
   </div>
 </section>
@@ -105,6 +107,7 @@ async fn main() -&gt; anyhow::Result&lt;()&gt; {
   <div class="wrap">
     <h2>Adapters and codecs</h2>
     <p>No Cargo feature is enabled by default. Enable the adapters and codecs the application uses.</p>
+    <h3 class="group-title">Adapters</h3>
     <div class="links">
       <a href="docs/adapters/kafka.html"><strong>Kafka</strong><code>kafka</code></a>
       <a href="docs/adapters/pulsar.html"><strong>Apache Pulsar</strong><code>pulsar</code></a>
@@ -113,11 +116,12 @@ async fn main() -&gt; anyhow::Result&lt;()&gt; {
       <a href="docs/adapters/pubsub.html"><strong>Google Cloud Pub/Sub</strong><code>pubsub</code></a>
       <a href="docs/adapters/servicebus.html"><strong>Azure Service Bus</strong><code>servicebus</code></a>
       <a href="docs/adapters/http.html"><strong>HTTP</strong><code>http</code></a>
-      <a href="docs/adapters/channel.html"><strong>In-process channel</strong><code>built in</code></a>
+      <a href="docs/adapters/channel.html"><strong>In-process channel</strong><span class="builtin">Built in</span></a>
     </div>
+    <h3 class="group-title">Codecs</h3>
     <div class="links">
-      <a href="docs/codecs.html#json"><strong>JSON</strong><code>built in</code></a>
-      <a href="docs/codecs/raw-utf8.html"><strong>Raw bytes and UTF-8</strong><code>built in</code></a>
+      <a href="docs/codecs.html#json"><strong>JSON</strong><span class="builtin">Built in</span></a>
+      <a href="docs/codecs/raw-utf8.html"><strong>Raw bytes and UTF-8</strong><span class="builtin">Built in</span></a>
       <a href="docs/codecs/protobuf.html"><strong>Protobuf</strong><code>protobuf</code></a>
       <a href="docs/codecs/avro.html"><strong>Avro</strong><code>avro</code></a>
     </div>

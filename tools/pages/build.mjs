@@ -155,14 +155,22 @@ function navigation() {
   return { ordered, tree: [{ page: guides, children: [] }, ...tree(null)] };
 }
 
+// Navigation labels drop what the surrounding list already says: the project
+// name, and "adapter" or "codec" under the Adapters and Codecs entries.
+function navLabel(page, parent) {
+  const label = page.title.replace(/^beave-rs\s+—\s+/, "");
+  return parent ? label.replace(/\s+(adapter|codecs?)$/i, "") : label;
+}
+
 function navHtml(current, nav) {
-  const item = ({ page, children }) => {
+  const item = ({ page, children }, parent) => {
     const href = relativeUrl(current.sitePath, `${page.sitePath}.html`);
     const attrs = page === current ? ' aria-current="page"' : "";
-    const sub = children.length ? `<ul>${children.map(item).join("")}</ul>` : "";
-    return `<li><a href="${href}"${attrs}>${escapeHtml(page.title)}</a>${sub}</li>`;
+    const sub = children.length ? `<ul>${children.map((child) => item(child, page)).join("")}</ul>` : "";
+    return `<li><a href="${href}"${attrs}>${escapeHtml(navLabel(page, parent))}</a>${sub}</li>`;
   };
-  return `<ul>${nav.tree.map(item).join("")}</ul>`;
+  // Narrow screens show the list collapsed above the page; see style.css.
+  return `<details open><summary>Guides</summary><ul>${nav.tree.map((entry) => item(entry, null)).join("")}</ul></details>`;
 }
 
 // Wraps a page body in the shared head and header. `sitePath` is the page's
@@ -185,8 +193,8 @@ function shell({ sitePath, title, markdownHref, body }) {
     <div class="wrap top-inner">
       <a class="name" href="${root || "./"}">${NAME}</a>
       <nav>
-        <a href="${relativeUrl(sitePath, `${guides.sitePath}.html`)}">Guides</a>
-        <a href="https://docs.rs/beavers">API</a>
+        <a href="${relativeUrl(sitePath, `${guides.sitePath}.html`)}"${sitePath.startsWith("docs/") ? ' aria-current="true"' : ""}>Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
         <a href="https://crates.io/crates/beavers">crates.io</a>
         <a href="${REPO_URL}">GitHub</a>
       </nav>
@@ -194,7 +202,7 @@ function shell({ sitePath, title, markdownHref, body }) {
   </header>
 ${body}
   <footer class="foot">
-    <div class="wrap">MIT license · <a href="${root}llms.txt">llms.txt</a></div>
+    <div class="wrap">MIT license · <a href="${REPO_URL}">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="${root}llms.txt">llms.txt</a></div>
   </footer>
 </body>
 </html>
@@ -217,6 +225,9 @@ ${render(page)}
       <p class="source"><a href="${markdownHref}">Markdown</a> · <a href="${REPO_URL}/blob/main/${page.repoPath}">Source on GitHub</a></p>
     </main>
   </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
 `,
   });
 }
