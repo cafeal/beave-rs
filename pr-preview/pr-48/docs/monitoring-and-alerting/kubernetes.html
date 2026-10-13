@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Kubernetes - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../../style.css">
   <link rel="alternate" type="text/markdown" href="kubernetes.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../../">beave-rs</a>
       <nav>
         <a href="../index.html">Guides</a>
@@ -21,9 +22,9 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/channel.html">Channel adapter</a></li><li><a href="../adapters/kafka.html">Kafka adapter</a></li><li><a href="../adapters/pulsar.html">Pulsar adapter</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="../adapters/sqs.html">SQS adapter</a></li><li><a href="../adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="../adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="index.html">Monitoring and alerting</a><ul><li><a href="kubernetes.html" aria-current="page">Kubernetes</a></li><li><a href="aws.html">AWS</a></li><li><a href="gcp.html">Google Cloud</a></li><li><a href="azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../../index.html">Overview</a></li><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/channel.html">Channel adapter</a></li><li><a href="../adapters/kafka.html">Kafka adapter</a></li><li><a href="../adapters/pulsar.html">Pulsar adapter</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="../adapters/sqs.html">SQS adapter</a></li><li><a href="../adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="../adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="index.html">Monitoring and alerting</a><ul><li><a href="kubernetes.html" aria-current="page">Kubernetes</a></li><li><a href="aws.html">AWS</a></li><li><a href="gcp.html">Google Cloud</a></li><li><a href="azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="kubernetes">Kubernetes</h1>
@@ -35,40 +36,39 @@ the cloud&#39;s managed Prometheus avoids operating them yourself; see
 <h2 id="deployment">Deployment</h2>
 <p>Expose the metrics and health ports, probe the health server, and give
 draining enough time before Kubernetes kills the container:</p>
-<pre><code class="language-yaml">apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: orders-consumer
-  namespace: orders
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: orders-consumer
-  template:
-    metadata:
-      labels:
-        app: orders-consumer
-    spec:
-      terminationGracePeriodSeconds: 60
-      containers:
-        - name: app
-          image: registry.example.com/orders-consumer:1.0.0
-          ports:
-            - name: health
-              containerPort: 8080
-            - name: metrics
-              containerPort: 9000
-          livenessProbe:
-            httpGet: { path: /livez, port: health }
-            periodSeconds: 10
-            failureThreshold: 3
-          readinessProbe:
-            httpGet: { path: /readyz, port: health }
-            periodSeconds: 5
-            failureThreshold: 2
-</code></pre>
-<p>Readiness removes an instance that serves an <a href="../adapters/http.html">HTTP source</a>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">apps/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">Deployment</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">orders-consumer</span>
+  <span class="hljs-attr">namespace:</span> <span class="hljs-string">orders</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">replicas:</span> <span class="hljs-number">2</span>
+  <span class="hljs-attr">selector:</span>
+    <span class="hljs-attr">matchLabels:</span>
+      <span class="hljs-attr">app:</span> <span class="hljs-string">orders-consumer</span>
+  <span class="hljs-attr">template:</span>
+    <span class="hljs-attr">metadata:</span>
+      <span class="hljs-attr">labels:</span>
+        <span class="hljs-attr">app:</span> <span class="hljs-string">orders-consumer</span>
+    <span class="hljs-attr">spec:</span>
+      <span class="hljs-attr">terminationGracePeriodSeconds:</span> <span class="hljs-number">60</span>
+      <span class="hljs-attr">containers:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">app</span>
+          <span class="hljs-attr">image:</span> <span class="hljs-string">registry.example.com/orders-consumer:1.0.0</span>
+          <span class="hljs-attr">ports:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">health</span>
+              <span class="hljs-attr">containerPort:</span> <span class="hljs-number">8080</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">metrics</span>
+              <span class="hljs-attr">containerPort:</span> <span class="hljs-number">9000</span>
+          <span class="hljs-attr">livenessProbe:</span>
+            <span class="hljs-attr">httpGet:</span> { <span class="hljs-attr">path:</span> <span class="hljs-string">/livez</span>, <span class="hljs-attr">port:</span> <span class="hljs-string">health</span> }
+            <span class="hljs-attr">periodSeconds:</span> <span class="hljs-number">10</span>
+            <span class="hljs-attr">failureThreshold:</span> <span class="hljs-number">3</span>
+          <span class="hljs-attr">readinessProbe:</span>
+            <span class="hljs-attr">httpGet:</span> { <span class="hljs-attr">path:</span> <span class="hljs-string">/readyz</span>, <span class="hljs-attr">port:</span> <span class="hljs-string">health</span> }
+            <span class="hljs-attr">periodSeconds:</span> <span class="hljs-number">5</span>
+            <span class="hljs-attr">failureThreshold:</span> <span class="hljs-number">2</span>
+</code></pre><p>Readiness removes an instance that serves an <a href="../adapters/http.html">HTTP source</a>
 from its Service while it drains or retries. For broker sources, readiness only
 affects rollouts: a rolling update waits until new pods are ready. Liveness
 restarts a container whose subscription failed and that has not exited yet.</p>
@@ -78,58 +78,55 @@ finishes draining leaves unacknowledged deliveries that the broker redelivers.</
 <h2 id="install-the-monitoring-stack">Install the monitoring stack</h2>
 <p>The <code>kube-prometheus-stack</code> Helm chart installs the operator, Prometheus,
 Alertmanager, kube-state-metrics, and default Kubernetes alerts:</p>
-<pre><code class="language-sh">helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+<pre><code class="hljs language-sh">helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm install monitoring prometheus-community/kube-prometheus-stack \
   --namespace monitoring --create-namespace \
   --values monitoring-values.yaml
-</code></pre>
-<p>By default the chart&#39;s Prometheus selects only <code>PodMonitor</code> and
+</code></pre><p>By default the chart&#39;s Prometheus selects only <code>PodMonitor</code> and
 <code>PrometheusRule</code> resources labelled <code>release: monitoring</code>, the Helm release
 name. The examples below carry that label.</p>
 <h2 id="scrape-the-metrics">Scrape the metrics</h2>
-<pre><code class="language-yaml">apiVersion: monitoring.coreos.com/v1
-kind: PodMonitor
-metadata:
-  name: beavers
-  namespace: orders
-  labels:
-    release: monitoring
-spec:
-  selector:
-    matchLabels:
-      app: orders-consumer
-  podMetricsEndpoints:
-    - port: metrics
-      interval: 30s
-</code></pre>
-<p>The operator sets the <code>job</code> label of a <code>PodMonitor</code> target to
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">monitoring.coreos.com/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">PodMonitor</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">beavers</span>
+  <span class="hljs-attr">namespace:</span> <span class="hljs-string">orders</span>
+  <span class="hljs-attr">labels:</span>
+    <span class="hljs-attr">release:</span> <span class="hljs-string">monitoring</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">selector:</span>
+    <span class="hljs-attr">matchLabels:</span>
+      <span class="hljs-attr">app:</span> <span class="hljs-string">orders-consumer</span>
+  <span class="hljs-attr">podMetricsEndpoints:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">port:</span> <span class="hljs-string">metrics</span>
+      <span class="hljs-attr">interval:</span> <span class="hljs-string">30s</span>
+</code></pre><p>The operator sets the <code>job</code> label of a <code>PodMonitor</code> target to
 <code>&lt;namespace&gt;/&lt;name&gt;</code>, here <code>orders/beavers</code>. Use that value in the
 <code>BeaversMetricsDown</code> rule.</p>
 <h2 id="alert-rules">Alert rules</h2>
 <p>Wrap the <a href="index.html#alert-rules">shared rules</a> in a <code>PrometheusRule</code> and add a
 restart alert for the application, which also fires when the failed
 subscription&#39;s last metrics were never scraped:</p>
-<pre><code class="language-yaml">apiVersion: monitoring.coreos.com/v1
-kind: PrometheusRule
-metadata:
-  name: beavers
-  namespace: orders
-  labels:
-    release: monitoring
-spec:
-  groups:
-    - name: beavers
-      rules:
-        # The shared rules from README.md#alert-rules, with
-        # up{job=&quot;orders/beavers&quot;} in BeaversMetricsDown.
-        - alert: BeaversRestarted
-          expr: increase(kube_pod_container_status_restarts_total{namespace=&quot;orders&quot;, container=&quot;app&quot;}[15m]) &gt; 0
-          labels:
-            severity: critical
-          annotations:
-            summary: &quot;{{ $labels.pod }} restarted; check its previous logs for &#39;subscription failed&#39;&quot;
-</code></pre>
-<p><code>kube-prometheus-stack</code> already alerts on crash loops with
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">monitoring.coreos.com/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">PrometheusRule</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">beavers</span>
+  <span class="hljs-attr">namespace:</span> <span class="hljs-string">orders</span>
+  <span class="hljs-attr">labels:</span>
+    <span class="hljs-attr">release:</span> <span class="hljs-string">monitoring</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">groups:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">beavers</span>
+      <span class="hljs-attr">rules:</span>
+        <span class="hljs-comment"># The shared rules from README.md#alert-rules, with</span>
+        <span class="hljs-comment"># up{job=&quot;orders/beavers&quot;} in BeaversMetricsDown.</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">alert:</span> <span class="hljs-string">BeaversRestarted</span>
+          <span class="hljs-attr">expr:</span> <span class="hljs-string">increase(kube_pod_container_status_restarts_total{namespace=&quot;orders&quot;,</span> <span class="hljs-string">container=&quot;app&quot;}[15m])</span> <span class="hljs-string">&gt;</span> <span class="hljs-number">0</span>
+          <span class="hljs-attr">labels:</span>
+            <span class="hljs-attr">severity:</span> <span class="hljs-string">critical</span>
+          <span class="hljs-attr">annotations:</span>
+            <span class="hljs-attr">summary:</span> <span class="hljs-string">&quot;<span class="hljs-template-variable">{{ $labels.pod }}</span> restarted; check its previous logs for &#x27;subscription failed&#x27;&quot;</span>
+</code></pre><p><code>kube-prometheus-stack</code> already alerts on crash loops with
 <code>KubePodCrashLooping</code>, but only after repeated restarts. <code>BeaversRestarted</code>
 fires on the first one, because a subscription that stops on a poison record
 restarts and fails again on the same record until someone dead-letters or
@@ -137,34 +134,33 @@ skips it.</p>
 <h2 id="route-alerts">Route alerts</h2>
 <p>Configure Alertmanager in <code>monitoring-values.yaml</code>. This example sends every
 alert to a Slack channel and pages on <code>critical</code> alerts:</p>
-<pre><code class="language-yaml">alertmanager:
-  config:
-    route:
-      receiver: team-slack
-      group_by: [alertname, subscription]
-      routes:
-        - receiver: &quot;null&quot;
-          matchers: [&#39;alertname=&quot;Watchdog&quot;&#39;]
-        - receiver: on-call
-          matchers: [&#39;severity=&quot;critical&quot;&#39;]
-          continue: true
-        - receiver: team-slack
-    receivers:
-      - name: &quot;null&quot;
-      - name: team-slack
-        slack_configs:
-          - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/url
-            channel: &quot;#orders-alerts&quot;
-            send_resolved: true
-            title: &quot;{{ .CommonLabels.alertname }}&quot;
-            text: &quot;{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}&quot;
-      - name: on-call
-        pagerduty_configs:
-          - routing_key_file: /etc/alertmanager/secrets/alertmanager-pagerduty/key
-  alertmanagerSpec:
-    secrets: [alertmanager-slack, alertmanager-pagerduty]
-</code></pre>
-<p>Store the Slack webhook URL and the PagerDuty integration key in the
+<pre><code class="hljs language-yaml"><span class="hljs-attr">alertmanager:</span>
+  <span class="hljs-attr">config:</span>
+    <span class="hljs-attr">route:</span>
+      <span class="hljs-attr">receiver:</span> <span class="hljs-string">team-slack</span>
+      <span class="hljs-attr">group_by:</span> [<span class="hljs-string">alertname</span>, <span class="hljs-string">subscription</span>]
+      <span class="hljs-attr">routes:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">receiver:</span> <span class="hljs-string">&quot;null&quot;</span>
+          <span class="hljs-attr">matchers:</span> [<span class="hljs-string">&#x27;alertname=&quot;Watchdog&quot;&#x27;</span>]
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">receiver:</span> <span class="hljs-string">on-call</span>
+          <span class="hljs-attr">matchers:</span> [<span class="hljs-string">&#x27;severity=&quot;critical&quot;&#x27;</span>]
+          <span class="hljs-attr">continue:</span> <span class="hljs-literal">true</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">receiver:</span> <span class="hljs-string">team-slack</span>
+    <span class="hljs-attr">receivers:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">&quot;null&quot;</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">team-slack</span>
+        <span class="hljs-attr">slack_configs:</span>
+          <span class="hljs-bullet">-</span> <span class="hljs-attr">api_url_file:</span> <span class="hljs-string">/etc/alertmanager/secrets/alertmanager-slack/url</span>
+            <span class="hljs-attr">channel:</span> <span class="hljs-string">&quot;#orders-alerts&quot;</span>
+            <span class="hljs-attr">send_resolved:</span> <span class="hljs-literal">true</span>
+            <span class="hljs-attr">title:</span> <span class="hljs-string">&quot;<span class="hljs-template-variable">{{ .CommonLabels.alertname }}</span>&quot;</span>
+            <span class="hljs-attr">text:</span> <span class="hljs-string">&quot;<span class="hljs-template-variable">{{ range .Alerts }}</span><span class="hljs-template-variable">{{ .Annotations.summary }}</span>\n<span class="hljs-template-variable">{{ end }}</span>&quot;</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">on-call</span>
+        <span class="hljs-attr">pagerduty_configs:</span>
+          <span class="hljs-bullet">-</span> <span class="hljs-attr">routing_key_file:</span> <span class="hljs-string">/etc/alertmanager/secrets/alertmanager-pagerduty/key</span>
+  <span class="hljs-attr">alertmanagerSpec:</span>
+    <span class="hljs-attr">secrets:</span> [<span class="hljs-string">alertmanager-slack</span>, <span class="hljs-string">alertmanager-pagerduty</span>]
+</code></pre><p>Store the Slack webhook URL and the PagerDuty integration key in the
 <code>alertmanager-slack</code> and <code>alertmanager-pagerduty</code> Secrets of the <code>monitoring</code>
 namespace. Grouping by <code>alertname</code> and <code>subscription</code> sends one notification
 per failing subscription, however many deliveries failed.</p>
@@ -173,20 +169,19 @@ per failing subscription, however many deliveries failed.</p>
 the <a href="index.html#what-to-expose">JSON logs</a> to a log store, such as Loki or the
 cloud&#39;s log service, to read the <code>subscription failed</code> event after a restart.
 With Loki, a ruler rule alerts on the event directly:</p>
-<pre><code class="language-yaml">groups:
-  - name: beavers-logs
-    rules:
-      - alert: BeaversSubscriptionFailed
-        expr: |
+<pre><code class="hljs language-yaml"><span class="hljs-attr">groups:</span>
+  <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">beavers-logs</span>
+    <span class="hljs-attr">rules:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">alert:</span> <span class="hljs-string">BeaversSubscriptionFailed</span>
+        <span class="hljs-attr">expr:</span> <span class="hljs-string">|
           sum by (namespace, pod) (
             count_over_time({namespace=&quot;orders&quot;} | json | fields_message=&quot;subscription failed&quot; [10m])
           ) &gt; 0
-        labels:
-          severity: critical
-        annotations:
-          summary: &quot;{{ $labels.pod }} logged &#39;subscription failed&#39;&quot;
+</span>        <span class="hljs-attr">labels:</span>
+          <span class="hljs-attr">severity:</span> <span class="hljs-string">critical</span>
+        <span class="hljs-attr">annotations:</span>
+          <span class="hljs-attr">summary:</span> <span class="hljs-string">&quot;<span class="hljs-template-variable">{{ $labels.pod }}</span> logged &#x27;subscription failed&#x27;&quot;</span>
 </code></pre>
-
       <p class="source"><a href="kubernetes.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/monitoring-and-alerting/kubernetes.md">Source on GitHub</a></p>
     </main>
   </div>

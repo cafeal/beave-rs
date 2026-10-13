@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Azure Service Bus adapter - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../../style.css">
   <link rel="alternate" type="text/markdown" href="servicebus.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../../">beave-rs</a>
       <nav>
         <a href="../index.html">Guides</a>
@@ -21,17 +22,16 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html">Channel adapter</a></li><li><a href="kafka.html">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html">RabbitMQ adapter</a></li><li><a href="sqs.html">SQS adapter</a></li><li><a href="pubsub.html">Pub/Sub adapter</a></li><li><a href="servicebus.html" aria-current="page">Azure Service Bus adapter</a></li><li><a href="http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../../index.html">Overview</a></li><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html">Channel adapter</a></li><li><a href="kafka.html">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html">RabbitMQ adapter</a></li><li><a href="sqs.html">SQS adapter</a></li><li><a href="pubsub.html">Pub/Sub adapter</a></li><li><a href="servicebus.html" aria-current="page">Azure Service Bus adapter</a></li><li><a href="http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="azure-service-bus-adapter">Azure Service Bus adapter</h1>
 <p>The optional <code>servicebus</code> feature provides typed Azure Service Bus source and
 sink adapters that speak AMQP 1.0 to a namespace through <code>fe2o3-amqp</code>.</p>
-<pre><code class="language-toml">beavers = { version = &quot;0.1&quot;, features = [&quot;servicebus&quot;] }
-</code></pre>
-<h2 id="configuration">Configuration</h2>
+<pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;servicebus&quot;</span>] }
+</code></pre><h2 id="configuration">Configuration</h2>
 <p><code>ServiceBusConnection</code> names a namespace, such as
 <code>contoso.servicebus.windows.net</code>, and a <code>ServiceBusCredential</code>:</p>
 <ul>
@@ -50,7 +50,7 @@ claims-based security. <code>UseDevelopmentEmulator=true</code> in a connection 
 <code>emulator = true</code>, selects plain AMQP on port 5672 for the emulator; a port in
 the namespace overrides either default. Microsoft Entra ID credentials are not
 supported yet.</p>
-<pre><code class="language-rust">use beavers::{
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{
     Utf8,
     adapters::servicebus::{
         ServiceBusConnection, ServiceBusPublish, ServiceBusSink, ServiceBusSinkConfig,
@@ -58,22 +58,21 @@ supported yet.</p>
     },
 };
 
-let connection = ServiceBusConnection::from_connection_string(
-    &quot;Endpoint=sb://contoso.servicebus.windows.net/;SharedAccessKeyName=app;SharedAccessKey=...&quot;,
+<span class="hljs-keyword">let</span> <span class="hljs-variable">connection</span> = ServiceBusConnection::<span class="hljs-title function_ invoke__">from_connection_string</span>(
+    <span class="hljs-string">&quot;Endpoint=sb://contoso.servicebus.windows.net/;SharedAccessKeyName=app;SharedAccessKey=...&quot;</span>,
 )?;
-let source = ServiceBusSource::&lt;Utf8, String&gt;::new(ServiceBusSourceConfig::new(
-    connection.clone(),
-    &quot;orders/Subscriptions/billing&quot;,
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = ServiceBusSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(ServiceBusSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
+    connection.<span class="hljs-title function_ invoke__">clone</span>(),
+    <span class="hljs-string">&quot;orders/Subscriptions/billing&quot;</span>,
 ));
-let sink = ServiceBusSink::&lt;Utf8, String&gt;::new(ServiceBusSinkConfig::new(
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = ServiceBusSink::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(ServiceBusSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
     connection,
-    &quot;processed-orders&quot;,
+    <span class="hljs-string">&quot;processed-orders&quot;</span>,
 ));
 
-let output = ServiceBusPublish::new(&quot;created&quot;.to_owned()).with_message_id(&quot;order-7&quot;);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = ServiceBusPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()).<span class="hljs-title function_ invoke__">with_message_id</span>(<span class="hljs-string">&quot;order-7&quot;</span>);
 # Ok::&lt;(), beavers::Error&gt;(())
-</code></pre>
-<p><code>ServiceBusSourceConfig</code> receives from a queue, a topic subscription written as
+</code></pre><p><code>ServiceBusSourceConfig</code> receives from a queue, a topic subscription written as
 <code>{topic}/Subscriptions/{subscription}</code>, or a dead-letter subqueue such as
 <code>orders/$DeadLetterQueue</code>. Session-enabled entities are not supported.
 <code>prefetch</code>, 10 by default, is how many messages Service Bus may send ahead of
@@ -148,12 +147,11 @@ scheduled message is as durable as any other.</p>
 <h2 id="metadata-inheritance">Metadata inheritance</h2>
 <p>Register <code>ServiceBusInherit</code> on a Service Bus to Service Bus subscription to
 forward the received application properties:</p>
-<pre><code class="language-rust,ignore">use beavers::adapters::servicebus::ServiceBusInherit;
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::adapters::servicebus::ServiceBusInherit;
 
-Subscription::new(&quot;orders&quot;, servicebus_source, servicebus_sink, handler)
-    .middleware(ServiceBusInherit::new())
-</code></pre>
-<p>An application property is added only when the output does not set that name,
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, servicebus_source, servicebus_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(ServiceBusInherit::<span class="hljs-title function_ invoke__">new</span>())
+</code></pre><p>An application property is added only when the output does not set that name,
 and dead-letter properties starting with <code>beavers-dlq-</code> are never inherited.
 <code>with_session()</code> also forwards the session ID and partition key when the output
 leaves the session ID <code>None</code>. The message ID, correlation ID, subject, content

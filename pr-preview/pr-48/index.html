@@ -7,13 +7,14 @@
   <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="style.css">
+  <link rel="alternate" type="text/markdown" href="index.md">
 </head>
 <body>
   <header class="top">
     <div class="wrap top-inner">
       <a class="name" href="./">beave-rs</a>
       <nav>
-        <a href="docs/">Guides</a>
+        <a href="docs/index.html">Guides</a>
         <a href="https://docs.rs/beavers">API</a>
         <a href="https://crates.io/crates/beavers">crates.io</a>
         <a href="https://github.com/cafeal/beave-rs">GitHub</a>
@@ -21,100 +22,178 @@
     </div>
   </header>
 
-  <main class="wrap">
-    <section class="intro">
-      <div>
-        <h1>beave-rs</h1>
-        <p>A lightweight Rust message processing framework built around typed handlers.</p>
-        <pre class="install"><code>cargo add beavers --features kafka</code></pre>
-        <p class="note">Pre-release. The API may change until 0.1.0.</p>
-      </div>
-      <!-- Replace this figure with the project character artwork. -->
-      <figure class="character" aria-label="Character artwork placeholder"></figure>
-    </section>
-
-    <section>
-      <h2>Example</h2>
-      <p>Summarize each article on a Kafka topic with an LLM and publish the summaries to another topic:</p>
-<pre><code><span class="k">use</span> beavers::{
-    App, Classify, Result, Utf8,
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="index.html" aria-current="page">Overview</a></li><li><a href="docs/index.html">Documentation</a></li><li><a href="docs/architecture.html">Architecture</a></li><li><a href="docs/adapters.html">Adapters</a><ul><li><a href="docs/adapters/channel.html">Channel adapter</a></li><li><a href="docs/adapters/kafka.html">Kafka adapter</a></li><li><a href="docs/adapters/pulsar.html">Pulsar adapter</a></li><li><a href="docs/adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="docs/adapters/sqs.html">SQS adapter</a></li><li><a href="docs/adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="docs/adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="docs/adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="docs/codecs.html">Codecs</a><ul><li><a href="docs/codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="docs/codecs/protobuf.html">Protobuf codec</a></li><li><a href="docs/codecs/avro.html">Avro codec</a></li></ul></li><li><a href="docs/dead-letter-handling.html">Handling dead letters</a></li><li><a href="docs/monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="docs/monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="docs/monitoring-and-alerting/aws.html">AWS</a></li><li><a href="docs/monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="docs/monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="docs/testing.html">Testing</a></li><li><a href="docs/runtime.html">Runtime guide</a></li><li><a href="docs/plan.html">beave-rs — Design plan</a></li><li><a href="docs/development.html">Local development brokers</a></li><li><a href="docs/releasing.html">Versioning and releases</a></li></ul>
+    </nav>
+    <main class="doc">
+<h1 id="beave-rs">beave-rs</h1>
+<p><a href="https://crates.io/crates/beavers"><img src="https://img.shields.io/crates/v/beavers.svg" alt="crates.io"></a>
+<a href="https://docs.rs/beavers"><img src="https://img.shields.io/docsrs/beavers" alt="docs.rs"></a>
+<a href="https://github.com/cafeal/beave-rs/actions/workflows/ci.yml"><img src="https://github.com/cafeal/beave-rs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+<a href="#license"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a></p>
+<p>A lightweight Rust message processing framework built around typed handlers.</p>
+<p align="center">
+  <img src="docs/assets/overview.svg" width="760" alt="An App running three subscriptions: Kafka source to handler to Kafka sink, Pulsar source to handler to HTTP sink, and SQS source to handler to RabbitMQ sink">
+</p><p>Each <code>Subscription</code> connects one source, one handler, and one sink. An <code>App</code>
+runs any number of subscriptions side by side and shuts them down together.</p>
+<ul>
+<li><strong>Typed handlers</strong> — write <code>async fn(Input) -&gt; Result&lt;Output&gt;</code>; decoding,
+publishing, and acknowledgement are handled for you.</li>
+<li><strong>At-least-once delivery</strong> — an input is acknowledged only after its output
+is published.</li>
+<li><strong>Explicit failure handling</strong> — classify errors as retry, reject
+(dead-letter), or fatal; retries back off.</li>
+<li><strong>Concurrency with ordering</strong> — bounded concurrency, per-key ordering, and a
+worker pool for blocking handlers.</li>
+<li><strong>Pipelines</strong> — chain subscriptions through in-process channels with
+end-to-end acknowledgement.</li>
+<li><strong>Adapters</strong> — Kafka, Apache Pulsar, RabbitMQ, Amazon SQS, Google Cloud
+Pub/Sub, Azure Service Bus, and HTTP; JSON, Avro, and Protobuf codecs.</li>
+<li><strong>Operations</strong> — graceful shutdown, <code>tracing</code> spans, <code>metrics</code>,
+OpenTelemetry trace propagation, and <code>/livez</code> and <code>/readyz</code> probes.</li>
+</ul>
+<blockquote>
+<p>beave-rs is pre-release. The API may change until 0.1.0.</p>
+</blockquote>
+<h2 id="installation">Installation</h2>
+<pre><code class="hljs language-sh">cargo add beavers --features kafka
+cargo add tokio --features macros,rt-multi-thread
+cargo add anyhow
+</code></pre><p>No Cargo feature is enabled by default. Enable the adapters and codecs the
+application uses:</p>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Enables</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>kafka</code></td>
+<td>Kafka source and sink</td>
+</tr>
+<tr>
+<td><code>pulsar</code></td>
+<td>Apache Pulsar source and sink</td>
+</tr>
+<tr>
+<td><code>rabbitmq</code></td>
+<td>RabbitMQ source and sink</td>
+</tr>
+<tr>
+<td><code>sqs</code></td>
+<td>Amazon SQS source and sink</td>
+</tr>
+<tr>
+<td><code>pubsub</code></td>
+<td>Google Cloud Pub/Sub source and sink</td>
+</tr>
+<tr>
+<td><code>servicebus</code></td>
+<td>Azure Service Bus source and sink</td>
+</tr>
+<tr>
+<td><code>http</code></td>
+<td>HTTP source and sink</td>
+</tr>
+<tr>
+<td><code>avro</code></td>
+<td>Avro codec</td>
+</tr>
+<tr>
+<td><code>protobuf</code></td>
+<td>Protobuf codec</td>
+</tr>
+<tr>
+<td><code>opentelemetry</code></td>
+<td>Trace-context propagation through broker metadata</td>
+</tr>
+<tr>
+<td><code>health</code></td>
+<td><code>/livez</code> and <code>/readyz</code> endpoints</td>
+</tr>
+<tr>
+<td><code>testing</code></td>
+<td>Fabricated broker records for handler tests</td>
+</tr>
+</tbody></table>
+<h2 id="quick-start">Quick start</h2>
+<p>Summarize each article on a Kafka topic with an LLM and publish the summaries
+to another topic:</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{
+    App, Classify, <span class="hljs-type">Result</span>, Utf8,
     adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
 };
 
-<span class="k">async fn</span> summarize(article: String) -&gt; Result&lt;String&gt; {
-    <span class="k">let</span> summary = call_llm(&amp;<span class="m">format!</span>(<span class="s">"Summarize: {article}"</span>)).<span class="k">await</span>.retry()?;
-    Ok(summary)
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">summarize</span>(article: <span class="hljs-type">String</span>) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;<span class="hljs-type">String</span>&gt; {
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">summary</span> = <span class="hljs-title function_ invoke__">call_llm</span>(&amp;<span class="hljs-built_in">format!</span>(<span class="hljs-string">&quot;Summarize: {article}&quot;</span>)).<span class="hljs-keyword">await</span>.<span class="hljs-title function_ invoke__">retry</span>()?;
+    <span class="hljs-title function_ invoke__">Ok</span>(summary)
 }
 
-<span class="c">#[tokio::main]</span>
-<span class="k">async fn</span> main() -&gt; anyhow::Result&lt;()&gt; {
-    <span class="k">let</span> articles = KafkaSource::&lt;Utf8, _&gt;::new(KafkaSourceConfig::new(
-        <span class="s">"localhost:9092"</span>,
-        <span class="s">"summarizer"</span>,
-        [<span class="s">"articles"</span>],
-    ));
-    <span class="k">let</span> summaries = KafkaSink::&lt;Utf8, _&gt;::new(KafkaSinkConfig::new(
-        <span class="s">"localhost:9092"</span>,
-        <span class="s">"summaries"</span>,
-    ));
+<span class="hljs-meta">#[tokio::main]</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">main</span>() <span class="hljs-punctuation">-&gt;</span> anyhow::<span class="hljs-type">Result</span>&lt;()&gt; {
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">articles</span> = KafkaSource::&lt;Utf8, _&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSourceConfig::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>, <span class="hljs-string">&quot;summarizer&quot;</span>, [<span class="hljs-string">&quot;articles&quot;</span>]));
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">summaries</span> = KafkaSink::&lt;Utf8, _&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSinkConfig::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>, <span class="hljs-string">&quot;summaries&quot;</span>));
 
-    App::new()
-        .subscribe(<span class="s">"summarize"</span>, articles, summaries, summarize)
-        .run()
-        .<span class="k">await</span>
-}</code></pre>
-      <p>The handler sees only the decoded value. A transient API failure is retried with backoff, and each offset is committed after its summary is published.</p>
-    </section>
+    App::<span class="hljs-title function_ invoke__">new</span>()
+        .<span class="hljs-title function_ invoke__">subscribe</span>(<span class="hljs-string">&quot;summarize&quot;</span>, articles, summaries, summarize)
+        .<span class="hljs-title function_ invoke__">run</span>()
+        .<span class="hljs-keyword">await</span>?;
+    <span class="hljs-title function_ invoke__">Ok</span>(())
+}
+</code></pre><p>The handler sees only the decoded value. A transient API failure is retried
+with backoff, and each offset is committed after its summary is published.</p>
+<p>The repository&#39;s examples run against local brokers started with Docker
+Compose, which also provides web consoles for Kafka and Pulsar:</p>
+<pre><code class="hljs language-sh">docker compose up -d --<span class="hljs-built_in">wait</span>
+cargo kafka-produce
+cargo kafka-process   <span class="hljs-comment"># Ctrl-C to stop</span>
+docker compose down
+</code></pre><p>To try the API without a broker, run <code>cargo run --example transform</code>. See
+<a href="docs/development.html">local development brokers</a> for every example, console,
+and Cargo alias.</p>
+<h2 id="errors">Errors</h2>
+<p>Errors propagated with <code>?</code> reject the input, which is dead-lettered by default.
+The handler asks for other outcomes at the call site:</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">handle</span>(order: Order) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;Output&gt; {
+    <span class="hljs-title function_ invoke__">validate</span>(&amp;order).<span class="hljs-title function_ invoke__">reject</span>()?; <span class="hljs-comment">// dead-letter now (same as `?`)</span>
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">user</span> = db.<span class="hljs-title function_ invoke__">find_user</span>(order.user_id).<span class="hljs-keyword">await</span>.<span class="hljs-title function_ invoke__">retry</span>()?; <span class="hljs-comment">// retry, then dead-letter</span>
+    <span class="hljs-title function_ invoke__">Ok</span>(<span class="hljs-title function_ invoke__">build_output</span>(order, user))
+}
+</code></pre><p><code>.fatal()?</code> stops the subscription. See
+<a href="docs/runtime.html#errors-and-retries">errors and retries</a> for retry policies
+and the error policy.</p>
+<h2 id="documentation">Documentation</h2>
+<ul>
+<li><a href="docs/index.html">Documentation index</a></li>
+<li><a href="docs/architecture.html">Architecture and trait contracts</a></li>
+<li><a href="docs/adapters.html">Adapters and usage examples</a></li>
+<li><a href="docs/codecs.html">Codecs and serialization</a></li>
+<li><a href="docs/dead-letter-handling.html">Dead-letter handling</a></li>
+<li><a href="docs/monitoring-and-alerting/index.html">Monitoring and alerting</a></li>
+<li><a href="docs/testing.html">Testing handlers</a></li>
+<li><a href="docs/runtime.html">Runtime behavior, configuration, and limitations</a></li>
+<li><a href="docs/plan.html">Design plan and roadmap</a></li>
+<li><a href="docs/development.html">Local development brokers</a></li>
+<li><a href="docs/releasing.html">Versioning and releases</a></li>
+<li><a href="https://docs.rs/beavers">API reference on docs.rs</a></li>
+</ul>
+<p>The guides are also published at <a href="https://cafeal.github.io/beave-rs/">https://cafeal.github.io/beave-rs/</a>. Each
+page&#39;s Markdown source is available at the page URL with <code>.html</code> replaced by
+<code>.md</code>, and <a href="https://cafeal.github.io/beave-rs/llms.txt"><code>llms.txt</code></a> lists them
+all for language-model tools.</p>
+<h2 id="development">Development</h2>
+<p>The minimum supported Rust version is 1.94.1. See
+<a href="docs/development.html">local development brokers</a> for the local Kafka, Pulsar,
+RabbitMQ, SQS, Pub/Sub, and Azure Service Bus environment and the live tests, and
+<a href="https://github.com/cafeal/beave-rs/blob/main/AGENTS.md">AGENTS.md</a> for the checks every change must pass.</p>
+<h2 id="license">License</h2>
+<p>Licensed under the <a href="https://github.com/cafeal/beave-rs/blob/main/LICENSE-MIT">MIT license</a>.</p>
+<p><strong>Let application code process events. Let beave-rs manage the flow.</strong></p>
 
-    <section>
-      <h2>Subscriptions</h2>
-      <p>Each <code>Subscription</code> connects one source, one handler, and one sink. An <code>App</code> runs any number of subscriptions side by side and shuts them down together.</p>
-      <img class="diagram" src="overview.svg" width="760" height="330" alt="An App running three subscriptions: Kafka source to handler to Kafka sink, Pulsar source to handler to HTTP sink, and SQS source to handler to RabbitMQ sink">
-    </section>
-
-    <section>
-      <h2>Features</h2>
-      <ul>
-        <li><strong>Typed handlers.</strong> Write <code>async fn(Input) -&gt; Result&lt;Output&gt;</code>; decoding, publishing, and acknowledgement are handled for you.</li>
-        <li><strong>At-least-once delivery.</strong> An input is acknowledged only after its output is published.</li>
-        <li><strong>Explicit failure handling.</strong> Classify errors as retry, reject (dead-letter), or fatal; retries back off.</li>
-        <li><strong>Concurrency with ordering.</strong> Bounded concurrency, per-key ordering, and a worker pool for blocking handlers.</li>
-        <li><strong>Pipelines.</strong> Chain subscriptions through in-process channels with end-to-end acknowledgement.</li>
-        <li><strong>Operations.</strong> Graceful shutdown, <code>tracing</code> spans, <code>metrics</code>, OpenTelemetry trace propagation, and <code>/livez</code> and <code>/readyz</code> probes.</li>
-      </ul>
-    </section>
-
-    <section>
-      <h2>Errors</h2>
-      <p>Errors propagated with <code>?</code> reject the input, which is dead-lettered by default. The handler asks for other outcomes at the call site:</p>
-<pre><code><span class="k">async fn</span> handle(order: Order) -&gt; Result&lt;Output&gt; {
-    validate(&amp;order).reject()?; <span class="c">// dead-letter now (same as `?`)</span>
-    <span class="k">let</span> user = db.find_user(order.user_id).<span class="k">await</span>.retry()?; <span class="c">// retry, then dead-letter</span>
-    Ok(build_output(order, user))
-}</code></pre>
-      <p><code>.fatal()?</code> stops the subscription.</p>
-    </section>
-
-    <section>
-      <h2>Cargo features</h2>
-      <p>No feature is enabled by default.</p>
-      <table>
-        <tbody>
-          <tr><td><code>kafka</code></td><td>Kafka source and sink</td></tr>
-          <tr><td><code>pulsar</code></td><td>Apache Pulsar source and sink</td></tr>
-          <tr><td><code>rabbitmq</code></td><td>RabbitMQ source and sink</td></tr>
-          <tr><td><code>sqs</code></td><td>Amazon SQS source and sink</td></tr>
-          <tr><td><code>http</code></td><td>HTTP source and sink</td></tr>
-          <tr><td><code>avro</code></td><td>Avro codec</td></tr>
-          <tr><td><code>protobuf</code></td><td>Protobuf codec</td></tr>
-          <tr><td><code>opentelemetry</code></td><td>Trace-context propagation through broker metadata</td></tr>
-          <tr><td><code>health</code></td><td><code>/livez</code> and <code>/readyz</code> endpoints</td></tr>
-          <tr><td><code>testing</code></td><td>Fabricated broker records for handler tests</td></tr>
-        </tbody>
-      </table>
-    </section>
-  </main>
-
-  <footer class="wrap foot">MIT license</footer>
+      <p class="source"><a href="index.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/README.md">Source on GitHub</a></p>
+    </main>
+  </div>
 </body>
 </html>

@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HTTP adapter - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../../style.css">
   <link rel="alternate" type="text/markdown" href="http.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../../">beave-rs</a>
       <nav>
         <a href="../index.html">Guides</a>
@@ -21,18 +22,17 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html">Channel adapter</a></li><li><a href="kafka.html">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html">RabbitMQ adapter</a></li><li><a href="sqs.html">SQS adapter</a></li><li><a href="pubsub.html">Pub/Sub adapter</a></li><li><a href="servicebus.html">Azure Service Bus adapter</a></li><li><a href="http.html" aria-current="page">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../../index.html">Overview</a></li><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html">Channel adapter</a></li><li><a href="kafka.html">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html">RabbitMQ adapter</a></li><li><a href="sqs.html">SQS adapter</a></li><li><a href="pubsub.html">Pub/Sub adapter</a></li><li><a href="servicebus.html">Azure Service Bus adapter</a></li><li><a href="http.html" aria-current="page">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="http-adapter">HTTP adapter</h1>
 <p>The HTTP adapter connects pipelines to services whose interface is HTTP. Enable
 it with the <code>http</code> feature:</p>
-<pre><code class="language-toml">[dependencies]
-beavers = { version = &quot;0.1&quot;, features = [&quot;http&quot;] }
-</code></pre>
-<ul>
+<pre><code class="hljs language-toml"><span class="hljs-section">[dependencies]</span>
+<span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;http&quot;</span>] }
+</code></pre><ul>
 <li><a href="#source"><code>HttpSource</code></a> runs an HTTP/1.1 server and turns each <code>POST</code> request
 into a delivery. The response waits for the delivery&#39;s outcome, so a client
 learns whether its request was processed and can retry when it was not.</li>
@@ -41,36 +41,34 @@ learns whether its request was processed and can retry when it was not.</li>
 accepted every output.</li>
 </ul>
 <h2 id="source">Source</h2>
-<pre><code class="language-rust,no_run">use beavers::{
-    App, Json, Result, StdoutSink,
+<pre><code class="hljs language-rust,no_run"><span class="hljs-keyword">use</span> beavers::{
+    App, Json, <span class="hljs-type">Result</span>, StdoutSink,
     adapters::http::{HttpRecord, HttpSource, HttpSourceConfig},
 };
-use serde::{Deserialize, Serialize};
+<span class="hljs-keyword">use</span> serde::{Deserialize, Serialize};
 
-#[derive(Clone, Deserialize, Serialize)]
-struct Order {
-    id: u64,
+<span class="hljs-meta">#[derive(Clone, Deserialize, Serialize)]</span>
+<span class="hljs-keyword">struct</span> <span class="hljs-title class_">Order</span> {
+    id: <span class="hljs-type">u64</span>,
 }
 
-async fn accept(record: HttpRecord&lt;Order&gt;) -&gt; Result&lt;Order&gt; {
-    Ok(record.body)
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">accept</span>(record: HttpRecord&lt;Order&gt;) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;Order&gt; {
+    <span class="hljs-title function_ invoke__">Ok</span>(record.body)
 }
 
-#[tokio::main]
-async fn main() -&gt; anyhow::Result&lt;()&gt; {
-    let source = HttpSource::&lt;Json, Order&gt;::new(HttpSourceConfig::new(
-        &quot;0.0.0.0:8080&quot;.parse()?,
+<span class="hljs-meta">#[tokio::main]</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">main</span>() <span class="hljs-punctuation">-&gt;</span> anyhow::<span class="hljs-type">Result</span>&lt;()&gt; {
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = HttpSource::&lt;Json, Order&gt;::<span class="hljs-title function_ invoke__">new</span>(HttpSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
+        <span class="hljs-string">&quot;0.0.0.0:8080&quot;</span>.<span class="hljs-title function_ invoke__">parse</span>()?,
     ))?;
-    App::new()
-        .subscribe(&quot;orders&quot;, source, StdoutSink::&lt;Json&gt;::new(), accept)
-        .run()
-        .await?;
-    Ok(())
+    App::<span class="hljs-title function_ invoke__">new</span>()
+        .<span class="hljs-title function_ invoke__">subscribe</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, StdoutSink::&lt;Json&gt;::<span class="hljs-title function_ invoke__">new</span>(), accept)
+        .<span class="hljs-title function_ invoke__">run</span>()
+        .<span class="hljs-keyword">await</span>?;
+    <span class="hljs-title function_ invoke__">Ok</span>(())
 }
-</code></pre>
-<pre><code class="language-sh">curl -i -X POST localhost:8080/orders -d &#39;{&quot;id&quot;:7}&#39;
-</code></pre>
-<h3 id="server-configuration">Server configuration</h3>
+</code></pre><pre><code class="hljs language-sh">curl -i -X POST localhost:8080/orders -d <span class="hljs-string">&#x27;{&quot;id&quot;:7}&#x27;</span>
+</code></pre><h3 id="server-configuration">Server configuration</h3>
 <table>
 <thead>
 <tr>
@@ -289,35 +287,34 @@ long shutdown waits for open requests.</li>
 <p><code>HttpSink&lt;C, T&gt;</code> accepts <code>HttpPublish&lt;T&gt;</code> outputs. It encodes each body with
 its codec and sends one request per output to the configured URL. A typical use
 is handing events consumed from a broker to a service with an HTTP API:</p>
-<pre><code class="language-rust,ignore">use beavers::{
-    App, Json, Result,
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{
+    App, Json, <span class="hljs-type">Result</span>,
     adapters::{
         http::{HttpPublish, HttpSink, HttpSinkConfig},
         kafka::{KafkaRecord, KafkaSource, KafkaSourceConfig},
     },
 };
 
-async fn to_request(record: KafkaRecord&lt;Order&gt;) -&gt; Result&lt;HttpPublish&lt;Order&gt;&gt; {
-    let metadata = record.metadata().clone();
-    let order = record.value.ok_or_else(|| anyhow::anyhow!(&quot;tombstone&quot;))?;
-    // A stable key lets the service recognize a redelivered event.
-    let key = format!(&quot;{}-{}-{}&quot;, metadata.topic, metadata.partition, metadata.offset);
-    Ok(HttpPublish::new(order).with_header(&quot;idempotency-key&quot;, key))
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">to_request</span>(record: KafkaRecord&lt;Order&gt;) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;HttpPublish&lt;Order&gt;&gt; {
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">metadata</span> = record.<span class="hljs-title function_ invoke__">metadata</span>().<span class="hljs-title function_ invoke__">clone</span>();
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">order</span> = record.value.<span class="hljs-title function_ invoke__">ok_or_else</span>(|| anyhow::anyhow!(<span class="hljs-string">&quot;tombstone&quot;</span>))?;
+    <span class="hljs-comment">// A stable key lets the service recognize a redelivered event.</span>
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">key</span> = <span class="hljs-built_in">format!</span>(<span class="hljs-string">&quot;{}-{}-{}&quot;</span>, metadata.topic, metadata.partition, metadata.offset);
+    <span class="hljs-title function_ invoke__">Ok</span>(HttpPublish::<span class="hljs-title function_ invoke__">new</span>(order).<span class="hljs-title function_ invoke__">with_header</span>(<span class="hljs-string">&quot;idempotency-key&quot;</span>, key))
 }
 
-let source = KafkaSource::&lt;Json, Order&gt;::new(KafkaSourceConfig::new(
-    &quot;localhost:9092&quot;,
-    &quot;orders-to-billing&quot;,
-    [&quot;orders&quot;],
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = KafkaSource::&lt;Json, Order&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;localhost:9092&quot;</span>,
+    <span class="hljs-string">&quot;orders-to-billing&quot;</span>,
+    [<span class="hljs-string">&quot;orders&quot;</span>],
 ));
-let mut config = HttpSinkConfig::new(&quot;https://billing.internal/orders&quot;);
+<span class="hljs-keyword">let</span> <span class="hljs-keyword">mut </span><span class="hljs-variable">config</span> = HttpSinkConfig::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;https://billing.internal/orders&quot;</span>);
 config
     .headers
-    .push((&quot;content-type&quot;.into(), &quot;application/json&quot;.into()));
-let sink = HttpSink::&lt;Json, Order&gt;::new(config)?;
-App::new().subscribe(&quot;orders&quot;, source, sink, to_request).run().await?;
-</code></pre>
-<h3 id="sink-configuration">Sink configuration</h3>
+    .<span class="hljs-title function_ invoke__">push</span>((<span class="hljs-string">&quot;content-type&quot;</span>.<span class="hljs-title function_ invoke__">into</span>(), <span class="hljs-string">&quot;application/json&quot;</span>.<span class="hljs-title function_ invoke__">into</span>()));
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = HttpSink::&lt;Json, Order&gt;::<span class="hljs-title function_ invoke__">new</span>(config)?;
+App::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">subscribe</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, to_request).<span class="hljs-title function_ invoke__">run</span>().<span class="hljs-keyword">await</span>?;
+</code></pre><h3 id="sink-configuration">Sink configuration</h3>
 <table>
 <thead>
 <tr>

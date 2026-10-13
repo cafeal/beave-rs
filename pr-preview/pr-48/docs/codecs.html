@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codecs - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../style.css">
   <link rel="alternate" type="text/markdown" href="codecs.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../">beave-rs</a>
       <nav>
         <a href="index.html">Guides</a>
@@ -21,9 +22,9 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html" aria-current="page">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../index.html">Overview</a></li><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html" aria-current="page">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="codecs">Codecs</h1>
@@ -33,15 +34,14 @@ responsibilities belong to <a href="adapters.html">adapters</a> and the
 <a href="runtime.html">subscription runtime</a>.</p>
 <h2 id="contracts">Contracts</h2>
 <p>The framework defines separate decoding and encoding traits:</p>
-<pre><code class="language-rust">pub trait Decoder&lt;T&gt;: Send + Sync + &#39;static {
-    fn decode(&amp;self, bytes: &amp;[u8]) -&gt; Result&lt;T, BoxError&gt;;
+<pre><code class="hljs language-rust"><span class="hljs-keyword">pub</span> <span class="hljs-keyword">trait</span> <span class="hljs-title class_">Decoder</span>&lt;T&gt;: <span class="hljs-built_in">Send</span> + <span class="hljs-built_in">Sync</span> + <span class="hljs-symbol">&#x27;static</span> {
+    <span class="hljs-keyword">fn</span> <span class="hljs-title function_">decode</span>(&amp;<span class="hljs-keyword">self</span>, bytes: &amp;[<span class="hljs-type">u8</span>]) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;T, BoxError&gt;;
 }
 
-pub trait Encoder&lt;T&gt;: Send + Sync + &#39;static {
-    fn encode(&amp;self, value: &amp;T) -&gt; Result&lt;Vec&lt;u8&gt;, BoxError&gt;;
+<span class="hljs-keyword">pub</span> <span class="hljs-keyword">trait</span> <span class="hljs-title class_">Encoder</span>&lt;T&gt;: <span class="hljs-built_in">Send</span> + <span class="hljs-built_in">Sync</span> + <span class="hljs-symbol">&#x27;static</span> {
+    <span class="hljs-keyword">fn</span> <span class="hljs-title function_">encode</span>(&amp;<span class="hljs-keyword">self</span>, value: &amp;T) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;, BoxError&gt;;
 }
-</code></pre>
-<p>A codec can implement either or both. These are synchronous transformations;
+</code></pre><p>A codec can implement either or both. These are synchronous transformations;
 implementations should not perform blocking network or filesystem operations.
 Expensive serialization still occupies the executing thread; there is currently
 no dedicated codec execution pool.</p>
@@ -77,57 +77,54 @@ StdinSource reads one line at a time and StdoutSink appends a newline after enco
 <h3 id="using-json-with-adapters">Using JSON with adapters</h3>
 <p>Select the codec through the adapter&#39;s type parameters. The handler determines
 the input and output payload types:</p>
-<pre><code class="language-rust">use beavers::{App, Json, Result, StdinSource, StdoutSink};
-use serde::{Deserialize, Serialize};
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{App, Json, <span class="hljs-type">Result</span>, StdinSource, StdoutSink};
+<span class="hljs-keyword">use</span> serde::{Deserialize, Serialize};
 
-#[derive(Clone, Deserialize)]
-struct Order {
-    id: u64,
+<span class="hljs-meta">#[derive(Clone, Deserialize)]</span>
+<span class="hljs-keyword">struct</span> <span class="hljs-title class_">Order</span> {
+    id: <span class="hljs-type">u64</span>,
 }
 
-#[derive(Serialize)]
-struct Event {
-    order_id: u64,
+<span class="hljs-meta">#[derive(Serialize)]</span>
+<span class="hljs-keyword">struct</span> <span class="hljs-title class_">Event</span> {
+    order_id: <span class="hljs-type">u64</span>,
 }
 
-async fn handler(order: Order) -&gt; Result&lt;Event&gt; {
-    Ok(Event { order_id: order.id })
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">handler</span>(order: Order) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;Event&gt; {
+    <span class="hljs-title function_ invoke__">Ok</span>(Event { order_id: order.id })
 }
 
-#[tokio::main]
-async fn main() -&gt; anyhow::Result&lt;()&gt; {
-    App::new()
-        .subscribe(
-            &quot;orders&quot;,
-            StdinSource::&lt;Json, _&gt;::new(),
-            StdoutSink::&lt;Json&gt;::new(),
+<span class="hljs-meta">#[tokio::main]</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">main</span>() <span class="hljs-punctuation">-&gt;</span> anyhow::<span class="hljs-type">Result</span>&lt;()&gt; {
+    App::<span class="hljs-title function_ invoke__">new</span>()
+        .<span class="hljs-title function_ invoke__">subscribe</span>(
+            <span class="hljs-string">&quot;orders&quot;</span>,
+            StdinSource::&lt;Json, _&gt;::<span class="hljs-title function_ invoke__">new</span>(),
+            StdoutSink::&lt;Json&gt;::<span class="hljs-title function_ invoke__">new</span>(),
             handler,
         )
-        .run()
-        .await?;
-    Ok(())
+        .<span class="hljs-title function_ invoke__">run</span>()
+        .<span class="hljs-keyword">await</span>?;
+    <span class="hljs-title function_ invoke__">Ok</span>(())
 }
-</code></pre>
-<p>The second StdinSource type argument is the decoded input type, inferred here as
+</code></pre><p>The second StdinSource type argument is the decoded input type, inferred here as
 Order. Input values also need the runtime&#39;s <code>Clone + Send + Sync + &#39;static</code>
 bounds; those are not additional requirements of the JSON format.</p>
 <p>The <a href="https://github.com/cafeal/beave-rs/blob/main/examples/transform.rs">transform example</a> provides this pipeline. Feed it
 one order object per line:</p>
-<pre><code class="language-sh">printf &#39;%s\n&#39; &#39;{&quot;id&quot;:10}&#39; &#39;{&quot;id&quot;:20}&#39; | cargo run --example transform -- --stdin
-</code></pre>
-<p>IterSource and InMemorySink already exchange typed values, so they require no
+<pre><code class="hljs language-sh"><span class="hljs-built_in">printf</span> <span class="hljs-string">&#x27;%s\n&#x27;</span> <span class="hljs-string">&#x27;{&quot;id&quot;:10}&#x27;</span> <span class="hljs-string">&#x27;{&quot;id&quot;:20}&#x27;</span> | cargo run --example transform -- --stdin
+</code></pre><p>IterSource and InMemorySink already exchange typed values, so they require no
 serialization codec.</p>
 <h2 id="lifecycle-and-failures">Lifecycle and failures</h2>
 <p>For the current stdin-to-stdout pipeline:</p>
-<pre><code class="language-text">receive raw line
+<pre><code class="hljs language-text">receive raw line
     → SourceMessage::decode (Decoder)
     → handler
     → output middleware
     → Sink::prepare (Encoder + line framing)
     → Sink::publish
     → ACK
-</code></pre>
-<p>Decode runs once per received message before handler attempts. Handler retries
+</code></pre><p>Decode runs once per received message before handler attempts. Handler retries
 reuse cloned decoded input. The runtime prepares all emitted outputs before
 publishing any; publish retries reuse the same prepared representation and do
 not rerun encoding.</p>
@@ -141,24 +138,23 @@ decode failure, whereas a failed stdin read is a receive failure.</p>
 <h2 id="implementing-a-codec">Implementing a codec</h2>
 <p>Implement the relevant trait for the payload type. For example, a UTF-8 string
 codec needs no Serde dependency:</p>
-<pre><code class="language-rust">use beavers::{BoxError, Decoder, Encoder};
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{BoxError, Decoder, Encoder};
 
-#[derive(Default)]
-struct Utf8;
+<span class="hljs-meta">#[derive(Default)]</span>
+<span class="hljs-keyword">struct</span> <span class="hljs-title class_">Utf8</span>;
 
-impl Decoder&lt;String&gt; for Utf8 {
-    fn decode(&amp;self, bytes: &amp;[u8]) -&gt; Result&lt;String, BoxError&gt; {
-        Ok(std::str::from_utf8(bytes)?.to_owned())
+<span class="hljs-keyword">impl</span> <span class="hljs-title class_">Decoder</span>&lt;<span class="hljs-type">String</span>&gt; <span class="hljs-keyword">for</span> <span class="hljs-title class_">Utf8</span> {
+    <span class="hljs-keyword">fn</span> <span class="hljs-title function_">decode</span>(&amp;<span class="hljs-keyword">self</span>, bytes: &amp;[<span class="hljs-type">u8</span>]) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;<span class="hljs-type">String</span>, BoxError&gt; {
+        <span class="hljs-title function_ invoke__">Ok</span>(std::<span class="hljs-type">str</span>::<span class="hljs-title function_ invoke__">from_utf8</span>(bytes)?.<span class="hljs-title function_ invoke__">to_owned</span>())
     }
 }
 
-impl Encoder&lt;String&gt; for Utf8 {
-    fn encode(&amp;self, value: &amp;String) -&gt; Result&lt;Vec&lt;u8&gt;, BoxError&gt; {
-        Ok(value.as_bytes().to_vec())
+<span class="hljs-keyword">impl</span> <span class="hljs-title class_">Encoder</span>&lt;<span class="hljs-type">String</span>&gt; <span class="hljs-keyword">for</span> <span class="hljs-title class_">Utf8</span> {
+    <span class="hljs-keyword">fn</span> <span class="hljs-title function_">encode</span>(&amp;<span class="hljs-keyword">self</span>, value: &amp;<span class="hljs-type">String</span>) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;, BoxError&gt; {
+        <span class="hljs-title function_ invoke__">Ok</span>(value.<span class="hljs-title function_ invoke__">as_bytes</span>().<span class="hljs-title function_ invoke__">to_vec</span>())
     }
 }
-</code></pre>
-<p><code>Utf8</code> is an exported built-in codec; see <a href="codecs/raw-utf8.html">Raw bytes and UTF-8</a>
+</code></pre><p><code>Utf8</code> is an exported built-in codec; see <a href="codecs/raw-utf8.html">Raw bytes and UTF-8</a>
 for its exact behavior and <code>RawBytes</code> for arbitrary payloads. The local stdin and
 stdout adapters default-construct their codec, so using a custom codec with them
 requires <code>Default</code>. The codec traits themselves do not require it. Kafka and

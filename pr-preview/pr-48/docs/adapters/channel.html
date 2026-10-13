@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Channel adapter - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../../style.css">
   <link rel="alternate" type="text/markdown" href="channel.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../../">beave-rs</a>
       <nav>
         <a href="../index.html">Guides</a>
@@ -21,9 +22,9 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html" aria-current="page">Channel adapter</a></li><li><a href="kafka.html">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html">RabbitMQ adapter</a></li><li><a href="sqs.html">SQS adapter</a></li><li><a href="pubsub.html">Pub/Sub adapter</a></li><li><a href="servicebus.html">Azure Service Bus adapter</a></li><li><a href="http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../../index.html">Overview</a></li><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html" aria-current="page">Channel adapter</a></li><li><a href="kafka.html">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html">RabbitMQ adapter</a></li><li><a href="sqs.html">SQS adapter</a></li><li><a href="pubsub.html">Pub/Sub adapter</a></li><li><a href="servicebus.html">Azure Service Bus adapter</a></li><li><a href="http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="channel-adapter">Channel adapter</h1>
@@ -32,20 +33,19 @@ upstream delivery unacknowledged until the downstream subscription finishes the
 value. Each stage keeps its own handler, concurrency, retries, error policy, and
 dead-letter sink, so a pipeline can separate I/O-bound work in async handlers
 from CPU-bound work in <a href="../runtime.html#blocking-handlers">blocking handlers</a>:</p>
-<pre><code class="language-rust,ignore">use beavers::{App, BlockingPool, Subscription, blocking, channel};
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{App, BlockingPool, Subscription, blocking, channel};
 
-let (to_score, fetched) = channel(16);
-App::new()
-    // I/O-bound: many concurrent async calls on the Tokio executor.
-    .subscription(Subscription::new(&quot;fetch&quot;, kafka_source, to_score, fetch).concurrency(64))
-    // CPU-bound: synchronous calls on a pool sized for the machine.
-    .subscription(
-        Subscription::new(&quot;score&quot;, fetched, kafka_sink, pool.blocking(score)).concurrency(8),
+<span class="hljs-keyword">let</span> (to_score, fetched) = <span class="hljs-title function_ invoke__">channel</span>(<span class="hljs-number">16</span>);
+App::<span class="hljs-title function_ invoke__">new</span>()
+    <span class="hljs-comment">// I/O-bound: many concurrent async calls on the Tokio executor.</span>
+    .<span class="hljs-title function_ invoke__">subscription</span>(Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;fetch&quot;</span>, kafka_source, to_score, fetch).<span class="hljs-title function_ invoke__">concurrency</span>(<span class="hljs-number">64</span>))
+    <span class="hljs-comment">// CPU-bound: synchronous calls on a pool sized for the machine.</span>
+    .<span class="hljs-title function_ invoke__">subscription</span>(
+        Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;score&quot;</span>, fetched, kafka_sink, pool.<span class="hljs-title function_ invoke__">blocking</span>(score)).<span class="hljs-title function_ invoke__">concurrency</span>(<span class="hljs-number">8</span>),
     )
-    .run()
-    .await?;
-</code></pre>
-<p><code>channel(capacity)</code> returns a <code>ChannelSink&lt;T&gt;</code> for the upstream subscription and
+    .<span class="hljs-title function_ invoke__">run</span>()
+    .<span class="hljs-keyword">await</span>?;
+</code></pre><p><code>channel(capacity)</code> returns a <code>ChannelSink&lt;T&gt;</code> for the upstream subscription and
 a <code>ChannelSource&lt;T&gt;</code> for the downstream one. Values are typed and are not
 encoded. A capacity of zero panics, following <code>tokio::sync::mpsc::channel</code>.
 Channels can be chained to build pipelines of more than two stages.</p>
@@ -122,17 +122,16 @@ of the first subscription. It serializes as that record, so a JSON dead-letter
 sink publishes it unchanged, and <code>ChannelRaw::downcast_ref</code> reads it as its
 concrete type in <code>dlq_with</code>, and <code>DeadLetter::try_map_raw</code> replaces it so
 the dead letter can be <a href="../runtime.html#forwarding-dead-letters-to-a-broker-topic">forwarded to a broker topic</a>:</p>
-<pre><code class="language-rust,ignore">type Raw = KafkaRecord&lt;Vec&lt;u8&gt;&gt;;
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">type</span> <span class="hljs-title class_">Raw</span> = KafkaRecord&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;;
 
-Subscription::new(&quot;score&quot;, fetched, kafka_sink, score)
-    .dlq_with(dead_letter_sink, |dead_letter: DeadLetter&lt;Document, ChannelRaw&gt;| {
-        let dead_letter = dead_letter.try_map_raw(|raw| {
-            raw.downcast_ref::&lt;Raw&gt;().cloned().context(&quot;no Kafka record&quot;)
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;score&quot;</span>, fetched, kafka_sink, score)
+    .<span class="hljs-title function_ invoke__">dlq_with</span>(dead_letter_sink, |dead_letter: DeadLetter&lt;Document, ChannelRaw&gt;| {
+        <span class="hljs-keyword">let</span> <span class="hljs-variable">dead_letter</span> = dead_letter.<span class="hljs-title function_ invoke__">try_map_raw</span>(|<span class="hljs-keyword">raw</span>| {
+            <span class="hljs-keyword">raw</span>.downcast_ref::&lt;Raw&gt;().<span class="hljs-title function_ invoke__">cloned</span>().<span class="hljs-title function_ invoke__">context</span>(<span class="hljs-string">&quot;no Kafka record&quot;</span>)
         })?;
-        Ok(KafkaPublish::from_dead_letter(dead_letter))
+        <span class="hljs-title function_ invoke__">Ok</span>(KafkaPublish::<span class="hljs-title function_ invoke__">from_dead_letter</span>(dead_letter))
     });
-</code></pre>
-<p>Values sent by application code have an empty <code>ChannelRaw</code>, which serializes
+</code></pre><p>Values sent by application code have an empty <code>ChannelRaw</code>, which serializes
 as <code>None</code>.</p>
 <p>With the <code>opentelemetry</code> feature, the channel carries the sender&#39;s trace
 context with each value, and the downstream <code>message</code> span continues that
@@ -168,26 +167,25 @@ safe. Closing the source rejects later publications from every clone.</p>
 <code>ChannelSink::bounded(capacity)</code> returns a sink and a <code>ChannelReceiver&lt;T&gt;</code>. They
 let application code send values to a subscription and receive its outputs,
 without an external broker:</p>
-<pre><code class="language-rust">use beavers::{App, CancellationToken, ChannelSink, ChannelSource};
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{App, CancellationToken, ChannelSink, ChannelSource};
 
-#[tokio::main]
-async fn main() -&gt; anyhow::Result&lt;()&gt; {
-    let (sender, input) = ChannelSource::bounded(16);
-    let (output, mut results) = ChannelSink::bounded(16);
-    let worker = tokio::spawn(
-        App::new()
-            .subscribe(&quot;double&quot;, input, output, |n: i32| async move { Ok(n * 2) })
-            .run_until(CancellationToken::new()),
+<span class="hljs-meta">#[tokio::main]</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">main</span>() <span class="hljs-punctuation">-&gt;</span> anyhow::<span class="hljs-type">Result</span>&lt;()&gt; {
+    <span class="hljs-keyword">let</span> (sender, input) = ChannelSource::<span class="hljs-title function_ invoke__">bounded</span>(<span class="hljs-number">16</span>);
+    <span class="hljs-keyword">let</span> (output, <span class="hljs-keyword">mut</span> results) = ChannelSink::<span class="hljs-title function_ invoke__">bounded</span>(<span class="hljs-number">16</span>);
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">worker</span> = tokio::<span class="hljs-title function_ invoke__">spawn</span>(
+        App::<span class="hljs-title function_ invoke__">new</span>()
+            .<span class="hljs-title function_ invoke__">subscribe</span>(<span class="hljs-string">&quot;double&quot;</span>, input, output, |n: <span class="hljs-type">i32</span>| <span class="hljs-keyword">async</span> <span class="hljs-keyword">move</span> { <span class="hljs-title function_ invoke__">Ok</span>(n * <span class="hljs-number">2</span>) })
+            .<span class="hljs-title function_ invoke__">run_until</span>(CancellationToken::<span class="hljs-title function_ invoke__">new</span>()),
     );
 
-    sender.send(21).await?;
-    assert_eq!(results.recv().await, Some(42));
-    drop(sender);
-    worker.await??;
-    Ok(())
+    sender.<span class="hljs-title function_ invoke__">send</span>(<span class="hljs-number">21</span>).<span class="hljs-keyword">await</span>?;
+    <span class="hljs-built_in">assert_eq!</span>(results.<span class="hljs-title function_ invoke__">recv</span>().<span class="hljs-keyword">await</span>, <span class="hljs-title function_ invoke__">Some</span>(<span class="hljs-number">42</span>));
+    <span class="hljs-title function_ invoke__">drop</span>(sender);
+    worker.<span class="hljs-keyword">await</span>??;
+    <span class="hljs-title function_ invoke__">Ok</span>(())
 }
-</code></pre>
-<table>
+</code></pre><table>
 <thead>
 <tr>
 <th>End</th>

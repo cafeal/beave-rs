@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Adapters - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../style.css">
   <link rel="alternate" type="text/markdown" href="adapters.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../">beave-rs</a>
       <nav>
         <a href="index.html">Guides</a>
@@ -21,9 +22,9 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html" aria-current="page">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../index.html">Overview</a></li><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html" aria-current="page">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="adapters">Adapters</h1>
@@ -114,11 +115,10 @@ types are also re-exported at the crate root.</p>
 <p>NATS JetStream is <a href="plan.html#future-adapters">planned</a>. Local and
 channel adapters do not provide durable delivery guarantees.</p>
 <p>Enable a broker adapter in the application manifest:</p>
-<pre><code class="language-toml">[dependencies]
-beavers = { version = &quot;0.1&quot;, features = [&quot;kafka&quot;] }
-# or: features = [&quot;pulsar&quot;], [&quot;rabbitmq&quot;], [&quot;sqs&quot;], [&quot;pubsub&quot;], [&quot;servicebus&quot;], or [&quot;http&quot;]
-</code></pre>
-<p>The broker-specific guides document configuration, metadata, ACK behavior, and
+<pre><code class="hljs language-toml"><span class="hljs-section">[dependencies]</span>
+<span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;kafka&quot;</span>] }
+<span class="hljs-comment"># or: features = [&quot;pulsar&quot;], [&quot;rabbitmq&quot;], [&quot;sqs&quot;], [&quot;pubsub&quot;], [&quot;servicebus&quot;], or [&quot;http&quot;]</span>
+</code></pre><p>The broker-specific guides document configuration, metadata, ACK behavior, and
 delivery boundaries: <a href="adapters/channel.html">Channel</a>, <a href="adapters/kafka.html">Kafka</a>,
 <a href="adapters/pulsar.html">Pulsar</a>, <a href="adapters/rabbitmq.html">RabbitMQ</a>,
 <a href="adapters/sqs.html">SQS</a>, <a href="adapters/pubsub.html">Pub/Sub</a>,
@@ -140,30 +140,29 @@ the same storage; <code>values()</code> returns a cloned snapshot. Preparation p
 the typed value, and publication appends a clone. Values must implement
 <code>Clone + Send + Sync + &#39;static</code>.</p>
 <p>Use it with IterSource to exercise a complete subscription:</p>
-<pre><code class="language-rust">use beavers::{App, InMemorySink, IterSource, Result};
-use std::sync::atomic::Ordering;
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{App, InMemorySink, IterSource, <span class="hljs-type">Result</span>};
+<span class="hljs-keyword">use</span> std::sync::atomic::Ordering;
 
-async fn double(value: u64) -&gt; Result&lt;u64&gt; {
-    Ok(value * 2)
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">double</span>(value: <span class="hljs-type">u64</span>) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;<span class="hljs-type">u64</span>&gt; {
+    <span class="hljs-title function_ invoke__">Ok</span>(value * <span class="hljs-number">2</span>)
 }
 
-#[tokio::main]
-async fn main() -&gt; anyhow::Result&lt;()&gt; {
-    let source = IterSource::new([1, 2, 3]);
-    let acknowledgements = source.acknowledgements();
-    let sink = InMemorySink::default();
+<span class="hljs-meta">#[tokio::main]</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">main</span>() <span class="hljs-punctuation">-&gt;</span> anyhow::<span class="hljs-type">Result</span>&lt;()&gt; {
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = IterSource::<span class="hljs-title function_ invoke__">new</span>([<span class="hljs-number">1</span>, <span class="hljs-number">2</span>, <span class="hljs-number">3</span>]);
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">acknowledgements</span> = source.<span class="hljs-title function_ invoke__">acknowledgements</span>();
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = InMemorySink::<span class="hljs-title function_ invoke__">default</span>();
 
-    App::new()
-        .subscribe(&quot;double&quot;, source, sink.clone(), double)
-        .run()
-        .await?;
+    App::<span class="hljs-title function_ invoke__">new</span>()
+        .<span class="hljs-title function_ invoke__">subscribe</span>(<span class="hljs-string">&quot;double&quot;</span>, source, sink.<span class="hljs-title function_ invoke__">clone</span>(), double)
+        .<span class="hljs-title function_ invoke__">run</span>()
+        .<span class="hljs-keyword">await</span>?;
 
-    assert_eq!(sink.values(), vec![2, 4, 6]);
-    assert_eq!(acknowledgements.load(Ordering::SeqCst), 3);
-    Ok(())
+    <span class="hljs-built_in">assert_eq!</span>(sink.<span class="hljs-title function_ invoke__">values</span>(), <span class="hljs-built_in">vec!</span>[<span class="hljs-number">2</span>, <span class="hljs-number">4</span>, <span class="hljs-number">6</span>]);
+    <span class="hljs-built_in">assert_eq!</span>(acknowledgements.<span class="hljs-title function_ invoke__">load</span>(Ordering::SeqCst), <span class="hljs-number">3</span>);
+    <span class="hljs-title function_ invoke__">Ok</span>(())
 }
-</code></pre>
-<p>The example uses the default concurrency of one. Parallel handlers can publish
+</code></pre><p>The example uses the default concurrency of one. Parallel handlers can publish
 in a different order. The sink retains all output without a capacity limit, so
 use it for bounded test runs rather than long-lived output storage.</p>
 <p>To feed fabricated Kafka or Pulsar records with their metadata and check which
@@ -174,31 +173,29 @@ deliveries were acknowledged, use the <code>testing</code> feature described in 
 <code>Decoder&lt;T&gt;</code> and <code>with_codec(codec)</code> an existing one. JSON input normally uses
 <code>StdinSource::&lt;Json, _&gt;::new()</code>, with the input type inferred from the handler. With Json, input must also implement Serde&#39;s
 <code>DeserializeOwned</code>.</p>
-<pre><code class="language-rust">use beavers::{App, Json, Result, StdinSource, StdoutSink};
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{App, Json, <span class="hljs-type">Result</span>, StdinSource, StdoutSink};
 
-async fn double(value: u64) -&gt; Result&lt;u64&gt; {
-    Ok(value * 2)
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">double</span>(value: <span class="hljs-type">u64</span>) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;<span class="hljs-type">u64</span>&gt; {
+    <span class="hljs-title function_ invoke__">Ok</span>(value * <span class="hljs-number">2</span>)
 }
 
-#[tokio::main]
-async fn main() -&gt; anyhow::Result&lt;()&gt; {
-    App::new()
-        .subscribe(
-            &quot;double&quot;,
-            StdinSource::&lt;Json, _&gt;::new(),
-            StdoutSink::&lt;Json&gt;::new(),
+<span class="hljs-meta">#[tokio::main]</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">main</span>() <span class="hljs-punctuation">-&gt;</span> anyhow::<span class="hljs-type">Result</span>&lt;()&gt; {
+    App::<span class="hljs-title function_ invoke__">new</span>()
+        .<span class="hljs-title function_ invoke__">subscribe</span>(
+            <span class="hljs-string">&quot;double&quot;</span>,
+            StdinSource::&lt;Json, _&gt;::<span class="hljs-title function_ invoke__">new</span>(),
+            StdoutSink::&lt;Json&gt;::<span class="hljs-title function_ invoke__">new</span>(),
             double,
         )
-        .run()
-        .await?;
-    Ok(())
+        .<span class="hljs-title function_ invoke__">run</span>()
+        .<span class="hljs-keyword">await</span>?;
+    <span class="hljs-title function_ invoke__">Ok</span>(())
 }
-</code></pre>
-<p>For this example, feed one JSON number per line. For the repository&#39;s
+</code></pre><p>For this example, feed one JSON number per line. For the repository&#39;s
 <a href="https://github.com/cafeal/beave-rs/blob/main/examples/transform.rs">transform example</a>, feed order objects instead:</p>
-<pre><code class="language-sh">printf &#39;%s\n&#39; &#39;{&quot;id&quot;:10}&#39; &#39;{&quot;id&quot;:20}&#39; | cargo run --example transform -- --stdin
-</code></pre>
-<p>Each <code>StdinMessage</code> owns its raw line without its line ending; a trailing <code>\n</code>
+<pre><code class="hljs language-sh"><span class="hljs-built_in">printf</span> <span class="hljs-string">&#x27;%s\n&#x27;</span> <span class="hljs-string">&#x27;{&quot;id&quot;:10}&#x27;</span> <span class="hljs-string">&#x27;{&quot;id&quot;:20}&#x27;</span> | cargo run --example transform -- --stdin
+</code></pre><p>Each <code>StdinMessage</code> owns its raw line without its line ending; a trailing <code>\n</code>
 or <code>\r\n</code> is removed before decoding. The runtime decodes it after receiving
 it, so a decode failure is distinct from a receive I/O failure. Blank lines are
 not skipped: with <code>Json</code>, they and malformed JSON fail decoding. The raw line is available to
@@ -224,9 +221,8 @@ and flushes the prepared bytes under a sink-local async mutex. A publish retry
 reuses those bytes. Serialization failures occur during preparation and stop
 processing without publication or input ACK.</p>
 <p>Use stderr for logs and diagnostics so stdout can be redirected or piped:</p>
-<pre><code class="language-sh">cargo run --example transform &gt; events.jsonl
-</code></pre>
-<p>Publication is not transactional. A partial write followed by retry may leave a
+<pre><code class="hljs language-sh">cargo run --example transform &gt; events.jsonl
+</code></pre><p>Publication is not transactional. A partial write followed by retry may leave a
 partial line or duplicate output. Flushing stdout does not guarantee durable disk
 storage or acknowledgement from a downstream process. Concurrent jobs do not
 preserve input order, and independent sink instances do not share this sink&#39;s

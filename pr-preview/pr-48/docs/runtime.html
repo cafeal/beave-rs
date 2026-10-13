@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Runtime guide - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../style.css">
   <link rel="alternate" type="text/markdown" href="runtime.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../">beave-rs</a>
       <nav>
         <a href="index.html">Guides</a>
@@ -21,9 +22,9 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html" aria-current="page">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../index.html">Overview</a></li><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html" aria-current="page">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="runtime-guide">Runtime guide</h1>
@@ -33,25 +34,24 @@ proposed APIs are documented in the <a href="plan.html">design plan</a>.</p>
 <p>Use <code>App::subscribe(name, source, sink, handler)</code> for defaults, or register a configured
 <code>Subscription</code>. The following sketch assumes application-specific components and
 retry policies have already been constructed:</p>
-<pre><code class="language-rust,ignore">App::new()
-    .subscription(
-        Subscription::new(&quot;orders&quot;, source, sink, handler)
-            .concurrency(16)
-            .max_in_flight(64)
-            .ordering(ProcessingOrder::PerKey)
-            .retry(handler_retry)
-            .receive_retry(receive_retry)
-            .publish_retry(publish_retry)
-            .dlq_retry(dead_letter_retry)
-            .drain_timeout(Duration::from_secs(30))
-            .middleware(MapMetadata::new(|_input, output| Ok(output)))
-            .dlq(dead_letter_sink)
-            .error_policy(ErrorPolicy::dead_letter_all()),
+<pre><code class="hljs language-rust,ignore">App::<span class="hljs-title function_ invoke__">new</span>()
+    .<span class="hljs-title function_ invoke__">subscription</span>(
+        Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, handler)
+            .<span class="hljs-title function_ invoke__">concurrency</span>(<span class="hljs-number">16</span>)
+            .<span class="hljs-title function_ invoke__">max_in_flight</span>(<span class="hljs-number">64</span>)
+            .<span class="hljs-title function_ invoke__">ordering</span>(ProcessingOrder::PerKey)
+            .<span class="hljs-title function_ invoke__">retry</span>(handler_retry)
+            .<span class="hljs-title function_ invoke__">receive_retry</span>(receive_retry)
+            .<span class="hljs-title function_ invoke__">publish_retry</span>(publish_retry)
+            .<span class="hljs-title function_ invoke__">dlq_retry</span>(dead_letter_retry)
+            .<span class="hljs-title function_ invoke__">drain_timeout</span>(Duration::<span class="hljs-title function_ invoke__">from_secs</span>(<span class="hljs-number">30</span>))
+            .<span class="hljs-title function_ invoke__">middleware</span>(MapMetadata::<span class="hljs-title function_ invoke__">new</span>(|_input, output| <span class="hljs-title function_ invoke__">Ok</span>(output)))
+            .<span class="hljs-title function_ invoke__">dlq</span>(dead_letter_sink)
+            .<span class="hljs-title function_ invoke__">error_policy</span>(ErrorPolicy::<span class="hljs-title function_ invoke__">dead_letter_all</span>()),
     )
-    .run()
-    .await?;
-</code></pre>
-<p>Every subscription has a required name, passed as the first argument of
+    .<span class="hljs-title function_ invoke__">run</span>()
+    .<span class="hljs-keyword">await</span>?;
+</code></pre><p>Every subscription has a required name, passed as the first argument of
 <code>Subscription::new</code>, <code>Subscription::new_emitting</code>, and <code>App::subscribe</code>. The name appears in subscription errors, dead letters, spans,
 and metric labels, so it must be non-empty and unique within an <code>App</code>; an empty
 or duplicate name fails validation before any subscription starts.</p>
@@ -163,9 +163,8 @@ redelivery after process exit. Optional Kafka and Pulsar adapters provide
 broker-specific source and sink implementations; their documentation covers
 configuration and acknowledgement semantics.</p>
 <h2 id="per-message-lifecycle">Per-message lifecycle</h2>
-<pre><code class="language-text">receive → decode → pre_handler → handler → post_handler → prepare all outputs → submit → complete → ACK
-</code></pre>
-<p>Use <code>Subscription::new_emitting</code> to register a handler returning
+<pre><code class="hljs language-text">receive → decode → pre_handler → handler → post_handler → prepare all outputs → submit → complete → ACK
+</code></pre><p>Use <code>Subscription::new_emitting</code> to register a handler returning
 <code>Result&lt;Emit&lt;T&gt;&gt;</code>. <code>Emit::None</code> emits nothing, <code>One</code> emits one value, and <code>Many</code>
 emits several. A regular <code>Vec&lt;T&gt;</code> remains a single payload. With <code>Many</code>, outputs
 are published sequentially and the input is acknowledged only after all succeed.
@@ -187,14 +186,12 @@ submission only.</p>
 <h2 id="transactions">Transactions</h2>
 <p><code>Subscription::transactional()</code> replaces the final publish and ACK steps with
 sink transactions that each commit a batch of deliveries:</p>
-<pre><code class="language-text">first delivery: verify_source(delivery)
+<pre><code class="hljs language-text">first delivery: verify_source(delivery)
 … → prepare all outputs → enlist in a batch → commit(batch)
-</code></pre>
-<pre><code class="language-rust,ignore">Subscription::new(&quot;orders&quot;, kafka_source, kafka_transactional_sink, handler)
-    .transactional()
-    .transaction_batch(TransactionBatch::new(100, Duration::from_millis(10)))
-</code></pre>
-<p>The method only compiles when the sink implements
+</code></pre><pre><code class="hljs language-rust,ignore">Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, kafka_source, kafka_transactional_sink, handler)
+    .<span class="hljs-title function_ invoke__">transactional</span>()
+    .<span class="hljs-title function_ invoke__">transaction_batch</span>(TransactionBatch::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-number">100</span>, Duration::<span class="hljs-title function_ invoke__">from_millis</span>(<span class="hljs-number">10</span>)))
+</code></pre><p>The method only compiles when the sink implements
 <code>TransactionalSink&lt;Source::Message, Output&gt;</code>, which an adapter provides for the
 source messages whose acknowledgement can join its transactions. The
 Kafka adapter implements it for a <code>KafkaSource</code> and a <code>KafkaTransactionalSink</code>;
@@ -271,34 +268,32 @@ before the application starts.</p>
 <h2 id="middleware">Middleware</h2>
 <p><code>Subscription::middleware</code> registers a <code>Middleware&lt;Input, Output&gt;</code> with two
 asynchronous hooks, both of which default to doing nothing:</p>
-<pre><code class="language-rust,ignore">pub trait Middleware&lt;I, O&gt; {
-    fn pre_handler(&amp;self, input: I) -&gt; impl Future&lt;Output = Result&lt;Flow&lt;I, O&gt;&gt;&gt; + Send;
-    fn post_handler(&amp;self, input: &amp;I, output: O) -&gt; impl Future&lt;Output = Result&lt;O&gt;&gt; + Send;
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">pub</span> <span class="hljs-keyword">trait</span> <span class="hljs-title class_">Middleware</span>&lt;I, O&gt; {
+    <span class="hljs-keyword">fn</span> <span class="hljs-title function_">pre_handler</span>(&amp;<span class="hljs-keyword">self</span>, input: I) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-keyword">impl</span> <span class="hljs-title class_">Future</span>&lt;Output = <span class="hljs-type">Result</span>&lt;Flow&lt;I, O&gt;&gt;&gt; + <span class="hljs-built_in">Send</span>;
+    <span class="hljs-keyword">fn</span> <span class="hljs-title function_">post_handler</span>(&amp;<span class="hljs-keyword">self</span>, input: &amp;I, output: O) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-keyword">impl</span> <span class="hljs-title class_">Future</span>&lt;Output = <span class="hljs-type">Result</span>&lt;O&gt;&gt; + <span class="hljs-built_in">Send</span>;
 }
 
-pub enum Flow&lt;I, O&gt; {
-    Continue(I),
-    Intercept(Emit&lt;O&gt;),
+<span class="hljs-keyword">pub</span> <span class="hljs-keyword">enum</span> <span class="hljs-title class_">Flow</span>&lt;I, O&gt; {
+    <span class="hljs-title function_ invoke__">Continue</span>(I),
+    <span class="hljs-title function_ invoke__">Intercept</span>(Emit&lt;O&gt;),
 }
-</code></pre>
-<p>Implement the hooks with <code>async fn</code>. A hook can await external lookups, such
+</code></pre><p>Implement the hooks with <code>async fn</code>. A hook can await external lookups, such
 as a cache, a schema registry, or a metadata service, before the handler runs
 or before the outputs are prepared:</p>
-<pre><code class="language-rust,ignore">struct Customers(CustomerClient);
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">struct</span> <span class="hljs-title class_">Customers</span>(CustomerClient);
 
-impl Middleware&lt;KafkaRecord&lt;Order&gt;, KafkaPublish&lt;Order&gt;&gt; for Customers {
-    async fn pre_handler(
-        &amp;self,
-        mut input: KafkaRecord&lt;Order&gt;,
-    ) -&gt; beavers::Result&lt;Flow&lt;KafkaRecord&lt;Order&gt;, KafkaPublish&lt;Order&gt;&gt;&gt; {
-        if let Some(order) = input.value.as_mut() {
-            order.customer = self.0.fetch(order.customer_id).await.map_err(HandlerError::Retry)?;
+<span class="hljs-keyword">impl</span> <span class="hljs-title class_">Middleware</span>&lt;KafkaRecord&lt;Order&gt;, KafkaPublish&lt;Order&gt;&gt; <span class="hljs-keyword">for</span> <span class="hljs-title class_">Customers</span> {
+    <span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">pre_handler</span>(
+        &amp;<span class="hljs-keyword">self</span>,
+        <span class="hljs-keyword">mut</span> input: KafkaRecord&lt;Order&gt;,
+    ) <span class="hljs-punctuation">-&gt;</span> beavers::<span class="hljs-type">Result</span>&lt;Flow&lt;KafkaRecord&lt;Order&gt;, KafkaPublish&lt;Order&gt;&gt;&gt; {
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> <span class="hljs-variable">Some</span>(order) = input.value.<span class="hljs-title function_ invoke__">as_mut</span>() {
+            order.customer = <span class="hljs-keyword">self</span>.<span class="hljs-number">0</span>.<span class="hljs-title function_ invoke__">fetch</span>(order.customer_id).<span class="hljs-keyword">await</span>.<span class="hljs-title function_ invoke__">map_err</span>(HandlerError::Retry)?;
         }
-        Ok(Flow::Continue(input))
+        <span class="hljs-title function_ invoke__">Ok</span>(Flow::<span class="hljs-title function_ invoke__">Continue</span>(input))
     }
 }
-</code></pre>
-<p>The runtime awaits each hook before starting the next, so the hooks of one
+</code></pre><p>The runtime awaits each hook before starting the next, so the hooks of one
 delivery never run concurrently. Other deliveries keep processing while a hook
 waits, within the subscription&#39;s concurrency and ordering limits. The input and
 output types must be <code>Send</code>, and the input type also <code>Sync</code>, because the hook
@@ -326,13 +321,12 @@ registered on a subscription whose source or sink uses different types. Wrap a
 synchronous function or closure in <code>MapMetadata::new</code> to use it as a
 <code>post_handler</code>,
 including for conversions between different platforms:</p>
-<pre><code class="language-rust,ignore">Subscription::new(&quot;orders&quot;, kafka_source, pulsar_sink, handler)
-    .middleware(MapMetadata::new(|input: &amp;KafkaRecord&lt;Order&gt;, mut output: PulsarPublish&lt;Order&gt;| {
-        output.key = input.key.clone();
-        Ok(output)
+<pre><code class="hljs language-rust,ignore">Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, kafka_source, pulsar_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(MapMetadata::<span class="hljs-title function_ invoke__">new</span>(|input: &amp;KafkaRecord&lt;Order&gt;, <span class="hljs-keyword">mut</span> output: PulsarPublish&lt;Order&gt;| {
+        output.key = input.key.<span class="hljs-title function_ invoke__">clone</span>();
+        <span class="hljs-title function_ invoke__">Ok</span>(output)
     }))
-</code></pre>
-<p>A middleware error never reruns the handler or the middleware. <code>Reject</code> is a
+</code></pre><p>A middleware error never reruns the handler or the middleware. <code>Reject</code> is a
 <code>Rejected</code> failure routed by the <a href="#error-policy">error policy</a> with the input as
 decoded from the source, and none of the delivery&#39;s outputs are published.
 <code>Retry</code> and <code>Fatal</code> stop processing without ACK.</p>
@@ -356,19 +350,18 @@ platform&#39;s defaults, as described in <a href="#handler-shapes">handler shape
 a handler that takes either the received record or its value, and returns
 either the sink&#39;s output type or a plain value. The shape is chosen at compile
 time from the handler&#39;s signature:</p>
-<pre><code class="language-rust,ignore">// Value in, value out: the output inherits the input&#39;s key and headers.
-async fn enrich(order: Order) -&gt; Result&lt;Order&gt; { .. }
-// Record in, value out: read the metadata, keep the default inheritance.
-async fn route(record: KafkaRecord&lt;Order&gt;) -&gt; Result&lt;Order&gt; { .. }
-// Value in, publish record out: the handler sets every output field.
-async fn rekey(order: Order) -&gt; Result&lt;KafkaPublish&lt;Order&gt;&gt; { .. }
-// Record in, publish record out: the handler controls everything.
-async fn custom(record: KafkaRecord&lt;Order&gt;) -&gt; Result&lt;KafkaPublish&lt;Order&gt;&gt; { .. }
+<pre><code class="hljs language-rust,ignore"><span class="hljs-comment">// Value in, value out: the output inherits the input&#x27;s key and headers.</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">enrich</span>(order: Order) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;Order&gt; { .. }
+<span class="hljs-comment">// Record in, value out: read the metadata, keep the default inheritance.</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">route</span>(record: KafkaRecord&lt;Order&gt;) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;Order&gt; { .. }
+<span class="hljs-comment">// Value in, publish record out: the handler sets every output field.</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">rekey</span>(order: Order) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;KafkaPublish&lt;Order&gt;&gt; { .. }
+<span class="hljs-comment">// Record in, publish record out: the handler controls everything.</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">custom</span>(record: KafkaRecord&lt;Order&gt;) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;KafkaPublish&lt;Order&gt;&gt; { .. }
 
-App::new()
-    .subscribe(&quot;enrich&quot;, kafka_source, kafka_sink, enrich)
-</code></pre>
-<table>
+App::<span class="hljs-title function_ invoke__">new</span>()
+    .<span class="hljs-title function_ invoke__">subscribe</span>(<span class="hljs-string">&quot;enrich&quot;</span>, kafka_source, kafka_sink, enrich)
+</code></pre><table>
 <thead>
 <tr>
 <th>Input</th>
@@ -434,10 +427,9 @@ after deleted rows; append-only event streams normally never contain them.
 Adapters mark such records through <code>TombstoneRecord</code>: Kafka and Pulsar records
 with <code>value: None</code>.</p>
 <p>Register <code>Tombstones</code> to decide their handling before the handler runs:</p>
-<pre><code class="language-rust,ignore">Subscription::new(&quot;orders&quot;, kafka_source, kafka_sink, handler)
-    .middleware(Tombstones::propagate())
-</code></pre>
-<table>
+<pre><code class="hljs language-rust,ignore">Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, kafka_source, kafka_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(Tombstones::<span class="hljs-title function_ invoke__">propagate</span>())
+</code></pre><table>
 <thead>
 <tr>
 <th>Policy</th>
@@ -470,13 +462,12 @@ record handler registered with <code>Subscription::new</code> receives them.</p>
 <h2 id="blocking-handlers">Blocking handlers</h2>
 <p>Wrap a synchronous function with <code>blocking</code> to register it wherever an async
 handler is accepted, including <code>new_emitting</code> and <code>forward</code>:</p>
-<pre><code class="language-rust,ignore">fn score(order: Order) -&gt; beavers::Result&lt;Score&gt; {
-    Ok(model.predict(&amp;order))
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">fn</span> <span class="hljs-title function_">score</span>(order: Order) <span class="hljs-punctuation">-&gt;</span> beavers::<span class="hljs-type">Result</span>&lt;Score&gt; {
+    <span class="hljs-title function_ invoke__">Ok</span>(model.<span class="hljs-title function_ invoke__">predict</span>(&amp;order))
 }
 
-App::new().subscribe(&quot;scores&quot;, source, sink, blocking(score));
-</code></pre>
-<p>Each call runs on a thread of a <code>BlockingPool</code>, a fixed set of worker threads
+App::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">subscribe</span>(<span class="hljs-string">&quot;scores&quot;</span>, source, sink, <span class="hljs-title function_ invoke__">blocking</span>(score));
+</code></pre><p>Each call runs on a thread of a <code>BlockingPool</code>, a fixed set of worker threads
 with a bounded job queue, so the handler can block without stalling receiving,
 publishing, or ACK on the Tokio executor.</p>
 <table>
@@ -536,15 +527,14 @@ outcomes at the call site with the <code>Classify</code> extension trait. <code>
 states the default explicitly, <code>.retry()?</code> reruns the handler under its retry
 policy and dead-letters the input once that is
 exhausted; <code>.fatal()?</code> stops the subscription:</p>
-<pre><code class="language-rust,ignore">use beavers::{Classify, Result};
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{Classify, <span class="hljs-type">Result</span>};
 
-async fn handle(order: Order) -&gt; Result&lt;Output&gt; {
-    validate(&amp;order).reject()?; // invalid input: dead-letter now (same as `?`)
-    let user = db.find_user(order.user_id).await.retry()?; // transient: retry, then dead-letter
-    Ok(build_output(order, user))
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">handle</span>(order: Order) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;Output&gt; {
+    <span class="hljs-title function_ invoke__">validate</span>(&amp;order).<span class="hljs-title function_ invoke__">reject</span>()?; <span class="hljs-comment">// invalid input: dead-letter now (same as `?`)</span>
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">user</span> = db.<span class="hljs-title function_ invoke__">find_user</span>(order.user_id).<span class="hljs-keyword">await</span>.<span class="hljs-title function_ invoke__">retry</span>()?; <span class="hljs-comment">// transient: retry, then dead-letter</span>
+    <span class="hljs-title function_ invoke__">Ok</span>(<span class="hljs-title function_ invoke__">build_output</span>(order, user))
 }
-</code></pre>
-<h3 id="error-policy">Error policy</h3>
+</code></pre><h3 id="error-policy">Error policy</h3>
 <p><code>ErrorPolicy</code> decides what happens to a delivery after one of five routable
 failures, identified by <code>FailureKind</code>:</p>
 <table>
@@ -767,12 +757,11 @@ JSON object into the <code>beavers-dlq-details</code> string attribute:</p>
 </tr>
 </tbody></table>
 <p>The sink must publish raw bytes:</p>
-<pre><code class="language-rust,ignore">let dead_letters = KafkaSink::&lt;RawBytes, Vec&lt;u8&gt;&gt;::new(KafkaSinkConfig::new(brokers, &quot;orders-dlq&quot;));
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">let</span> <span class="hljs-variable">dead_letters</span> = KafkaSink::&lt;RawBytes, <span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSinkConfig::<span class="hljs-title function_ invoke__">new</span>(brokers, <span class="hljs-string">&quot;orders-dlq&quot;</span>));
 
-Subscription::new(&quot;orders&quot;, source, sink, handle)
-    .dlq_with(dead_letters, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)));
-</code></pre>
-<p>When the dead-lettered record was itself received from a dead-letter topic, the
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, handle)
+    .<span class="hljs-title function_ invoke__">dlq_with</span>(dead_letters, |dead_letter| <span class="hljs-title function_ invoke__">Ok</span>(KafkaPublish::<span class="hljs-title function_ invoke__">from_dead_letter</span>(dead_letter)));
+</code></pre><p>When the dead-lettered record was itself received from a dead-letter topic, the
 origin headers are kept and the count is incremented, while the other details
 describe the latest failure. Previous dead-letter headers that are malformed
 are replaced as if the payload had never been dead-lettered.
@@ -880,7 +869,7 @@ application installs a subscriber or recorder, such as <code>tracing-subscriber<
 or a Prometheus exporter. Metric handles are registered when a subscription
 starts, so install the recorder before <code>App::run</code>.</p>
 <h3 id="spans">Spans</h3>
-<pre><code class="language-text">subscription                 subscription = &lt;name&gt;
+<pre><code class="hljs language-text">subscription                 subscription = &lt;name&gt;
   └── message                one per delivery
        ├── decode
        ├── handler           one per attempt, with `attempt`
@@ -890,8 +879,7 @@ starts, so install the recorder before <code>App::run</code>.</p>
        └── ack
   └── commit                 transactional subscriptions: every attempt to commit
                              a batch, with `deliveries` and `outputs`
-</code></pre>
-<p>A <a href="#transactions">transactional subscription</a> records no <code>publish</code> or <code>ack</code>
+</code></pre><p>A <a href="#transactions">transactional subscription</a> records no <code>publish</code> or <code>ack</code>
 span. Its <code>commit</code> spans belong to the subscription, not to a delivery,
 because one transaction commits several deliveries.</p>
 <p><code>pre_handler</code> and <code>post_handler</code> middleware run in the <code>message</code> span.</p>
@@ -1037,45 +1025,43 @@ in the Prometheus format with
 <a href="https://docs.rs/metrics-exporter-prometheus"><code>metrics-exporter-prometheus</code></a>
 and lets the Collector scrape them.</p>
 <p>Install the exporter before <code>App::run</code>:</p>
-<pre><code class="language-rust,ignore">use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 
-PrometheusBuilder::new()
-    .with_http_listener(([0, 0, 0, 0], 9000))
-    .set_buckets_for_metric(
-        Matcher::Full(&quot;beavers_stage_duration_seconds&quot;.to_owned()),
-        &amp;[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
+PrometheusBuilder::<span class="hljs-title function_ invoke__">new</span>()
+    .<span class="hljs-title function_ invoke__">with_http_listener</span>(([<span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>], <span class="hljs-number">9000</span>))
+    .<span class="hljs-title function_ invoke__">set_buckets_for_metric</span>(
+        Matcher::<span class="hljs-title function_ invoke__">Full</span>(<span class="hljs-string">&quot;beavers_stage_duration_seconds&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()),
+        &amp;[<span class="hljs-number">0.001</span>, <span class="hljs-number">0.005</span>, <span class="hljs-number">0.01</span>, <span class="hljs-number">0.05</span>, <span class="hljs-number">0.1</span>, <span class="hljs-number">0.5</span>, <span class="hljs-number">1.0</span>, <span class="hljs-number">5.0</span>],
     )?
-    .install()?;
+    .<span class="hljs-title function_ invoke__">install</span>()?;
 
-app.run().await?;
-</code></pre>
-<p>The listener serves <code>/metrics</code> over HTTP. Without configured buckets, the
+app.<span class="hljs-title function_ invoke__">run</span>().<span class="hljs-keyword">await</span>?;
+</code></pre><p>The listener serves <code>/metrics</code> over HTTP. Without configured buckets, the
 exporter writes histograms as Prometheus summaries, which arrive as
 OpenTelemetry summaries that many backends do not support; configure buckets for
 <code>beavers_stage_duration_seconds</code> and any histograms the application records
 itself.</p>
 <p>Scrape the endpoint with the Collector&#39;s Prometheus receiver, which is part of
 the <code>otelcol-contrib</code> distribution, and forward the metrics to any exporter:</p>
-<pre><code class="language-yaml">receivers:
-  prometheus:
-    config:
-      scrape_configs:
-        - job_name: beavers
-          scrape_interval: 15s
-          static_configs:
-            - targets: [&quot;my-app:9000&quot;]
+<pre><code class="hljs language-yaml"><span class="hljs-attr">receivers:</span>
+  <span class="hljs-attr">prometheus:</span>
+    <span class="hljs-attr">config:</span>
+      <span class="hljs-attr">scrape_configs:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">job_name:</span> <span class="hljs-string">beavers</span>
+          <span class="hljs-attr">scrape_interval:</span> <span class="hljs-string">15s</span>
+          <span class="hljs-attr">static_configs:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">targets:</span> [<span class="hljs-string">&quot;my-app:9000&quot;</span>]
 
-exporters:
-  otlp:
-    endpoint: my-backend:4317
+<span class="hljs-attr">exporters:</span>
+  <span class="hljs-attr">otlp:</span>
+    <span class="hljs-attr">endpoint:</span> <span class="hljs-string">my-backend:4317</span>
 
-service:
-  pipelines:
-    metrics:
-      receivers: [prometheus]
-      exporters: [otlp]
-</code></pre>
-<p>Counters arrive as cumulative OpenTelemetry sums, the in-flight gauge as a
+<span class="hljs-attr">service:</span>
+  <span class="hljs-attr">pipelines:</span>
+    <span class="hljs-attr">metrics:</span>
+      <span class="hljs-attr">receivers:</span> [<span class="hljs-string">prometheus</span>]
+      <span class="hljs-attr">exporters:</span> [<span class="hljs-string">otlp</span>]
+</code></pre><p>Counters arrive as cumulative OpenTelemetry sums, the in-flight gauge as a
 gauge, and bucketed histograms as histograms. Labels become data-point
 attributes, and the receiver maps the scrape&#39;s <code>job</code> and <code>instance</code> to the
 <code>service.name</code> and <code>service.instance.id</code> resource attributes.</p>
@@ -1145,15 +1131,14 @@ output:</p>
 <code>opentelemetry</code> feature, <code>ChannelSink</code> and <code>ChannelSender</code> capture the current
 span&#39;s context when they enqueue a value, so the receiving subscription&#39;s
 <code>message</code> span continues the trace as a child of the sending stage.</p>
-<pre><code class="language-rust,ignore">use beavers::TraceContext;
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::TraceContext;
 
-opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
-// Install a tracing subscriber with a tracing-opentelemetry layer.
+opentelemetry::global::<span class="hljs-title function_ invoke__">set_text_map_propagator</span>(TraceContextPropagator::<span class="hljs-title function_ invoke__">new</span>());
+<span class="hljs-comment">// Install a tracing subscriber with a tracing-opentelemetry layer.</span>
 
-Subscription::new(&quot;orders&quot;, kafka_source, kafka_sink, handler)
-    .middleware(TraceContext::new())
-</code></pre>
-<p>Inheritance middleware such as <code>KafkaInherit</code> copies every header, including
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, kafka_source, kafka_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(TraceContext::<span class="hljs-title function_ invoke__">new</span>())
+</code></pre><p>Inheritance middleware such as <code>KafkaInherit</code> copies every header, including
 <code>traceparent</code>, unchanged. Without <code>TraceContext</code>, an output therefore carries
 the received context, and the processing step is invisible to the trace. With
 <code>TraceContext</code> registered after the inheritance middleware, the injected
@@ -1205,14 +1190,13 @@ retries do not affect readiness. Liveness reports that the runtime answers and
 that no subscription failed; it does not detect a handler that never returns.</p>
 <p>With the <code>health</code> feature, <code>HealthServer</code> answers probes over HTTP/1.1 while
 the application runs:</p>
-<pre><code class="language-rust,ignore">let server = HealthServer::bind(&quot;0.0.0.0:8080&quot;.parse()?)?;
-App::new()
-    .subscription(subscription)
-    .health_server(server)
-    .run()
-    .await?;
-</code></pre>
-<p><code>GET /livez</code> answers <code>200 OK</code> when the report is live and <code>GET /readyz</code> when it
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">let</span> <span class="hljs-variable">server</span> = HealthServer::<span class="hljs-title function_ invoke__">bind</span>(<span class="hljs-string">&quot;0.0.0.0:8080&quot;</span>.<span class="hljs-title function_ invoke__">parse</span>()?)?;
+App::<span class="hljs-title function_ invoke__">new</span>()
+    .<span class="hljs-title function_ invoke__">subscription</span>(subscription)
+    .<span class="hljs-title function_ invoke__">health_server</span>(server)
+    .<span class="hljs-title function_ invoke__">run</span>()
+    .<span class="hljs-keyword">await</span>?;
+</code></pre><p><code>GET /livez</code> answers <code>200 OK</code> when the report is live and <code>GET /readyz</code> when it
 is ready; otherwise each answers <code>503 Service Unavailable</code>. Both return the
 report as a JSON body. Other paths answer <code>404 Not Found</code> and other methods
 <code>405 Method Not Allowed</code>. <code>HealthServer::bind</code> binds the listener immediately,
@@ -1223,12 +1207,11 @@ as soon as shutdown starts, which removes an instance serving an
 <a href="adapters/http.html">HTTP source</a> from a Kubernetes Service while it drains,
 and liveness keeps answering until draining completes. Use the readiness probe
 for traffic routing and the liveness probe for restarts:</p>
-<pre><code class="language-yaml">livenessProbe:
-  httpGet: { path: /livez, port: 8080 }
-readinessProbe:
-  httpGet: { path: /readyz, port: 8080 }
-</code></pre>
-<p>The health server does not export metrics; <a href="#metrics">metrics</a> go through the
+<pre><code class="hljs language-yaml"><span class="hljs-attr">livenessProbe:</span>
+  <span class="hljs-attr">httpGet:</span> { <span class="hljs-attr">path:</span> <span class="hljs-string">/livez</span>, <span class="hljs-attr">port:</span> <span class="hljs-number">8080</span> }
+<span class="hljs-attr">readinessProbe:</span>
+  <span class="hljs-attr">httpGet:</span> { <span class="hljs-attr">path:</span> <span class="hljs-string">/readyz</span>, <span class="hljs-attr">port:</span> <span class="hljs-number">8080</span> }
+</code></pre><p>The health server does not export metrics; <a href="#metrics">metrics</a> go through the
 <code>metrics</code> facade and the recorder the application installs.</p>
 <h2 id="implementation-limits">Implementation limits</h2>
 <p>Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, and Azure Service Bus adapters, broker

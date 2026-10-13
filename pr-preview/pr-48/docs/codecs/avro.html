@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Avro codec - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../../style.css">
   <link rel="alternate" type="text/markdown" href="avro.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../../">beave-rs</a>
       <nav>
         <a href="../index.html">Guides</a>
@@ -21,24 +22,23 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/channel.html">Channel adapter</a></li><li><a href="../adapters/kafka.html">Kafka adapter</a></li><li><a href="../adapters/pulsar.html">Pulsar adapter</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="../adapters/sqs.html">SQS adapter</a></li><li><a href="../adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="../adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="protobuf.html">Protobuf codec</a></li><li><a href="avro.html" aria-current="page">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../../index.html">Overview</a></li><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/channel.html">Channel adapter</a></li><li><a href="../adapters/kafka.html">Kafka adapter</a></li><li><a href="../adapters/pulsar.html">Pulsar adapter</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="../adapters/sqs.html">SQS adapter</a></li><li><a href="../adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="../adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="protobuf.html">Protobuf codec</a></li><li><a href="avro.html" aria-current="page">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="avro-codec">Avro codec</h1>
 <p><code>Avro</code> encodes and decodes Serde values using a parsed Apache Avro schema. Enable
 the <code>avro</code> Cargo feature:</p>
-<pre><code class="language-toml">[dependencies]
-beavers = { version = &quot;0.1&quot;, features = [&quot;avro&quot;] }
-</code></pre>
-<p>Construct the codec with a schema string. Construction parses and validates the
+<pre><code class="hljs language-toml"><span class="hljs-section">[dependencies]</span>
+<span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;avro&quot;</span>] }
+</code></pre><p>Construct the codec with a schema string. Construction parses and validates the
 schema once; an invalid schema returns an error before any messages are handled.
 The same schema is used as the writer and reader schema for the codec:</p>
-<pre><code class="language-rust">use beavers::{Avro, Decoder, Encoder};
-use serde::{Deserialize, Serialize};
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Avro, Decoder, Encoder};
+<span class="hljs-keyword">use</span> serde::{Deserialize, Serialize};
 
-const SCHEMA: &amp;str = r#&quot;
+<span class="hljs-keyword">const</span> SCHEMA: &amp;<span class="hljs-type">str</span> = <span class="hljs-string">r#&quot;
 {
   &quot;type&quot;: &quot;record&quot;,
   &quot;name&quot;: &quot;Order&quot;,
@@ -47,20 +47,19 @@ const SCHEMA: &amp;str = r#&quot;
     {&quot;name&quot;: &quot;comment&quot;, &quot;type&quot;: [&quot;null&quot;, &quot;string&quot;], &quot;default&quot;: null}
   ]
 }
-&quot;#;
+&quot;#</span>;
 
-#[derive(Deserialize, Serialize)]
-struct Order {
-    id: i64,
-    comment: Option&lt;String&gt;,
+<span class="hljs-meta">#[derive(Deserialize, Serialize)]</span>
+<span class="hljs-keyword">struct</span> <span class="hljs-title class_">Order</span> {
+    id: <span class="hljs-type">i64</span>,
+    comment: <span class="hljs-type">Option</span>&lt;<span class="hljs-type">String</span>&gt;,
 }
 
-let codec = Avro::new(SCHEMA)?;
-let bytes = codec.encode(&amp;Order { id: 7, comment: None })?;
-let order: Order = codec.decode(&amp;bytes)?;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">codec</span> = Avro::<span class="hljs-title function_ invoke__">new</span>(SCHEMA)?;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">bytes</span> = codec.<span class="hljs-title function_ invoke__">encode</span>(&amp;Order { id: <span class="hljs-number">7</span>, comment: <span class="hljs-literal">None</span> })?;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">order</span>: Order = codec.<span class="hljs-title function_ invoke__">decode</span>(&amp;bytes)?;
 # Ok::&lt;(), beavers::BoxError&gt;(())
-</code></pre>
-<p>Each payload is exactly one raw Avro datum. <code>Avro</code> does not add an object
+</code></pre><p>Each payload is exactly one raw Avro datum. <code>Avro</code> does not add an object
 container header, sync marker, length prefix, or other framing. A decode succeeds
 only when the schema consumes the complete payload; trailing bytes are rejected.
 This makes the codec suitable for adapters that already preserve message

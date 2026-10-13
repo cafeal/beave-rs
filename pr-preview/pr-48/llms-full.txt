@@ -1,3 +1,160 @@
+<!-- https://cafeal.github.io/beave-rs/pr-preview/pr-48/index.md -->
+
+# beave-rs
+
+[![crates.io](https://img.shields.io/crates/v/beavers.svg)](https://crates.io/crates/beavers)
+[![docs.rs](https://img.shields.io/docsrs/beavers)](https://docs.rs/beavers)
+[![CI](https://github.com/cafeal/beave-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/cafeal/beave-rs/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
+
+A lightweight Rust message processing framework built around typed handlers.
+
+<p align="center">
+  <img src="docs/assets/overview.svg" width="760" alt="An App running three subscriptions: Kafka source to handler to Kafka sink, Pulsar source to handler to HTTP sink, and SQS source to handler to RabbitMQ sink">
+</p>
+
+Each `Subscription` connects one source, one handler, and one sink. An `App`
+runs any number of subscriptions side by side and shuts them down together.
+
+- **Typed handlers** — write `async fn(Input) -> Result<Output>`; decoding,
+  publishing, and acknowledgement are handled for you.
+- **At-least-once delivery** — an input is acknowledged only after its output
+  is published.
+- **Explicit failure handling** — classify errors as retry, reject
+  (dead-letter), or fatal; retries back off.
+- **Concurrency with ordering** — bounded concurrency, per-key ordering, and a
+  worker pool for blocking handlers.
+- **Pipelines** — chain subscriptions through in-process channels with
+  end-to-end acknowledgement.
+- **Adapters** — Kafka, Apache Pulsar, RabbitMQ, Amazon SQS, Google Cloud
+  Pub/Sub, Azure Service Bus, and HTTP; JSON, Avro, and Protobuf codecs.
+- **Operations** — graceful shutdown, `tracing` spans, `metrics`,
+  OpenTelemetry trace propagation, and `/livez` and `/readyz` probes.
+
+> beave-rs is pre-release. The API may change until 0.1.0.
+
+## Installation
+
+```sh
+cargo add beavers --features kafka
+cargo add tokio --features macros,rt-multi-thread
+cargo add anyhow
+```
+
+No Cargo feature is enabled by default. Enable the adapters and codecs the
+application uses:
+
+| Feature | Enables |
+|---|---|
+| `kafka` | Kafka source and sink |
+| `pulsar` | Apache Pulsar source and sink |
+| `rabbitmq` | RabbitMQ source and sink |
+| `sqs` | Amazon SQS source and sink |
+| `pubsub` | Google Cloud Pub/Sub source and sink |
+| `servicebus` | Azure Service Bus source and sink |
+| `http` | HTTP source and sink |
+| `avro` | Avro codec |
+| `protobuf` | Protobuf codec |
+| `opentelemetry` | Trace-context propagation through broker metadata |
+| `health` | `/livez` and `/readyz` endpoints |
+| `testing` | Fabricated broker records for handler tests |
+
+## Quick start
+
+Summarize each article on a Kafka topic with an LLM and publish the summaries
+to another topic:
+
+```rust
+use beavers::{
+    App, Classify, Result, Utf8,
+    adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
+};
+
+async fn summarize(article: String) -> Result<String> {
+    let summary = call_llm(&format!("Summarize: {article}")).await.retry()?;
+    Ok(summary)
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let articles = KafkaSource::<Utf8, _>::new(KafkaSourceConfig::new("localhost:9092", "summarizer", ["articles"]));
+    let summaries = KafkaSink::<Utf8, _>::new(KafkaSinkConfig::new("localhost:9092", "summaries"));
+
+    App::new()
+        .subscribe("summarize", articles, summaries, summarize)
+        .run()
+        .await?;
+    Ok(())
+}
+```
+
+The handler sees only the decoded value. A transient API failure is retried
+with backoff, and each offset is committed after its summary is published.
+
+The repository's examples run against local brokers started with Docker
+Compose, which also provides web consoles for Kafka and Pulsar:
+
+```sh
+docker compose up -d --wait
+cargo kafka-produce
+cargo kafka-process   # Ctrl-C to stop
+docker compose down
+```
+
+To try the API without a broker, run `cargo run --example transform`. See
+[local development brokers](docs/development.md) for every example, console,
+and Cargo alias.
+
+## Errors
+
+Errors propagated with `?` reject the input, which is dead-lettered by default.
+The handler asks for other outcomes at the call site:
+
+```rust
+async fn handle(order: Order) -> Result<Output> {
+    validate(&order).reject()?; // dead-letter now (same as `?`)
+    let user = db.find_user(order.user_id).await.retry()?; // retry, then dead-letter
+    Ok(build_output(order, user))
+}
+```
+
+`.fatal()?` stops the subscription. See
+[errors and retries](docs/runtime.md#errors-and-retries) for retry policies
+and the error policy.
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Architecture and trait contracts](docs/architecture.md)
+- [Adapters and usage examples](docs/adapters.md)
+- [Codecs and serialization](docs/codecs.md)
+- [Dead-letter handling](docs/dead-letter-handling.md)
+- [Monitoring and alerting](docs/monitoring-and-alerting/README.md)
+- [Testing handlers](docs/testing.md)
+- [Runtime behavior, configuration, and limitations](docs/runtime.md)
+- [Design plan and roadmap](docs/plan.md)
+- [Local development brokers](docs/development.md)
+- [Versioning and releases](docs/releasing.md)
+- [API reference on docs.rs](https://docs.rs/beavers)
+
+The guides are also published at <https://cafeal.github.io/beave-rs/>. Each
+page's Markdown source is available at the page URL with `.html` replaced by
+`.md`, and [`llms.txt`](https://cafeal.github.io/beave-rs/llms.txt) lists them
+all for language-model tools.
+
+## Development
+
+The minimum supported Rust version is 1.94.1. See
+[local development brokers](docs/development.md) for the local Kafka, Pulsar,
+RabbitMQ, SQS, Pub/Sub, and Azure Service Bus environment and the live tests, and
+[AGENTS.md](https://github.com/cafeal/beave-rs/blob/main/AGENTS.md) for the checks every change must pass.
+
+## License
+
+Licensed under the [MIT license](https://github.com/cafeal/beave-rs/blob/main/LICENSE-MIT).
+
+**Let application code process events. Let beave-rs manage the flow.**
+
 <!-- https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/index.md -->
 
 # Documentation
@@ -52,6 +209,10 @@ src/
 ├── message.rs             # SourceMessage and Delivery ownership
 ├── sink.rs                # Prepare, publish, and close contracts
 ├── handler.rs             # Handler, Emit, HandlerError, and Result
+├── forward.rs             # Value-only handlers for same-platform sources and sinks
+├── middleware.rs          # Middleware, Flow, and MapMetadata around the handler
+├── tombstone.rs           # Tombstones middleware for null-value records
+├── transaction.rs         # TransactionalSink for atomic publish and acknowledge
 ├── error.rs               # Error reported by the crate and BoxError
 ├── blocking.rs            # Synchronous handlers on a bounded worker pool
 ├── error_policy.rs        # FailureKind, FailureAction, and ErrorPolicy
@@ -67,7 +228,11 @@ src/
 ├── testing/               # Test sources for fabricated records (`testing` feature)
 ├── codec/
 │   ├── mod.rs             # Decoder and Encoder contracts
-│   └── json.rs            # JSON implementation
+│   ├── json.rs            # JSON codec
+│   ├── raw_bytes.rs       # RawBytes codec
+│   ├── utf8.rs            # Utf8 codec
+│   ├── avro.rs            # Avro codec (`avro` feature)
+│   └── protobuf.rs        # Protobuf codec (`protobuf` feature)
 ├── subscription/
 │   ├── mod.rs             # Module declarations and public re-exports
 │   ├── builder.rs         # Subscription type and builder API
@@ -76,7 +241,10 @@ src/
 │   ├── runtime.rs         # Private receive loop, draining, and cleanup
 │   ├── scheduler.rs       # Private ordering-key queues
 │   ├── instruments.rs     # Private per-subscription metric handles
-│   └── processing.rs      # Private per-message processing lifecycle
+│   ├── hooks.rs           # Private object-safe form of stored middleware
+│   ├── processing.rs      # Private per-message processing lifecycle
+│   ├── completion.rs      # Private prepare, publish, and acknowledge stage
+│   └── transaction.rs     # Private batching of deliveries into sink transactions
 └── adapters/
     ├── mod.rs
     ├── channel/           # Chained subscriptions with deferred upstream ACK
@@ -2715,8 +2883,8 @@ the first crates.io release:
   grow, and names that should change before `0.1.0`.
 - After the first release, add `cargo-semver-checks` to CI and switch the
   release workflow from the API token to crates.io trusted publishing.
-- Create the project icon and character, and place them in the landing page
-  (`site/`) and the README.
+- Create the project icon and character, and place them in the README, which
+  is also the website's top page.
 - Publish `0.0.1` to reserve the crate name, then `0.1.0` as the first release
   intended for use.
 
@@ -3077,26 +3245,28 @@ A published version cannot be replaced. If a release is broken, yank it with
 
 ## Project website
 
-The project website has two parts: the landing page in `site/`, a static HTML
-and CSS page, and the guides in `docs/`. `tools/pages/build.mjs` assembles both
-into one directory. Each `docs/<path>.md` becomes `docs/<path>.html`, styled
-with `site/style.css`, and the Markdown source is published next to it at
-`docs/<path>.md`, so replacing `.html` with `.md` in a guide URL returns the
-exact source. A `README.md` becomes `index.html` and `index.md`. Links between
-guides point at the generated pages; links to files outside `docs/` point at
-the repository on GitHub, in both the HTML and the Markdown copies. The guide
-navigation follows the link order of `docs/README.md`.
+The website is generated from the repository README and the guides in `docs/`,
+so it has no content of its own. `tools/pages/build.mjs` renders every page
+with one layout and `tools/pages/style.css`: `README.md` becomes the top page,
+`index.html`, and each `docs/<path>.md` becomes `docs/<path>.html`; a
+`README.md` inside `docs/` becomes `index.html` in its directory. Each page's
+Markdown source is published at the same path with `.md` instead of `.html`, so
+replacing the extension in a page URL returns the exact source. Links between
+pages point at the generated pages; links to other repository files point at
+GitHub, in both the HTML and the Markdown copies. The navigation lists the
+README, the guide index, and then the guides in the link order of
+`docs/README.md`.
 
 For language-model tools, the site root also serves `llms.txt`, which lists the
-Markdown URL of every guide, and `llms-full.txt`, which holds all guides in one
+Markdown URL of every page, and `llms-full.txt`, which holds all pages in one
 file.
 
 The `Pages` workflow runs the build and publishes the result to the `gh-pages`
-branch on every push to `main` that touches `site/`, `docs/`, or
+branch on every push to `main` that touches `README.md`, `docs/`, or
 `tools/pages/`. GitHub Pages serves that branch, so the repository's Pages
 source must be set to deploy from the `gh-pages` branch root.
 
-A pull request that changes the site or the guides gets a preview under
+A pull request that changes the website gets a preview under
 `pr-preview/pr-<number>/` on the same branch. The workflow comments the preview
 URL on the pull request and removes the preview when the pull request closes.
 Pull requests from forks are not previewed because their workflows cannot push
@@ -3109,9 +3279,6 @@ npm ci --prefix tools/pages
 node tools/pages/build.mjs _site
 python3 -m http.server -d _site
 ```
-
-The character artwork slot in the hero section is a placeholder; replace the
-`mascot-slot` figure in `site/index.html` with the artwork when it exists.
 
 <!-- https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters/channel.md -->
 

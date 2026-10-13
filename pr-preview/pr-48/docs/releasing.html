@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Versioning and releases - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../style.css">
   <link rel="alternate" type="text/markdown" href="releasing.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../">beave-rs</a>
       <nav>
         <a href="index.html">Guides</a>
@@ -21,9 +22,9 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html" aria-current="page">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../index.html">Overview</a></li><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html" aria-current="page">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="versioning-and-releases">Versioning and releases</h1>
@@ -117,35 +118,34 @@ published crate.</p>
 <p>A published version cannot be replaced. If a release is broken, yank it with
 <code>cargo yank --version X.Y.Z</code> and publish a fixed patch release.</p>
 <h2 id="project-website">Project website</h2>
-<p>The project website has two parts: the landing page in <code>site/</code>, a static HTML
-and CSS page, and the guides in <code>docs/</code>. <code>tools/pages/build.mjs</code> assembles both
-into one directory. Each <code>docs/&lt;path&gt;.md</code> becomes <code>docs/&lt;path&gt;.html</code>, styled
-with <code>site/style.css</code>, and the Markdown source is published next to it at
-<code>docs/&lt;path&gt;.md</code>, so replacing <code>.html</code> with <code>.md</code> in a guide URL returns the
-exact source. A <code>README.md</code> becomes <code>index.html</code> and <code>index.md</code>. Links between
-guides point at the generated pages; links to files outside <code>docs/</code> point at
-the repository on GitHub, in both the HTML and the Markdown copies. The guide
-navigation follows the link order of <code>docs/README.md</code>.</p>
+<p>The website is generated from the repository README and the guides in <code>docs/</code>,
+so it has no content of its own. <code>tools/pages/build.mjs</code> renders every page
+with one layout and <code>tools/pages/style.css</code>: <code>README.md</code> becomes the top page,
+<code>index.html</code>, and each <code>docs/&lt;path&gt;.md</code> becomes <code>docs/&lt;path&gt;.html</code>; a
+<code>README.md</code> inside <code>docs/</code> becomes <code>index.html</code> in its directory. Each page&#39;s
+Markdown source is published at the same path with <code>.md</code> instead of <code>.html</code>, so
+replacing the extension in a page URL returns the exact source. Links between
+pages point at the generated pages; links to other repository files point at
+GitHub, in both the HTML and the Markdown copies. The navigation lists the
+README, the guide index, and then the guides in the link order of
+<code>docs/README.md</code>.</p>
 <p>For language-model tools, the site root also serves <code>llms.txt</code>, which lists the
-Markdown URL of every guide, and <code>llms-full.txt</code>, which holds all guides in one
+Markdown URL of every page, and <code>llms-full.txt</code>, which holds all pages in one
 file.</p>
 <p>The <code>Pages</code> workflow runs the build and publishes the result to the <code>gh-pages</code>
-branch on every push to <code>main</code> that touches <code>site/</code>, <code>docs/</code>, or
+branch on every push to <code>main</code> that touches <code>README.md</code>, <code>docs/</code>, or
 <code>tools/pages/</code>. GitHub Pages serves that branch, so the repository&#39;s Pages
 source must be set to deploy from the <code>gh-pages</code> branch root.</p>
-<p>A pull request that changes the site or the guides gets a preview under
+<p>A pull request that changes the website gets a preview under
 <code>pr-preview/pr-&lt;number&gt;/</code> on the same branch. The workflow comments the preview
 URL on the pull request and removes the preview when the pull request closes.
 Pull requests from forks are not previewed because their workflows cannot push
 to the repository.</p>
 <p>Build and preview the site locally with Node.js 22:</p>
-<pre><code class="language-sh">npm ci --prefix tools/pages
+<pre><code class="hljs language-sh">npm ci --prefix tools/pages
 node tools/pages/build.mjs _site
 python3 -m http.server -d _site
 </code></pre>
-<p>The character artwork slot in the hero section is a placeholder; replace the
-<code>mascot-slot</code> figure in <code>site/index.html</code> with the artwork when it exists.</p>
-
       <p class="source"><a href="releasing.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/releasing.md">Source on GitHub</a></p>
     </main>
   </div>

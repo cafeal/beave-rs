@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RabbitMQ adapter - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../../style.css">
   <link rel="alternate" type="text/markdown" href="rabbitmq.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../../">beave-rs</a>
       <nav>
         <a href="../index.html">Guides</a>
@@ -21,17 +22,16 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html">Channel adapter</a></li><li><a href="kafka.html">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html" aria-current="page">RabbitMQ adapter</a></li><li><a href="sqs.html">SQS adapter</a></li><li><a href="pubsub.html">Pub/Sub adapter</a></li><li><a href="servicebus.html">Azure Service Bus adapter</a></li><li><a href="http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../../index.html">Overview</a></li><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html">Channel adapter</a></li><li><a href="kafka.html">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html" aria-current="page">RabbitMQ adapter</a></li><li><a href="sqs.html">SQS adapter</a></li><li><a href="pubsub.html">Pub/Sub adapter</a></li><li><a href="servicebus.html">Azure Service Bus adapter</a></li><li><a href="http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="rabbitmq-adapter">RabbitMQ adapter</h1>
 <p>The optional <code>rabbitmq</code> feature provides typed RabbitMQ source and sink adapters
 for AMQP 0-9-1, backed by the <code>lapin</code> 4 client.</p>
-<pre><code class="language-toml">beavers = { version = &quot;0.1&quot;, features = [&quot;rabbitmq&quot;] }
-</code></pre>
-<h2 id="configuration">Configuration</h2>
+<pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;rabbitmq&quot;</span>] }
+</code></pre><h2 id="configuration">Configuration</h2>
 <p><code>RabbitMqSourceConfig</code> takes a broker URI and the queue to consume;
 <code>RabbitMqSinkConfig</code> takes a broker URI, the exchange every output is published
 to, and the routing key of outputs that do not set their own. The empty
@@ -39,23 +39,22 @@ exchange name is RabbitMQ&#39;s default exchange, which routes a message to the
 queue named by its routing key. <code>validate</code> checks the values without contacting
 the broker, and both adapters connect on first use. The <code>Debug</code> output of both
 configurations hides the URI&#39;s password.</p>
-<pre><code class="language-rust">use beavers::{Utf8, adapters::rabbitmq::{
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::rabbitmq::{
     RabbitMqPublish, RabbitMqSink, RabbitMqSinkConfig, RabbitMqSource, RabbitMqSourceConfig,
 }};
 
-let source = RabbitMqSource::&lt;Utf8, String&gt;::new(RabbitMqSourceConfig::new(
-    &quot;amqp://guest:guest@localhost:5672/%2f&quot;,
-    &quot;orders&quot;,
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = RabbitMqSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(RabbitMqSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;amqp://guest:guest@localhost:5672/%2f&quot;</span>,
+    <span class="hljs-string">&quot;orders&quot;</span>,
 ));
-let sink = RabbitMqSink::&lt;Utf8, String&gt;::new(RabbitMqSinkConfig::new(
-    &quot;amqp://guest:guest@localhost:5672/%2f&quot;,
-    &quot;&quot;,
-    &quot;processed-orders&quot;,
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = RabbitMqSink::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(RabbitMqSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;amqp://guest:guest@localhost:5672/%2f&quot;</span>,
+    <span class="hljs-string">&quot;&quot;</span>,
+    <span class="hljs-string">&quot;processed-orders&quot;</span>,
 ));
 
-let output = RabbitMqPublish::new(&quot;created&quot;.to_owned()).with_routing_key(&quot;audit&quot;);
-</code></pre>
-<p>The adapters declare no exchanges, queues, or bindings. Create the topology
+<span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = RabbitMqPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()).<span class="hljs-title function_ invoke__">with_routing_key</span>(<span class="hljs-string">&quot;audit&quot;</span>);
+</code></pre><p>The adapters declare no exchanges, queues, or bindings. Create the topology
 with broker definitions, the management tools, or application code before the
 subscription starts; a source whose queue does not exist fails its receive and
 retries under the subscription&#39;s <code>receive_retry</code>.</p>
@@ -142,12 +141,11 @@ closes the connection.</p>
 received headers and the properties that describe the payload or its
 conversation: content type, content encoding, type, correlation ID, app ID, and
 priority.</p>
-<pre><code class="language-rust,ignore">use beavers::adapters::rabbitmq::RabbitMqInherit;
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::adapters::rabbitmq::RabbitMqInherit;
 
-Subscription::new(&quot;orders&quot;, rabbitmq_source, rabbitmq_sink, handler)
-    .middleware(RabbitMqInherit::new())
-</code></pre>
-<p>Explicit output fields take precedence: a received header is added only when the
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, rabbitmq_source, rabbitmq_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(RabbitMqInherit::<span class="hljs-title function_ invoke__">new</span>())
+</code></pre><p>Explicit output fields take precedence: a received header is added only when the
 output does not set that name, and a property only when the output leaves it
 <code>None</code>. Dead-letter headers starting with <code>beavers-dlq-</code> are never inherited.
 The message ID, timestamp, expiration, reply-to address, and user ID identify or

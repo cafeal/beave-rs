@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Handling dead letters - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../style.css">
   <link rel="alternate" type="text/markdown" href="dead-letter-handling.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../">beave-rs</a>
       <nav>
         <a href="index.html">Guides</a>
@@ -21,9 +22,9 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html" aria-current="page">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../index.html">Overview</a></li><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html" aria-current="page">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="handling-dead-letters">Handling dead letters</h1>
@@ -123,52 +124,49 @@ will reprocess it before dead letters arrive.</p>
 <h3 id="examine">Examine</h3>
 <p>A subscription with its own consumer group can read the whole dead-letter
 topic and print a summary of each dead letter as one JSON line:</p>
-<pre><code class="language-rust,ignore">use beavers::{
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{
     Json, RawBytes, StdoutSink, Subscription,
     adapters::kafka::{KafkaDeadLetter, KafkaRecord, KafkaSource, KafkaSourceConfig},
 };
 
-#[derive(serde::Serialize)]
-struct Summary {
-    failure: Option&lt;String&gt;,
-    error: Option&lt;String&gt;,
-    count: u32,
-    origin: Option&lt;String&gt;,
+<span class="hljs-meta">#[derive(serde::Serialize)]</span>
+<span class="hljs-keyword">struct</span> <span class="hljs-title class_">Summary</span> {
+    failure: <span class="hljs-type">Option</span>&lt;<span class="hljs-type">String</span>&gt;,
+    error: <span class="hljs-type">Option</span>&lt;<span class="hljs-type">String</span>&gt;,
+    count: <span class="hljs-type">u32</span>,
+    origin: <span class="hljs-type">Option</span>&lt;<span class="hljs-type">String</span>&gt;,
 }
 
-let mut config = KafkaSourceConfig::new(brokers, &quot;orders-dlq-examine&quot;, [&quot;orders-dlq&quot;]);
-config.properties.insert(&quot;auto.offset.reset&quot;.into(), &quot;earliest&quot;.into());
-let source = KafkaSource::&lt;RawBytes, Vec&lt;u8&gt;&gt;::new(config);
+<span class="hljs-keyword">let</span> <span class="hljs-keyword">mut </span><span class="hljs-variable">config</span> = KafkaSourceConfig::<span class="hljs-title function_ invoke__">new</span>(brokers, <span class="hljs-string">&quot;orders-dlq-examine&quot;</span>, [<span class="hljs-string">&quot;orders-dlq&quot;</span>]);
+config.properties.<span class="hljs-title function_ invoke__">insert</span>(<span class="hljs-string">&quot;auto.offset.reset&quot;</span>.<span class="hljs-title function_ invoke__">into</span>(), <span class="hljs-string">&quot;earliest&quot;</span>.<span class="hljs-title function_ invoke__">into</span>());
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = KafkaSource::&lt;RawBytes, <span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;::<span class="hljs-title function_ invoke__">new</span>(config);
 
-Subscription::new(&quot;orders-dlq-examine&quot;, source, StdoutSink::&lt;Json&gt;::new(), |record: KafkaRecord&lt;Vec&lt;u8&gt;&gt;| async move {
-    let dead = KafkaDeadLetter::from_record(&amp;record).ok().flatten();
-    Ok(Summary {
-        failure: dead.as_ref().map(|dead| dead.details.failure.as_str().to_owned()),
-        error: dead.as_ref().map(|dead| dead.details.error.clone()),
-        count: dead.as_ref().map_or(0, |dead| dead.details.count),
-        origin: dead.map(|dead| format!(&quot;{}/{}@{}&quot;, dead.origin.topic, dead.origin.partition, dead.origin.offset)),
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders-dlq-examine&quot;</span>, source, StdoutSink::&lt;Json&gt;::<span class="hljs-title function_ invoke__">new</span>(), |record: KafkaRecord&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;| <span class="hljs-keyword">async</span> <span class="hljs-keyword">move</span> {
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">dead</span> = KafkaDeadLetter::<span class="hljs-title function_ invoke__">from_record</span>(&amp;record).<span class="hljs-title function_ invoke__">ok</span>().<span class="hljs-title function_ invoke__">flatten</span>();
+    <span class="hljs-title function_ invoke__">Ok</span>(Summary {
+        failure: dead.<span class="hljs-title function_ invoke__">as_ref</span>().<span class="hljs-title function_ invoke__">map</span>(|dead| dead.details.failure.<span class="hljs-title function_ invoke__">as_str</span>().<span class="hljs-title function_ invoke__">to_owned</span>()),
+        error: dead.<span class="hljs-title function_ invoke__">as_ref</span>().<span class="hljs-title function_ invoke__">map</span>(|dead| dead.details.error.<span class="hljs-title function_ invoke__">clone</span>()),
+        count: dead.<span class="hljs-title function_ invoke__">as_ref</span>().<span class="hljs-title function_ invoke__">map_or</span>(<span class="hljs-number">0</span>, |dead| dead.details.count),
+        origin: dead.<span class="hljs-title function_ invoke__">map</span>(|dead| <span class="hljs-built_in">format!</span>(<span class="hljs-string">&quot;{}/{}@{}&quot;</span>, dead.origin.topic, dead.origin.partition, dead.origin.offset)),
     })
 })
-</code></pre>
-<p>The source reads raw bytes, so payloads that failed to decode are summarized
+</code></pre><p>The source reads raw bytes, so payloads that failed to decode are summarized
 too, and a record without readable failure details is summarized with empty
 fields instead of stopping the subscription. Group the output by error with a tool such as <code>jq</code>:</p>
-<pre><code class="language-text">jq -s &#39;group_by(.error) | map({error: .[0].error, dead_letters: length})&#39; summaries.jsonl
-</code></pre>
-<p>The subscription keeps waiting for new dead letters; stop it once its consumer
+<pre><code class="hljs language-text">jq -s &#x27;group_by(.error) | map({error: .[0].error, dead_letters: length})&#x27; summaries.jsonl
+</code></pre><p>The subscription keeps waiting for new dead letters; stop it once its consumer
 lag reaches zero, and delete the consumer group if it is not needed again.
 Ordinary broker tools show the same details, for example
 <code>kafka-console-consumer --property print.headers=true</code>. For Pulsar, use
 <code>PulsarDeadLetter::from_record</code> with a new subscription. A new Pulsar
 subscription starts at the end of the topic, so create it at the earliest
 position first:</p>
-<pre><code class="language-text">pulsar-admin topics create-subscription --subscription orders-dlq-examine --messageId earliest persistent://public/default/orders-dlq
-</code></pre>
-<h3 id="reprocess">Reprocess</h3>
+<pre><code class="hljs language-text">pulsar-admin topics create-subscription --subscription orders-dlq-examine --messageId earliest persistent://public/default/orders-dlq
+</code></pre><h3 id="reprocess">Reprocess</h3>
 <p>The reprocessing subscription reads the dead-letter topic with the original
 codec and calls the original handler, parking payloads that have already been
 dead-lettered three times:</p>
-<pre><code class="language-rust,ignore">use beavers::{
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{
     Classify, ErrorPolicy, HandlerError, Json, RawBytes, Subscription,
     adapters::kafka::{
         KafkaDeadLetter, KafkaPublish, KafkaRecord, KafkaSink, KafkaSinkConfig, KafkaSource,
@@ -176,20 +174,19 @@ dead-lettered three times:</p>
     },
 };
 
-let source = KafkaSource::&lt;Json, Order&gt;::new(KafkaSourceConfig::new(brokers, &quot;orders-redrive&quot;, [&quot;orders-dlq&quot;]));
-let parked = KafkaSink::&lt;RawBytes, Vec&lt;u8&gt;&gt;::new(KafkaSinkConfig::new(brokers, &quot;orders-parked&quot;));
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = KafkaSource::&lt;Json, Order&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSourceConfig::<span class="hljs-title function_ invoke__">new</span>(brokers, <span class="hljs-string">&quot;orders-redrive&quot;</span>, [<span class="hljs-string">&quot;orders-dlq&quot;</span>]));
+<span class="hljs-keyword">let</span> <span class="hljs-variable">parked</span> = KafkaSink::&lt;RawBytes, <span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSinkConfig::<span class="hljs-title function_ invoke__">new</span>(brokers, <span class="hljs-string">&quot;orders-parked&quot;</span>));
 
-Subscription::new(&quot;orders-redrive&quot;, source, invoices, |record: KafkaRecord&lt;Order&gt;| async move {
-    if let Some(dead) = KafkaDeadLetter::from_record(&amp;record).reject()?.filter(|dead| dead.details.count &gt;= 3) {
-        let error = format!(&quot;gave up after {} dead-letterings: {}&quot;, dead.details.count, dead.details.error);
-        return Err(HandlerError::Reject(error.into()));
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders-redrive&quot;</span>, source, invoices, |record: KafkaRecord&lt;Order&gt;| <span class="hljs-keyword">async</span> <span class="hljs-keyword">move</span> {
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> <span class="hljs-variable">Some</span>(dead) = KafkaDeadLetter::<span class="hljs-title function_ invoke__">from_record</span>(&amp;record).<span class="hljs-title function_ invoke__">reject</span>()?.<span class="hljs-title function_ invoke__">filter</span>(|dead| dead.details.count &gt;= <span class="hljs-number">3</span>) {
+        <span class="hljs-keyword">let</span> <span class="hljs-variable">error</span> = <span class="hljs-built_in">format!</span>(<span class="hljs-string">&quot;gave up after {} dead-letterings: {}&quot;</span>, dead.details.count, dead.details.error);
+        <span class="hljs-keyword">return</span> <span class="hljs-title function_ invoke__">Err</span>(HandlerError::<span class="hljs-title function_ invoke__">Reject</span>(error.<span class="hljs-title function_ invoke__">into</span>()));
     }
-    handle(record).await
+    <span class="hljs-title function_ invoke__">handle</span>(record).<span class="hljs-keyword">await</span>
 })
-.dlq_with(parked, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)))
-.error_policy(ErrorPolicy::dead_letter_all())
-</code></pre>
-<p>A payload that fails on reprocessing goes to <code>orders-parked</code> with its origin
+.<span class="hljs-title function_ invoke__">dlq_with</span>(parked, |dead_letter| <span class="hljs-title function_ invoke__">Ok</span>(KafkaPublish::<span class="hljs-title function_ invoke__">from_dead_letter</span>(dead_letter)))
+.<span class="hljs-title function_ invoke__">error_policy</span>(ErrorPolicy::<span class="hljs-title function_ invoke__">dead_letter_all</span>())
+</code></pre><p>A payload that fails on reprocessing goes to <code>orders-parked</code> with its origin
 details kept and its count incremented. Publishing failures back to
 <code>orders-dlq</code> instead, so that a later run retries them, also works when the
 count limit is in place.</p>
@@ -235,31 +232,30 @@ rules: it parks payloads that keep failing, drops payloads known to be bad,
 and reprocesses everything else with the original handler. The examples use
 SQS; the other platforms have the same shape with <code>RabbitMqDeadLetter</code>,
 <code>PubSubDeadLetter</code>, or <code>ServiceBusDeadLetter</code>.</p>
-<pre><code class="language-rust,ignore">use beavers::{
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{
     Classify, Emit, ErrorPolicy, HandlerError, Json, RawBytes, Subscription,
     adapters::sqs::{
         SqsDeadLetter, SqsPublish, SqsRecord, SqsSink, SqsSinkConfig, SqsSource, SqsSourceConfig,
     },
 };
 
-let source = SqsSource::&lt;Json, Order&gt;::new(SqsSourceConfig::new(orders_dlq_url));
-let parked = SqsSink::&lt;RawBytes, Vec&lt;u8&gt;&gt;::new(SqsSinkConfig::new(orders_parked_url));
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = SqsSource::&lt;Json, Order&gt;::<span class="hljs-title function_ invoke__">new</span>(SqsSourceConfig::<span class="hljs-title function_ invoke__">new</span>(orders_dlq_url));
+<span class="hljs-keyword">let</span> <span class="hljs-variable">parked</span> = SqsSink::&lt;RawBytes, <span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;::<span class="hljs-title function_ invoke__">new</span>(SqsSinkConfig::<span class="hljs-title function_ invoke__">new</span>(orders_parked_url));
 
-Subscription::new_emitting(&quot;orders-dlq-triage&quot;, source, invoices, |record: SqsRecord&lt;Order&gt;| async move {
-    if let Some(dead) = SqsDeadLetter::from_record(&amp;record).reject()?.filter(|dead| dead.details.count &gt;= 3) {
-        let error = format!(&quot;gave up after {} dead-letterings: {}&quot;, dead.details.count, dead.details.error);
-        return Err(HandlerError::Reject(error.into()));
+Subscription::<span class="hljs-title function_ invoke__">new_emitting</span>(<span class="hljs-string">&quot;orders-dlq-triage&quot;</span>, source, invoices, |record: SqsRecord&lt;Order&gt;| <span class="hljs-keyword">async</span> <span class="hljs-keyword">move</span> {
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> <span class="hljs-variable">Some</span>(dead) = SqsDeadLetter::<span class="hljs-title function_ invoke__">from_record</span>(&amp;record).<span class="hljs-title function_ invoke__">reject</span>()?.<span class="hljs-title function_ invoke__">filter</span>(|dead| dead.details.count &gt;= <span class="hljs-number">3</span>) {
+        <span class="hljs-keyword">let</span> <span class="hljs-variable">error</span> = <span class="hljs-built_in">format!</span>(<span class="hljs-string">&quot;gave up after {} dead-letterings: {}&quot;</span>, dead.details.count, dead.details.error);
+        <span class="hljs-keyword">return</span> <span class="hljs-title function_ invoke__">Err</span>(HandlerError::<span class="hljs-title function_ invoke__">Reject</span>(error.<span class="hljs-title function_ invoke__">into</span>()));
     }
-    if record.value.customer_id.starts_with(&quot;load-test-&quot;) {
-        tracing::warn!(message_id = %record.metadata.message_id, &quot;dropping a load-test order&quot;);
-        return Ok(Emit::None);
+    <span class="hljs-keyword">if</span> record.value.customer_id.<span class="hljs-title function_ invoke__">starts_with</span>(<span class="hljs-string">&quot;load-test-&quot;</span>) {
+        tracing::warn!(message_id = %record.metadata.message_id, <span class="hljs-string">&quot;dropping a load-test order&quot;</span>);
+        <span class="hljs-keyword">return</span> <span class="hljs-title function_ invoke__">Ok</span>(Emit::<span class="hljs-literal">None</span>);
     }
-    handle(record).await.map(Emit::One)
+    <span class="hljs-title function_ invoke__">handle</span>(record).<span class="hljs-keyword">await</span>.<span class="hljs-title function_ invoke__">map</span>(Emit::One)
 })
-.dlq_with(parked, |dead_letter| Ok(SqsPublish::from_dead_letter(dead_letter)))
-.error_policy(ErrorPolicy::dead_letter_all())
-</code></pre>
-<p><code>Emit::None</code> acknowledges the dead letter without publishing anything, so the
+.<span class="hljs-title function_ invoke__">dlq_with</span>(parked, |dead_letter| <span class="hljs-title function_ invoke__">Ok</span>(SqsPublish::<span class="hljs-title function_ invoke__">from_dead_letter</span>(dead_letter)))
+.<span class="hljs-title function_ invoke__">error_policy</span>(ErrorPolicy::<span class="hljs-title function_ invoke__">dead_letter_all</span>())
+</code></pre><p><code>Emit::None</code> acknowledges the dead letter without publishing anything, so the
 handler logs what it drops; nothing else records it. Run the subscription
 after a fix and stop it once the queue is empty, or keep it running to retry
 transient failures.</p>
@@ -267,14 +263,13 @@ transient failures.</p>
 An SQS message can be delayed by up to 15 minutes when it is sent to a
 standard queue, so the original subscription can delay its dead letters and
 the triage subscription receives them only after that:</p>
-<pre><code class="language-rust,ignore">Subscription::new(&quot;orders&quot;, source, invoices, handle)
-    .dlq_with(dead_letters, |dead_letter| {
-        let mut publish = SqsPublish::from_dead_letter(dead_letter);
-        publish.delay = Some(Duration::from_secs(300));
-        Ok(publish)
+<pre><code class="hljs language-rust,ignore">Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, invoices, handle)
+    .<span class="hljs-title function_ invoke__">dlq_with</span>(dead_letters, |dead_letter| {
+        <span class="hljs-keyword">let</span> <span class="hljs-keyword">mut </span><span class="hljs-variable">publish</span> = SqsPublish::<span class="hljs-title function_ invoke__">from_dead_letter</span>(dead_letter);
+        publish.delay = <span class="hljs-title function_ invoke__">Some</span>(Duration::<span class="hljs-title function_ invoke__">from_secs</span>(<span class="hljs-number">300</span>));
+        <span class="hljs-title function_ invoke__">Ok</span>(publish)
     })
-</code></pre>
-<p>FIFO queues accept only a queue-wide delay. On the other platforms, the
+</code></pre><p>FIFO queues accept only a queue-wide delay. On the other platforms, the
 triage handler can sleep before calling the original handler, as in the
 continuous style above. The message stays locked or leased to the source
 while the handler sleeps; see the <a href="adapters/pubsub.html">Pub/Sub</a> and
@@ -285,34 +280,33 @@ source holds a message.</p>
 them to storage that can be read repeatedly. This subscription writes each
 dead letter as one JSON line to standard output, so a one-off run can be
 redirected to a file:</p>
-<pre><code class="language-rust,ignore">use beavers::{
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{
     Json, RawBytes, StdoutSink, Subscription,
     adapters::sqs::{SqsDeadLetter, SqsRecord, SqsSource, SqsSourceConfig},
 };
 
-#[derive(serde::Serialize)]
-struct Archived {
-    message_id: String,
-    failure: Option&lt;String&gt;,
-    error: Option&lt;String&gt;,
-    count: u32,
-    body: String,
+<span class="hljs-meta">#[derive(serde::Serialize)]</span>
+<span class="hljs-keyword">struct</span> <span class="hljs-title class_">Archived</span> {
+    message_id: <span class="hljs-type">String</span>,
+    failure: <span class="hljs-type">Option</span>&lt;<span class="hljs-type">String</span>&gt;,
+    error: <span class="hljs-type">Option</span>&lt;<span class="hljs-type">String</span>&gt;,
+    count: <span class="hljs-type">u32</span>,
+    body: <span class="hljs-type">String</span>,
 }
 
-let source = SqsSource::&lt;RawBytes, Vec&lt;u8&gt;&gt;::new(SqsSourceConfig::new(orders_dlq_url));
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = SqsSource::&lt;RawBytes, <span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;::<span class="hljs-title function_ invoke__">new</span>(SqsSourceConfig::<span class="hljs-title function_ invoke__">new</span>(orders_dlq_url));
 
-Subscription::new(&quot;orders-dlq-archive&quot;, source, StdoutSink::&lt;Json&gt;::new(), |record: SqsRecord&lt;Vec&lt;u8&gt;&gt;| async move {
-    let dead = SqsDeadLetter::from_record(&amp;record).ok().flatten();
-    Ok(Archived {
-        message_id: record.metadata.message_id.clone(),
-        failure: dead.as_ref().map(|dead| dead.details.failure.as_str().to_owned()),
-        error: dead.as_ref().map(|dead| dead.details.error.clone()),
-        count: dead.map_or(0, |dead| dead.details.count),
-        body: String::from_utf8_lossy(&amp;record.value).into_owned(),
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders-dlq-archive&quot;</span>, source, StdoutSink::&lt;Json&gt;::<span class="hljs-title function_ invoke__">new</span>(), |record: SqsRecord&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;| <span class="hljs-keyword">async</span> <span class="hljs-keyword">move</span> {
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">dead</span> = SqsDeadLetter::<span class="hljs-title function_ invoke__">from_record</span>(&amp;record).<span class="hljs-title function_ invoke__">ok</span>().<span class="hljs-title function_ invoke__">flatten</span>();
+    <span class="hljs-title function_ invoke__">Ok</span>(Archived {
+        message_id: record.metadata.message_id.<span class="hljs-title function_ invoke__">clone</span>(),
+        failure: dead.<span class="hljs-title function_ invoke__">as_ref</span>().<span class="hljs-title function_ invoke__">map</span>(|dead| dead.details.failure.<span class="hljs-title function_ invoke__">as_str</span>().<span class="hljs-title function_ invoke__">to_owned</span>()),
+        error: dead.<span class="hljs-title function_ invoke__">as_ref</span>().<span class="hljs-title function_ invoke__">map</span>(|dead| dead.details.error.<span class="hljs-title function_ invoke__">clone</span>()),
+        count: dead.<span class="hljs-title function_ invoke__">map_or</span>(<span class="hljs-number">0</span>, |dead| dead.details.count),
+        body: <span class="hljs-type">String</span>::<span class="hljs-title function_ invoke__">from_utf8_lossy</span>(&amp;record.value).<span class="hljs-title function_ invoke__">into_owned</span>(),
     })
 })
-</code></pre>
-<p>Each line is written before its message is deleted from the queue, so a
+</code></pre><p>Each line is written before its message is deleted from the queue, so a
 crash can repeat a line but not lose one. Stop the run once the queue is
 empty. A long-term archive uses a durable sink instead of standard output,
 such as an <a href="adapters/http.html">HTTP sink</a> in front of object storage or a

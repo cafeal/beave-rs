@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Kafka adapter - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../../style.css">
   <link rel="alternate" type="text/markdown" href="kafka.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../../">beave-rs</a>
       <nav>
         <a href="../index.html">Guides</a>
@@ -21,38 +22,36 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html">Channel adapter</a></li><li><a href="kafka.html" aria-current="page">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html">RabbitMQ adapter</a></li><li><a href="sqs.html">SQS adapter</a></li><li><a href="pubsub.html">Pub/Sub adapter</a></li><li><a href="servicebus.html">Azure Service Bus adapter</a></li><li><a href="http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../../index.html">Overview</a></li><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html">Channel adapter</a></li><li><a href="kafka.html" aria-current="page">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html">RabbitMQ adapter</a></li><li><a href="sqs.html">SQS adapter</a></li><li><a href="pubsub.html">Pub/Sub adapter</a></li><li><a href="servicebus.html">Azure Service Bus adapter</a></li><li><a href="http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="kafka-adapter">Kafka adapter</h1>
 <p>The optional <code>kafka</code> feature provides typed Kafka source and sink adapters
 backed by <code>rdkafka</code>.</p>
-<pre><code class="language-toml">beavers = { version = &quot;0.1&quot;, features = [&quot;kafka&quot;] }
-</code></pre>
-<h2 id="configuration">Configuration</h2>
+<pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;kafka&quot;</span>] }
+</code></pre><h2 id="configuration">Configuration</h2>
 <p><code>KafkaSourceConfig</code> takes the bootstrap brokers, consumer group, and topics;
 <code>KafkaSinkConfig</code> takes the brokers and the topic every output is published to.
 Both accept additional librdkafka settings in <code>properties</code>. <code>validate</code> checks
 the values without contacting a broker. Both adapters validate their
 configuration when first used, then create their Kafka clients lazily, so an
 application can construct its pipeline before a broker is reachable.</p>
-<pre><code class="language-rust">use beavers::{Utf8, adapters::kafka::{KafkaPublish, KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig}};
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::kafka::{KafkaPublish, KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig}};
 
-let source = KafkaSource::&lt;Utf8, String&gt;::new(KafkaSourceConfig::new(
-    &quot;localhost:9092&quot;,
-    &quot;orders-workers&quot;,
-    [&quot;orders&quot;],
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = KafkaSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;localhost:9092&quot;</span>,
+    <span class="hljs-string">&quot;orders-workers&quot;</span>,
+    [<span class="hljs-string">&quot;orders&quot;</span>],
 ));
-let sink = KafkaSink::&lt;Utf8, String&gt;::new(KafkaSinkConfig::new(
-    &quot;localhost:9092&quot;,
-    &quot;processed-orders&quot;,
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = KafkaSink::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;localhost:9092&quot;</span>,
+    <span class="hljs-string">&quot;processed-orders&quot;</span>,
 ));
 
-let output = KafkaPublish::new(&quot;created&quot;.to_owned());
-</code></pre>
-<h2 id="records">Records</h2>
+<span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = KafkaPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>());
+</code></pre><h2 id="records">Records</h2>
 <p><code>KafkaRecord&lt;T&gt;</code> is the decoded input, including immutable delivery metadata;
 <code>KafkaPublish&lt;T&gt;</code> is the user-controlled output accepted by the sink.
 The value is decoded and encoded by the selected codec. <code>key</code> and header values
@@ -122,12 +121,11 @@ move a record behind a later record with the same key.
 <h2 id="metadata-inheritance">Metadata inheritance</h2>
 <p>Register <code>KafkaInherit</code> on a Kafka-to-Kafka subscription to forward the received
 key and headers:</p>
-<pre><code class="language-rust,ignore">use beavers::adapters::kafka::KafkaInherit;
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::adapters::kafka::KafkaInherit;
 
-Subscription::new(&quot;orders&quot;, kafka_source, kafka_sink, handler)
-    .middleware(KafkaInherit::new())
-</code></pre>
-<p>Explicit output fields take precedence. The received key is used only when the
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, kafka_source, kafka_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(KafkaInherit::<span class="hljs-title function_ invoke__">new</span>())
+</code></pre><p>Explicit output fields take precedence. The received key is used only when the
 output key is <code>None</code>; because an unset key and an intentionally absent key are
 both <code>None</code>, use <code>KafkaInherit::new().without_key()</code> to publish keyless records.
 Received headers are placed before the output&#39;s own headers, except headers
@@ -169,29 +167,27 @@ transactions. Registered with <code>Subscription::transactional()</code> behind 
 by one transaction that contains the outputs of every delivery in it and, for
 each partition, the consumer offset after the batch&#39;s last delivery of that
 partition:</p>
-<pre><code class="language-text">begin transaction → produce outputs → send consumer offsets → commit transaction
-</code></pre>
-<pre><code class="language-rust">use beavers::{
+<pre><code class="hljs language-text">begin transaction → produce outputs → send consumer offsets → commit transaction
+</code></pre><pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{
     Subscription, Utf8,
     adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
 };
 
-let source = KafkaSource::&lt;Utf8, String&gt;::new(KafkaSourceConfig::new(
-    &quot;localhost:9092&quot;,
-    &quot;orders-workers&quot;,
-    [&quot;orders&quot;],
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = KafkaSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;localhost:9092&quot;</span>,
+    <span class="hljs-string">&quot;orders-workers&quot;</span>,
+    [<span class="hljs-string">&quot;orders&quot;</span>],
 ));
-let sink = KafkaSink::&lt;Utf8, String&gt;::new(KafkaSinkConfig::new(
-    &quot;localhost:9092&quot;,
-    &quot;processed-orders&quot;,
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = KafkaSink::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;localhost:9092&quot;</span>,
+    <span class="hljs-string">&quot;processed-orders&quot;</span>,
 ))
-.transactional(&quot;orders-workers-1&quot;);
-let subscription = Subscription::new(&quot;orders&quot;, source, sink, |order: String| async move {
-    Ok(order.to_uppercase())
+.<span class="hljs-title function_ invoke__">transactional</span>(<span class="hljs-string">&quot;orders-workers-1&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">subscription</span> = Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, |order: <span class="hljs-type">String</span>| <span class="hljs-keyword">async</span> <span class="hljs-keyword">move</span> {
+    <span class="hljs-title function_ invoke__">Ok</span>(order.<span class="hljs-title function_ invoke__">to_uppercase</span>())
 })
-.transactional();
-</code></pre>
-<p><code>KafkaTransactionalSink</code> is a separate type, so only a transactional sink can be
+.<span class="hljs-title function_ invoke__">transactional</span>();
+</code></pre><p><code>KafkaTransactionalSink</code> is a separate type, so only a transactional sink can be
 registered with <code>Subscription::transactional()</code>.</p>
 <p>Consumers that read the output with <code>isolation.level=read_committed</code>, the
 librdkafka default, see a batch&#39;s outputs only once its offsets are committed

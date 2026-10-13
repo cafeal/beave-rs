@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Pub/Sub adapter - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../../style.css">
   <link rel="alternate" type="text/markdown" href="pubsub.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../../">beave-rs</a>
       <nav>
         <a href="../index.html">Guides</a>
@@ -21,18 +22,17 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html">Channel adapter</a></li><li><a href="kafka.html">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html">RabbitMQ adapter</a></li><li><a href="sqs.html">SQS adapter</a></li><li><a href="pubsub.html" aria-current="page">Pub/Sub adapter</a></li><li><a href="servicebus.html">Azure Service Bus adapter</a></li><li><a href="http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../../index.html">Overview</a></li><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html">Channel adapter</a></li><li><a href="kafka.html">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html">RabbitMQ adapter</a></li><li><a href="sqs.html">SQS adapter</a></li><li><a href="pubsub.html" aria-current="page">Pub/Sub adapter</a></li><li><a href="servicebus.html">Azure Service Bus adapter</a></li><li><a href="http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="pubsub-adapter">Pub/Sub adapter</h1>
 <p>The optional <code>pubsub</code> feature provides typed Google Cloud Pub/Sub source and
 sink adapters backed by the official Google Cloud client library for Rust
 (<code>google-cloud-pubsub</code>).</p>
-<pre><code class="language-toml">beavers = { version = &quot;0.1&quot;, features = [&quot;pubsub&quot;] }
-</code></pre>
-<h2 id="configuration">Configuration</h2>
+<pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;pubsub&quot;</span>] }
+</code></pre><h2 id="configuration">Configuration</h2>
 <p><code>PubSubSourceConfig</code> takes the full name of one subscription,
 <code>projects/{project}/subscriptions/{id}</code>, and <code>PubSubSinkConfig</code> the full name of
 one topic, <code>projects/{project}/topics/{id}</code>. <code>credentials</code> is
@@ -42,18 +42,17 @@ credentials, or the metadata server of the Google Cloud environment the
 application runs in. <code>endpoint</code> replaces <code>https://pubsub.googleapis.com</code>, for
 example with a regional endpoint. <code>validate</code> checks the values without
 contacting Google Cloud, and both adapters create their client on first use.</p>
-<pre><code class="language-rust">use beavers::{Utf8, adapters::pubsub::{PubSubPublish, PubSubSink, PubSubSinkConfig, PubSubSource, PubSubSourceConfig}};
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::pubsub::{PubSubPublish, PubSubSink, PubSubSinkConfig, PubSubSource, PubSubSourceConfig}};
 
-let source = PubSubSource::&lt;Utf8, String&gt;::new(PubSubSourceConfig::new(
-    &quot;projects/my-project/subscriptions/orders&quot;,
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = PubSubSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(PubSubSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;projects/my-project/subscriptions/orders&quot;</span>,
 ));
-let sink = PubSubSink::&lt;Utf8, String&gt;::new(PubSubSinkConfig::new(
-    &quot;projects/my-project/topics/processed-orders&quot;,
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = PubSubSink::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(PubSubSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;projects/my-project/topics/processed-orders&quot;</span>,
 ));
 
-let output = PubSubPublish::new(&quot;created&quot;.to_owned()).with_ordering_key(&quot;customer-7&quot;);
-</code></pre>
-<p>For the <a href="../development.html#broker-configuration">Pub/Sub emulator</a>, set
+<span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = PubSubPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()).<span class="hljs-title function_ invoke__">with_ordering_key</span>(<span class="hljs-string">&quot;customer-7&quot;</span>);
+</code></pre><p>For the <a href="../development.html#broker-configuration">Pub/Sub emulator</a>, set
 <code>endpoint</code> to its address, such as <code>http://localhost:8085</code>, and <code>credentials</code>
 to <code>PubSubCredentials::Anonymous</code>.</p>
 <p>The adapters create no topics or subscriptions and set no subscription
@@ -124,12 +123,11 @@ the batched messages and stops new publications.</p>
 <h2 id="metadata-inheritance">Metadata inheritance</h2>
 <p>Register <code>PubSubInherit</code> on a Pub/Sub-to-Pub/Sub subscription to forward the
 received message attributes:</p>
-<pre><code class="language-rust,ignore">use beavers::adapters::pubsub::PubSubInherit;
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::adapters::pubsub::PubSubInherit;
 
-Subscription::new(&quot;orders&quot;, pubsub_source, pubsub_sink, handler)
-    .middleware(PubSubInherit::new().with_ordering_key())
-</code></pre>
-<p>A received attribute is added only when the output does not set that name, and
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, pubsub_source, pubsub_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(PubSubInherit::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">with_ordering_key</span>())
+</code></pre><p>A received attribute is added only when the output does not set that name, and
 dead-letter attributes starting with <code>beavers-dlq-</code> are never inherited.
 <code>with_ordering_key()</code> also forwards the ordering key when the output leaves it
 <code>None</code>. The message ID, publish time, and delivery attempt are never inherited.

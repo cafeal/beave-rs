@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SQS adapter - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../../style.css">
   <link rel="alternate" type="text/markdown" href="sqs.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../../">beave-rs</a>
       <nav>
         <a href="../index.html">Guides</a>
@@ -21,17 +22,16 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html">Channel adapter</a></li><li><a href="kafka.html">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html">RabbitMQ adapter</a></li><li><a href="sqs.html" aria-current="page">SQS adapter</a></li><li><a href="pubsub.html">Pub/Sub adapter</a></li><li><a href="servicebus.html">Azure Service Bus adapter</a></li><li><a href="http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../../index.html">Overview</a></li><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html">Channel adapter</a></li><li><a href="kafka.html">Kafka adapter</a></li><li><a href="pulsar.html">Pulsar adapter</a></li><li><a href="rabbitmq.html">RabbitMQ adapter</a></li><li><a href="sqs.html" aria-current="page">SQS adapter</a></li><li><a href="pubsub.html">Pub/Sub adapter</a></li><li><a href="servicebus.html">Azure Service Bus adapter</a></li><li><a href="http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="sqs-adapter">SQS adapter</h1>
 <p>The optional <code>sqs</code> feature provides typed Amazon SQS source and sink adapters
 backed by the AWS SDK for Rust (<code>aws-sdk-sqs</code>).</p>
-<pre><code class="language-toml">beavers = { version = &quot;0.1&quot;, features = [&quot;sqs&quot;] }
-</code></pre>
-<h2 id="configuration">Configuration</h2>
+<pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;sqs&quot;</span>] }
+</code></pre><h2 id="configuration">Configuration</h2>
 <p><code>SqsSourceConfig</code> and <code>SqsSinkConfig</code> take the URL of one queue. A URL ending in
 <code>.fifo</code> names a FIFO queue. <code>region</code>, <code>endpoint_url</code>, and <code>credentials</code> are
 optional: unset, the SDK&#39;s default chains resolve the region and credentials
@@ -40,18 +40,17 @@ and instance metadata. Set <code>endpoint_url</code> to use an SQS-compatible em
 such as ElasticMQ or LocalStack. <code>validate</code> checks the values without contacting
 AWS, and both adapters create their SDK client on first use. The <code>Debug</code> output
 of <code>SqsCredentials</code> hides the secret key and session token.</p>
-<pre><code class="language-rust">use beavers::{Utf8, adapters::sqs::{SqsPublish, SqsSink, SqsSinkConfig, SqsSource, SqsSourceConfig}};
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::sqs::{SqsPublish, SqsSink, SqsSinkConfig, SqsSource, SqsSourceConfig}};
 
-let source = SqsSource::&lt;Utf8, String&gt;::new(SqsSourceConfig::new(
-    &quot;https://sqs.eu-west-1.amazonaws.com/123456789012/orders&quot;,
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = SqsSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(SqsSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;https://sqs.eu-west-1.amazonaws.com/123456789012/orders&quot;</span>,
 ));
-let sink = SqsSink::&lt;Utf8, String&gt;::new(SqsSinkConfig::new(
-    &quot;https://sqs.eu-west-1.amazonaws.com/123456789012/processed-orders.fifo&quot;,
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = SqsSink::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(SqsSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;https://sqs.eu-west-1.amazonaws.com/123456789012/processed-orders.fifo&quot;</span>,
 ));
 
-let output = SqsPublish::new(&quot;created&quot;.to_owned()).with_message_group_id(&quot;customer-7&quot;);
-</code></pre>
-<p>The adapters create no queues and set no queue attributes such as a redrive
+<span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = SqsPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()).<span class="hljs-title function_ invoke__">with_message_group_id</span>(<span class="hljs-string">&quot;customer-7&quot;</span>);
+</code></pre><p>The adapters create no queues and set no queue attributes such as a redrive
 policy. Create them with infrastructure tooling before the subscription starts.</p>
 <p>The source receives with long polling. <code>SqsSourceConfig::max_messages</code> (1 to
 10, default 10) is the batch size of each <code>ReceiveMessage</code> call and <code>wait_time</code>
@@ -114,12 +113,11 @@ keeps no pending messages, so <code>close</code> only stops new publications.</p
 <h2 id="metadata-inheritance">Metadata inheritance</h2>
 <p>Register <code>SqsInherit</code> on an SQS-to-SQS subscription to forward the received
 message attributes:</p>
-<pre><code class="language-rust,ignore">use beavers::adapters::sqs::SqsInherit;
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::adapters::sqs::SqsInherit;
 
-Subscription::new(&quot;orders&quot;, sqs_source, sqs_sink, handler)
-    .middleware(SqsInherit::new().with_message_group())
-</code></pre>
-<p>A received attribute is added only when the output does not set that name, and
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, sqs_source, sqs_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(SqsInherit::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">with_message_group</span>())
+</code></pre><p>A received attribute is added only when the output does not set that name, and
 dead-letter attributes starting with <code>beavers-dlq-</code> are never inherited.
 <code>with_message_group()</code> also forwards the FIFO message group when the output
 leaves it <code>None</code>, for pipelines between FIFO queues. The message ID,

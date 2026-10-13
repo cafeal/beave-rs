@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Azure - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../../style.css">
   <link rel="alternate" type="text/markdown" href="azure.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../../">beave-rs</a>
       <nav>
         <a href="../index.html">Guides</a>
@@ -21,9 +22,9 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/channel.html">Channel adapter</a></li><li><a href="../adapters/kafka.html">Kafka adapter</a></li><li><a href="../adapters/pulsar.html">Pulsar adapter</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="../adapters/sqs.html">SQS adapter</a></li><li><a href="../adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="../adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="index.html">Monitoring and alerting</a><ul><li><a href="kubernetes.html">Kubernetes</a></li><li><a href="aws.html">AWS</a></li><li><a href="gcp.html">Google Cloud</a></li><li><a href="azure.html" aria-current="page">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../../index.html">Overview</a></li><li><a href="../index.html">Documentation</a></li><li><a href="../architecture.html">Architecture</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/channel.html">Channel adapter</a></li><li><a href="../adapters/kafka.html">Kafka adapter</a></li><li><a href="../adapters/pulsar.html">Pulsar adapter</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="../adapters/sqs.html">SQS adapter</a></li><li><a href="../adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="../adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="../codecs/protobuf.html">Protobuf codec</a></li><li><a href="../codecs/avro.html">Avro codec</a></li></ul></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="index.html">Monitoring and alerting</a><ul><li><a href="kubernetes.html">Kubernetes</a></li><li><a href="aws.html">AWS</a></li><li><a href="gcp.html">Google Cloud</a></li><li><a href="azure.html" aria-current="page">Azure</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../plan.html">beave-rs — Design plan</a></li><li><a href="../development.html">Local development brokers</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="azure">Azure</h1>
@@ -39,7 +40,7 @@ OpenTelemetry Collector sidecar and alert with
 <p>Both deliver alerts through an Azure Monitor action group, which notifies by
 email, SMS, push, voice, or webhook and integrates with ITSM tools. Create one
 action group for on-call paging and one for the team:</p>
-<pre><code class="language-bicep">resource onCall &#39;Microsoft.Insights/actionGroups@2023-01-01&#39; = {
+<pre><code class="hljs language-bicep">resource onCall &#39;Microsoft.Insights/actionGroups@2023-01-01&#39; = {
   name: &#39;beavers-critical&#39;
   location: &#39;global&#39;
   properties: {
@@ -53,87 +54,83 @@ action group for on-call paging and one for the team:</p>
     ]
   }
 }
-</code></pre>
-<p>Define a <code>team</code> action group the same way with the team&#39;s receivers.</p>
+</code></pre><p>Define a <code>team</code> action group the same way with the team&#39;s receivers.</p>
 <h2 id="aks">AKS</h2>
 <h3 id="collect">Collect</h3>
 <p>Enable managed Prometheus on the cluster with an Azure Monitor workspace:</p>
-<pre><code class="language-sh">az aks update --resource-group orders-rg --name orders-aks \
+<pre><code class="hljs language-sh">az aks update --resource-group orders-rg --name orders-aks \
   --enable-azure-monitor-metrics \
-  --azure-monitor-workspace-resource-id &quot;$WORKSPACE_ID&quot;
-</code></pre>
-<p>Expose the ports and probes as in the
+  --azure-monitor-workspace-resource-id <span class="hljs-string">&quot;<span class="hljs-variable">$WORKSPACE_ID</span>&quot;</span>
+</code></pre><p>Expose the ports and probes as in the
 <a href="kubernetes.html#deployment">Kubernetes Deployment</a>, then select the pods with a
 <code>PodMonitor</code>. The managed add-on reads its own API group,
 <code>azmonitoring.coreos.com</code>, not the Prometheus Operator&#39;s. Azure&#39;s
 documentation also recommends keeping its <code>labelLimit</code>,
 <code>labelNameLengthLimit</code>, and <code>labelValueLengthLimit</code> template values (63, 511,
 and 1023) so that labels are not dropped:</p>
-<pre><code class="language-yaml">apiVersion: azmonitoring.coreos.com/v1
-kind: PodMonitor
-metadata:
-  name: beavers
-  namespace: orders
-spec:
-  labelLimit: 63
-  labelNameLengthLimit: 511
-  labelValueLengthLimit: 1023
-  selector:
-    matchLabels:
-      app: orders-consumer
-  podMetricsEndpoints:
-    - port: metrics
-      interval: 30s
-</code></pre>
-<p>Check the <code>job</code> label of the collected <code>up</code> series in the workspace&#39;s query
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">azmonitoring.coreos.com/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">PodMonitor</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">beavers</span>
+  <span class="hljs-attr">namespace:</span> <span class="hljs-string">orders</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">labelLimit:</span> <span class="hljs-number">63</span>
+  <span class="hljs-attr">labelNameLengthLimit:</span> <span class="hljs-number">511</span>
+  <span class="hljs-attr">labelValueLengthLimit:</span> <span class="hljs-number">1023</span>
+  <span class="hljs-attr">selector:</span>
+    <span class="hljs-attr">matchLabels:</span>
+      <span class="hljs-attr">app:</span> <span class="hljs-string">orders-consumer</span>
+  <span class="hljs-attr">podMetricsEndpoints:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">port:</span> <span class="hljs-string">metrics</span>
+      <span class="hljs-attr">interval:</span> <span class="hljs-string">30s</span>
+</code></pre><p>Check the <code>job</code> label of the collected <code>up</code> series in the workspace&#39;s query
 editor and use it in the <code>BeaversMetricsDown</code> rule.</p>
 <h3 id="alert-rules">Alert rules</h3>
 <p>Prometheus rule groups are Azure resources. Each rule takes the expression of a
 <a href="index.html#alert-rules">shared rule</a> unchanged, a numeric severity from <code>0</code>
 (critical) to <code>4</code> (verbose), and the action group to notify:</p>
-<pre><code class="language-bicep">param workspaceId string
+<pre><code class="hljs language-bicep">param workspaceId string
 param clusterName string
 param location string = resourceGroup().location
 
-resource beavers &#39;Microsoft.AlertsManagement/prometheusRuleGroups@2023-03-01&#39; = {
-  name: &#39;beavers&#39;
+resource beavers 'Microsoft.AlertsManagement/prometheusRuleGroups@2023-03-01' = {
+  name: 'beavers'
   location: location
   properties: {
     scopes: [workspaceId]
     clusterName: clusterName
-    interval: &#39;PT1M&#39;
+    interval: 'PT1M'
     rules: [
       {
-        alert: &#39;BeaversStalled&#39;
-        expression: &#39;max by (subscription) (beavers_deliveries_in_flight) &gt; 0 and sum by (subscription) (increase(beavers_deliveries_acknowledged_total[15m])) == 0&#39;
-        for: &#39;PT5M&#39;
+        alert: 'BeaversStalled'
+        expression: 'max by (subscription) (beavers_deliveries_in_flight) &gt; 0 and sum by (subscription) (increase(beavers_deliveries_acknowledged_total[15m])) == 0'
+        for: 'PT5M'
         severity: 0
         annotations: {
-          summary: &#39;A subscription has unfinished deliveries and acknowledged none in 15 minutes&#39;
+          summary: 'A subscription has unfinished deliveries and acknowledged none in 15 minutes'
         }
         actions: [{ actionGroupId: onCall.id }]
-        resolveConfiguration: { autoResolved: true, timeToResolve: &#39;PT10M&#39; }
+        resolveConfiguration: { autoResolved: true, timeToResolve: 'PT10M' }
       }
       {
-        alert: &#39;BeaversDeadLetters&#39;
-        expression: &#39;sum by (subscription) (increase(beavers_delivery_failures_total{action=&quot;dead_letter&quot;}[10m])) &gt; 0&#39;
+        alert: 'BeaversDeadLetters'
+        expression: 'sum by (subscription) (increase(beavers_delivery_failures_total{action=&quot;dead_letter&quot;}[10m])) &gt; 0'
         severity: 2
         actions: [{ actionGroupId: team.id }]
-        resolveConfiguration: { autoResolved: true, timeToResolve: &#39;PT10M&#39; }
+        resolveConfiguration: { autoResolved: true, timeToResolve: 'PT10M' }
       }
       {
-        alert: &#39;BeaversRestarted&#39;
-        expression: &#39;increase(kube_pod_container_status_restarts_total{namespace=&quot;orders&quot;, container=&quot;app&quot;}[15m]) &gt; 0&#39;
+        alert: 'BeaversRestarted'
+        expression: 'increase(kube_pod_container_status_restarts_total{namespace=&quot;orders&quot;, container=&quot;app&quot;}[15m]) &gt; 0'
         severity: 0
         actions: [{ actionGroupId: onCall.id }]
-        resolveConfiguration: { autoResolved: true, timeToResolve: &#39;PT10M&#39; }
+        resolveConfiguration: { autoResolved: true, timeToResolve: 'PT10M' }
       }
       // The remaining shared rules follow the same shape.
     ]
   }
 }
-</code></pre>
-<p><code>onCall</code> and <code>team</code> are the action groups defined above. A rule&#39;s <code>for</code> is an
+</code></pre><p><code>onCall</code> and <code>team</code> are the action groups defined above. A rule&#39;s <code>for</code> is an
 ISO 8601 duration, so <code>10m</code> becomes <code>PT10M</code>. The managed add-on scrapes
 kube-state-metrics by default, which provides
 <code>kube_pod_container_status_restarts_total</code> for the restart rule.</p>
@@ -142,87 +139,81 @@ kube-state-metrics by default, which provides
 in the <code>ContainerLogV2</code> table of the Log Analytics workspace. A log search
 alert rule with this query, evaluated every 5 minutes with a threshold of
 <code>Count &gt; 0</code>, fires on the <code>subscription failed</code> event:</p>
-<pre><code class="language-kusto">ContainerLogV2
+<pre><code class="hljs language-kusto">ContainerLogV2
 | where PodNamespace == &quot;orders&quot; and ContainerName == &quot;app&quot;
 | extend Event = parse_json(tostring(LogMessage))
 | where tostring(Event.fields.message) == &quot;subscription failed&quot;
 | project TimeGenerated, PodName, Error = tostring(Event.fields.error)
-</code></pre>
-<h2 id="azure-container-apps">Azure Container Apps</h2>
+</code></pre><h2 id="azure-container-apps">Azure Container Apps</h2>
 <h3 id="health-probes">Health probes</h3>
 <p>Container Apps supports HTTP liveness and readiness probes on the application
 container:</p>
-<pre><code class="language-yaml">probes:
-  - type: Liveness
-    httpGet: { path: /livez, port: 8080 }
-    periodSeconds: 10
-  - type: Readiness
-    httpGet: { path: /readyz, port: 8080 }
-    periodSeconds: 5
-</code></pre>
-<p>A broker consumer must keep at least one replica running: set the minimum
+<pre><code class="hljs language-yaml"><span class="hljs-attr">probes:</span>
+  <span class="hljs-bullet">-</span> <span class="hljs-attr">type:</span> <span class="hljs-string">Liveness</span>
+    <span class="hljs-attr">httpGet:</span> { <span class="hljs-attr">path:</span> <span class="hljs-string">/livez</span>, <span class="hljs-attr">port:</span> <span class="hljs-number">8080</span> }
+    <span class="hljs-attr">periodSeconds:</span> <span class="hljs-number">10</span>
+  <span class="hljs-bullet">-</span> <span class="hljs-attr">type:</span> <span class="hljs-string">Readiness</span>
+    <span class="hljs-attr">httpGet:</span> { <span class="hljs-attr">path:</span> <span class="hljs-string">/readyz</span>, <span class="hljs-attr">port:</span> <span class="hljs-number">8080</span> }
+    <span class="hljs-attr">periodSeconds:</span> <span class="hljs-number">5</span>
+</code></pre><p>A broker consumer must keep at least one replica running: set the minimum
 replica count to <code>1</code> or more.</p>
 <h3 id="collect-1">Collect</h3>
 <p>Run the OpenTelemetry Collector <code>otelcol-contrib</code> as a sidecar container. It
 scrapes the exporter, converts counters to per-interval increases, and sends
 them to Application Insights:</p>
-<pre><code class="language-yaml">receivers:
-  prometheus:
-    config:
-      scrape_configs:
-        - job_name: beavers
-          scrape_interval: 60s
-          static_configs:
-            - targets: [&quot;localhost:9000&quot;]
+<pre><code class="hljs language-yaml"><span class="hljs-attr">receivers:</span>
+  <span class="hljs-attr">prometheus:</span>
+    <span class="hljs-attr">config:</span>
+      <span class="hljs-attr">scrape_configs:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">job_name:</span> <span class="hljs-string">beavers</span>
+          <span class="hljs-attr">scrape_interval:</span> <span class="hljs-string">60s</span>
+          <span class="hljs-attr">static_configs:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">targets:</span> [<span class="hljs-string">&quot;localhost:9000&quot;</span>]
 
-processors:
-  cumulativetodelta: {}
-  batch: {}
+<span class="hljs-attr">processors:</span>
+  <span class="hljs-attr">cumulativetodelta:</span> {}
+  <span class="hljs-attr">batch:</span> {}
 
-exporters:
-  azuremonitor:
-    connection_string: ${env:APPLICATIONINSIGHTS_CONNECTION_STRING}
+<span class="hljs-attr">exporters:</span>
+  <span class="hljs-attr">azuremonitor:</span>
+    <span class="hljs-attr">connection_string:</span> <span class="hljs-string">${env:APPLICATIONINSIGHTS_CONNECTION_STRING}</span>
 
-service:
-  pipelines:
-    metrics:
-      receivers: [prometheus]
-      processors: [cumulativetodelta, batch]
-      exporters: [azuremonitor]
-</code></pre>
-<p>Metrics arrive in the <code>customMetrics</code> table with their labels in
+<span class="hljs-attr">service:</span>
+  <span class="hljs-attr">pipelines:</span>
+    <span class="hljs-attr">metrics:</span>
+      <span class="hljs-attr">receivers:</span> [<span class="hljs-string">prometheus</span>]
+      <span class="hljs-attr">processors:</span> [<span class="hljs-string">cumulativetodelta</span>, <span class="hljs-string">batch</span>]
+      <span class="hljs-attr">exporters:</span> [<span class="hljs-string">azuremonitor</span>]
+</code></pre><p>Metrics arrive in the <code>customMetrics</code> table with their labels in
 <code>customDimensions</code>.</p>
 <h3 id="alerts">Alerts</h3>
 <p>Create log search alert rules on the Application Insights resource. Each
 query returns one row per subscription that should alert; set the threshold to
 <code>Count &gt; 0</code> and split by the <code>subscription</code> column so that each subscription
 alerts separately:</p>
-<pre><code class="language-kusto">// Dead letters in the last 10 minutes; severity 2, team action group.
+<pre><code class="hljs language-kusto">// Dead letters in the last 10 minutes; severity 2, team action group.
 customMetrics
 | where timestamp &gt; ago(10m)
 | where name == &quot;beavers_delivery_failures_total&quot;
 | where tostring(customDimensions.action) == &quot;dead_letter&quot;
 | summarize Count = sum(valueSum) by subscription = tostring(customDimensions.subscription)
 | where Count &gt; 0
-</code></pre>
-<pre><code class="language-kusto">// Failed dead-letter publication in the last 10 minutes; severity 0, on-call.
+</code></pre><pre><code class="hljs language-kusto">// Failed dead-letter publication in the last 10 minutes; severity 0, on-call.
 customMetrics
 | where timestamp &gt; ago(10m)
 | where name == &quot;beavers_publish_failures_total&quot;
 | where tostring(customDimensions.sink) == &quot;dead_letter&quot;
 | summarize Count = sum(valueSum) by subscription = tostring(customDimensions.subscription)
 | where Count &gt; 0
-</code></pre>
-<p>Other counter alerts follow the same shape. The application&#39;s console output,
+</code></pre><p>Other counter alerts follow the same shape. The application&#39;s console output,
 including the <code>subscription failed</code> event, is in the
 <code>ContainerAppConsoleLogs_CL</code> table when the environment sends logs to a Log
 Analytics workspace; with diagnostic settings, the table is
 <code>ContainerAppConsoleLogs</code> and the columns drop the <code>_s</code> suffix:</p>
-<pre><code class="language-kusto">ContainerAppConsoleLogs_CL
+<pre><code class="hljs language-kusto">ContainerAppConsoleLogs_CL
 | where ContainerAppName_s == &quot;orders-consumer&quot;
 | where Log_s has &quot;\&quot;subscription failed\&quot;&quot;
-</code></pre>
-<p>The <code>RestartCount</code> platform metric of the container app supports a metric
+</code></pre><p>The <code>RestartCount</code> platform metric of the container app supports a metric
 alert rule that fires on restarts without any collector.</p>
 <h2 id="backlog">Backlog</h2>
 <p>Scrape kafka-exporter or the Pulsar broker with a <code>PodMonitor</code> on AKS, or with

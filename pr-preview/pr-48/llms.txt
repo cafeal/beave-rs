@@ -2,11 +2,12 @@
 
 > A lightweight Rust message processing framework built around typed handlers.
 
-Every guide is available as Markdown at the page URL with `.html` replaced by `.md`.
-All guides in one file: https://cafeal.github.io/beave-rs/pr-preview/pr-48/llms-full.txt
+Every page is available as Markdown at the page URL with `.html` replaced by `.md`.
+All pages in one file: https://cafeal.github.io/beave-rs/pr-preview/pr-48/llms-full.txt
 
-## Guides
+## Pages
 
+- [beave-rs](https://cafeal.github.io/beave-rs/pr-preview/pr-48/index.md): Project overview, installation, quick start, and Cargo features
 - [Documentation](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/index.md)
 - [Architecture](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/architecture.md): Module layout, trait contracts, and extension boundaries
 - [Adapters](https://cafeal.github.io/beave-rs/pr-preview/pr-48/docs/adapters.md): Local, channel, Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, Azure Service Bus, and HTTP adapters, usage, and extension contracts
@@ -37,4 +38,3 @@ All guides in one file: https://cafeal.github.io/beave-rs/pr-preview/pr-48/llms-
 ## Optional
 
 - [API reference](https://docs.rs/beavers): Rust API documentation on docs.rs
-- [Repository README](https://github.com/cafeal/beave-rs/blob/main/README.md): Project overview and quick start

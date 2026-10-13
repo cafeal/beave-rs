@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Local development brokers - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../style.css">
   <link rel="alternate" type="text/markdown" href="development.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../">beave-rs</a>
       <nav>
         <a href="index.html">Guides</a>
@@ -21,9 +22,9 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html" aria-current="page">Local development brokers</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../index.html">Overview</a></li><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html" aria-current="page">Local development brokers</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="local-development-brokers">Local development brokers</h1>
@@ -33,13 +34,12 @@ emulator, and the Azure Service Bus emulator, with web consoles for the
 brokers. Use it to run the broker examples, the
 ignored live tests, and manual experiments. It requires Docker with Compose v2.</p>
 <h2 id="quick-start">Quick start</h2>
-<pre><code class="language-sh">docker compose up -d --wait   # start the brokers and wait until they are healthy
-cargo kafka-produce           # publish sample orders to Kafka
-cargo kafka-process           # run the Kafka pipeline until Ctrl-C
-cargo test-live               # run every ignored live test
-docker compose down           # stop the brokers and discard their data
-</code></pre>
-<p>The <code>cargo</code> commands are aliases defined in <code>.cargo/config.toml</code>; they only
+<pre><code class="hljs language-sh">docker compose up -d --<span class="hljs-built_in">wait</span>   <span class="hljs-comment"># start the brokers and wait until they are healthy</span>
+cargo kafka-produce           <span class="hljs-comment"># publish sample orders to Kafka</span>
+cargo kafka-process           <span class="hljs-comment"># run the Kafka pipeline until Ctrl-C</span>
+cargo test-live               <span class="hljs-comment"># run every ignored live test</span>
+docker compose down           <span class="hljs-comment"># stop the brokers and discard their data</span>
+</code></pre><p>The <code>cargo</code> commands are aliases defined in <code>.cargo/config.toml</code>; they only
 run <code>cargo run --example</code> and <code>cargo test</code> with the required features. Cargo
 aliases cannot start Docker, so the brokers are always started and stopped with
 <code>docker compose</code> directly.</p>
@@ -237,11 +237,10 @@ and subscriptions in memory and needs no credentials. Point
 <code>http://localhost:8085</code> and set their <code>credentials</code> to
 <code>PubSubCredentials::Anonymous</code>. It starts without topics; create them through
 its REST API, as the live tests do:</p>
-<pre><code class="language-sh">curl -X PUT http://localhost:8085/v1/projects/beavers/topics/orders
+<pre><code class="hljs language-sh">curl -X PUT http://localhost:8085/v1/projects/beavers/topics/orders
 curl -X PUT http://localhost:8085/v1/projects/beavers/subscriptions/orders \
-  -H &#39;Content-Type: application/json&#39; -d &#39;{&quot;topic&quot;:&quot;projects/beavers/topics/orders&quot;}&#39;
-</code></pre>
-<p>It does not reproduce every Pub/Sub limit and behavior, so verify production
+  -H <span class="hljs-string">&#x27;Content-Type: application/json&#x27;</span> -d <span class="hljs-string">&#x27;{&quot;topic&quot;:&quot;projects/beavers/topics/orders&quot;}&#x27;</span>
+</code></pre><p>It does not reproduce every Pub/Sub limit and behavior, so verify production
 settings against Pub/Sub itself.</p>
 <p>The Service Bus emulator stores its entities in the <code>servicebus-sql</code> SQL Server
 container and reads its namespace from <code>dev/servicebus/config.json</code>, which
@@ -330,23 +329,21 @@ as <code>.github/scripts/example.sh kafka-to-http</code>, after starting the bro
 <p>Kafka UI shows topics, partitions, messages, and consumer group offsets. Pulsar
 Manager shows tenants, namespaces, topics, and subscription backlogs. The same
 information is available from the command line:</p>
-<pre><code class="language-sh">docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+<pre><code class="hljs language-sh">docker compose <span class="hljs-built_in">exec</span> kafka /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server localhost:29092 --topic order-events --from-beginning \
-  --property print.key=true
-docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh \
+  --property print.key=<span class="hljs-literal">true</span>
+docker compose <span class="hljs-built_in">exec</span> kafka /opt/kafka/bin/kafka-consumer-groups.sh \
   --bootstrap-server localhost:29092 --describe --group beavers-examples
-docker compose exec pulsar bin/pulsar-admin topics stats \
+docker compose <span class="hljs-built_in">exec</span> pulsar bin/pulsar-admin topics stats \
   persistent://public/default/order-events
-</code></pre>
-<h2 id="live-tests">Live tests</h2>
+</code></pre><h2 id="live-tests">Live tests</h2>
 <p>The Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, and Service Bus adapter tests in
 <code>tests/kafka.rs</code>, <code>tests/pulsar.rs</code>, <code>tests/rabbitmq.rs</code>, <code>tests/sqs.rs</code>,
 <code>tests/pubsub.rs</code>, and <code>tests/servicebus.rs</code> and the end-to-end pipeline tests in <code>tests/pipelines.rs</code> are ignored by
 default. With the brokers running:</p>
-<pre><code class="language-sh">cargo test-live             # cargo test --features kafka,pulsar,rabbitmq,sqs,pubsub,servicebus -- --ignored
-cargo test-live pipeline    # only tests whose name contains &quot;pipeline&quot;
-</code></pre>
-<p>The pipeline tests run the same flows as the examples as complete
+<pre><code class="hljs language-sh">cargo test-live             <span class="hljs-comment"># cargo test --features kafka,pulsar,rabbitmq,sqs,pubsub,servicebus -- --ignored</span>
+cargo test-live pipeline    <span class="hljs-comment"># only tests whose name contains &quot;pipeline&quot;</span>
+</code></pre><p>The pipeline tests run the same flows as the examples as complete
 applications: a Kafka pipeline that inherits keys and headers and commits every
 consumed offset, a Pulsar pipeline that inherits keys and properties and leaves
 no subscription backlog, and a Kafka-to-Pulsar pipeline with an explicit

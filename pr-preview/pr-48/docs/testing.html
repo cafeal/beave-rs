@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Testing - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../style.css">
   <link rel="alternate" type="text/markdown" href="testing.md">
 </head>
 <body>
   <header class="top">
-    <div class="wrap wide top-inner">
+    <div class="wrap top-inner">
       <a class="name" href="../">beave-rs</a>
       <nav>
         <a href="index.html">Guides</a>
@@ -21,19 +22,18 @@
     </div>
   </header>
 
-  <div class="wrap wide docs">
-    <nav class="toc" aria-label="Guides">
-<ul><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html" aria-current="page">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul>
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Pages">
+<ul><li><a href="../index.html">Overview</a></li><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html" aria-current="page">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="testing">Testing</h1>
 <p>The <code>testing</code> feature provides a source of fabricated records so handlers,
 middleware, and error policies can be tested without a broker. Enable it for
 tests only:</p>
-<pre><code class="language-toml">[dev-dependencies]
-beavers = { version = &quot;0.1&quot;, features = [&quot;testing&quot;, &quot;kafka&quot;] }
-</code></pre>
-<p>The Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, and Azure Service Bus record types
+<pre><code class="hljs language-toml"><span class="hljs-section">[dev-dependencies]</span>
+<span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;testing&quot;</span>, <span class="hljs-string">&quot;kafka&quot;</span>] }
+</code></pre><p>The Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, and Azure Service Bus record types
 additionally need the <code>kafka</code>, <code>pulsar</code>, <code>rabbitmq</code>, <code>sqs</code>, <code>pubsub</code>, or
 <code>servicebus</code> feature, which an application testing those handlers already enables.</p>
 <h2 id="what-each-part-covers">What each part covers</h2>
@@ -176,63 +176,62 @@ lists received but unacknowledged records in source order. The source only
 observes acknowledgements, so whether an acknowledged record was processed,
 dead-lettered, or discarded is read from the output and dead-letter sinks.</p>
 <h2 id="example">Example</h2>
-<pre><code class="language-rust">use beavers::{
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{
     App, DeadLetter, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json,
     Subscription,
     adapters::kafka::{KafkaInherit, KafkaPublish, KafkaRecord},
     testing::{KafkaTestSource, kafka_record},
 };
 
-async fn price(record: KafkaRecord&lt;u32&gt;) -&gt; beavers::Result&lt;KafkaPublish&lt;u32&gt;&gt; {
-    let cents = record.value.unwrap_or_default();
-    if cents == 0 {
-        return Err(HandlerError::Reject(&quot;free order&quot;.into()));
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">price</span>(record: KafkaRecord&lt;<span class="hljs-type">u32</span>&gt;) <span class="hljs-punctuation">-&gt;</span> beavers::<span class="hljs-type">Result</span>&lt;KafkaPublish&lt;<span class="hljs-type">u32</span>&gt;&gt; {
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">cents</span> = record.value.<span class="hljs-title function_ invoke__">unwrap_or_default</span>();
+    <span class="hljs-keyword">if</span> cents == <span class="hljs-number">0</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-title function_ invoke__">Err</span>(HandlerError::<span class="hljs-title function_ invoke__">Reject</span>(<span class="hljs-string">&quot;free order&quot;</span>.<span class="hljs-title function_ invoke__">into</span>()));
     }
-    Ok(KafkaPublish::new(cents * 110 / 100))
+    <span class="hljs-title function_ invoke__">Ok</span>(KafkaPublish::<span class="hljs-title function_ invoke__">new</span>(cents * <span class="hljs-number">110</span> / <span class="hljs-number">100</span>))
 }
 
-#[tokio::test]
-async fn prices_orders() {
-    let mut order = kafka_record(&quot;orders&quot;, 3, 42, &quot;100&quot;);
-    order.key = Some(b&quot;customer-7&quot;.to_vec());
-    order.headers = vec![(&quot;tenant&quot;.into(), Some(b&quot;acme&quot;.to_vec()))];
-    let free = kafka_record(&quot;orders&quot;, 3, 43, &quot;0&quot;);
-    let malformed = kafka_record(&quot;orders&quot;, 3, 44, &quot;not json&quot;);
+<span class="hljs-meta">#[tokio::test]</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">prices_orders</span>() {
+    <span class="hljs-keyword">let</span> <span class="hljs-keyword">mut </span><span class="hljs-variable">order</span> = <span class="hljs-title function_ invoke__">kafka_record</span>(<span class="hljs-string">&quot;orders&quot;</span>, <span class="hljs-number">3</span>, <span class="hljs-number">42</span>, <span class="hljs-string">&quot;100&quot;</span>);
+    order.key = <span class="hljs-title function_ invoke__">Some</span>(<span class="hljs-string">b&quot;customer-7&quot;</span>.<span class="hljs-title function_ invoke__">to_vec</span>());
+    order.headers = <span class="hljs-built_in">vec!</span>[(<span class="hljs-string">&quot;tenant&quot;</span>.<span class="hljs-title function_ invoke__">into</span>(), <span class="hljs-title function_ invoke__">Some</span>(<span class="hljs-string">b&quot;acme&quot;</span>.<span class="hljs-title function_ invoke__">to_vec</span>()))];
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">free</span> = <span class="hljs-title function_ invoke__">kafka_record</span>(<span class="hljs-string">&quot;orders&quot;</span>, <span class="hljs-number">3</span>, <span class="hljs-number">43</span>, <span class="hljs-string">&quot;0&quot;</span>);
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">malformed</span> = <span class="hljs-title function_ invoke__">kafka_record</span>(<span class="hljs-string">&quot;orders&quot;</span>, <span class="hljs-number">3</span>, <span class="hljs-number">44</span>, <span class="hljs-string">&quot;not json&quot;</span>);
 
-    let source = KafkaTestSource::&lt;Json, u32&gt;::new([order, free, malformed]);
-    let deliveries = source.deliveries();
-    let sink = InMemorySink::default();
-    let dlq = InMemorySink::&lt;DeadLetter&lt;KafkaRecord&lt;u32&gt;, KafkaRecord&lt;Vec&lt;u8&gt;&gt;&gt;&gt;::default();
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = KafkaTestSource::&lt;Json, <span class="hljs-type">u32</span>&gt;::<span class="hljs-title function_ invoke__">new</span>([order, free, malformed]);
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">deliveries</span> = source.<span class="hljs-title function_ invoke__">deliveries</span>();
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = InMemorySink::<span class="hljs-title function_ invoke__">default</span>();
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">dlq</span> = InMemorySink::&lt;DeadLetter&lt;KafkaRecord&lt;<span class="hljs-type">u32</span>&gt;, KafkaRecord&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;&gt;&gt;::<span class="hljs-title function_ invoke__">default</span>();
 
-    App::new()
-        .subscription(
-            Subscription::new(&quot;price&quot;, source, sink.clone(), price)
-                .middleware(KafkaInherit::new())
-                .dlq(dlq.clone())
-                .error_policy(ErrorPolicy::dead_letter_all()),
+    App::<span class="hljs-title function_ invoke__">new</span>()
+        .<span class="hljs-title function_ invoke__">subscription</span>(
+            Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;price&quot;</span>, source, sink.<span class="hljs-title function_ invoke__">clone</span>(), price)
+                .<span class="hljs-title function_ invoke__">middleware</span>(KafkaInherit::<span class="hljs-title function_ invoke__">new</span>())
+                .<span class="hljs-title function_ invoke__">dlq</span>(dlq.<span class="hljs-title function_ invoke__">clone</span>())
+                .<span class="hljs-title function_ invoke__">error_policy</span>(ErrorPolicy::<span class="hljs-title function_ invoke__">dead_letter_all</span>()),
         )
-        .run()
-        .await
-        .unwrap();
+        .<span class="hljs-title function_ invoke__">run</span>()
+        .<span class="hljs-keyword">await</span>
+        .<span class="hljs-title function_ invoke__">unwrap</span>();
 
-    assert_eq!(
-        sink.values(),
+    <span class="hljs-built_in">assert_eq!</span>(
+        sink.<span class="hljs-title function_ invoke__">values</span>(),
         [KafkaPublish {
-            key: Some(b&quot;customer-7&quot;.to_vec()),
-            value: Some(110),
-            headers: vec![(&quot;tenant&quot;.into(), Some(b&quot;acme&quot;.to_vec()))],
+            key: <span class="hljs-title function_ invoke__">Some</span>(<span class="hljs-string">b&quot;customer-7&quot;</span>.<span class="hljs-title function_ invoke__">to_vec</span>()),
+            value: <span class="hljs-title function_ invoke__">Some</span>(<span class="hljs-number">110</span>),
+            headers: <span class="hljs-built_in">vec!</span>[(<span class="hljs-string">&quot;tenant&quot;</span>.<span class="hljs-title function_ invoke__">into</span>(), <span class="hljs-title function_ invoke__">Some</span>(<span class="hljs-string">b&quot;acme&quot;</span>.<span class="hljs-title function_ invoke__">to_vec</span>()))],
         }]
     );
-    let failures: Vec&lt;_&gt; = dlq
-        .values()
-        .into_iter()
-        .map(|dead| (dead.failure, dead.raw.metadata.offset))
-        .collect();
-    assert_eq!(failures, [(FailureKind::Rejected, 43), (FailureKind::Decode, 44)]);
-    assert!(deliveries.all_acknowledged());
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">failures</span>: <span class="hljs-type">Vec</span>&lt;_&gt; = dlq
+        .<span class="hljs-title function_ invoke__">values</span>()
+        .<span class="hljs-title function_ invoke__">into_iter</span>()
+        .<span class="hljs-title function_ invoke__">map</span>(|dead| (dead.failure, dead.<span class="hljs-keyword">raw</span>.metadata.offset))
+        .<span class="hljs-title function_ invoke__">collect</span>();
+    <span class="hljs-built_in">assert_eq!</span>(failures, [(FailureKind::Rejected, <span class="hljs-number">43</span>), (FailureKind::Decode, <span class="hljs-number">44</span>)]);
+    <span class="hljs-built_in">assert!</span>(deliveries.<span class="hljs-title function_ invoke__">all_acknowledged</span>());
 }
-</code></pre>
-<p>With the default error policy, the decode failure would instead stop the
+</code></pre><p>With the default error policy, the decode failure would instead stop the
 subscription with an error, leaving the malformed record in
 <code>deliveries.unacknowledged()</code>.</p>
 
