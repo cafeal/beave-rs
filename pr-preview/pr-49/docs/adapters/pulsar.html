@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pulsar adapter - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="pulsar.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="channel.html">Channel</a></li><li><a href="kafka.html">Kafka</a></li><li><a href="pulsar.html" aria-current="page">Pulsar</a></li><li><a href="rabbitmq.html">RabbitMQ</a></li><li><a href="sqs.html">SQS</a></li><li><a href="pubsub.html">Pub/Sub</a></li><li><a href="servicebus.html">Azure Service Bus</a></li><li><a href="http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="pulsar-adapter">Pulsar adapter</h1>
+<p>The optional <code>pulsar</code> feature provides typed Apache Pulsar source and sink
+adapters backed by the <code>magnetar-driver</code> 1.7 client.</p>
+<pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;pulsar&quot;</span>] }
+</code></pre><h2 id="configuration">Configuration</h2>
+<p>Configure a source with a service URL, topic, and subscription. <code>validate</code>
+checks the values and optional static authentication without contacting a
+broker. The source opens its client and consumer on the first <code>receive</code>. A
+partitioned topic is consumed through one consumer per partition, all in the
+same subscription; the partition list is read when the source connects.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Source, Utf8};
+<span class="hljs-keyword">use</span> beavers::adapters::pulsar::{PulsarSource, PulsarSourceConfig};
+
+<span class="hljs-keyword">let</span> <span class="hljs-keyword">mut </span><span class="hljs-variable">source</span> = PulsarSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(PulsarSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;pulsar://localhost:6650&quot;</span>,
+    <span class="hljs-string">&quot;persistent://public/default/orders&quot;</span>,
+    <span class="hljs-string">&quot;orders-workers&quot;</span>,
+));
+</code></pre><p><code>subscription_type</code> selects a <code>PulsarSubscriptionType</code> and defaults to
+<code>Shared</code>. <code>buffer_size</code> is the number of messages each partition&#39;s consumer
+prefetches. A new subscription starts at the latest message.</p>
+<p><code>PulsarAuthentication::token</code> supplies a JWT token, while the general
+<code>PulsarAuthentication</code> form accepts a Pulsar authentication method name and
+credential bytes. Leave <code>authentication</code> unset for an unauthenticated broker.</p>
+<p>Configure a sink separately. <code>prepare</code> accepts a <code>PulsarPublish&lt;T&gt;</code>, encodes
+the typed value once, and returns a cloneable <code>PulsarPrepared</code> payload. Set the
+key, ordering key, event time, and user properties before preparation:</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Sink, Utf8};
+<span class="hljs-keyword">use</span> beavers::adapters::pulsar::{PulsarPublish, PulsarSink, PulsarSinkConfig};
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = PulsarSink::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(PulsarSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
+    <span class="hljs-string">&quot;pulsar://localhost:6650&quot;</span>,
+    <span class="hljs-string">&quot;persistent://public/default/processed-orders&quot;</span>,
+));
+<span class="hljs-keyword">let</span> <span class="hljs-keyword">mut </span><span class="hljs-variable">output</span> = PulsarPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;processed&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>());
+output.key = <span class="hljs-title function_ invoke__">Some</span>(<span class="hljs-string">b&quot;customer-42&quot;</span>.<span class="hljs-title function_ invoke__">to_vec</span>());
+output.properties.<span class="hljs-title function_ invoke__">insert</span>(<span class="hljs-string">&quot;kind&quot;</span>.<span class="hljs-title function_ invoke__">into</span>(), <span class="hljs-string">&quot;order&quot;</span>.<span class="hljs-title function_ invoke__">into</span>());
+<span class="hljs-keyword">let</span> <span class="hljs-variable">prepared</span> = sink.<span class="hljs-title function_ invoke__">prepare</span>(output)?;
+sink.<span class="hljs-title function_ invoke__">publish</span>(&amp;prepared).<span class="hljs-keyword">await</span>?;
+# Ok::&lt;(), beavers::BoxError&gt;(())
+</code></pre><h2 id="records">Records</h2>
+<p>The codec applies to the payload. <code>PulsarMessage::decode</code> returns a
+<code>PulsarRecord&lt;T&gt;</code> with top-level <code>value</code>, <code>key</code>, <code>properties</code>, and <code>event_time</code>
+fields. These application fields map directly to <code>PulsarPublish&lt;T&gt;</code>. Its
+<code>metadata</code> contains read-only delivery facts: topic, message ID, and publish
+time. For a partitioned topic, the metadata topic is the partition&#39;s topic,
+such as <code>persistent://public/default/orders-partition-2</code>. The source reads the
+key, properties, event time, and null marker of a message inside a producer
+batch from that message&#39;s own metadata.</p>
+<p>The raw form of a <code>PulsarMessage</code> is a <code>PulsarRecord&lt;Vec&lt;u8&gt;&gt;</code> with the
+undecoded payload bytes, or <code>value: None</code> for a tombstone. Dead letters carry
+it, so the original payload, key, properties, event time, and delivery metadata
+survive even when decoding fails.</p>
+<h2 id="acknowledgements-and-ordering">Acknowledgements and ordering</h2>
+<p><code>receive</code> waits for the next message of any partition, starting with the
+partition after the one that delivered last so that a busy partition cannot
+starve the others. A message leaves its consumer&#39;s queue only when a receive
+completes, so dropping a pending receive future does not consume a delivery.
+Dropping a <code>PulsarMessage</code> leaves it unacknowledged. Call <code>ack</code> only after the
+handler has completed successfully. An individual ACK is sent with the
+message&#39;s ID and waits for the broker&#39;s response; the adapter does not use
+cumulative acknowledgements. Broker receive errors are reported as
+<code>ReceiveError::Retry</code>, while connection, configuration, and malformed message
+metadata errors are <code>ReceiveError::Fatal</code>. The client reconnects after the
+broker connection drops and reattaches its consumers.</p>
+<p>A topic unload, as the broker&#39;s load balancer performs routinely, or a broker
+restart closes the consumers. An acknowledgement in flight at that moment
+fails, and one sent before the consumer has reattached times out after the
+client&#39;s 30-second operation timeout. <code>ack</code> therefore retries a failed
+acknowledgement under <code>PulsarSourceConfig::ack_retry</code>, five attempts with
+backoff from 100 ms to 2 s by default, and an attempt on the reattached
+consumer succeeds. Only an exhausted retry fails the acknowledgement and stops
+the subscription. After reattaching, the broker redelivers every
+unacknowledged message, including messages the consumer had already
+prefetched and still returns, so deliveries received around an unload can be
+processed twice and out of their original order.</p>
+<p>Call <code>close</code> during shutdown to close the consumers. A delivery acknowledged
+after its source closed fails with an error, and the client closes once the
+last delivery of the source is dropped.</p>
+<p>Each delivery&#39;s ordering key follows the order Pulsar guarantees for the
+configured subscription type:</p>
+<table>
+<thead>
+<tr>
+<th>Subscription type</th>
+<th>Ordering key</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Exclusive</code>, <code>Failover</code></td>
+<td>Topic partition</td>
+</tr>
+<tr>
+<td><code>Key_Shared</code></td>
+<td>Ordering key, or the message key when no ordering key is set, within the topic partition</td>
+</tr>
+<tr>
+<td><code>Shared</code></td>
+<td>None</td>
+</tr>
+</tbody></table>
+<p>Under the default <code>ProcessingOrder::PerKey</code>, deliveries with the same ordering
+key are processed one at a time in receive order. <code>Key_Shared</code> messages without
+a key and all <code>Shared</code> deliveries run in parallel up to the subscription&#39;s
+<code>concurrency</code>. The Pulsar client does not report consumer failover or key-range
+reassignment, so Pulsar deliveries have no revocation token. When the broker
+moves a subscription to another consumer, unacknowledged messages are
+redelivered there and can be processed twice.</p>
+<h2 id="publication">Publication</h2>
+<p>The sink connects lazily on the first <code>publish</code>, creating one producer per
+partition of a partitioned topic. A keyed message is routed like the Java
+client&#39;s default: the Java <code>String.hashCode</code> of its base64 key, modulo the
+partition count, so the same key always reaches the same partition. Keyless
+messages rotate across partitions. Keys are always sent in Pulsar&#39;s base64
+representation because they are arbitrary bytes. Each submission clones the
+prepared bytes and metadata into a fresh producer message. Retrying a prepared
+value does not rerun the codec.</p>
+<p><code>PulsarSink::submit</code> returns once the partition&#39;s producer has queued the
+message, with a completion that resolves on Pulsar&#39;s broker receipt. The
+runtime frees the job&#39;s concurrency slot at submission and acknowledges the
+input when the receipt arrives. <code>publish</code> queues the message and waits for the
+receipt. A producer sends queued messages in order and replays unacknowledged
+ones in order after a reconnect, so outputs of one partition keep their
+submission order unless the broker rejects a send, as described below.</p>
+<p><code>PulsarSinkConfig::max_pending</code> bounds the messages queued by <code>submit</code> whose
+receipt has not arrived; the default is 1000. <code>submit</code> waits while that many
+are outstanding. A completion dropped before its receipt, as when the input is
+abandoned, frees its slot; the message stays queued and may still be written,
+but it is not sent again after a rejection. Publish retries apply to queueing
+only.</p>
+<p>The client replays sends that lose their connection. A send the broker answers
+with an error is not replayed by the client, and a broker that is shutting down
+or unloading the topic, as during a restart or a routine load-balancer unload,
+rejects the sends in flight with a persistence error. The sink therefore sends
+a rejected message again under <code>PulsarSinkConfig::send_retry</code>, ten sends with
+backoff from 100 ms to 5 s by default, measured from the previous send. A task
+per producer observes the receipts in submission order, so the messages of one
+rejected run are sent again in their original order and reach the topic&#39;s next
+owner. Like the Java client, the sink does not send a message again after a
+<code>NotAllowedError</code> or <code>TopicTerminatedError</code> rejection. A send error that is
+not sent again, or a message rejected on every attempt, fails the completion,
+which stops the subscription without acknowledging the input.</p>
+<p>A message sent again is written after later messages of its partition that the
+client replayed or the broker accepted in the meantime, so a rejection can
+reorder the outputs of one partition. A message the broker wrote despite
+answering with an error is written twice.</p>
+<p><code>close</code> stops new submissions, waits for every outstanding receipt, then closes
+the producers.</p>
+<h2 id="metadata-inheritance">Metadata inheritance</h2>
+<p>Register <code>PulsarInherit</code> on a Pulsar-to-Pulsar subscription to forward the
+received key, properties, and event time:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::adapters::pulsar::PulsarInherit;
+
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, pulsar_source, pulsar_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(PulsarInherit::<span class="hljs-title function_ invoke__">new</span>())
+</code></pre><p>Explicit output fields take precedence. The key and event time are inherited
+only when the output leaves them <code>None</code>, and a received property is added only
+when the output does not already set that name. Dead-letter properties starting
+with <code>beavers-dlq-</code> are never inherited. <code>without_key()</code>,
+<code>without_properties()</code>, and <code>without_event_time()</code> disable the corresponding
+field. The source topic, message ID, and publish time are never inherited, and
+no ordering key is derived from the input.</p>
+<p>A handler that returns a plain value between a Pulsar source and sink gets
+<code>PulsarInherit::new()</code> automatically. See the
+<a href="../runtime.html#handler-shapes">runtime guide</a>.</p>
+<p>Inherited properties include trace-context properties such as <code>traceparent</code>.
+Register <code>TraceContext</code> after <code>PulsarInherit</code> to replace them with the
+processing span&#39;s context; see
+<a href="../runtime.html#trace-context-propagation">trace-context propagation</a>.</p>
+<h2 id="tombstones">Tombstones</h2>
+<p>A null value is a tombstone. Pulsar topic compaction deletes a key when it sees
+a message with that key and an empty payload, and producers can also mark a
+value as null explicitly. <code>PulsarSourceConfig::empty_payload_is_tombstone</code>,
+enabled by default, follows the compaction rule: an empty payload or a
+null-marked message becomes <code>PulsarRecord { value: None, .. }</code> and is not passed
+to the codec. When disabled, only a null-marked message becomes <code>None</code>, and an
+empty payload is decoded by the codec. Disable it only for topics that carry
+meaningful empty values and are not compacted.</p>
+<p>The sink publishes <code>PulsarPublish { value: None, .. }</code> as an empty payload with
+the null marker set, so readers see a null value with or without
+<code>empty_payload_is_tombstone</code>. <code>PulsarPublish::tombstone(key)</code> builds one, and
+<code>Tombstones::propagate()</code> supports Pulsar-to-Pulsar forwarding. The sink publishes non-null values as
+encoded, even when the encoding is empty; readers that treat empty payloads as
+tombstones, including topic compaction, will read such a value as a deletion.
+See <a href="../runtime.html#tombstones">tombstones</a>.</p>
+<h2 id="dead-letters">Dead letters</h2>
+<p><code>PulsarPublish::from_dead_letter</code> forwards a dead letter to a Pulsar topic with
+its original message and failure properties, and
+<code>PulsarDeadLetter::from_record</code> reads them back; see
+<a href="../runtime.html#forwarding-dead-letters-to-a-broker-topic">forwarding dead letters</a>.</p>
+<h2 id="delivery-guarantees">Delivery guarantees</h2>
+<p>A source ACK and a sink publication are separate broker operations, so a
+process failure between them can produce a duplicate on redelivery. The
+adapter provides no Pulsar transactions: <code>magnetar-driver</code> 1.7 mishandles
+transactional acknowledgements of batched messages and transactions after a
+broker restart, so Pulsar pipelines are at-least-once.</p>
+
+      <p class="source"><a href="pulsar.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/adapters/pulsar.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>

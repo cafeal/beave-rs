@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AWS - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="aws.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/channel.html">Channel</a></li><li><a href="../adapters/kafka.html">Kafka</a></li><li><a href="../adapters/pulsar.html">Pulsar</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="../adapters/sqs.html">SQS</a></li><li><a href="../adapters/pubsub.html">Pub/Sub</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus</a></li><li><a href="../adapters/http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="index.html">Monitoring and alerting</a><ul><li><a href="kubernetes.html">Kubernetes</a></li><li><a href="aws.html" aria-current="page">AWS</a></li><li><a href="gcp.html">Google Cloud</a></li><li><a href="azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="aws">AWS</h1>
+<p>Choose by where the application runs:</p>
+<ul>
+<li><strong>Amazon EKS:</strong> collect metrics into
+<a href="#amazon-managed-service-for-prometheus">Amazon Managed Service for Prometheus</a>
+and evaluate the <a href="index.html#alert-rules">shared PromQL rules</a> there.</li>
+<li><strong>Amazon ECS or EC2:</strong> send metrics to <a href="#cloudwatch">CloudWatch</a> with the
+AWS Distro for OpenTelemetry (ADOT) Collector and alert with CloudWatch
+alarms.</li>
+</ul>
+<p>Both paths deliver alerts through an Amazon SNS topic. Subscribe an email
+address, an HTTPS endpoint, or an incident tool that accepts SNS, such as
+PagerDuty or Opsgenie. CloudWatch alarms can also reach Slack or Microsoft
+Teams through Amazon Q Developer in chat applications.</p>
+<h2 id="amazon-managed-service-for-prometheus">Amazon Managed Service for Prometheus</h2>
+<h3 id="collect">Collect</h3>
+<p>Create a workspace and an Amazon Managed Service for Prometheus collector, the
+agentless scraper, for the EKS cluster. Give the scraper a configuration that
+discovers the application&#39;s pods:</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">global:</span>
+  <span class="hljs-attr">scrape_interval:</span> <span class="hljs-string">30s</span>
+<span class="hljs-attr">scrape_configs:</span>
+  <span class="hljs-bullet">-</span> <span class="hljs-attr">job_name:</span> <span class="hljs-string">beavers</span>
+    <span class="hljs-attr">kubernetes_sd_configs:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">role:</span> <span class="hljs-string">pod</span>
+    <span class="hljs-attr">relabel_configs:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">source_labels:</span> [<span class="hljs-string">__meta_kubernetes_pod_label_app</span>]
+        <span class="hljs-attr">regex:</span> <span class="hljs-string">orders-consumer</span>
+        <span class="hljs-attr">action:</span> <span class="hljs-string">keep</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">source_labels:</span> [<span class="hljs-string">__meta_kubernetes_pod_container_port_name</span>]
+        <span class="hljs-attr">regex:</span> <span class="hljs-string">metrics</span>
+        <span class="hljs-attr">action:</span> <span class="hljs-string">keep</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">source_labels:</span> [<span class="hljs-string">__meta_kubernetes_namespace</span>]
+        <span class="hljs-attr">target_label:</span> <span class="hljs-string">namespace</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">source_labels:</span> [<span class="hljs-string">__meta_kubernetes_pod_name</span>]
+        <span class="hljs-attr">target_label:</span> <span class="hljs-string">pod</span>
+</code></pre><p>The scraper needs the cluster role and access entry described in the
+Amazon Managed Service for Prometheus documentation. A cluster that already
+runs ADOT or Prometheus in agent mode can remote-write to the workspace
+instead. Expose the ports and probes as in the
+<a href="kubernetes.html#deployment">Kubernetes Deployment</a>.</p>
+<h3 id="alert-rules">Alert rules</h3>
+<p>Save the <a href="index.html#alert-rules">shared rules</a> as <code>beavers-rules.yaml</code>, add the
+<a href="kubernetes.html#alert-rules">restart rule</a> if the cluster runs
+kube-state-metrics, and upload them as a rule groups namespace:</p>
+<pre><code class="hljs language-sh">aws amp create-rule-groups-namespace \
+  --workspace-id ws-0123456789abcdef \
+  --name beavers \
+  --data fileb://beavers-rules.yaml
+</code></pre><p>Use <code>aws amp put-rule-groups-namespace</code> with the same arguments to update it.</p>
+<h3 id="route-alerts">Route alerts</h3>
+<p>The workspace&#39;s alert manager accepts the Alertmanager configuration format,
+wrapped in <code>alertmanager_config</code>, and delivers only to SNS. Route by severity
+to two topics:</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">alertmanager_config:</span> <span class="hljs-string">|
+  route:
+    receiver: team
+    group_by: [alertname, subscription]
+    routes:
+      - receiver: on-call
+        matchers: [&#x27;severity=&quot;critical&quot;&#x27;]
+  receivers:
+    - name: team
+      sns_configs:
+        - topic_arn: arn:aws:sns:ap-northeast-1:123456789012:beavers-warning
+          sigv4:
+            region: ap-northeast-1
+          subject: &quot;{{ .CommonLabels.alertname }}&quot;
+          message: &quot;{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}&quot;
+    - name: on-call
+      sns_configs:
+        - topic_arn: arn:aws:sns:ap-northeast-1:123456789012:beavers-critical
+          sigv4:
+            region: ap-northeast-1
+          subject: &quot;{{ .CommonLabels.alertname }}&quot;
+          message: &quot;{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}&quot;</span>
+</code></pre><pre><code class="hljs language-sh">aws amp create-alert-manager-definition \
+  --workspace-id ws-0123456789abcdef \
+  --data fileb://alertmanager.yaml
+</code></pre><p>Each topic&#39;s access policy must let the service publish:</p>
+<pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;Effect&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;Allow&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;Principal&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;Service&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;aps.amazonaws.com&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;Action&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;sns:Publish&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-string">&quot;sns:GetTopicAttributes&quot;</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;Resource&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;arn:aws:sns:ap-northeast-1:123456789012:beavers-critical&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;Condition&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;ArnEquals&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;aws:SourceArn&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;arn:aws:aps:ap-northeast-1:123456789012:workspace/ws-0123456789abcdef&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;StringEquals&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;AWS:SourceAccount&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;123456789012&quot;</span> <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span>
+</code></pre><h2 id="cloudwatch">CloudWatch</h2>
+<h3 id="collect-1">Collect</h3>
+<p>Run the ADOT Collector as a sidecar container in the ECS task, or as a service
+on the EC2 instance. It scrapes the exporter and writes CloudWatch metrics
+through the embedded metric format:</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">receivers:</span>
+  <span class="hljs-attr">prometheus:</span>
+    <span class="hljs-attr">config:</span>
+      <span class="hljs-attr">scrape_configs:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">job_name:</span> <span class="hljs-string">beavers</span>
+          <span class="hljs-attr">scrape_interval:</span> <span class="hljs-string">30s</span>
+          <span class="hljs-attr">static_configs:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">targets:</span> [<span class="hljs-string">&quot;localhost:9000&quot;</span>]
+
+<span class="hljs-attr">processors:</span>
+  <span class="hljs-attr">batch:</span> {}
+
+<span class="hljs-attr">exporters:</span>
+  <span class="hljs-attr">awsemf:</span>
+    <span class="hljs-attr">namespace:</span> <span class="hljs-string">Beavers</span>
+    <span class="hljs-attr">log_group_name:</span> <span class="hljs-string">/beavers/metrics</span>
+    <span class="hljs-attr">dimension_rollup_option:</span> <span class="hljs-string">NoDimensionRollup</span>
+    <span class="hljs-attr">metric_declarations:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">dimensions:</span> [[<span class="hljs-string">subscription</span>]]
+        <span class="hljs-attr">metric_name_selectors:</span>
+          <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;^beavers_deliveries_.*&quot;</span>
+          <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;^beavers_receive_errors_total$&quot;</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">dimensions:</span> [[<span class="hljs-string">subscription</span>, <span class="hljs-string">action</span>], [<span class="hljs-string">subscription</span>, <span class="hljs-string">failure</span>]]
+        <span class="hljs-attr">metric_name_selectors:</span>
+          <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;^beavers_delivery_failures_total$&quot;</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">dimensions:</span> [[<span class="hljs-string">subscription</span>, <span class="hljs-string">sink</span>]]
+        <span class="hljs-attr">metric_name_selectors:</span>
+          <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;^beavers_publish_failures_total$&quot;</span>
+
+<span class="hljs-attr">service:</span>
+  <span class="hljs-attr">pipelines:</span>
+    <span class="hljs-attr">metrics:</span>
+      <span class="hljs-attr">receivers:</span> [<span class="hljs-string">prometheus</span>]
+      <span class="hljs-attr">processors:</span> [<span class="hljs-string">batch</span>]
+      <span class="hljs-attr">exporters:</span> [<span class="hljs-string">awsemf</span>]
+</code></pre><p><code>awsemf</code> converts cumulative counters to the increase since the previous
+scrape, so the <code>Sum</code> statistic of a counter over an alarm period is the number
+of events in that period. Only metrics matched by <code>metric_declarations</code> become
+CloudWatch metrics, and each dimension set is published separately: declaring
+<code>[subscription, action]</code> lets an alarm count dead letters of every failure kind
+together. The task role needs <code>logs:PutLogEvents</code>, <code>logs:CreateLogStream</code>, and
+<code>logs:CreateLogGroup</code> on the log group.</p>
+<p><code>awsemf</code> drops the first value of each counter after the collector or the
+application restarts, because it has no previous value to subtract.</p>
+<p>The handler latency histogram is left out because <code>awsemf</code> does not convert
+the cumulative bucket counts of a scraped Prometheus histogram to deltas, so
+CloudWatch statistics on it are not meaningful; time the handler with a
+CloudWatch metric of its own if latency needs an alarm.</p>
+<h3 id="alarms">Alarms</h3>
+<p>This CloudFormation template creates the alarms for one subscription. Repeat
+the resources, or generate them, for each subscription:</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">Parameters:</span>
+  <span class="hljs-attr">Subscription:</span>
+    <span class="hljs-attr">Type:</span> <span class="hljs-string">String</span>
+  <span class="hljs-attr">CriticalTopicArn:</span>
+    <span class="hljs-attr">Type:</span> <span class="hljs-string">String</span>
+  <span class="hljs-attr">WarningTopicArn:</span>
+    <span class="hljs-attr">Type:</span> <span class="hljs-string">String</span>
+
+<span class="hljs-attr">Resources:</span>
+  <span class="hljs-attr">StoppedOnFailure:</span>
+    <span class="hljs-attr">Type:</span> <span class="hljs-string">AWS::CloudWatch::Alarm</span>
+    <span class="hljs-attr">Properties:</span>
+      <span class="hljs-attr">AlarmName:</span> <span class="hljs-type">!Sub</span> <span class="hljs-string">beavers-${Subscription}-stopped</span>
+      <span class="hljs-attr">Namespace:</span> <span class="hljs-string">Beavers</span>
+      <span class="hljs-attr">MetricName:</span> <span class="hljs-string">beavers_delivery_failures_total</span>
+      <span class="hljs-attr">Dimensions:</span>
+        <span class="hljs-bullet">-</span> { <span class="hljs-attr">Name:</span> <span class="hljs-string">subscription</span>, <span class="hljs-attr">Value:</span> <span class="hljs-type">!Ref</span> <span class="hljs-string">Subscription</span> }
+        <span class="hljs-bullet">-</span> { <span class="hljs-attr">Name:</span> <span class="hljs-string">action</span>, <span class="hljs-attr">Value:</span> <span class="hljs-string">stop</span> }
+      <span class="hljs-attr">Statistic:</span> <span class="hljs-string">Sum</span>
+      <span class="hljs-attr">Period:</span> <span class="hljs-number">300</span>
+      <span class="hljs-attr">EvaluationPeriods:</span> <span class="hljs-number">1</span>
+      <span class="hljs-attr">Threshold:</span> <span class="hljs-number">0</span>
+      <span class="hljs-attr">ComparisonOperator:</span> <span class="hljs-string">GreaterThanThreshold</span>
+      <span class="hljs-attr">TreatMissingData:</span> <span class="hljs-string">notBreaching</span>
+      <span class="hljs-attr">AlarmActions:</span> [<span class="hljs-type">!Ref</span> <span class="hljs-string">CriticalTopicArn</span>]
+
+  <span class="hljs-attr">DeadLetterPublishFailing:</span>
+    <span class="hljs-attr">Type:</span> <span class="hljs-string">AWS::CloudWatch::Alarm</span>
+    <span class="hljs-attr">Properties:</span>
+      <span class="hljs-attr">AlarmName:</span> <span class="hljs-type">!Sub</span> <span class="hljs-string">beavers-${Subscription}-dead-letter-publish</span>
+      <span class="hljs-attr">Namespace:</span> <span class="hljs-string">Beavers</span>
+      <span class="hljs-attr">MetricName:</span> <span class="hljs-string">beavers_publish_failures_total</span>
+      <span class="hljs-attr">Dimensions:</span>
+        <span class="hljs-bullet">-</span> { <span class="hljs-attr">Name:</span> <span class="hljs-string">subscription</span>, <span class="hljs-attr">Value:</span> <span class="hljs-type">!Ref</span> <span class="hljs-string">Subscription</span> }
+        <span class="hljs-bullet">-</span> { <span class="hljs-attr">Name:</span> <span class="hljs-string">sink</span>, <span class="hljs-attr">Value:</span> <span class="hljs-string">dead_letter</span> }
+      <span class="hljs-attr">Statistic:</span> <span class="hljs-string">Sum</span>
+      <span class="hljs-attr">Period:</span> <span class="hljs-number">300</span>
+      <span class="hljs-attr">EvaluationPeriods:</span> <span class="hljs-number">2</span>
+      <span class="hljs-attr">Threshold:</span> <span class="hljs-number">0</span>
+      <span class="hljs-attr">ComparisonOperator:</span> <span class="hljs-string">GreaterThanThreshold</span>
+      <span class="hljs-attr">TreatMissingData:</span> <span class="hljs-string">notBreaching</span>
+      <span class="hljs-attr">AlarmActions:</span> [<span class="hljs-type">!Ref</span> <span class="hljs-string">CriticalTopicArn</span>]
+      <span class="hljs-attr">OKActions:</span> [<span class="hljs-type">!Ref</span> <span class="hljs-string">CriticalTopicArn</span>]
+
+  <span class="hljs-attr">OutputPublishFailing:</span>
+    <span class="hljs-attr">Type:</span> <span class="hljs-string">AWS::CloudWatch::Alarm</span>
+    <span class="hljs-attr">Properties:</span>
+      <span class="hljs-attr">AlarmName:</span> <span class="hljs-type">!Sub</span> <span class="hljs-string">beavers-${Subscription}-output-publish</span>
+      <span class="hljs-attr">Namespace:</span> <span class="hljs-string">Beavers</span>
+      <span class="hljs-attr">MetricName:</span> <span class="hljs-string">beavers_publish_failures_total</span>
+      <span class="hljs-attr">Dimensions:</span>
+        <span class="hljs-bullet">-</span> { <span class="hljs-attr">Name:</span> <span class="hljs-string">subscription</span>, <span class="hljs-attr">Value:</span> <span class="hljs-type">!Ref</span> <span class="hljs-string">Subscription</span> }
+        <span class="hljs-bullet">-</span> { <span class="hljs-attr">Name:</span> <span class="hljs-string">sink</span>, <span class="hljs-attr">Value:</span> <span class="hljs-string">output</span> }
+      <span class="hljs-attr">Statistic:</span> <span class="hljs-string">Sum</span>
+      <span class="hljs-attr">Period:</span> <span class="hljs-number">300</span>
+      <span class="hljs-attr">EvaluationPeriods:</span> <span class="hljs-number">2</span>
+      <span class="hljs-attr">Threshold:</span> <span class="hljs-number">0</span>
+      <span class="hljs-attr">ComparisonOperator:</span> <span class="hljs-string">GreaterThanThreshold</span>
+      <span class="hljs-attr">TreatMissingData:</span> <span class="hljs-string">notBreaching</span>
+      <span class="hljs-attr">AlarmActions:</span> [<span class="hljs-type">!Ref</span> <span class="hljs-string">CriticalTopicArn</span>]
+      <span class="hljs-attr">OKActions:</span> [<span class="hljs-type">!Ref</span> <span class="hljs-string">CriticalTopicArn</span>]
+
+  <span class="hljs-attr">ReceiveFailing:</span>
+    <span class="hljs-attr">Type:</span> <span class="hljs-string">AWS::CloudWatch::Alarm</span>
+    <span class="hljs-attr">Properties:</span>
+      <span class="hljs-attr">AlarmName:</span> <span class="hljs-type">!Sub</span> <span class="hljs-string">beavers-${Subscription}-receive</span>
+      <span class="hljs-attr">Namespace:</span> <span class="hljs-string">Beavers</span>
+      <span class="hljs-attr">MetricName:</span> <span class="hljs-string">beavers_receive_errors_total</span>
+      <span class="hljs-attr">Dimensions:</span>
+        <span class="hljs-bullet">-</span> { <span class="hljs-attr">Name:</span> <span class="hljs-string">subscription</span>, <span class="hljs-attr">Value:</span> <span class="hljs-type">!Ref</span> <span class="hljs-string">Subscription</span> }
+      <span class="hljs-attr">Statistic:</span> <span class="hljs-string">Sum</span>
+      <span class="hljs-attr">Period:</span> <span class="hljs-number">300</span>
+      <span class="hljs-attr">EvaluationPeriods:</span> <span class="hljs-number">2</span>
+      <span class="hljs-attr">Threshold:</span> <span class="hljs-number">0</span>
+      <span class="hljs-attr">ComparisonOperator:</span> <span class="hljs-string">GreaterThanThreshold</span>
+      <span class="hljs-attr">TreatMissingData:</span> <span class="hljs-string">notBreaching</span>
+      <span class="hljs-attr">AlarmActions:</span> [<span class="hljs-type">!Ref</span> <span class="hljs-string">CriticalTopicArn</span>]
+      <span class="hljs-attr">OKActions:</span> [<span class="hljs-type">!Ref</span> <span class="hljs-string">CriticalTopicArn</span>]
+
+  <span class="hljs-attr">Stalled:</span>
+    <span class="hljs-attr">Type:</span> <span class="hljs-string">AWS::CloudWatch::Alarm</span>
+    <span class="hljs-attr">Properties:</span>
+      <span class="hljs-attr">AlarmName:</span> <span class="hljs-type">!Sub</span> <span class="hljs-string">beavers-${Subscription}-stalled</span>
+      <span class="hljs-attr">Metrics:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">Id:</span> <span class="hljs-string">inflight</span>
+          <span class="hljs-attr">ReturnData:</span> <span class="hljs-literal">false</span>
+          <span class="hljs-attr">MetricStat:</span>
+            <span class="hljs-attr">Metric:</span>
+              <span class="hljs-attr">Namespace:</span> <span class="hljs-string">Beavers</span>
+              <span class="hljs-attr">MetricName:</span> <span class="hljs-string">beavers_deliveries_in_flight</span>
+              <span class="hljs-attr">Dimensions:</span>
+                <span class="hljs-bullet">-</span> { <span class="hljs-attr">Name:</span> <span class="hljs-string">subscription</span>, <span class="hljs-attr">Value:</span> <span class="hljs-type">!Ref</span> <span class="hljs-string">Subscription</span> }
+            <span class="hljs-attr">Period:</span> <span class="hljs-number">900</span>
+            <span class="hljs-attr">Stat:</span> <span class="hljs-string">Minimum</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">Id:</span> <span class="hljs-string">acked</span>
+          <span class="hljs-attr">ReturnData:</span> <span class="hljs-literal">false</span>
+          <span class="hljs-attr">MetricStat:</span>
+            <span class="hljs-attr">Metric:</span>
+              <span class="hljs-attr">Namespace:</span> <span class="hljs-string">Beavers</span>
+              <span class="hljs-attr">MetricName:</span> <span class="hljs-string">beavers_deliveries_acknowledged_total</span>
+              <span class="hljs-attr">Dimensions:</span>
+                <span class="hljs-bullet">-</span> { <span class="hljs-attr">Name:</span> <span class="hljs-string">subscription</span>, <span class="hljs-attr">Value:</span> <span class="hljs-type">!Ref</span> <span class="hljs-string">Subscription</span> }
+            <span class="hljs-attr">Period:</span> <span class="hljs-number">900</span>
+            <span class="hljs-attr">Stat:</span> <span class="hljs-string">Sum</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">Id:</span> <span class="hljs-string">stalled</span>
+          <span class="hljs-attr">Expression:</span> <span class="hljs-string">IF(inflight</span> <span class="hljs-string">&gt;</span> <span class="hljs-number">0</span> <span class="hljs-string">AND</span> <span class="hljs-string">acked</span> <span class="hljs-string">==</span> <span class="hljs-number">0</span><span class="hljs-string">,</span> <span class="hljs-number">1</span><span class="hljs-string">,</span> <span class="hljs-number">0</span><span class="hljs-string">)</span>
+          <span class="hljs-attr">Label:</span> <span class="hljs-string">stalled</span>
+      <span class="hljs-attr">EvaluationPeriods:</span> <span class="hljs-number">1</span>
+      <span class="hljs-attr">Threshold:</span> <span class="hljs-number">0</span>
+      <span class="hljs-attr">ComparisonOperator:</span> <span class="hljs-string">GreaterThanThreshold</span>
+      <span class="hljs-attr">TreatMissingData:</span> <span class="hljs-string">notBreaching</span>
+      <span class="hljs-attr">AlarmActions:</span> [<span class="hljs-type">!Ref</span> <span class="hljs-string">CriticalTopicArn</span>]
+
+  <span class="hljs-attr">DeadLetters:</span>
+    <span class="hljs-attr">Type:</span> <span class="hljs-string">AWS::CloudWatch::Alarm</span>
+    <span class="hljs-attr">Properties:</span>
+      <span class="hljs-attr">AlarmName:</span> <span class="hljs-type">!Sub</span> <span class="hljs-string">beavers-${Subscription}-dead-letters</span>
+      <span class="hljs-attr">Namespace:</span> <span class="hljs-string">Beavers</span>
+      <span class="hljs-attr">MetricName:</span> <span class="hljs-string">beavers_delivery_failures_total</span>
+      <span class="hljs-attr">Dimensions:</span>
+        <span class="hljs-bullet">-</span> { <span class="hljs-attr">Name:</span> <span class="hljs-string">subscription</span>, <span class="hljs-attr">Value:</span> <span class="hljs-type">!Ref</span> <span class="hljs-string">Subscription</span> }
+        <span class="hljs-bullet">-</span> { <span class="hljs-attr">Name:</span> <span class="hljs-string">action</span>, <span class="hljs-attr">Value:</span> <span class="hljs-string">dead_letter</span> }
+      <span class="hljs-attr">Statistic:</span> <span class="hljs-string">Sum</span>
+      <span class="hljs-attr">Period:</span> <span class="hljs-number">600</span>
+      <span class="hljs-attr">EvaluationPeriods:</span> <span class="hljs-number">1</span>
+      <span class="hljs-attr">Threshold:</span> <span class="hljs-number">0</span>
+      <span class="hljs-attr">ComparisonOperator:</span> <span class="hljs-string">GreaterThanThreshold</span>
+      <span class="hljs-attr">TreatMissingData:</span> <span class="hljs-string">notBreaching</span>
+      <span class="hljs-attr">AlarmActions:</span> [<span class="hljs-type">!Ref</span> <span class="hljs-string">WarningTopicArn</span>]
+
+  <span class="hljs-attr">DecodeFailureRatio:</span>
+    <span class="hljs-attr">Type:</span> <span class="hljs-string">AWS::CloudWatch::Alarm</span>
+    <span class="hljs-attr">Properties:</span>
+      <span class="hljs-attr">AlarmName:</span> <span class="hljs-type">!Sub</span> <span class="hljs-string">beavers-${Subscription}-decode-ratio</span>
+      <span class="hljs-attr">Metrics:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">Id:</span> <span class="hljs-string">decode</span>
+          <span class="hljs-attr">ReturnData:</span> <span class="hljs-literal">false</span>
+          <span class="hljs-attr">MetricStat:</span>
+            <span class="hljs-attr">Metric:</span>
+              <span class="hljs-attr">Namespace:</span> <span class="hljs-string">Beavers</span>
+              <span class="hljs-attr">MetricName:</span> <span class="hljs-string">beavers_delivery_failures_total</span>
+              <span class="hljs-attr">Dimensions:</span>
+                <span class="hljs-bullet">-</span> { <span class="hljs-attr">Name:</span> <span class="hljs-string">subscription</span>, <span class="hljs-attr">Value:</span> <span class="hljs-type">!Ref</span> <span class="hljs-string">Subscription</span> }
+                <span class="hljs-bullet">-</span> { <span class="hljs-attr">Name:</span> <span class="hljs-string">failure</span>, <span class="hljs-attr">Value:</span> <span class="hljs-string">decode</span> }
+            <span class="hljs-attr">Period:</span> <span class="hljs-number">300</span>
+            <span class="hljs-attr">Stat:</span> <span class="hljs-string">Sum</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">Id:</span> <span class="hljs-string">received</span>
+          <span class="hljs-attr">ReturnData:</span> <span class="hljs-literal">false</span>
+          <span class="hljs-attr">MetricStat:</span>
+            <span class="hljs-attr">Metric:</span>
+              <span class="hljs-attr">Namespace:</span> <span class="hljs-string">Beavers</span>
+              <span class="hljs-attr">MetricName:</span> <span class="hljs-string">beavers_deliveries_received_total</span>
+              <span class="hljs-attr">Dimensions:</span>
+                <span class="hljs-bullet">-</span> { <span class="hljs-attr">Name:</span> <span class="hljs-string">subscription</span>, <span class="hljs-attr">Value:</span> <span class="hljs-type">!Ref</span> <span class="hljs-string">Subscription</span> }
+            <span class="hljs-attr">Period:</span> <span class="hljs-number">300</span>
+            <span class="hljs-attr">Stat:</span> <span class="hljs-string">Sum</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">Id:</span> <span class="hljs-string">ratio</span>
+          <span class="hljs-attr">Expression:</span> <span class="hljs-string">FILL(decode,</span> <span class="hljs-number">0</span><span class="hljs-string">)</span> <span class="hljs-string">/</span> <span class="hljs-string">received</span>
+          <span class="hljs-attr">Label:</span> <span class="hljs-string">decode</span> <span class="hljs-string">failure</span> <span class="hljs-string">ratio</span>
+      <span class="hljs-attr">EvaluationPeriods:</span> <span class="hljs-number">2</span>
+      <span class="hljs-attr">Threshold:</span> <span class="hljs-number">0.01</span>
+      <span class="hljs-attr">ComparisonOperator:</span> <span class="hljs-string">GreaterThanThreshold</span>
+      <span class="hljs-attr">TreatMissingData:</span> <span class="hljs-string">notBreaching</span>
+      <span class="hljs-attr">AlarmActions:</span> [<span class="hljs-type">!Ref</span> <span class="hljs-string">WarningTopicArn</span>]
+</code></pre><p><code>TreatMissingData: notBreaching</code> keeps idle subscriptions quiet, but it also
+keeps the alarms quiet when the collector stops sending metrics. Cover that
+with the <a href="#task-and-log-alerts">task and log alerts</a> below.</p>
+<h3 id="task-and-log-alerts">Task and log alerts</h3>
+<p>A failed subscription makes the process exit, usually before its last metrics
+are scraped. ECS reports the stopped task to Amazon EventBridge; route it to
+the critical topic:</p>
+<pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;source&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;aws.ecs&quot;</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;detail-type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;ECS Task State Change&quot;</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;detail&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;clusterArn&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;arn:aws:ecs:ap-northeast-1:123456789012:cluster/orders&quot;</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;group&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;service:orders-consumer&quot;</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;lastStatus&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;STOPPED&quot;</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;stopCode&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;EssentialContainerExited&quot;</span><span class="hljs-punctuation">]</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span>
+</code></pre><p>With the <code>awslogs</code> log driver and <a href="index.html#what-to-expose">JSON logs</a>, a
+metric filter on the application&#39;s log group counts <code>subscription failed</code>
+events. Alarm on <code>Sum &gt; 0</code> of the resulting metric, as for the other counters:</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">SubscriptionFailedFilter:</span>
+  <span class="hljs-attr">Type:</span> <span class="hljs-string">AWS::Logs::MetricFilter</span>
+  <span class="hljs-attr">Properties:</span>
+    <span class="hljs-attr">LogGroupName:</span> <span class="hljs-string">/ecs/orders-consumer</span>
+    <span class="hljs-attr">FilterPattern:</span> <span class="hljs-string">&#x27;{ $.fields.message = &quot;subscription failed&quot; }&#x27;</span>
+    <span class="hljs-attr">MetricTransformations:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">MetricNamespace:</span> <span class="hljs-string">Beavers</span>
+        <span class="hljs-attr">MetricName:</span> <span class="hljs-string">subscription_failed</span>
+        <span class="hljs-attr">MetricValue:</span> <span class="hljs-string">&quot;1&quot;</span>
+        <span class="hljs-attr">DefaultValue:</span> <span class="hljs-number">0</span>
+</code></pre><h3 id="health-checks">Health checks</h3>
+<p>ECS has no HTTP probe of its own. Behind an Application Load Balancer, which
+an <a href="../adapters/http.html">HTTP source</a> needs, set the target group health check
+path to <code>/readyz</code> so that a draining or retrying task stops receiving
+requests. A container health check that calls <code>/livez</code> needs an HTTP client in
+the image; a minimal image without one can rely on the process exiting after a
+subscription fails, which ECS replaces according to the service&#39;s desired
+count.</p>
+<h2 id="backlog">Backlog</h2>
+<p>Amazon MSK publishes <code>MaxOffsetLag</code>, <code>SumOffsetLag</code>, and <code>EstimatedMaxTimeLag</code>
+per consumer group and topic, and Amazon SQS publishes
+<code>ApproximateAgeOfOldestMessage</code>. Alarm on them as described in
+<a href="index.html#backlog">Backlog</a>; with Amazon Managed Service for Prometheus, a
+self-managed Kafka cluster can be scraped with kafka-exporter instead.</p>
+
+      <p class="source"><a href="aws.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/monitoring-and-alerting/aws.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>
