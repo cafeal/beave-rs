@@ -24,74 +24,17 @@
 
   <div class="wrap layout">
     <nav class="toc" aria-label="Guides">
-<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li><li><a href="architecture.html" aria-current="page">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
+<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html" aria-current="page">Architecture</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html">Local development brokers</a></li><li><a href="plan.html">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
     </nav>
     <main class="doc">
 <h1 id="architecture">Architecture</h1>
-<p>The project currently uses one crate. Modules separate public contracts from
-transport implementations and runtime internals. Split crates when SDK
-dependencies or distribution requirements justify it; do not create empty
-modules for unimplemented brokers.</p>
-<h2 id="module-layout">Module layout</h2>
-<pre><code class="hljs language-text">src/
-├── lib.rs                 # Public modules and explicit re-exports
-├── app.rs                 # Registration, supervision, and application shutdown
-├── source.rs              # Source, Receive, ReceiveError, and SourceItem
-├── message.rs             # SourceMessage and Delivery ownership
-├── sink.rs                # Prepare, publish, and close contracts
-├── handler.rs             # Handler, Emit, HandlerError, and Result
-├── forward.rs             # Value-only handlers for same-platform sources and sinks
-├── middleware.rs          # Middleware, Flow, and MapMetadata around the handler
-├── tombstone.rs           # Tombstones middleware for null-value records
-├── transaction.rs         # TransactionalSink for atomic publish and acknowledge
-├── error.rs               # Error reported by the crate and BoxError
-├── blocking.rs            # Synchronous handlers on a bounded worker pool
-├── error_policy.rs        # FailureKind, FailureAction, and ErrorPolicy
-├── dead_letter.rs         # DeadLetter envelope
-├── retry.rs               # Retry policy and jitter
-├── propagation.rs         # Trace-context carrier contract for outputs
-├── telemetry.rs           # OpenTelemetry propagation (`opentelemetry` feature)
-├── shutdown.rs            # Cancellation and process signals
-├── health/
-│   ├── mod.rs             # Module declarations and public re-exports
-│   ├── state.rs           # Health handle, reports, and per-subscription state
-│   └── server.rs          # Liveness and readiness probes (`health` feature)
-├── testing/               # Test sources for fabricated records (`testing` feature)
-├── codec/
-│   ├── mod.rs             # Decoder and Encoder contracts
-│   ├── json.rs            # JSON codec
-│   ├── raw_bytes.rs       # RawBytes codec
-│   ├── utf8.rs            # Utf8 codec
-│   ├── avro.rs            # Avro codec (`avro` feature)
-│   └── protobuf.rs        # Protobuf codec (`protobuf` feature)
-├── subscription/
-│   ├── mod.rs             # Module declarations and public re-exports
-│   ├── builder.rs         # Subscription type and builder API
-│   ├── handler.rs         # Handler shapes: IntoHandler, ByRecord, and ByValue
-│   ├── config.rs          # Runtime configuration and validation
-│   ├── runtime.rs         # Private receive loop, draining, and cleanup
-│   ├── scheduler.rs       # Private ordering-key queues
-│   ├── instruments.rs     # Private per-subscription metric handles
-│   ├── hooks.rs           # Private object-safe form of stored middleware
-│   ├── processing.rs      # Private per-message processing lifecycle
-│   ├── completion.rs      # Private prepare, publish, and acknowledge stage
-│   └── transaction.rs     # Private batching of deliveries into sink transactions
-└── adapters/
-    ├── mod.rs
-    ├── channel/           # Chained subscriptions with deferred upstream ACK
-    ├── kafka/, pulsar/,   # Broker adapters (optional features), each with
-    │   rabbitmq/, sqs/,   #   config, record, source, and sink modules
-    │   pubsub/, servicebus/,
-    │   http/
-    ├── pending.rs         # Private bound on unconfirmed broker publications
-    ├── iter.rs
-    ├── memory.rs
-    ├── stdin.rs
-    └── stdout.rs
-</code></pre><p>See the <a href="adapters.html">adapter guide</a> for the built-in implementations.</p>
-<p>Core contracts do not depend on concrete adapters. Internal code imports the
-module that owns a responsibility; root re-exports shorten application imports.
-The scheduler and per-message processing implementation remain private.</p>
+<p>An application registers subscriptions on an <code>App</code>. Each subscription connects
+one <code>Source</code>, one handler, and one <code>Sink</code>: the source receives broker messages,
+the handler turns each decoded input into outputs, and the sink publishes them.
+The source message is acknowledged only after its outputs are published. Codecs
+convert between bytes and typed values, and middleware runs around the handler.
+The <a href="runtime.html">runtime guide</a> describes processing behavior, and the
+<a href="adapters.html">adapter guide</a> the built-in sources and sinks.</p>
 <h2 id="trait-boundaries">Trait boundaries</h2>
 <table>
 <thead>

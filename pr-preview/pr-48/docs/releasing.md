@@ -99,8 +99,8 @@ Each guide's Markdown source is published at the same path with `.md` instead
 of `.html`, so replacing the extension in a guide URL returns the exact source.
 The landing page's Markdown, `index.md`, is the repository README. Links
 between guides point at the generated pages; links to other repository files
-point at GitHub, in both the HTML and the Markdown copies. The navigation lists
-the guide index, then the guides in the link order of `docs/README.md`.
+point at GitHub, in both the HTML and the Markdown copies. The navigation lists the guide index, then one group per `##` section of
+`docs/README.md`, with the guides in that section's link order.
 
 For language-model tools, the site root also serves `llms.txt`, which lists the
 Markdown URL of every page, and `llms-full.txt`, which holds all pages in one
