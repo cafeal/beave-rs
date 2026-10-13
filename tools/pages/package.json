@@ -2,7 +2,7 @@
   "name": "beave-rs-pages",
   "private": true,
   "type": "module",
-  "description": "Builds the GitHub Pages site from README.md and docs/.",
+  "description": "Builds the GitHub Pages site from site/ and docs/.",
   "scripts": {
     "build": "node build.mjs ../../_site"
   },

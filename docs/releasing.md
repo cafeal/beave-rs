@@ -87,24 +87,27 @@ A published version cannot be replaced. If a release is broken, yank it with
 
 ## Project website
 
-The website is generated from the repository README and the guides in `docs/`,
-so it has no content of its own. `tools/pages/build.mjs` renders every page
-with one layout and `tools/pages/style.css`: `README.md` becomes the top page,
-`index.html`, and each `docs/<path>.md` becomes `docs/<path>.html`; a
-`README.md` inside `docs/` becomes `index.html` in its directory. Each page's
-Markdown source is published at the same path with `.md` instead of `.html`, so
-replacing the extension in a page URL returns the exact source. Links between
-pages point at the generated pages; links to other repository files point at
-GitHub, in both the HTML and the Markdown copies. The navigation lists the
-README, the guide index, and then the guides in the link order of
-`docs/README.md`.
+The website has a landing page and the guides, built by
+`tools/pages/build.mjs` with one header and one stylesheet,
+`tools/pages/style.css`. The landing page body is hand-written HTML in
+`site/index.html`; its links are relative to the site root. Each
+`docs/<path>.md` becomes `docs/<path>.html` with a navigation sidebar, and a
+`README.md` inside `docs/` becomes `index.html` in its directory. Code blocks on
+both are highlighted at build time.
+
+Each guide's Markdown source is published at the same path with `.md` instead
+of `.html`, so replacing the extension in a guide URL returns the exact source.
+The landing page's Markdown, `index.md`, is the repository README. Links
+between guides point at the generated pages; links to other repository files
+point at GitHub, in both the HTML and the Markdown copies. The navigation lists
+the guide index, then the guides in the link order of `docs/README.md`.
 
 For language-model tools, the site root also serves `llms.txt`, which lists the
 Markdown URL of every page, and `llms-full.txt`, which holds all pages in one
 file.
 
 The `Pages` workflow runs the build and publishes the result to the `gh-pages`
-branch on every push to `main` that touches `README.md`, `docs/`, or
+branch on every push to `main` that touches `site/`, `README.md`, `docs/`, or
 `tools/pages/`. GitHub Pages serves that branch, so the repository's Pages
 source must be set to deploy from the `gh-pages` branch root.
 
@@ -121,3 +124,6 @@ npm ci --prefix tools/pages
 node tools/pages/build.mjs _site
 python3 -m http.server -d _site
 ```
+
+The character artwork slot in the landing page is a placeholder; replace the
+`character` figure in `site/index.html` with the artwork when it exists.

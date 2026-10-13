@@ -1,13 +1,13 @@
-// Builds the GitHub Pages site from the repository README and the guides in
-// `docs/`. Every page shares one layout and stylesheet.
+// Builds the GitHub Pages site: the landing page from `site/index.html` and
+// the guides in `docs/`, all with the same header and stylesheet.
 //
 // Usage: node tools/pages/build.mjs <output-dir>
 //
-// `README.md` becomes the top page, `index.html`. `docs/<path>.md` becomes
-// `docs/<path>.html`, and a `docs/**/README.md` becomes `index.html` in its
-// directory. Each page's Markdown is published at the same path with `.md`
-// instead of `.html`. `llms.txt` lists every Markdown URL, and `llms-full.txt`
-// holds all pages in one file.
+// `docs/<path>.md` becomes `docs/<path>.html`, and a `docs/**/README.md`
+// becomes `index.html` in its directory. Each guide's Markdown is published at
+// the same path with `.md` instead of `.html`; the landing page's Markdown,
+// `index.md`, is the repository README. `llms.txt` lists every Markdown URL, and
+// `llms-full.txt` holds all of them in one file.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -55,10 +55,13 @@ function pageOf(source) {
   return { repoPath, sitePath, title, markdown };
 }
 
-const pages = [path.join(ROOT, "README.md"), ...walk(DOCS).filter((file) => file.endsWith(".md"))].map(pageOf);
+const pages = walk(DOCS)
+  .filter((file) => file.endsWith(".md"))
+  .map(pageOf);
 const byRepoPath = new Map(pages.map((page) => [page.repoPath, page]));
-const home = byRepoPath.get("README.md");
 const guides = byRepoPath.get("docs/README.md");
+// The README is published only as the landing page's Markdown, `index.md`.
+const readme = pageOf(path.join(ROOT, "README.md"));
 
 // Resolves a relative link in `fromRepoPath` to a repository path, or returns
 // null for absolute URLs, fragments, and site-absolute paths.
@@ -75,7 +78,7 @@ function relativeUrl(fromSitePath, toSitePath) {
   return relative === "" ? "./" : relative;
 }
 
-// The site serves the pages and `docs/`. Links to anything else point at the
+// The site serves the guides and `docs/`. Links to anything else point at the
 // repository on GitHub.
 const published = (repoPath) => byRepoPath.has(repoPath) || repoPath.startsWith("docs/");
 
@@ -104,18 +107,16 @@ function markdownCopy(page) {
   });
 }
 
+function highlight(code, info) {
+  // Rustdoc attributes such as `rust,ignore` follow the language name.
+  const language = info.split(/[\s,]/)[0];
+  return hljs.getLanguage(language) ? hljs.highlight(code, { language }).value : escapeHtml(code);
+}
+
 function render(page) {
   const marked = new Marked(
     gfmHeadingId(),
-    markedHighlight({
-      emptyLangClass: "hljs",
-      langPrefix: "hljs language-",
-      highlight(code, info) {
-        // Rustdoc attributes such as `rust,ignore` follow the language name.
-        const language = info.split(/[\s,]/)[0];
-        return hljs.getLanguage(language) ? hljs.highlight(code, { language }).value : escapeHtml(code);
-      },
-    }),
+    markedHighlight({ emptyLangClass: "hljs", langPrefix: "hljs language-", highlight }),
   );
   marked.use({
     walkTokens(token) {
@@ -125,13 +126,13 @@ function render(page) {
   return marked.parse(page.markdown);
 }
 
-// Navigation starts with the README and the guide index, then follows the
-// links in the guide index and the pages it reaches. A page is listed under
+// Navigation starts with the guide index, then follows the links in it and
+// the pages it reaches. A page is listed under
 // the page whose name matches its directory, such as `adapters/kafka.md`
 // under `adapters.md`.
 function navigation() {
-  const ordered = [home, guides];
-  for (let i = 1; i < ordered.length; i++) {
+  const ordered = [guides];
+  for (let i = 0; i < ordered.length; i++) {
     const from = ordered[i];
     for (const [, href] of from.markdown.matchAll(/\]\(([^)\s#]+)/g)) {
       const page = byRepoPath.get(resolveLink(from.repoPath, href)?.repoPath);
@@ -149,9 +150,9 @@ function navigation() {
   };
   const tree = (parent) =>
     ordered
-      .filter((page) => page !== home && page !== guides && parentOf(page) === parent)
+      .filter((page) => page !== guides && parentOf(page) === parent)
       .map((page) => ({ page, children: tree(page) }));
-  return { ordered, tree: [{ page: home, children: [] }, { page: guides, children: [] }, ...tree(null)] };
+  return { ordered, tree: [{ page: guides, children: [] }, ...tree(null)] };
 }
 
 function navHtml(current, nav) {
@@ -159,16 +160,15 @@ function navHtml(current, nav) {
     const href = relativeUrl(current.sitePath, `${page.sitePath}.html`);
     const attrs = page === current ? ' aria-current="page"' : "";
     const sub = children.length ? `<ul>${children.map(item).join("")}</ul>` : "";
-    const label = page === home ? "Overview" : page.title;
-    return `<li><a href="${href}"${attrs}>${escapeHtml(label)}</a>${sub}</li>`;
+    return `<li><a href="${href}"${attrs}>${escapeHtml(page.title)}</a>${sub}</li>`;
   };
   return `<ul>${nav.tree.map(item).join("")}</ul>`;
 }
 
-function pageHtml(page, nav) {
-  const root = "../".repeat(page.sitePath.split("/").length - 1);
-  const markdownHref = `${path.posix.basename(page.sitePath)}.md`;
-  const title = page === home ? NAME : `${page.title} - ${NAME}`;
+// Wraps a page body in the shared head and header. `sitePath` is the page's
+// path without its extension.
+function shell({ sitePath, title, markdownHref, body }) {
+  const root = "../".repeat(sitePath.split("/").length - 1);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -185,16 +185,31 @@ function pageHtml(page, nav) {
     <div class="wrap top-inner">
       <a class="name" href="${root || "./"}">${NAME}</a>
       <nav>
-        <a href="${relativeUrl(page.sitePath, `${guides.sitePath}.html`)}">Guides</a>
+        <a href="${relativeUrl(sitePath, `${guides.sitePath}.html`)}">Guides</a>
         <a href="https://docs.rs/beavers">API</a>
         <a href="https://crates.io/crates/beavers">crates.io</a>
         <a href="${REPO_URL}">GitHub</a>
       </nav>
     </div>
   </header>
+${body}
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="${root}llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>
+`;
+}
 
+function guideHtml(page, nav) {
+  const markdownHref = `${path.posix.basename(page.sitePath)}.md`;
+  return shell({
+    sitePath: page.sitePath,
+    title: `${page.title} - ${NAME}`,
+    markdownHref,
+    body: `
   <div class="wrap layout">
-    <nav class="toc" aria-label="Pages">
+    <nav class="toc" aria-label="Guides">
 ${navHtml(page, nav)}
     </nav>
     <main class="doc">
@@ -202,14 +217,27 @@ ${render(page)}
       <p class="source"><a href="${markdownHref}">Markdown</a> · <a href="${REPO_URL}/blob/main/${page.repoPath}">Source on GitHub</a></p>
     </main>
   </div>
-</body>
-</html>
-`;
+`,
+  });
+}
+
+const unescapeHtml = (text) =>
+  text.replace(/&(lt|gt|quot|amp);/g, (_, name) => ({ lt: "<", gt: ">", quot: '"', amp: "&" })[name]);
+
+// The landing page body is hand-written HTML; only its code blocks are
+// highlighted here, the same way as in the guides.
+function landingHtml() {
+  const source = fs.readFileSync(path.join(ROOT, "site/index.html"), "utf8");
+  const body = source.replace(
+    /<pre><code class="language-([\w-]+)">([\s\S]*?)<\/code><\/pre>/g,
+    (_, language, code) => `<pre><code class="hljs language-${language}">${highlight(unescapeHtml(code), language)}</code></pre>`,
+  );
+  return shell({ sitePath: "index", title: NAME, markdownHref: "index.md", body: `<main class="landing">\n${body}</main>` });
 }
 
 // Purpose column of the table in `docs/README.md`, keyed by repository path.
 function descriptions() {
-  const result = new Map([["README.md", "Project overview, installation, quick start, and Cargo features"]]);
+  const result = new Map();
   for (const [, href, purpose] of guides.markdown.matchAll(/^\|\s*\[[^\]]*\]\(([^)]+)\)\s*\|\s*(.+?)\s*\|\s*$/gm)) {
     const link = resolveLink(guides.repoPath, href);
     if (link) result.set(link.repoPath, purpose);
@@ -229,6 +257,7 @@ function llmsTxt(nav) {
     "",
     "## Pages",
     "",
+    `- [README](${SITE_URL}index.md): Project overview, installation, quick start, and Cargo features`,
   ];
   for (const page of nav.ordered) {
     const note = purpose.get(page.repoPath);
@@ -239,7 +268,7 @@ function llmsTxt(nav) {
 }
 
 function llmsFullTxt(nav) {
-  return nav.ordered
+  return [{ ...readme, sitePath: "index" }, ...nav.ordered]
     .map((page) => `<!-- ${SITE_URL}${page.sitePath}.md -->\n\n${markdownCopy(page).trimEnd()}\n`)
     .join("\n");
 }
@@ -256,8 +285,10 @@ fs.copyFileSync(path.join(HERE, "style.css"), path.join(OUT, "style.css"));
 write(".nojekyll", "");
 
 const nav = navigation();
+write("index.html", landingHtml());
+write("index.md", markdownCopy(readme));
 for (const page of pages) {
-  write(`${page.sitePath}.html`, pageHtml(page, nav));
+  write(`${page.sitePath}.html`, guideHtml(page, nav));
   write(`${page.sitePath}.md`, markdownCopy(page));
   // Relative links inside the Markdown copies still name `README.md`.
   if (page.repoPath.endsWith("README.md")) write(page.repoPath, markdownCopy(page));
