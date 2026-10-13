@@ -35,7 +35,7 @@ Traits an application implements, `Decoder`, `Encoder`, `Source`,
 `std::error::Error + Send + Sync`. An implementation propagates any error type
 with `?`, including `beavers::Error`, `String`, and `&str`, and the runtime adds
 context as the error moves up. Handlers return `HandlerError`, whose variants
-hold a `BoxError`; see [errors and retries](runtime.md#errors-and-retries).
+hold a `BoxError`; see [errors and retries](runtime/errors.md).
 
 ### Source and message ownership
 
@@ -70,7 +70,7 @@ inputs to implement `Clone + Send + Sync`.
 
 `blocking(...)` wraps a synchronous function in a `Handler` that submits each
 call to a `BlockingPool` and asynchronously waits for its result, so Source and
-Sink stay asynchronous. See [blocking handlers](runtime.md#blocking-handlers).
+Sink stay asynchronous. See [blocking handlers](runtime/handlers.md#blocking-handlers).
 
 See the [codec guide](codecs.md) for serialization implementations and payload bounds.
 
@@ -103,7 +103,7 @@ unsupported source and sink pair is rejected at compile time. Its
 `verify_source` checks what types cannot express, such as whether the source
 and the sink connect to the same cluster, and the runtime calls it with the
 first delivery before processing it. See the
-[runtime guide](runtime.md#transactions).
+[runtime guide](runtime/transactions.md).
 
 ### Configuration ownership
 
@@ -114,7 +114,7 @@ metadata must not become a universal configuration or message struct.
 Metadata mapping is typed subscription middleware rather than a shared
 structure: each adapter may provide same-platform inheritance for its own record
 and publish types, and other mappings are explicit application functions. See
-the [runtime guide](runtime.md#middleware).
+the [runtime guide](runtime/middleware.md).
 
 Future broker adapters implement these boundaries and can move into separate
 crates when SDK dependencies require it. Further transaction support and

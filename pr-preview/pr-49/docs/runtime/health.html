@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Health checks - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="health.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="handlers.html">Handlers</a></li><li><a href="middleware.html">Middleware</a></li><li><a href="errors.html">Errors and retries</a></li><li><a href="tombstones.html">Tombstones</a></li><li><a href="transactions.html">Transactions</a></li><li><a href="observability.html">Observability</a></li><li><a href="health.html" aria-current="page">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/local.html">Local adapters</a></li><li><a href="../adapters/channel.html">Channel</a></li><li><a href="../adapters/kafka.html">Kafka</a></li><li><a href="../adapters/pulsar.html">Pulsar</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="../adapters/sqs.html">SQS</a></li><li><a href="../adapters/pubsub.html">Pub/Sub</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus</a></li><li><a href="../adapters/http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="health-checks">Health checks</h1>
+<p><code>App::health()</code> returns a cloneable <code>Health</code> handle. Obtain it before
+<code>App::run</code>; it reports every subscription registered with the application.
+<code>Health::report()</code> returns a <code>HealthReport</code> for the current moment:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>live</code></td>
+<td><code>false</code> once a subscription has failed, which stops the application</td>
+</tr>
+<tr>
+<td><code>ready</code></td>
+<td>The application is running, shutdown has not started, and every subscription is ready</td>
+</tr>
+<tr>
+<td><code>shutting_down</code></td>
+<td>Shutdown was requested by a signal, the <code>run_until</code> token, or a failure</td>
+</tr>
+<tr>
+<td><code>subscriptions</code></td>
+<td>One <code>SubscriptionReport</code> per subscription, in registration order</td>
+</tr>
+</tbody></table>
+<p>Each <code>SubscriptionReport</code> carries the subscription <code>name</code>, its <code>status</code>
+(<code>Pending</code> before the application runs, then <code>Running</code>, <code>Stopping</code> while it
+drains, and finally <code>Stopped</code> or <code>Failed</code>), <code>receive_failures</code>, the
+consecutive failed receives since the last successful one,
+<code>receive_backoff</code>, whether the runtime is waiting for a receive retry delay,
+and <code>publish_retries</code>, the deliveries whose output publication or transaction
+commit failed and is waiting to be retried. A subscription is ready while it is
+<code>Running</code> with no receive backoff and no publish retry. A subscription whose
+source ended and that stopped without an error stays ready, so a finite source
+next to a long-running one does not make the application unready.</p>
+<p>Readiness reflects only what the runtime observes. A retried receive that waits
+for input counts as ready again, because a source cannot tell an idle broker
+from an unreachable one while its receive is pending. Dead-letter publish
+retries do not affect readiness. Liveness reports that the runtime answers and
+that no subscription failed; it does not detect a handler that never returns.</p>
+<p>With the <code>health</code> feature, <code>HealthServer</code> answers probes over HTTP/1.1 while
+the application runs:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">let</span> <span class="hljs-variable">server</span> = HealthServer::<span class="hljs-title function_ invoke__">bind</span>(<span class="hljs-string">&quot;0.0.0.0:8080&quot;</span>.<span class="hljs-title function_ invoke__">parse</span>()?)?;
+App::<span class="hljs-title function_ invoke__">new</span>()
+    .<span class="hljs-title function_ invoke__">subscription</span>(subscription)
+    .<span class="hljs-title function_ invoke__">health_server</span>(server)
+    .<span class="hljs-title function_ invoke__">run</span>()
+    .<span class="hljs-keyword">await</span>?;
+</code></pre><p><code>GET /livez</code> answers <code>200 OK</code> when the report is live and <code>GET /readyz</code> when it
+is ready; otherwise each answers <code>503 Service Unavailable</code>. Both return the
+report as a JSON body. Other paths answer <code>404 Not Found</code> and other methods
+<code>405 Method Not Allowed</code>. <code>HealthServer::bind</code> binds the listener immediately,
+so address errors surface before the application runs and <code>local_addr</code>
+reports the port chosen for port 0. The server starts with the application and
+stops after every subscription has finished. Readiness therefore turns <code>503</code>
+as soon as shutdown starts, which removes an instance serving an
+<a href="../adapters/http.html">HTTP source</a> from a Kubernetes Service while it drains,
+and liveness keeps answering until draining completes. Use the readiness probe
+for traffic routing and the liveness probe for restarts:</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">livenessProbe:</span>
+  <span class="hljs-attr">httpGet:</span> { <span class="hljs-attr">path:</span> <span class="hljs-string">/livez</span>, <span class="hljs-attr">port:</span> <span class="hljs-number">8080</span> }
+<span class="hljs-attr">readinessProbe:</span>
+  <span class="hljs-attr">httpGet:</span> { <span class="hljs-attr">path:</span> <span class="hljs-string">/readyz</span>, <span class="hljs-attr">port:</span> <span class="hljs-number">8080</span> }
+</code></pre><p>The health server does not export metrics; <a href="observability.html#metrics">metrics</a> go through the
+<code>metrics</code> facade and the recorder the application installs.</p>
+
+      <p class="source"><a href="health.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/runtime/health.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>

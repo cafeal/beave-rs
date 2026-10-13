@@ -24,14 +24,14 @@
 
   <div class="wrap layout">
     <nav class="toc" aria-label="Guides">
-<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/local.html">Local adapters</a></li><li><a href="../adapters/channel.html">Channel</a></li><li><a href="../adapters/kafka.html">Kafka</a></li><li><a href="../adapters/pulsar.html">Pulsar</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="../adapters/sqs.html">SQS</a></li><li><a href="../adapters/pubsub.html">Pub/Sub</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus</a></li><li><a href="../adapters/http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="index.html" aria-current="page">Monitoring and alerting</a><ul><li><a href="kubernetes.html">Kubernetes</a></li><li><a href="aws.html">AWS</a></li><li><a href="gcp.html">Google Cloud</a></li><li><a href="azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="../runtime/handlers.html">Handlers</a></li><li><a href="../runtime/middleware.html">Middleware</a></li><li><a href="../runtime/errors.html">Errors and retries</a></li><li><a href="../runtime/tombstones.html">Tombstones</a></li><li><a href="../runtime/transactions.html">Transactions</a></li><li><a href="../runtime/observability.html">Observability</a></li><li><a href="../runtime/health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/local.html">Local adapters</a></li><li><a href="../adapters/channel.html">Channel</a></li><li><a href="../adapters/kafka.html">Kafka</a></li><li><a href="../adapters/pulsar.html">Pulsar</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="../adapters/sqs.html">SQS</a></li><li><a href="../adapters/pubsub.html">Pub/Sub</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus</a></li><li><a href="../adapters/http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="index.html" aria-current="page">Monitoring and alerting</a><ul><li><a href="kubernetes.html">Kubernetes</a></li><li><a href="aws.html">AWS</a></li><li><a href="gcp.html">Google Cloud</a></li><li><a href="azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
     </nav>
     <main class="doc">
 <h1 id="monitoring-and-alerting">Monitoring and alerting</h1>
 <p>beavers sends no notifications itself. It reports metrics through the
 <a href="https://docs.rs/metrics"><code>metrics</code></a> facade, structured events through
 <a href="https://docs.rs/tracing"><code>tracing</code></a>, and health through the <code>/livez</code> and
-<code>/readyz</code> endpoints of the <a href="../runtime.html#health-checks">health server</a>. This
+<code>/readyz</code> endpoints of the <a href="../runtime/health.html">health server</a>. This
 guide explains which of those signals deserve an alert and how to wire them to
 a platform that pages people, for teams that do not already run Prometheus and
 Alertmanager.</p>
@@ -65,7 +65,7 @@ about collecting the metrics and routing the alerts.</p>
 <h2 id="what-to-expose">What to expose</h2>
 <p>Every deployment needs the same three outputs from the application.</p>
 <p><strong>Metrics.</strong> Install a Prometheus exporter before <code>App::run</code>, as described in
-<a href="../runtime.html#exporting-metrics-to-opentelemetry">Exporting metrics</a>, and
+<a href="../runtime/observability.html#exporting-metrics-to-opentelemetry">Exporting metrics</a>, and
 configure histogram buckets for <code>beavers_stage_duration_seconds</code>. The examples
 in this guide assume the exporter listens on port <code>9000</code> and serves <code>/metrics</code>.</p>
 <p><strong>Health.</strong> Enable the <code>health</code> feature and register a <code>HealthServer</code>. The
@@ -283,7 +283,7 @@ of the backlog, which also covers an application that is not running at all:</p>
 example <code>deriv(sum by (consumergroup) (kafka_consumergroup_lag)[15m:]) &gt; 0</code>
 for 30 minutes, or when the age of the oldest message exceeds what the
 consumers of the output can tolerate. Apply the same alerts to a dead-letter
-topic consumed by a <a href="../runtime.html#reprocessing-dead-letters">reprocessing subscription</a> to see
+topic consumed by a <a href="../runtime/errors.html#reprocessing-dead-letters">reprocessing subscription</a> to see
 how many dead letters remain unhandled.</p>
 
       <p class="source"><a href="index.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/monitoring-and-alerting/README.md">Source on GitHub</a></p>

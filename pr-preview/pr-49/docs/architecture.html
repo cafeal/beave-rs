@@ -24,7 +24,7 @@
 
   <div class="wrap layout">
     <nav class="toc" aria-label="Guides">
-<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html" aria-current="page">Architecture</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/local.html">Local adapters</a></li><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/json.html">JSON</a></li><li><a href="codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html">Local development brokers</a></li><li><a href="plan.html">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
+<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html" aria-current="page">Architecture</a></li><li><a href="runtime.html">Runtime guide</a><ul><li><a href="runtime/handlers.html">Handlers</a></li><li><a href="runtime/middleware.html">Middleware</a></li><li><a href="runtime/errors.html">Errors and retries</a></li><li><a href="runtime/tombstones.html">Tombstones</a></li><li><a href="runtime/transactions.html">Transactions</a></li><li><a href="runtime/observability.html">Observability</a></li><li><a href="runtime/health.html">Health checks</a></li></ul></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/local.html">Local adapters</a></li><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/json.html">JSON</a></li><li><a href="codecs/raw-utf8.html">Raw bytes and UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html">Local development brokers</a></li><li><a href="plan.html">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
     </nav>
     <main class="doc">
 <h1 id="architecture">Architecture</h1>
@@ -79,7 +79,7 @@ distinguish invalid configuration (<code>Config</code>), malformed records
 <code>std::error::Error + Send + Sync</code>. An implementation propagates any error type
 with <code>?</code>, including <code>beavers::Error</code>, <code>String</code>, and <code>&amp;str</code>, and the runtime adds
 context as the error moves up. Handlers return <code>HandlerError</code>, whose variants
-hold a <code>BoxError</code>; see <a href="runtime.html#errors-and-retries">errors and retries</a>.</p>
+hold a <code>BoxError</code>; see <a href="runtime/errors.html">errors and retries</a>.</p>
 <h3 id="source-and-message-ownership">Source and message ownership</h3>
 <p><code>Source::Message</code> can be an adapter-specific type. Adapters are not required to
 use a shared byte buffer or boxed ACK callback. <code>Delivery&lt;T&gt;</code> is a convenience
@@ -107,7 +107,7 @@ normalizes results into <code>Emit</code> internally. Retry and middleware curre
 inputs to implement <code>Clone + Send + Sync</code>.</p>
 <p><code>blocking(...)</code> wraps a synchronous function in a <code>Handler</code> that submits each
 call to a <code>BlockingPool</code> and asynchronously waits for its result, so Source and
-Sink stay asynchronous. See <a href="runtime.html#blocking-handlers">blocking handlers</a>.</p>
+Sink stay asynchronous. See <a href="runtime/handlers.html#blocking-handlers">blocking handlers</a>.</p>
 <p>See the <a href="codecs.html">codec guide</a> for serialization implementations and payload bounds.</p>
 <h3 id="sink-preparation-and-publication">Sink preparation and publication</h3>
 <p><code>Sink&lt;T&gt;::prepare(T)</code> validates and encodes output without publishing it.
@@ -135,7 +135,7 @@ unsupported source and sink pair is rejected at compile time. Its
 <code>verify_source</code> checks what types cannot express, such as whether the source
 and the sink connect to the same cluster, and the runtime calls it with the
 first delivery before processing it. See the
-<a href="runtime.html#transactions">runtime guide</a>.</p>
+<a href="runtime/transactions.html">runtime guide</a>.</p>
 <h3 id="configuration-ownership">Configuration ownership</h3>
 <p><code>SubscriptionConfig</code> holds processing policy. Source and Sink connection settings
 belong to their adapters. Codecs own serialization behavior. Broker-specific
@@ -143,7 +143,7 @@ metadata must not become a universal configuration or message struct.</p>
 <p>Metadata mapping is typed subscription middleware rather than a shared
 structure: each adapter may provide same-platform inheritance for its own record
 and publish types, and other mappings are explicit application functions. See
-the <a href="runtime.html#middleware">runtime guide</a>.</p>
+the <a href="runtime/middleware.html">runtime guide</a>.</p>
 <p>Future broker adapters implement these boundaries and can move into separate
 crates when SDK dependencies require it. Further transaction support and
 ordering capabilities still require the work described in the
