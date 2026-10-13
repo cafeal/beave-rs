@@ -231,8 +231,6 @@ pre code { font-size: inherit; }
 
 .button:focus-visible, .card:focus-visible, .links a:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 
-.more { color: var(--green); font-weight: 600; }
-
 .diagram-wrap { max-width: 860px; margin: 32px auto 16px; overflow-x: auto; }
 
 .diagram { display: block; width: 100%; height: auto; }
