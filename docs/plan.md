@@ -28,7 +28,7 @@ watermarks, state stores, distributed scheduling, SQL, or general DAG execution.
 ## Cross-platform metadata mapping
 
 Typed output middleware and same-platform inheritance are described in the
-[runtime guide](runtime.md#middleware). Cross-platform mappings are
+[runtime guide](runtime/middleware.md). Cross-platform mappings are
 currently application-written `MapMetadata` functions. Remaining decisions:
 
 - whether adapters should provide reusable conversions between platforms, such
@@ -42,7 +42,7 @@ currently application-written `MapMetadata` functions. Remaining decisions:
 ## Middleware
 
 The asynchronous `pre_handler` and `post_handler` hooks are described in the
-[runtime guide](runtime.md#middleware). Remaining decisions:
+[runtime guide](runtime/middleware.md). Remaining decisions:
 
 - whether a middleware `Retry` error should be retried with a policy of its
   own, as handler errors are, instead of stopping the subscription without ACK
@@ -67,9 +67,9 @@ when the registry is unavailable.
 ## Delivery semantics and transactions
 
 Kafka-to-Kafka transactions are described in the
-[runtime guide](runtime.md#transactions) and the
+[runtime guide](runtime/transactions.md) and the
 [Kafka guide](adapters/kafka.md#transactions), including the
-[batching](runtime.md#batches) of deliveries into one transaction. Remaining
+[batching](runtime/transactions.md#batches) of deliveries into one transaction. Remaining
 work:
 
 - A commit that times out after its retriable retries has an unknown outcome.
@@ -146,7 +146,7 @@ still stop it. Remaining decisions:
 ## Dead-letter handling
 
 Forwarding dead letters with failure headers is described in the
-[runtime guide](runtime.md#forwarding-dead-letters-to-a-broker-topic), and
+[runtime guide](runtime/errors.md#forwarding-dead-letters-to-a-broker-topic), and
 examining, reprocessing, parking, and dropping them in the
 [dead-letter handling guide](dead-letter-handling.md).
 The library deliberately sends no notifications and has no redrive command.
@@ -261,7 +261,7 @@ pipeline on a broker restart. Other client limitations:
 ## Observability
 
 Spans, events, metrics, and trace-context propagation are described in the
-[runtime guide](runtime.md#observability). Remaining decisions:
+[runtime guide](runtime/observability.md). Remaining decisions:
 
 - OpenTelemetry messaging semantic-convention attributes, such as destination,
   partition, and offset, which need an adapter-provided description of each
@@ -270,7 +270,7 @@ Spans, events, metrics, and trace-context propagation are described in the
   span's context into every output.
 
 Health checks report runtime-observed state, as described in the
-[runtime guide](runtime.md#health-checks). Remaining decisions:
+[runtime guide](runtime/health.md). Remaining decisions:
 
 - consumer lag in the health report, which needs an adapter-provided
   measurement such as the distance from a Kafka partition's committed offset to
@@ -283,7 +283,7 @@ Health checks report runtime-observed state, as described in the
   never completes, without restarting instances that are merely idle.
 
 Trace-context propagation and the
-[Prometheus export path](runtime.md#exporting-metrics-to-opentelemetry) have not
+[Prometheus export path](runtime/observability.md#exporting-metrics-to-opentelemetry) have not
 been verified against live brokers or an OpenTelemetry Collector.
 
 The [monitoring and alerting guide](monitoring-and-alerting/README.md) has not

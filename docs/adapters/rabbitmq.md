@@ -159,7 +159,7 @@ part.
 
 A handler that returns a plain value between a RabbitMQ source and sink gets
 `RabbitMqInherit::new()` automatically. See the
-[runtime guide](../runtime.md#handler-shapes). Register
+[runtime guide](../runtime/handlers.md#handler-shapes). Register
 `TraceContext` after `RabbitMqInherit` to replace inherited trace-context
 headers; the source reads trace context from string headers.
 
@@ -169,7 +169,7 @@ headers; the source reads trace context from string headers.
 body, headers, and properties, adding string headers with the failure details
 and the queue, exchange, and routing key of its first receipt.
 `RabbitMqDeadLetter::from_record` reads them back; see
-[forwarding dead letters](../runtime.md#forwarding-dead-letters-to-a-broker-topic).
+[forwarding dead letters](../runtime/errors.md#forwarding-dead-letters-to-a-broker-topic).
 The sink's routing key applies, so a sink on the default exchange whose routing
 key names a dead-letter queue collects them there.
 

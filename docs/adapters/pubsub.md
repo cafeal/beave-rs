@@ -139,7 +139,7 @@ dead-letter attributes starting with `beavers-dlq-` are never inherited.
 A handler that returns a plain value between a Pub/Sub source and sink gets
 `PubSubInherit::new()` automatically; register
 `PubSubInherit::new().with_ordering_key()` explicitly to forward ordering keys.
-See the [runtime guide](../runtime.md#handler-shapes). Register `TraceContext`
+See the [runtime guide](../runtime/handlers.md#handler-shapes). Register `TraceContext`
 after `PubSubInherit` to replace inherited trace-context attributes; the source
 reads trace context from attributes.
 
@@ -151,7 +151,7 @@ subscription and message ID of the first receipt as `beavers-dlq-*`
 attributes. Pub/Sub limits attribute values to 1024 bytes, so a longer error
 message is cut at a character boundary. `PubSubDeadLetter::from_record` reads
 them back; see
-[forwarding dead letters](../runtime.md#forwarding-dead-letters-to-a-broker-topic).
+[forwarding dead letters](../runtime/errors.md#forwarding-dead-letters-to-a-broker-topic).
 
 A subscription's dead-letter policy moves a message to its dead-letter topic
 after `maxDeliveryAttempts` deliveries without acknowledgement. The

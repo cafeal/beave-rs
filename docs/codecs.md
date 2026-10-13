@@ -52,7 +52,7 @@ Codec errors return as `BoxError`, so an implementation can propagate any error
 type with `?`. Neither decode nor preparation failures are retried, because the
 same bytes or value would fail again. By
 default both stop processing without ACK; the subscription's
-[error policy](runtime.md#error-policy) can instead dead-letter or discard them
+[error policy](runtime/errors.md#error-policy) can instead dead-letter or discard them
 as `FailureKind::Decode` and `FailureKind::Encode`. An invalid JSON line is a
 decode failure, whereas a failed stdin read is a receive failure.
 
@@ -110,4 +110,4 @@ codec to a non-null payload while exposing key and properties as metadata; by
 default an empty payload is a null value. A null value never reaches the codec.
 Neither adapter implicitly carries received metadata into outgoing records.
 Metadata mapping is explicit output middleware; see the
-[runtime guide](runtime.md#middleware).
+[runtime guide](runtime/middleware.md).

@@ -102,7 +102,7 @@ or `\r\n` is removed before decoding. The runtime decodes it after receiving
 it, so a decode failure is distinct from a receive I/O failure. Blank lines are
 not skipped: with `Json`, they and malformed JSON fail decoding. The raw line is available to
 dead letters as the source's raw form, so the [error
-policy](../runtime.md#error-policy) can route or discard undecodable lines. A final
+policy](../runtime/errors.md#error-policy) can route or discard undecodable lines. A final
 nonempty line without a trailing newline is still processed. EOF produces End
 after buffered lines have been received. I/O or reader-thread startup failures
 are fatal receive errors.
@@ -110,7 +110,7 @@ are fatal receive errors.
 The first receive starts a dedicated reader thread with a bounded channel. This
 bounds queued lines, not individual line size; there is no maximum line-length
 setting. Reading from a custom iterator or stdin is not a substitute for the
-[blocking-handler pool](../runtime.md#blocking-handlers).
+[blocking-handler pool](../runtime/handlers.md#blocking-handlers).
 
 Closing the source closes its channel. An in-progress OS read may remain blocked,
 but the detached reader does not prevent Tokio runtime shutdown. Use only one
