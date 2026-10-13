@@ -15,6 +15,7 @@ All pages in one file: https://cafeal.github.io/beave-rs/pr-preview/pr-49/llms-f
 - [Architecture](https://cafeal.github.io/beave-rs/pr-preview/pr-49/docs/architecture.md): How sources, handlers, and sinks fit together, their trait contracts, and errors
 - [Runtime guide](https://cafeal.github.io/beave-rs/pr-preview/pr-49/docs/runtime.md): Implemented APIs, processing behavior, configuration, and limitations
 - [Adapters](https://cafeal.github.io/beave-rs/pr-preview/pr-49/docs/adapters.md): Local, channel, Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, Azure Service Bus, and HTTP adapters, usage, and extension contracts
+- [Local adapters](https://cafeal.github.io/beave-rs/pr-preview/pr-49/docs/adapters/local.md)
 - [Channel adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-49/docs/adapters/channel.md)
 - [Kafka adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-49/docs/adapters/kafka.md)
 - [Pulsar adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-49/docs/adapters/pulsar.md)

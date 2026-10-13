@@ -12,12 +12,14 @@
 | [Handling dead letters](dead-letter-handling.md) | Finding the cause of dead letters, and reprocessing, parking, or dropping them on log and queue brokers |
 | [Monitoring and alerting](monitoring-and-alerting/README.md) | Signals to alert on, alert rules, and setups for Kubernetes, AWS, Google Cloud, and Azure |
 
-Adapter references: [Channel](adapters/channel.md), [Kafka](adapters/kafka.md),
+Adapter references: [Local adapters](adapters/local.md),
+[Channel](adapters/channel.md), [Kafka](adapters/kafka.md),
 [Pulsar](adapters/pulsar.md), [RabbitMQ](adapters/rabbitmq.md),
 [SQS](adapters/sqs.md), [Pub/Sub](adapters/pubsub.md),
 [Azure Service Bus](adapters/servicebus.md), and [HTTP](adapters/http.md).
 
-Codec references: [JSON](codecs/json.md), [Raw bytes and UTF-8](codecs/raw-utf8.md),
+Codec references: [JSON](codecs/json.md),
+[Raw bytes and UTF-8](codecs/raw-utf8.md),
 [Protobuf](codecs/protobuf.md), and [Avro](codecs/avro.md).
 
 ## Contributing
