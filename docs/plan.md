@@ -55,10 +55,12 @@ The asynchronous `pre_handler` and `post_handler` hooks are described in the
 
 Potential codec work includes:
 
-- MessagePack support;
 - Schema Registry integration for Avro;
 - writer-schema and reader-schema resolution;
-- evaluation of typed key codecs where a broker supports typed keys.
+- evaluation of typed key codecs where a broker supports typed keys;
+- recording a wrapper's content encoding, such as gzip, in message metadata so
+  one subscription can accept both wrapped and unwrapped payloads. `Decoder`
+  receives payload bytes only, so this needs metadata in the decoding contract.
 
 Schema Registry support must keep wire framing separate from raw Avro datum
 encoding and define schema lookup caching, compatibility failures, and behavior
@@ -362,8 +364,7 @@ request per message. Remaining decisions:
 
 - batching acknowledgements with `DeleteMessageBatch` and publications with
   `SendMessageBatch`, which needs completions that resolve per entry;
-- a text representation, such as base64, for binary codecs, whose output SQS
-  bodies cannot carry, and the extended client's S3 payloads beyond 256 KiB;
+- the extended client's S3 payloads beyond 256 KiB;
 - whether an error policy should leave a failed delivery visible again so the
   queue's redrive policy moves it, instead of publishing dead letters through a
   sink;
