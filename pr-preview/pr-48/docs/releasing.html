@@ -23,8 +23,8 @@
   </header>
 
   <div class="wrap layout">
-    <nav class="toc" aria-label="Pages">
-<ul><li><a href="../index.html">Overview</a></li><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html" aria-current="page">Versioning and releases</a></li></ul>
+    <nav class="toc" aria-label="Guides">
+<ul><li><a href="index.html">Documentation</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/channel.html">Channel adapter</a></li><li><a href="adapters/kafka.html">Kafka adapter</a></li><li><a href="adapters/pulsar.html">Pulsar adapter</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ adapter</a></li><li><a href="adapters/sqs.html">SQS adapter</a></li><li><a href="adapters/pubsub.html">Pub/Sub adapter</a></li><li><a href="adapters/servicebus.html">Azure Service Bus adapter</a></li><li><a href="adapters/http.html">HTTP adapter</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/raw-utf8.html">Raw byte and UTF-8 codecs</a></li><li><a href="codecs/protobuf.html">Protobuf codec</a></li><li><a href="codecs/avro.html">Avro codec</a></li></ul></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="runtime.html">Runtime guide</a></li><li><a href="plan.html">beave-rs — Design plan</a></li><li><a href="development.html">Local development brokers</a></li><li><a href="releasing.html" aria-current="page">Versioning and releases</a></li></ul>
     </nav>
     <main class="doc">
 <h1 id="versioning-and-releases">Versioning and releases</h1>
@@ -118,22 +118,24 @@ published crate.</p>
 <p>A published version cannot be replaced. If a release is broken, yank it with
 <code>cargo yank --version X.Y.Z</code> and publish a fixed patch release.</p>
 <h2 id="project-website">Project website</h2>
-<p>The website is generated from the repository README and the guides in <code>docs/</code>,
-so it has no content of its own. <code>tools/pages/build.mjs</code> renders every page
-with one layout and <code>tools/pages/style.css</code>: <code>README.md</code> becomes the top page,
-<code>index.html</code>, and each <code>docs/&lt;path&gt;.md</code> becomes <code>docs/&lt;path&gt;.html</code>; a
-<code>README.md</code> inside <code>docs/</code> becomes <code>index.html</code> in its directory. Each page&#39;s
-Markdown source is published at the same path with <code>.md</code> instead of <code>.html</code>, so
-replacing the extension in a page URL returns the exact source. Links between
-pages point at the generated pages; links to other repository files point at
-GitHub, in both the HTML and the Markdown copies. The navigation lists the
-README, the guide index, and then the guides in the link order of
-<code>docs/README.md</code>.</p>
+<p>The website has a landing page and the guides, built by
+<code>tools/pages/build.mjs</code> with one header and one stylesheet,
+<code>tools/pages/style.css</code>. The landing page body is hand-written HTML in
+<code>site/index.html</code>; its links are relative to the site root. Each
+<code>docs/&lt;path&gt;.md</code> becomes <code>docs/&lt;path&gt;.html</code> with a navigation sidebar, and a
+<code>README.md</code> inside <code>docs/</code> becomes <code>index.html</code> in its directory. Code blocks on
+both are highlighted at build time.</p>
+<p>Each guide&#39;s Markdown source is published at the same path with <code>.md</code> instead
+of <code>.html</code>, so replacing the extension in a guide URL returns the exact source.
+The landing page&#39;s Markdown, <code>index.md</code>, is the repository README. Links
+between guides point at the generated pages; links to other repository files
+point at GitHub, in both the HTML and the Markdown copies. The navigation lists
+the guide index, then the guides in the link order of <code>docs/README.md</code>.</p>
 <p>For language-model tools, the site root also serves <code>llms.txt</code>, which lists the
 Markdown URL of every page, and <code>llms-full.txt</code>, which holds all pages in one
 file.</p>
 <p>The <code>Pages</code> workflow runs the build and publishes the result to the <code>gh-pages</code>
-branch on every push to <code>main</code> that touches <code>README.md</code>, <code>docs/</code>, or
+branch on every push to <code>main</code> that touches <code>site/</code>, <code>README.md</code>, <code>docs/</code>, or
 <code>tools/pages/</code>. GitHub Pages serves that branch, so the repository&#39;s Pages
 source must be set to deploy from the <code>gh-pages</code> branch root.</p>
 <p>A pull request that changes the website gets a preview under
@@ -145,9 +147,15 @@ to the repository.</p>
 <pre><code class="hljs language-sh">npm ci --prefix tools/pages
 node tools/pages/build.mjs _site
 python3 -m http.server -d _site
-</code></pre>
+</code></pre><p>The character artwork slot in the landing page is a placeholder; replace the
+<code>character</code> figure in <code>site/index.html</code> with the artwork when it exists.</p>
+
       <p class="source"><a href="releasing.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/releasing.md">Source on GitHub</a></p>
     </main>
   </div>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="../llms.txt">llms.txt</a></div>
+  </footer>
 </body>
 </html>

@@ -455,8 +455,8 @@ the first crates.io release:
   grow, and names that should change before `0.1.0`.
 - After the first release, add `cargo-semver-checks` to CI and switch the
   release workflow from the API token to crates.io trusted publishing.
-- Create the project icon and character, and place them in the README, which
-  is also the website's top page.
+- Create the project icon and character, and place them in the landing page
+  (`site/index.html`) and the README.
 - Publish `0.0.1` to reserve the crate name, then `0.1.0` as the first release
   intended for use.
 
