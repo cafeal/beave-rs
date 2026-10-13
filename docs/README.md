@@ -17,7 +17,7 @@ Adapter references: [Channel](adapters/channel.md), [Kafka](adapters/kafka.md),
 [SQS](adapters/sqs.md), [Pub/Sub](adapters/pubsub.md),
 [Azure Service Bus](adapters/servicebus.md), and [HTTP](adapters/http.md).
 
-Codec references: [Raw bytes and UTF-8](codecs/raw-utf8.md),
+Codec references: [JSON](codecs/json.md), [Raw bytes and UTF-8](codecs/raw-utf8.md),
 [Protobuf](codecs/protobuf.md), and [Avro](codecs/avro.md).
 
 ## Contributing
