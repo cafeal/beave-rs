@@ -41,7 +41,13 @@ src/
 │   ├── raw_bytes.rs       # RawBytes codec
 │   ├── utf8.rs            # Utf8 codec
 │   ├── avro.rs            # Avro codec (`avro` feature)
-│   └── protobuf.rs        # Protobuf codec (`protobuf` feature)
+│   ├── protobuf.rs        # Protobuf codec (`protobuf` feature)
+│   ├── msgpack.rs         # MessagePack codec (`msgpack` feature)
+│   ├── cbor.rs            # CBOR codec (`cbor` feature)
+│   ├── base64.rs          # Base64 wrapper (`base64` feature)
+│   ├── gzip.rs            # Gzip wrapper (`gzip` feature)
+│   ├── zstd.rs            # Zstandard wrapper (`zstd` feature)
+│   └── bounded.rs         # Bounded decompression shared by the wrappers
 ├── subscription/
 │   ├── mod.rs             # Module declarations and public re-exports
 │   ├── builder.rs         # Subscription type and builder API

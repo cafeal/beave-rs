@@ -203,12 +203,12 @@ no ordering key is derived from the input.
 
 A handler that returns a plain value between a Pulsar source and sink gets
 `PulsarInherit::new()` automatically. See the
-[runtime guide](../runtime.md#handler-shapes).
+[runtime guide](../runtime/handlers.md#handler-shapes).
 
 Inherited properties include trace-context properties such as `traceparent`.
 Register `TraceContext` after `PulsarInherit` to replace them with the
 processing span's context; see
-[trace-context propagation](../runtime.md#trace-context-propagation).
+[trace-context propagation](../runtime/observability.md#trace-context-propagation).
 
 ## Tombstones
 
@@ -227,14 +227,14 @@ the null marker set, so readers see a null value with or without
 `Tombstones::propagate()` supports Pulsar-to-Pulsar forwarding. The sink publishes non-null values as
 encoded, even when the encoding is empty; readers that treat empty payloads as
 tombstones, including topic compaction, will read such a value as a deletion.
-See [tombstones](../runtime.md#tombstones).
+See [tombstones](../runtime/tombstones.md).
 
 ## Dead letters
 
 `PulsarPublish::from_dead_letter` forwards a dead letter to a Pulsar topic with
 its original message and failure properties, and
 `PulsarDeadLetter::from_record` reads them back; see
-[forwarding dead letters](../runtime.md#forwarding-dead-letters-to-a-broker-topic).
+[forwarding dead letters](../runtime/errors.md#forwarding-dead-letters-to-a-broker-topic).
 
 ## Delivery guarantees
 

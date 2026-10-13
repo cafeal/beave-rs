@@ -26,74 +26,9 @@ no dedicated codec execution pool.
 
 The traits do not require Serde. Each codec chooses its own representation and
 payload bounds. `Decoder`, `Encoder`, `Json`, `RawBytes`, and `Utf8` are available
-through `beavers::codec` and re-exported at the crate root. `Protobuf` and `Avro`
-are available when their corresponding Cargo features are enabled.
-
-## JSON
-
-`Json` uses `serde_json::from_slice` for decoding and `serde_json::to_vec` for
-encoding.
-
-| Operation | Payload requirement | Result |
-|---|---|---|
-| Decode | `serde::de::DeserializeOwned` | Owned typed value |
-| Encode | `serde::Serialize` | Compact JSON bytes |
-
-Json does not itself append a newline or split a stream into messages. Input
-framing belongs to the source; output framing belongs to the sink. In particular,
-StdinSource reads one line at a time and StdoutSink appends a newline after encoding.
-
-### Using JSON with adapters
-
-Select the codec through the adapter's type parameters. The handler determines
-the input and output payload types:
-
-```rust
-use beavers::{App, Json, Result, StdinSource, StdoutSink};
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Deserialize)]
-struct Order {
-    id: u64,
-}
-
-#[derive(Serialize)]
-struct Event {
-    order_id: u64,
-}
-
-async fn handler(order: Order) -> Result<Event> {
-    Ok(Event { order_id: order.id })
-}
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    App::new()
-        .subscribe(
-            "orders",
-            StdinSource::<Json, _>::new(),
-            StdoutSink::<Json>::new(),
-            handler,
-        )
-        .run()
-        .await?;
-    Ok(())
-}
-```
-
-The second StdinSource type argument is the decoded input type, inferred here as
-Order. Input values also need the runtime's `Clone + Send + Sync + 'static`
-bounds; those are not additional requirements of the JSON format.
-
-The [transform example](../examples/transform.rs) provides this pipeline. Feed it
-one order object per line:
-
-```sh
-printf '%s\n' '{"id":10}' '{"id":20}' | cargo run --example transform -- --stdin
-```
-
-IterSource and InMemorySink already exchange typed values, so they require no
-serialization codec.
+through `beavers::codec` and re-exported at the crate root. `Protobuf`, `Avro`,
+`MessagePack`, `Cbor`, and the `Base64`, `Gzip`, and `Zstd` wrappers are
+available when their corresponding Cargo features are enabled.
 
 ## Lifecycle and failures
 
@@ -118,7 +53,7 @@ Codec errors return as `BoxError`, so an implementation can propagate any error
 type with `?`. Neither decode nor preparation failures are retried, because the
 same bytes or value would fail again. By
 default both stop processing without ACK; the subscription's
-[error policy](runtime.md#error-policy) can instead dead-letter or discard them
+[error policy](runtime/errors.md#error-policy) can instead dead-letter or discard them
 as `FailureKind::Decode` and `FailureKind::Encode`. An invalid JSON line is a
 decode failure, whereas a failed stdin read is a receive failure.
 
@@ -146,8 +81,8 @@ impl Encoder<String> for Utf8 {
 }
 ```
 
-`Utf8` is an exported built-in codec; see [Raw bytes and UTF-8](codecs/raw-utf8.md)
-for its exact behavior and `RawBytes` for arbitrary payloads. The local stdin and
+`Utf8` is an exported built-in codec; see [Utf8](codecs/utf8.md)
+for its exact behavior and [`RawBytes`](codecs/raw-bytes.md) for arbitrary payloads. The local stdin and
 stdout adapters default-construct their codec, so using a custom codec with them
 requires `Default`. The codec traits themselves do not require it. Broker
 adapter handles also provide `source_with_codec(codec, ...)` and
@@ -160,13 +95,24 @@ example preserves all bytes, including any newline supplied by the source.
 
 ## Available formats and broker integration
 
+`Json` converts between JSON and any Serde type. See [JSON](codecs/json.md).
+
 `RawBytes` preserves arbitrary `Vec<u8>` payloads and `Utf8` converts valid UTF-8
-between bytes and `String`. See [Raw bytes and UTF-8](codecs/raw-utf8.md).
+between bytes and `String`. See [RawBytes](codecs/raw-bytes.md) and
+[Utf8](codecs/utf8.md).
 
 The optional `protobuf` feature provides `Protobuf` for raw `prost::Message`
 payloads. The optional `avro` feature provides schema-bound `Avro` values. Both
 formats leave framing to the adapter. See [Protobuf](codecs/protobuf.md) and
 [Avro](codecs/avro.md).
+
+The optional `msgpack` and `cbor` features provide `MessagePack` and `Cbor`,
+compact binary formats for the same Serde types as `Json`. See
+[MessagePack](codecs/msgpack.md) and [CBOR](codecs/cbor.md).
+
+The optional `base64`, `gzip`, and `zstd` features provide `Base64<C>`,
+`Gzip<C>`, and `Zstd<C>`, which wrap another codec to carry its payload as text
+or compress it. See [codec wrappers](codecs/wrappers.md).
 
 Kafka applies its selected codec to a record value; keys and headers remain raw
 bytes in `KafkaRecord<T>`, and a value can be null. Pulsar applies its selected
@@ -174,4 +120,4 @@ codec to a non-null payload while exposing key and properties as metadata; by
 default an empty payload is a null value. A null value never reaches the codec.
 Neither adapter implicitly carries received metadata into outgoing records.
 Metadata mapping is explicit output middleware; see the
-[runtime guide](runtime.md#middleware).
+[runtime guide](runtime/middleware.md).

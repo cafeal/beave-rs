@@ -5,3 +5,7 @@ extend-ignore-re = ["\\b[0-9a-f]{16,}\\b"]
 [default.extend-words]
 # Azure Kubernetes Service.
 aks = "aks"
+# CBOR Object Signing and Encryption (RFC 9052).
+cose = "cose"
+# The flate2 crate.
+flate = "flate"

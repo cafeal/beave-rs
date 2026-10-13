@@ -21,12 +21,34 @@ pub trait Encoder<T>: Send + Sync + 'static {
 
 #[cfg(feature = "avro")]
 mod avro;
+#[cfg(feature = "base64")]
+mod base64;
+#[cfg(any(feature = "gzip", feature = "zstd"))]
+mod bounded;
+#[cfg(feature = "cbor")]
+mod cbor;
+#[cfg(feature = "gzip")]
+mod gzip;
+#[cfg(feature = "msgpack")]
+mod msgpack;
 #[cfg(feature = "protobuf")]
 mod protobuf;
 mod raw_bytes;
 mod utf8;
+#[cfg(feature = "zstd")]
+mod zstd;
+#[cfg(feature = "base64")]
+pub use self::base64::Base64;
+#[cfg(feature = "zstd")]
+pub use self::zstd::Zstd;
 #[cfg(feature = "avro")]
 pub use avro::Avro;
+#[cfg(feature = "cbor")]
+pub use cbor::Cbor;
+#[cfg(feature = "gzip")]
+pub use gzip::Gzip;
+#[cfg(feature = "msgpack")]
+pub use msgpack::MessagePack;
 #[cfg(feature = "protobuf")]
 pub use protobuf::Protobuf;
 pub use raw_bytes::RawBytes;

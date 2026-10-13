@@ -59,7 +59,8 @@ overrides the queue's own default.
 applies to the message body. SQS has no null body, so the value is always
 present and SQS records support no tombstones. SQS bodies are text: `prepare`
 rejects an encoded value that is not UTF-8, so binary codecs such as Protobuf
-and Avro need a text representation before they can be sent.
+and Avro need a text representation, such as the
+[`Base64` wrapper](../codecs/wrappers/base64.md), before they can be sent.
 
 `attributes` holds the message attributes as `SqsAttributeValue::String`,
 `Number` in its decimal text form, or `Binary`. A custom type label such as
@@ -142,7 +143,7 @@ disables attribute inheritance.
 A handler that returns a plain value between an SQS source and sink gets
 `SqsInherit::new()` automatically; register
 `SqsInherit::new().with_message_group()` explicitly to forward groups. See the
-[runtime guide](../runtime.md#handler-shapes). Register
+[runtime guide](../runtime/handlers.md#handler-shapes). Register
 `TraceContext` after `SqsInherit` to replace inherited trace-context
 attributes; the source reads trace context from string attributes.
 
@@ -154,7 +155,7 @@ the failure details and the URL and message ID of the first receipt are written
 as one JSON object into the `beavers-dlq-details` string attribute; a message
 that already has 10 attributes is rejected by SQS. `SqsDeadLetter::from_record`
 reads them back; see
-[forwarding dead letters](../runtime.md#forwarding-dead-letters-to-a-broker-topic).
+[forwarding dead letters](../runtime/errors.md#forwarding-dead-letters-to-a-broker-topic).
 
 A queue's redrive policy moves a message to its dead-letter queue after
 `maxReceiveCount` receives without deletion. The subscription's error policy

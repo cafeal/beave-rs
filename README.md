@@ -25,7 +25,8 @@ runs any number of subscriptions side by side and shuts them down together.
 - **Pipelines** — chain subscriptions through in-process channels with
   end-to-end acknowledgement.
 - **Adapters** — Kafka, Apache Pulsar, RabbitMQ, Amazon SQS, Google Cloud
-  Pub/Sub, Azure Service Bus, and HTTP; JSON, Avro, and Protobuf codecs.
+  Pub/Sub, Azure Service Bus, and HTTP; JSON, Avro, Protobuf, MessagePack,
+  and CBOR codecs, with Base64 and gzip or Zstandard compression wrappers.
 - **Operations** — graceful shutdown, `tracing` spans, `metrics`,
   OpenTelemetry trace propagation, and `/livez` and `/readyz` probes.
 
@@ -53,6 +54,11 @@ application uses:
 | `http` | HTTP source and sink |
 | `avro` | Avro codec |
 | `protobuf` | Protobuf codec |
+| `msgpack` | MessagePack codec |
+| `cbor` | CBOR codec |
+| `base64` | Base64 wrapper for another codec |
+| `gzip` | Gzip compression wrapper for another codec |
+| `zstd` | Zstandard compression wrapper for another codec |
 | `opentelemetry` | Trace-context propagation through broker metadata |
 | `health` | `/livez` and `/readyz` endpoints |
 | `testing` | Fabricated broker records for handler tests |
@@ -120,7 +126,7 @@ async fn handle(order: Order) -> Result<Output> {
 ```
 
 `.fatal()?` stops the subscription. See
-[errors and retries](docs/runtime.md#errors-and-retries) for retry policies
+[errors and retries](docs/runtime/errors.md) for retry policies
 and the error policy.
 
 ## Documentation

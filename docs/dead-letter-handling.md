@@ -1,12 +1,12 @@
 # Handling dead letters
 
 A dead letter is a delivery that a subscription could not process and that its
-[error policy](runtime.md#error-policy) sent to a dead-letter sink instead of
+[error policy](runtime/errors.md#error-policy) sent to a dead-letter sink instead of
 stopping. This guide describes what to do with dead letters once they are
 there. It assumes dead letters are forwarded to a topic or queue of the same
 platform with `from_dead_letter`, so each one is the original payload with
 `beavers-dlq-*` failure details beside it, as described in
-[forwarding dead letters](runtime.md#forwarding-dead-letters-to-a-broker-topic).
+[forwarding dead letters](runtime/errors.md#forwarding-dead-letters-to-a-broker-topic).
 
 The workflow is the same on every platform: notice the dead letters, find out
 why they failed, and choose one of three outcomes. What differs is how a

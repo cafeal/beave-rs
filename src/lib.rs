@@ -79,6 +79,11 @@
 //! | `http` | HTTP source and sink in `adapters::http` |
 //! | `avro` | The `Avro` codec |
 //! | `protobuf` | The `Protobuf` codec |
+//! | `msgpack` | The `MessagePack` codec |
+//! | `cbor` | The `Cbor` codec |
+//! | `base64` | The `Base64` codec wrapper |
+//! | `gzip` | The `Gzip` compression wrapper |
+//! | `zstd` | The `Zstd` compression wrapper |
 //! | `opentelemetry` | Trace-context propagation with `TraceContext` |
 //! | `health` | `/livez` and `/readyz` endpoints in [`health`] |
 //! | `testing` | Fabricated broker records for handler tests in `testing` |
@@ -129,8 +134,18 @@ pub use app::App;
 pub use blocking::{Blocking, BlockingPool, blocking};
 #[cfg(feature = "avro")]
 pub use codec::Avro;
+#[cfg(feature = "base64")]
+pub use codec::Base64;
+#[cfg(feature = "cbor")]
+pub use codec::Cbor;
+#[cfg(feature = "gzip")]
+pub use codec::Gzip;
+#[cfg(feature = "msgpack")]
+pub use codec::MessagePack;
 #[cfg(feature = "protobuf")]
 pub use codec::Protobuf;
+#[cfg(feature = "zstd")]
+pub use codec::Zstd;
 pub use codec::{Decoder, Encoder, Json, RawBytes, Utf8};
 pub use dead_letter::{DEAD_LETTER_HEADER_PREFIX, DeadLetter, DeadLetterDetails};
 pub use error::{BoxError, Error};

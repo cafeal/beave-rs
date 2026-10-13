@@ -3,7 +3,7 @@
 beavers sends no notifications itself. It reports metrics through the
 [`metrics`](https://docs.rs/metrics) facade, structured events through
 [`tracing`](https://docs.rs/tracing), and health through the `/livez` and
-`/readyz` endpoints of the [health server](../runtime.md#health-checks). This
+`/readyz` endpoints of the [health server](../runtime/health.md). This
 guide explains which of those signals deserve an alert and how to wire them to
 a platform that pages people, for teams that do not already run Prometheus and
 Alertmanager.
@@ -24,7 +24,7 @@ about collecting the metrics and routing the alerts.
 Every deployment needs the same three outputs from the application.
 
 **Metrics.** Install a Prometheus exporter before `App::run`, as described in
-[Exporting metrics](../runtime.md#exporting-metrics-to-opentelemetry), and
+[Exporting metrics](../runtime/observability.md#exporting-metrics-to-opentelemetry), and
 configure histogram buckets for `beavers_stage_duration_seconds`. The examples
 in this guide assume the exporter listens on port `9000` and serves `/metrics`.
 
@@ -187,5 +187,5 @@ Alert when the backlog keeps growing rather than when it is above zero, for
 example `deriv(sum by (consumergroup) (kafka_consumergroup_lag)[15m:]) > 0`
 for 30 minutes, or when the age of the oldest message exceeds what the
 consumers of the output can tolerate. Apply the same alerts to a dead-letter
-topic consumed by a [reprocessing subscription](../runtime.md#reprocessing-dead-letters) to see
+topic consumed by a [reprocessing subscription](../runtime/errors.md#reprocessing-dead-letters) to see
 how many dead letters remain unhandled.

@@ -155,18 +155,18 @@ timestamp, and the source offset is only used for the source's own commits.
 
 A handler that returns a plain value between a Kafka source and sink gets
 `KafkaInherit::new()` automatically. See the
-[runtime guide](../runtime.md#handler-shapes).
+[runtime guide](../runtime/handlers.md#handler-shapes).
 
 Inherited headers include trace-context headers such as `traceparent`. Register
 `TraceContext` after `KafkaInherit` to replace them with the processing span's
-context; see [trace-context propagation](../runtime.md#trace-context-propagation).
+context; see [trace-context propagation](../runtime/observability.md#trace-context-propagation).
 
 ## Tombstones
 
 A Kafka producer sends a null value as a tombstone, typically to delete a key in
 a compacted topic. Use the platform-neutral `Tombstones` middleware to reject,
 skip, or propagate them before the handler runs; see
-[tombstones](../runtime.md#tombstones). Propagation publishes
+[tombstones](../runtime/tombstones.md). Propagation publishes
 `KafkaPublish::tombstone` with the received key and rejects a tombstone without
 a key.
 
@@ -175,7 +175,7 @@ a key.
 `KafkaPublish::from_dead_letter` forwards a dead letter to a Kafka topic with
 its original record and failure headers, and `KafkaDeadLetter::from_record`
 reads them back; see
-[forwarding dead letters](../runtime.md#forwarding-dead-letters-to-a-broker-topic).
+[forwarding dead letters](../runtime/errors.md#forwarding-dead-letters-to-a-broker-topic).
 
 ## Delivery guarantees
 
@@ -191,7 +191,7 @@ does not delay a rebalance to let in-flight work finish.
 `KafkaSink::transactional(transactional_id)` converts a sink into a
 `KafkaTransactionalSink`, which publishes records in Kafka producer
 transactions. Registered with `Subscription::transactional()` behind a
-`KafkaSource`, each [batch](../runtime.md#batches) of deliveries is completed
+`KafkaSource`, each [batch](../runtime/transactions.md#batches) of deliveries is completed
 by one transaction that contains the outputs of every delivery in it and, for
 each partition, the consumer offset after the batch's last delivery of that
 partition:

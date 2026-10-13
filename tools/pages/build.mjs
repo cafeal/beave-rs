@@ -167,10 +167,10 @@ function navigation() {
 const flatten = (tree) => tree.flatMap(({ page, children }) => [page, ...flatten(children)]);
 
 // Navigation labels drop what the surrounding list already says: the project
-// name, and "adapter" or "codec" under the Adapters and Codecs entries.
+// name, and "adapter", "codec", or "wrapper" under the entries that list them.
 function navLabel(page, parent) {
   const label = page.title.replace(/^beave-rs\s+—\s+/, "");
-  return parent ? label.replace(/\s+(adapter|codecs?)$/i, "") : label;
+  return parent ? label.replace(/\s+(adapter|codecs?|wrapper)$/i, "") : label;
 }
 
 function navHtml(current, nav) {

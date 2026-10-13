@@ -101,7 +101,7 @@ delivery span continues the client's trace.
 The server decodes each body with the source codec as soon as the request is
 read, before the request becomes a delivery. A body that fails to decode is
 answered with `400 Bad Request` and the codec error as a plain-text body. It
-never reaches the subscription, so the [error policy](../runtime.md#error-policy)
+never reaches the subscription, so the [error policy](../runtime/errors.md#error-policy)
 and dead-letter sink do not see it, and one malformed request cannot stop the
 subscription. `SourceMessage::decode` of an HTTP delivery therefore always
 succeeds.
@@ -172,7 +172,7 @@ completes and its response is sent.
 then waits until open connections have answered their current request.
 Dropping the source also stops the listener.
 
-Behind a load balancer, serve [health checks](../runtime.md#health-checks)
+Behind a load balancer, serve [health checks](../runtime/health.md)
 with the `health` feature. Readiness fails as soon as shutdown starts, so a
 Kubernetes Service stops routing new requests to an instance before its source
 refuses them.
@@ -180,7 +180,7 @@ refuses them.
 ### Server metrics
 
 The server records these metrics through the `metrics` facade, alongside the
-[subscription metrics](../runtime.md#observability). Each carries a `listener`
+[subscription metrics](../runtime/observability.md). Each carries a `listener`
 label with the bound address.
 
 | Metric | Type | Extra labels | Meaning |
@@ -312,7 +312,7 @@ sent, and the delivery is acknowledged after every output succeeded:
 | `2xx` | Published |
 | `408`, `429`, or `5xx` | Retried under `publish_retry` |
 | Connection failure or `timeout` | Retried under `publish_retry` |
-| Any other status, including `3xx` redirects | [`PublishRejected`](../runtime.md#error-policy) without retry |
+| Any other status, including `3xx` redirects | [`PublishRejected`](../runtime/errors.md#error-policy) without retry |
 
 An exhausted retry stops the subscription without ACK, so a destination that is
 down leaves the input unacknowledged for redelivery after restart. A rejected
