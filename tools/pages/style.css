@@ -76,6 +76,8 @@ a { color: inherit; }
 
 .toc summary { display: none; }
 
+.toc-group { margin: 20px 0 6px; color: var(--text); font-size: 0.8rem; font-weight: 600; }
+
 .toc ul { margin: 0; padding: 0; list-style: none; }
 
 .toc ul ul { margin: 2px 0 6px; padding-left: 14px; border-left: 1px solid var(--line); }

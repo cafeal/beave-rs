@@ -127,9 +127,9 @@ function render(page) {
 }
 
 // Navigation starts with the guide index, then follows the links in it and
-// the pages it reaches. A page is listed under
-// the page whose name matches its directory, such as `adapters/kafka.md`
-// under `adapters.md`.
+// the pages it reaches. Top-level pages are grouped by the `##` section of the
+// guide index that first links them. A page is listed under the page whose
+// name matches its directory, such as `adapters/kafka.md` under `adapters.md`.
 function navigation() {
   const ordered = [guides];
   for (let i = 0; i < ordered.length; i++) {
@@ -152,8 +152,19 @@ function navigation() {
     ordered
       .filter((page) => page !== guides && parentOf(page) === parent)
       .map((page) => ({ page, children: tree(page) }));
-  return { ordered, tree: [{ page: guides, children: [] }, ...tree(null)] };
+  const sections = [...guides.markdown.matchAll(/^## (.+)\n([\s\S]*?)(?=^## |(?![\s\S]))/gm)].map(([, title, text]) => ({
+    title,
+    links: [...text.matchAll(/\]\(([^)\s#]+)/g)].map(([, href]) => resolveLink(guides.repoPath, href)?.repoPath),
+  }));
+  const sectionOf = (page) => Math.max(0, sections.findIndex((section) => section.links.includes(page.repoPath)));
+  const groups = sections.map(({ title }, index) => ({
+    title,
+    tree: tree(null).filter(({ page }) => sectionOf(page) === index),
+  }));
+  return { ordered, groups };
 }
+
+const flatten = (tree) => tree.flatMap(({ page, children }) => [page, ...flatten(children)]);
 
 // Navigation labels drop what the surrounding list already says: the project
 // name, and "adapter" or "codec" under the Adapters and Codecs entries.
@@ -169,8 +180,11 @@ function navHtml(current, nav) {
     const sub = children.length ? `<ul>${children.map((child) => item(child, page)).join("")}</ul>` : "";
     return `<li><a href="${href}"${attrs}>${escapeHtml(navLabel(page, parent))}</a>${sub}</li>`;
   };
+  const groups = nav.groups
+    .map(({ title, tree }) => `<p class="toc-group">${escapeHtml(title)}</p><ul>${tree.map((entry) => item(entry, null)).join("")}</ul>`)
+    .join("");
   // Narrow screens show the list collapsed above the page; see style.css.
-  return `<details open><summary>Guides</summary><ul>${nav.tree.map((entry) => item(entry, null)).join("")}</ul></details>`;
+  return `<details open><summary>Guides</summary><ul>${item({ page: guides, children: [] }, null)}</ul>${groups}</details>`;
 }
 
 // Wraps a page body in the shared head and header. `sitePath` is the page's
@@ -266,13 +280,17 @@ function llmsTxt(nav) {
     "Every page is available as Markdown at the page URL with `.html` replaced by `.md`.",
     `All pages in one file: ${SITE_URL}llms-full.txt`,
     "",
-    "## Pages",
+    "## Overview",
     "",
     `- [README](${SITE_URL}index.md): Project overview, installation, quick start, and Cargo features`,
+    `- [${guides.title}](${SITE_URL}${guides.sitePath}.md): Index of the guides`,
   ];
-  for (const page of nav.ordered) {
-    const note = purpose.get(page.repoPath);
-    lines.push(`- [${page.title}](${SITE_URL}${page.sitePath}.md)${note ? `: ${note}` : ""}`);
+  for (const { title, tree } of nav.groups) {
+    lines.push("", `## ${title}`, "");
+    for (const page of flatten(tree)) {
+      const note = purpose.get(page.repoPath);
+      lines.push(`- [${page.title}](${SITE_URL}${page.sitePath}.md)${note ? `: ${note}` : ""}`);
+    }
   }
   lines.push("", "## Optional", "", "- [API reference](https://docs.rs/beavers): Rust API documentation on docs.rs", "");
   return lines.join("\n");
