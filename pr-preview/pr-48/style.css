@@ -156,7 +156,25 @@ pre code { font-size: inherit; }
 
 .hero .lead { margin-bottom: 28px; font-size: 1.35rem; line-height: 1.45; }
 
-.landing .install { display: inline-block; margin: 0 0 28px; font-size: 0.95rem; }
+.landing .install { display: inline-flex; align-items: center; max-width: 100%; margin: 0 0 28px; padding-right: 8px; border-radius: 6px; background: var(--code-bg); }
+
+.landing .install pre { min-width: 0; margin: 0; padding-right: 12px; font-size: 0.95rem; }
+
+.install .prompt { color: var(--muted); user-select: none; }
+
+.copy {
+  flex: none;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.copy:hover { border-color: var(--green); color: var(--green); }
 
 .hero .note { margin-top: 20px; color: var(--muted); font-size: 0.9rem; }
 

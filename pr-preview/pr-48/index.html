@@ -33,10 +33,13 @@
     <figure class="character" aria-label="Character artwork placeholder"></figure>
     <h1>beave-rs</h1>
     <p class="lead">A lightweight Rust message processing framework built around typed handlers.</p>
-    <pre class="install"><code>cargo add beavers --features kafka</code></pre>
+    <div class="install">
+      <pre><code><span class="prompt" aria-hidden="true">$ </span><span id="install-command">cargo add beavers --features kafka</span></code></pre>
+      <button type="button" class="copy" data-copy="install-command">Copy</button>
+    </div>
     <p class="actions">
       <a class="button primary" href="docs/index.html">Read the guides</a>
-      <a class="button" href="https://docs.rs/beavers">API reference</a>
+      <a class="button" href="https://docs.rs/beavers">docs.rs</a>
     </p>
     <p class="note">Pre-release. The API may change until 0.1.0.</p>
   </div>
@@ -165,6 +168,21 @@
     </p>
   </div>
 </section>
+
+<script>
+  for (const button of document.querySelectorAll("button.copy")) {
+    button.addEventListener("click", async () => {
+      const text = document.getElementById(button.dataset.copy).textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        button.textContent = "Copied";
+      } catch {
+        button.textContent = "Copy failed";
+      }
+      setTimeout(() => (button.textContent = "Copy"), 1500);
+    });
+  }
+</script>
 </main>
   <footer class="foot">
     <div class="wrap">MIT license · <a href="llms.txt">llms.txt</a></div>
