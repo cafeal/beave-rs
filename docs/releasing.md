@@ -69,16 +69,25 @@ what applications must change.
    start a new empty `Unreleased` section.
 3. Set `version` in `Cargo.toml` and run `cargo check` to update `Cargo.lock`.
 4. Merge these changes to `main` and wait for CI, including the package check.
-5. Run the `Release` workflow on `main` from the Actions tab. It refuses a
-   version that already has a tag or is already on crates.io, runs
-   `cargo publish`, tags the commit as `vX.Y.Z`, and creates a GitHub release
-   whose notes are the version's changelog section.
+5. Tag the merge commit on `main` as `vX.Y.Z` and push the tag:
+
+   ```sh
+   git switch main && git pull
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+   The tag push runs the `Release` workflow. It refuses a tag that does not
+   match the version in `Cargo.toml`, a commit that is not on `main`, and a
+   version that is already on crates.io. It then runs `cargo publish` and
+   creates a GitHub release whose notes are the version's changelog section.
 
 The workflow publishes with the `CARGO_REGISTRY_TOKEN` secret, a crates.io API
 token with the `publish-new` and `publish-update` scopes, limited to the
 `beavers` crate once it exists and given an expiry date. Store it as a secret of
-the `crates-io` environment, restrict that environment's deployment branches to
-`main`, and add required reviewers so that each release waits for approval.
+the `crates-io` environment, restrict that environment's deployment branches
+and tags to the tag pattern `v*`, and add required reviewers so that each
+release waits for approval.
 Pull requests from forks never receive the secret. The release job does not
 restore build caches, so a cache written by another workflow cannot affect the
 published crate.
