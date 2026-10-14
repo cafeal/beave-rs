@@ -221,9 +221,9 @@ documents describe what each handle shares. Remaining work:
 
 The [graceful handoff](adapters/kafka.md#graceful-handoff) and partition pause
 are covered by unit, runtime, and ignored live tests. The live tests pause and
-resume a single-partition topic, and hand off a partition with an eager
-rebalance while its delivery is acknowledged, against a single-node Kafka 3.9
-broker. Verify with Kafka:
+resume one partition, and hand off a partition with an eager rebalance while
+its delivery is acknowledged, against single-node Kafka 3.9 and 4.1 brokers.
+Verify with Kafka:
 
 - A synchronous commit from an acknowledgement task completes while the
   polling thread waits in the revoke callback, under load and with several
