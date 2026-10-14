@@ -30,8 +30,8 @@
 <h1 id="json-codec">JSON codec</h1>
 <p><code>Json&lt;T&gt;</code> converts between JSON payloads and a type <code>T</code> implementing Serde&#39;s
 traits. It holds no state, implements <code>Default</code> for every <code>T</code>, and is always
-available; it needs no Cargo feature. Decode into <code>serde_json::Value</code> when the payload has
-no fixed schema.</p>
+available; it needs no Cargo feature. Decode into <code>serde_json::Value</code> when the
+payload has no fixed schema; see <a href="#json-without-a-schema">JSON without a schema</a>.</p>
 <p><code>Json</code> uses <code>serde_json::from_slice</code> for decoding and <code>serde_json::to_vec</code> for
 encoding.</p>
 <table>
@@ -57,7 +57,7 @@ encoding.</p>
 framing belongs to the source; output framing belongs to the sink. In particular,
 StdinSource reads one line at a time and StdoutSink appends a newline after encoding.</p>
 <h2 id="using-json-with-adapters">Using JSON with adapters</h2>
-<p>Select the codec through the adapter&#39;s type parameters. The handler determines
+<p>Select the codec through the adapter&#39;s type parameter. The handler determines
 the input and output payload types:</p>
 <pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{App, Json, <span class="hljs-type">Result</span>, StdinSource, StdoutSink};
 <span class="hljs-keyword">use</span> serde::{Deserialize, Serialize};
@@ -89,14 +89,38 @@ the input and output payload types:</p>
         .<span class="hljs-keyword">await</span>?;
     <span class="hljs-title function_ invoke__">Ok</span>(())
 }
-</code></pre><p>The second StdinSource type argument is the decoded input type, inferred here as
-Order. Input values also need the runtime&#39;s <code>Clone + Send + Sync + &#39;static</code>
+</code></pre><p>The <code>_</code> in <code>Json&lt;_&gt;</code> is the payload type, inferred here from the handler as
+<code>Order</code> for the source and <code>Event</code> for the sink. Input values also need the runtime&#39;s <code>Clone + Send + Sync + &#39;static</code>
 bounds; those are not additional requirements of the JSON format.</p>
 <p>The <a href="https://github.com/cafeal/beave-rs/blob/main/examples/transform.rs">transform example</a> provides this pipeline. Feed it
 one order object per line:</p>
 <pre><code class="hljs language-sh"><span class="hljs-built_in">printf</span> <span class="hljs-string">&#x27;%s\n&#x27;</span> <span class="hljs-string">&#x27;{&quot;id&quot;:10}&#x27;</span> <span class="hljs-string">&#x27;{&quot;id&quot;:20}&#x27;</span> | cargo run --example transform -- --stdin
 </code></pre><p>IterSource and InMemorySink already exchange typed values, so they require no
 serialization codec.</p>
+<h2 id="json-without-a-schema">JSON without a schema</h2>
+<p>When payloads have no fixed shape, decode into <code>serde_json::Value</code> and read the
+fields the handler needs. Any valid JSON decodes; only malformed JSON is a
+decode failure. Import <code>Value</code> so the codec type stays short:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{App, Json, <span class="hljs-type">Result</span>, StdoutSink, adapters::kafka::Kafka};
+<span class="hljs-keyword">use</span> serde_json::Value;
+
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">audit</span>(event: Value) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;Value&gt; {
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">kind</span> = event[<span class="hljs-string">&quot;type&quot;</span>].<span class="hljs-title function_ invoke__">as_str</span>().<span class="hljs-title function_ invoke__">unwrap_or</span>(<span class="hljs-string">&quot;unknown&quot;</span>);
+    <span class="hljs-title function_ invoke__">Ok</span>(serde_json::json!({ <span class="hljs-string">&quot;type&quot;</span>: kind }))
+}
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>);
+App::<span class="hljs-title function_ invoke__">new</span>()
+    .<span class="hljs-title function_ invoke__">subscribe</span>(
+        <span class="hljs-string">&quot;audit&quot;</span>,
+        kafka.source::&lt;Json&lt;Value&gt;&gt;(<span class="hljs-string">&quot;audit&quot;</span>, [<span class="hljs-string">&quot;events&quot;</span>]),
+        StdoutSink::&lt;Json&lt;Value&gt;&gt;::<span class="hljs-title function_ invoke__">new</span>(),
+        audit,
+    )
+    .<span class="hljs-title function_ invoke__">run</span>()
+    .<span class="hljs-keyword">await</span>?;
+</code></pre><p>A <code>Json&lt;Value&gt;</code> sink accepts any <code>Value</code>, so a handler can also build output
+with <code>serde_json::json!</code> without declaring a struct.</p>
 
       <p class="source"><a href="json.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/codecs/json.md">Source on GitHub</a></p>
     </main>

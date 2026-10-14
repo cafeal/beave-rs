@@ -220,6 +220,17 @@ acknowledgements, and the new owner reprocesses those records.</li>
 <li>Shutdown with pending completions drains them before the sink closes, within
 the subscription&#39;s shutdown timeout.</li>
 </ul>
+<h2 id="shared-connection-follow-ups">Shared connection follow-ups</h2>
+<p>Sources and sinks share their adapter handle&#39;s connection; the adapter
+documents describe what each handle shares. Remaining work:</p>
+<ul>
+<li>Verify against live brokers that the shared Service Bus connection authorizes
+entities added after it opened, renews their tokens, and reopens for every
+link after it is lost, and that the RabbitMQ handle reopens a lost
+connection for every channel.</li>
+<li>Decide whether HTTP sources should share one listener and route by path.</li>
+<li>Decide whether to add Entra ID authentication to the Service Bus handle.</li>
+</ul>
 <h2 id="kafka-rebalance-behavior">Kafka rebalance behavior</h2>
 <p>Revoked partitions currently abandon in-flight work immediately. Evaluate an
 optional graceful handoff that delays revoke completion for a bounded time so
@@ -475,7 +486,7 @@ intended for use.</li>
 </tr>
 <tr>
 <td>4</td>
-<td>Live verification of batched Kafka transactions</td>
+<td>Live verification of batched Kafka transactions and shared connections</td>
 </tr>
 <tr>
 <td>5</td>

@@ -32,42 +32,55 @@
 adapters backed by the <code>magnetar-driver</code> 1.7 client.</p>
 <pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;pulsar&quot;</span>] }
 </code></pre><h2 id="configuration">Configuration</h2>
-<p>Configure a source with a service URL, topic, and subscription. <code>validate</code>
-checks the values and optional static authentication without contacting a
-broker. The source opens its client and consumer on the first <code>receive</code>. A
-partitioned topic is consumed through one consumer per partition, all in the
-same subscription; the partition list is read when the source connects.</p>
-<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Source, Utf8};
-<span class="hljs-keyword">use</span> beavers::adapters::pulsar::{PulsarSource, PulsarSourceConfig};
+<p>A <code>Pulsar</code> handle holds the service URL, using the <code>pulsar://</code> or
+<code>pulsar+ssl://</code> scheme, and optional static authentication.
+<code>handle.source::&lt;C&gt;(topic, subscription)</code> builds a source and
+<code>handle.sink::&lt;C&gt;(topic)</code> a sink; <code>source_with_codec</code> and <code>sink_with_codec</code>
+take a codec value as their first argument instead of using the codec&#39;s
+default. Optional settings are builder methods on the handle, the source, and
+the sink.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::Utf8;
+<span class="hljs-keyword">use</span> beavers::adapters::pulsar::{Pulsar, PulsarSubscriptionType};
 
-<span class="hljs-keyword">let</span> <span class="hljs-keyword">mut </span><span class="hljs-variable">source</span> = PulsarSource::&lt;Utf8&gt;::<span class="hljs-title function_ invoke__">new</span>(PulsarSourceConfig::<span class="hljs-title function_ invoke__">new</span>(
-    <span class="hljs-string">&quot;pulsar://localhost:6650&quot;</span>,
-    <span class="hljs-string">&quot;persistent://public/default/orders&quot;</span>,
-    <span class="hljs-string">&quot;orders-workers&quot;</span>,
-));
-</code></pre><p><code>subscription_type</code> selects a <code>PulsarSubscriptionType</code> and defaults to
+<span class="hljs-keyword">let</span> <span class="hljs-variable">pulsar</span> = Pulsar::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;pulsar://localhost:6650&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = pulsar
+    .source::&lt;Utf8&gt;(<span class="hljs-string">&quot;persistent://public/default/orders&quot;</span>, <span class="hljs-string">&quot;orders-workers&quot;</span>)
+    .<span class="hljs-title function_ invoke__">subscription_type</span>(PulsarSubscriptionType::Failover);
+</code></pre><p>All sources and sinks built from one handle share one client. The client
+connects on the first <code>receive</code> or publication of any of them, which also
+validates the settings, and reconnects their producers and consumers after the
+broker connection drops. It closes once the handle, every source and sink built
+from it, and every delivery that can still acknowledge through it have been
+dropped. Closing a source or sink closes only its own consumers or producers.
+Each builder method on the handle returns a handle with a client of its own, so
+configure the handle before building sources and sinks from it.</p>
+<p>The handle, the source, and the sink each have <code>validate</code>, which checks the
+values without contacting a broker. A partitioned topic is consumed through one
+consumer per partition, all in the same subscription; the partition list is
+read when the source connects.</p>
+<p><code>subscription_type</code> selects a <code>PulsarSubscriptionType</code> and defaults to
 <code>Shared</code>. <code>buffer_size</code> is the number of messages each partition&#39;s consumer
-prefetches. A new subscription starts at the latest message.</p>
-<p><code>PulsarAuthentication::token</code> supplies a JWT token, while the general
-<code>PulsarAuthentication</code> form accepts a Pulsar authentication method name and
-credential bytes. Leave <code>authentication</code> unset for an unauthenticated broker.</p>
-<p>Configure a sink separately. <code>prepare</code> accepts a <code>PulsarPublish&lt;T&gt;</code>, encodes
-the typed value once, and returns a cloneable <code>PulsarPrepared</code> payload. Set the
-key, ordering key, event time, and user properties before preparation:</p>
+prefetches, 100 by default. A new subscription starts at the latest message.</p>
+<p><code>Pulsar::token</code> supplies a JWT, while <code>Pulsar::authentication</code> accepts a
+general <code>PulsarAuthentication</code> with a Pulsar authentication method name and
+credential bytes. Leave both unset for an unauthenticated broker.</p>
+<p>Build a sink from the same handle. <code>prepare</code> accepts a <code>PulsarPublish&lt;T&gt;</code>,
+encodes the typed value once, and returns a cloneable <code>PulsarPrepared</code> payload.
+Set the key, ordering key, event time, and user properties before preparation:</p>
 <pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Sink, Utf8};
-<span class="hljs-keyword">use</span> beavers::adapters::pulsar::{PulsarPublish, PulsarSink, PulsarSinkConfig};
+<span class="hljs-keyword">use</span> beavers::adapters::pulsar::{Pulsar, PulsarPublish};
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = PulsarSink::&lt;Utf8&gt;::<span class="hljs-title function_ invoke__">new</span>(PulsarSinkConfig::<span class="hljs-title function_ invoke__">new</span>(
-    <span class="hljs-string">&quot;pulsar://localhost:6650&quot;</span>,
-    <span class="hljs-string">&quot;persistent://public/default/processed-orders&quot;</span>,
-));
+<span class="hljs-keyword">let</span> <span class="hljs-variable">pulsar</span> = Pulsar::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;pulsar://localhost:6650&quot;</span>).<span class="hljs-title function_ invoke__">token</span>(<span class="hljs-string">&quot;eyJhbGciOi...&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = pulsar.sink::&lt;Utf8&gt;(<span class="hljs-string">&quot;persistent://public/default/processed-orders&quot;</span>);
 <span class="hljs-keyword">let</span> <span class="hljs-keyword">mut </span><span class="hljs-variable">output</span> = PulsarPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;processed&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>());
 output.key = <span class="hljs-title function_ invoke__">Some</span>(<span class="hljs-string">b&quot;customer-42&quot;</span>.<span class="hljs-title function_ invoke__">to_vec</span>());
 output.properties.<span class="hljs-title function_ invoke__">insert</span>(<span class="hljs-string">&quot;kind&quot;</span>.<span class="hljs-title function_ invoke__">into</span>(), <span class="hljs-string">&quot;order&quot;</span>.<span class="hljs-title function_ invoke__">into</span>());
 <span class="hljs-keyword">let</span> <span class="hljs-variable">prepared</span> = sink.<span class="hljs-title function_ invoke__">prepare</span>(output)?;
 sink.<span class="hljs-title function_ invoke__">publish</span>(&amp;prepared).<span class="hljs-keyword">await</span>?;
 # Ok::&lt;(), beavers::BoxError&gt;(())
-</code></pre><h2 id="records">Records</h2>
+</code></pre><p><code>producer_name</code> names each partition&#39;s producer; by default the broker assigns
+names.</p>
+<h2 id="records">Records</h2>
 <p>The codec applies to the payload. <code>PulsarMessage::decode</code> returns a
 <code>PulsarRecord&lt;T&gt;</code> with top-level <code>value</code>, <code>key</code>, <code>properties</code>, and <code>event_time</code>
 fields. These application fields map directly to <code>PulsarPublish&lt;T&gt;</code>. Its
@@ -96,7 +109,7 @@ broker connection drops and reattaches its consumers.</p>
 restart closes the consumers. An acknowledgement in flight at that moment
 fails, and one sent before the consumer has reattached times out after the
 client&#39;s 30-second operation timeout. <code>ack</code> therefore retries a failed
-acknowledgement under <code>PulsarSourceConfig::ack_retry</code>, five attempts with
+acknowledgement under the source&#39;s <code>ack_retry</code>, five attempts with
 backoff from 100 ms to 2 s by default, and an attempt on the reattached
 consumer succeeds. Only an exhausted retry fails the acknowledgement and stops
 the subscription. After reattaching, the broker redelivers every
@@ -104,8 +117,8 @@ unacknowledged message, including messages the consumer had already
 prefetched and still returns, so deliveries received around an unload can be
 processed twice and out of their original order.</p>
 <p>Call <code>close</code> during shutdown to close the consumers. A delivery acknowledged
-after its source closed fails with an error, and the client closes once the
-last delivery of the source is dropped.</p>
+after its source closed fails with an error. The client stays open for the
+handle&#39;s other sources and sinks.</p>
 <p>Each delivery&#39;s ordering key follows the order Pulsar guarantees for the
 configured subscription type:</p>
 <table>
@@ -151,9 +164,9 @@ input when the receipt arrives. <code>publish</code> queues the message and wait
 receipt. A producer sends queued messages in order and replays unacknowledged
 ones in order after a reconnect, so outputs of one partition keep their
 submission order unless the broker rejects a send, as described below.</p>
-<p><code>PulsarSinkConfig::max_pending</code> bounds the messages queued by <code>submit</code> whose
-receipt has not arrived; the default is 1000. <code>submit</code> waits while that many
-are outstanding. A completion dropped before its receipt, as when the input is
+<p><code>max_pending</code> bounds the messages queued by <code>submit</code> on one sink whose receipt
+has not arrived; the default is 1000. <code>submit</code> waits while that many are
+outstanding. A completion dropped before its receipt, as when the input is
 abandoned, frees its slot; the message stays queued and may still be written,
 but it is not sent again after a rejection. Publish retries apply to queueing
 only.</p>
@@ -161,7 +174,7 @@ only.</p>
 with an error is not replayed by the client, and a broker that is shutting down
 or unloading the topic, as during a restart or a routine load-balancer unload,
 rejects the sends in flight with a persistence error. The sink therefore sends
-a rejected message again under <code>PulsarSinkConfig::send_retry</code>, ten sends with
+a rejected message again under the sink&#39;s <code>send_retry</code>, ten sends with
 backoff from 100 ms to 5 s by default, measured from the previous send. A task
 per producer observes the receipts in submission order, so the messages of one
 rejected run are sent again in their original order and reach the topic&#39;s next
@@ -174,7 +187,8 @@ client replayed or the broker accepted in the meantime, so a rejection can
 reorder the outputs of one partition. A message the broker wrote despite
 answering with an error is written twice.</p>
 <p><code>close</code> stops new submissions, waits for every outstanding receipt, then closes
-the producers.</p>
+the sink&#39;s producers. The client stays open for the handle&#39;s other sources and
+sinks.</p>
 <h2 id="metadata-inheritance">Metadata inheritance</h2>
 <p>Register <code>PulsarInherit</code> on a Pulsar-to-Pulsar subscription to forward the
 received key, properties, and event time:</p>
@@ -199,7 +213,7 @@ processing span&#39;s context; see
 <h2 id="tombstones">Tombstones</h2>
 <p>A null value is a tombstone. Pulsar topic compaction deletes a key when it sees
 a message with that key and an empty payload, and producers can also mark a
-value as null explicitly. <code>PulsarSourceConfig::empty_payload_is_tombstone</code>,
+value as null explicitly. The source&#39;s <code>empty_payload_is_tombstone</code>,
 enabled by default, follows the compaction rule: an empty payload or a
 null-marked message becomes <code>PulsarRecord { value: None, .. }</code> and is not passed
 to the codec. When disabled, only a null-marked message becomes <code>None</code>, and an

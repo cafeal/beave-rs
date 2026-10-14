@@ -165,10 +165,28 @@ messages into a broker-specific <code>*Record&lt;T&gt;</code> containing deliver
 accept a separate <code>*Publish&lt;T&gt;</code> type for user-controlled output. Prepared
 payloads hold encoded bytes for retries. See the dedicated guides for each
 broker&#39;s configuration and delivery behavior.</p>
-<p>Broker adapter constructors use <code>C::default()</code> for a codec. Their
-<code>with_codec(config, codec)</code> constructors accept an existing codec instance,
-which is required for configured codecs such as <code>Avro</code>. <code>StdinSource</code> and
-<code>StdoutSink</code> take a codec the same way with <code>with_codec(codec)</code>.</p>
+<p>Each broker adapter starts from a connection handle: <code>Kafka</code>, <code>Pulsar</code>,
+<code>RabbitMq</code>, <code>Sqs</code>, <code>PubSub</code>, or <code>ServiceBus</code>. The handle holds the broker
+address and credentials, and its <code>source</code> and <code>sink</code> methods build sources and
+sinks that share its connection, so they authenticate once; the broker guides
+list the clients an adapter keeps per source or sink, such as Kafka consumers.
+The connection opens on first use. A lost shared connection affects every
+subscription that uses it, while each subscription still fails fast on its own
+receive, publish, and ACK failures. <code>HttpClient</code> builds HTTP sinks that share
+one connection pool, and <code>HttpSource::new(addr)</code> binds a server.</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{Json, adapters::kafka::Kafka};
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>).<span class="hljs-title function_ invoke__">sasl_plain</span>(<span class="hljs-string">&quot;user&quot;</span>, <span class="hljs-string">&quot;password&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">orders</span> = kafka.source::&lt;Json&lt;Order&gt;&gt;(<span class="hljs-string">&quot;billing&quot;</span>, [<span class="hljs-string">&quot;orders&quot;</span>]);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">invoices</span> = kafka.sink::&lt;Json&lt;Invoice&gt;&gt;(<span class="hljs-string">&quot;invoices&quot;</span>).<span class="hljs-title function_ invoke__">max_pending</span>(<span class="hljs-number">500</span>);
+</code></pre><p>Builder methods consume and return the value, and every handle, source, and
+sink has a <code>validate()</code> that checks its settings without network access. A
+builder method on a handle returns a handle with a connection of its own, so
+configure the handle before building sources and sinks from it.
+<code>source</code> and <code>sink</code> use <code>C::default()</code> for a codec. <code>source_with_codec(codec, ...)</code> and <code>sink_with_codec(codec, ...)</code> take an existing codec instance first,
+which is required for configured codecs such as <code>Avro</code>; <code>HttpSource</code> has
+<code>with_codec(codec, addr)</code>. <code>StdinSource</code> and <code>StdoutSink</code> take a codec with
+<code>with_codec(codec)</code>.</p>
 
       <p class="source"><a href="adapters.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/adapters.md">Source on GitHub</a></p>
     </main>

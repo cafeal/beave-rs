@@ -28,64 +28,13 @@
     </nav>
     <main class="doc">
 <h1 id="avro-codec">Avro codec</h1>
-<p><code>Avro&lt;T&gt;</code> encodes and decodes a Serde type <code>T</code> using a parsed Apache Avro schema. Enable
+<p><code>Avro</code> encodes and decodes Serde values using a parsed Apache Avro schema. Enable
 the <code>avro</code> Cargo feature:</p>
 <pre><code class="hljs language-toml"><span class="hljs-section">[dependencies]</span>
 <span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;avro&quot;</span>] }
-</code></pre><p><code>Avro&lt;T&gt;</code> is bound to one Avro schema, which it uses as both the writer and the
-reader schema. The schema usually comes from <code>T</code> through Apache Avro&#39;s
-<code>AvroSchema</code> trait, re-exported as <code>beavers::AvroSchema</code>. When <code>T</code> implements
-it, <code>Avro&lt;T&gt;</code> implements <code>Default</code>, so sources and sinks can build it
-themselves:</p>
-<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">let</span> <span class="hljs-variable">invoices</span> = KafkaSink::&lt;Avro&lt;Invoice&gt;&gt;::<span class="hljs-title function_ invoke__">new</span>(KafkaSinkConfig::<span class="hljs-title function_ invoke__">new</span>(brokers, <span class="hljs-string">&quot;invoices&quot;</span>));
-</code></pre><p><code>Default</code> calls <code>T::get_schema()</code> once, when the codec is constructed; messages
-reuse the parsed schema.</p>
-<h2 id="schema-from-an-avsc-file">Schema from an <code>.avsc</code> file</h2>
-<p>When the schema is a contract shared with other teams or languages, keep it in
-an <code>.avsc</code> file and implement <code>AvroSchema</code> by hand. The file stays the source of
-truth, and schema changes are reviewed as diffs of that file:</p>
-<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::AvroSchema;
-<span class="hljs-keyword">use</span> apache_avro::Schema;
-<span class="hljs-keyword">use</span> serde::{Deserialize, Serialize};
-
-<span class="hljs-meta">#[derive(Deserialize, Serialize)]</span>
-<span class="hljs-keyword">struct</span> <span class="hljs-title class_">Invoice</span> {
-    id: <span class="hljs-type">String</span>,
-    amount_cents: <span class="hljs-type">i64</span>,
-}
-
-<span class="hljs-keyword">impl</span> <span class="hljs-title class_">AvroSchema</span> <span class="hljs-keyword">for</span> <span class="hljs-title class_">Invoice</span> {
-    <span class="hljs-keyword">fn</span> <span class="hljs-title function_">get_schema</span>() <span class="hljs-punctuation">-&gt;</span> Schema {
-        Schema::<span class="hljs-title function_ invoke__">parse_str</span>(<span class="hljs-built_in">include_str!</span>(<span class="hljs-string">&quot;../schemas/invoice.avsc&quot;</span>))
-            .<span class="hljs-title function_ invoke__">expect</span>(<span class="hljs-string">&quot;schemas/invoice.avsc is a valid Avro schema&quot;</span>)
-    }
-}
-</code></pre><p>The struct can also be generated from the <code>.avsc</code> file in a build script with
-a code generator such as <code>rsgen-avro</code>. Code generation is application-side,
-like <code>prost-build</code> for Protobuf; beavers only requires the resulting type to
-implement <code>AvroSchema</code> and Serde&#39;s traits.</p>
-<h2 id="schema-derived-from-the-rust-type">Schema derived from the Rust type</h2>
-<p>When the schema is used only by Rust services, derive it from the struct with
-the <code>derive</code> feature of <code>apache-avro</code>:</p>
-<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> apache_avro::AvroSchema;
-<span class="hljs-keyword">use</span> serde::{Deserialize, Serialize};
-
-<span class="hljs-meta">#[derive(AvroSchema, Deserialize, Serialize)]</span>
-<span class="hljs-keyword">struct</span> <span class="hljs-title class_">Invoice</span> {
-    id: <span class="hljs-type">String</span>,
-    amount_cents: <span class="hljs-type">i64</span>,
-}
-</code></pre><p>The derived schema is rebuilt from the struct, so its details, such as <code>doc</code>
-and <code>default</code> values, can differ from a hand-written <code>.avsc</code> file.</p>
-<p>Both forms use the application&#39;s own <code>apache-avro</code> dependency. Its version must
-be semver-compatible with the one beavers uses, currently <code>0.22</code>, so that both
-name the same <code>AvroSchema</code> trait.</p>
-<h2 id="explicit-schema">Explicit schema</h2>
-<p><code>Avro::&lt;T&gt;::new(schema)</code> parses a schema string and
-<code>Avro::&lt;T&gt;::from_schema(schema)</code> takes a parsed one, for schemas loaded at run
-time or types that do not implement <code>AvroSchema</code>. Construction validates the
-schema once; an invalid schema returns an error before any messages are
-handled. Pass the codec to an adapter&#39;s <code>with_codec</code> constructor:</p>
+</code></pre><p>Construct the codec with a schema string. Construction parses and validates the
+schema once; an invalid schema returns an error before any messages are handled.
+The same schema is used as the writer and reader schema for the codec:</p>
 <pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Avro, Decoder, Encoder};
 <span class="hljs-keyword">use</span> serde::{Deserialize, Serialize};
 
@@ -106,12 +55,11 @@ handled. Pass the codec to an adapter&#39;s <code>with_codec</code> constructor:
     comment: <span class="hljs-type">Option</span>&lt;<span class="hljs-type">String</span>&gt;,
 }
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">codec</span> = Avro::&lt;Order&gt;::<span class="hljs-title function_ invoke__">new</span>(SCHEMA)?;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">codec</span> = Avro::<span class="hljs-title function_ invoke__">new</span>(SCHEMA)?;
 <span class="hljs-keyword">let</span> <span class="hljs-variable">bytes</span> = codec.<span class="hljs-title function_ invoke__">encode</span>(&amp;Order { id: <span class="hljs-number">7</span>, comment: <span class="hljs-literal">None</span> })?;
-<span class="hljs-keyword">let</span> <span class="hljs-variable">order</span> = codec.<span class="hljs-title function_ invoke__">decode</span>(&amp;bytes)?;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">order</span>: Order = codec.<span class="hljs-title function_ invoke__">decode</span>(&amp;bytes)?;
 # Ok::&lt;(), beavers::BoxError&gt;(())
-</code></pre><h2 id="payloads">Payloads</h2>
-<p>Each payload is exactly one raw Avro datum. <code>Avro</code> does not add an object
+</code></pre><p>Each payload is exactly one raw Avro datum. <code>Avro</code> does not add an object
 container header, sync marker, length prefix, or other framing. A decode succeeds
 only when the schema consumes the complete payload; trailing bytes are rejected.
 This makes the codec suitable for adapters that already preserve message
@@ -121,6 +69,10 @@ boundaries. It is directly compatible with Apache Avro&#39;s
 unit enums map to Avro enums, <code>Option&lt;T&gt;</code> maps to a nullable union, and <code>Vec&lt;T&gt;</code>
 maps to an array. For Avro <code>bytes</code> and <code>fixed</code>, use the byte helper modules
 documented by <code>apache-avro</code> when deriving Serde implementations.</p>
+<p>The codec intentionally has no <code>Default</code> implementation because a schema is
+required. Pass an instance to an adapter that accepts an existing codec, such
+as <code>kafka.source_with_codec(codec, group_id, topics)</code>,
+<code>kafka.sink_with_codec(codec, topic)</code>, or <code>StdoutSink::with_codec(codec)</code>.</p>
 <p>Schema evolution is not implicit: this API has no separate reader schema. If a
 producer and consumer use different schemas, create a codec with the producer&#39;s
 schema only when they are known to be compatible, or use Apache Avro&#39;s datum

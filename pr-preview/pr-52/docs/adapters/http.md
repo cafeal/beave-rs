@@ -20,7 +20,7 @@ beavers = { version = "0.1", features = ["http"] }
 ```rust,no_run
 use beavers::{
     App, Json, Result, StdoutSink,
-    adapters::http::{HttpRecord, HttpSource, HttpSourceConfig},
+    adapters::http::{HttpRecord, HttpSource},
 };
 use serde::{Deserialize, Serialize};
 
@@ -35,9 +35,7 @@ async fn accept(record: HttpRecord<Order>) -> Result<Order> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let source = HttpSource::<Json<Order>>::new(HttpSourceConfig::new(
-        "0.0.0.0:8080".parse()?,
-    ))?;
+    let source = HttpSource::<Json<Order>>::new("0.0.0.0:8080".parse()?)?;
     App::new()
         .subscribe("orders", source, StdoutSink::<Json<_>>::new(), accept)
         .run()
@@ -52,17 +50,29 @@ curl -i -X POST localhost:8080/orders -d '{"id":7}'
 
 ### Server configuration
 
-| Field | Default | Meaning |
-|---|---|---|
-| `bind` | required | Listen address. Port 0 selects a free port. |
-| `max_body_bytes` | 1 MiB | Larger bodies are answered with `413` and never become deliveries. |
-| `response` | `ResponseTiming::Ack` | When a received request is answered; see [response timing](#response-timing). |
+The HTTP source has no shared handle; each source is its own server.
 
-`HttpSource::new(config)` validates the configuration and binds the listener
-immediately, so an address in use is reported by the constructor and
-`local_addr()` returns the bound address, including a port chosen for port 0.
-The server starts accepting connections on the first `receive`.
-`with_codec(config, codec)` accepts a configured codec.
+| Setting | Default | Meaning |
+|---|---|---|
+| `bind` | required | Listen address passed to `new`. Port 0 selects a free port. |
+| `max_body_bytes(n)` | 1 MiB | Larger bodies are answered with `413` and never become deliveries. |
+| `response(timing)` | `ResponseTiming::Ack` | When a received request is answered; see [response timing](#response-timing). |
+
+`HttpSource::new(bind)` binds the listener immediately, so an address in use is
+reported by the constructor and `local_addr()` returns the bound address,
+including a port chosen for port 0. `HttpSource::with_codec(codec, bind)`
+accepts a configured codec. `validate` checks the settings, and the server
+validates them again when it starts accepting connections on the first
+`receive`.
+
+```rust,no_run
+use beavers::{Utf8, adapters::http::{HttpSource, ResponseTiming}};
+
+let source = HttpSource::<Utf8>::new("0.0.0.0:8080".parse()?)?
+    .max_body_bytes(64 * 1024)
+    .response(ResponseTiming::Receive);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
 
 ### Records
 
@@ -196,15 +206,15 @@ never reach the subscription's `beavers_delivery_failures_total`.
 ## Sink
 
 `HttpSink<C>` accepts `HttpPublish<T>` outputs, where `T` is the codec's value type. It encodes each body with
-its codec and sends one request per output to the configured URL. A typical use
+its codec and sends one request per output to its URL. A typical use
 is handing events consumed from a broker to a service with an HTTP API:
 
 ```rust,ignore
 use beavers::{
     App, Json, Result,
     adapters::{
-        http::{HttpPublish, HttpSink, HttpSinkConfig},
-        kafka::{KafkaRecord, KafkaSource, KafkaSourceConfig},
+        http::{HttpClient, HttpPublish},
+        kafka::{Kafka, KafkaRecord},
     },
 };
 
@@ -216,42 +226,71 @@ async fn to_request(record: KafkaRecord<Order>) -> Result<HttpPublish<Order>> {
     Ok(HttpPublish::new(order).with_header("idempotency-key", key))
 }
 
-let source = KafkaSource::<Json<Order>>::new(KafkaSourceConfig::new(
-    "localhost:9092",
-    "orders-to-billing",
-    ["orders"],
-));
-let mut config = HttpSinkConfig::new("https://billing.internal/orders");
-config
-    .headers
-    .push(("content-type".into(), "application/json".into()));
-let sink = HttpSink::<Json<Order>>::new(config)?;
+let source = Kafka::new("localhost:9092").source::<Json<Order>>("orders-to-billing", ["orders"]);
+let sink = HttpClient::new()
+    .sink::<Json<Order>>("https://billing.internal/orders")
+    .header("content-type", "application/json");
 App::new().subscribe("orders", source, sink, to_request).run().await?;
 ```
 
 ### Sink configuration
 
-| Field | Default | Meaning |
+An `HttpClient` handle holds the settings and the connection pool that the
+sinks built from it share. Its sinks send through one pool per handle, which
+keeps idle connections to each destination for reuse. The handle creates
+separate pools for `http` and `https` destinations, each on its first request,
+and loads the platform's root certificates only for the `https` pool. Idle
+connections close once the handle and every sink built from it have been
+dropped. Each handle builder method returns a handle with a pool of its own, so
+configure the handle before building sinks from it. The `Debug` output of the
+handle shows header names only.
+
+| Handle method | Default | Meaning |
+|---|---|---|
+| `header(name, value)` | none | Header sent with every request of every sink, such as `authorization` |
+| `timeout(duration)` | 30 s | Limit for one attempt, from connecting until the response body is read, for sinks that set none |
+
+`sink::<C>(url)` builds a sink with the codec's default value, and
+`sink_with_codec(codec, url)` with a configured codec. The URL is required; the
+other settings are sink builder methods:
+
+| Sink setting | Default | Meaning |
 |---|---|---|
 | `url` | required | Absolute `http` or `https` URL, including any path and query |
-| `method` | `HttpMethod::Post` | `Post`, `Put`, or `Patch` |
-| `headers` | none | Headers sent with every request, such as `content-type` or `authorization` |
-| `timeout` | 30 s | Limit for one attempt, from connecting until the response body is read |
+| `method(method)` | `HttpMethod::Post` | `Post`, `Put`, or `Patch` |
+| `header(name, value)` | handle headers | Header sent with every request, such as `content-type`; replaces the handle's headers of the same name |
+| `timeout(duration)` | handle timeout | Limit for one attempt, replacing the handle's timeout |
 
-`HttpSink::new(config)` validates the configuration and returns an error for a
+```rust
+use beavers::{Json, adapters::http::{HttpClient, HttpMethod}};
+use std::time::Duration;
+
+let http = HttpClient::new()
+    .header("authorization", "Bearer token")
+    .timeout(Duration::from_secs(10));
+let orders = http
+    .sink::<Json<String>>("https://billing.example.com/orders")
+    .header("content-type", "application/json");
+let refunds = http
+    .sink::<Json<String>>("https://billing.example.com/refunds")
+    .method(HttpMethod::Put)
+    .timeout(Duration::from_secs(60));
+```
+
+The handle and the sink each have `validate`. The sink's returns an error for a
 URL without a host, a scheme other than `http` or `https`, credentials in the
-URL, invalid header names or values, or a zero timeout. The client is created
-on the first publication. `with_codec(config, codec)` accepts a configured
-codec. Clones share one connection pool and closing state.
+URL, invalid header names or values, or a zero timeout, and the sink validates
+its settings again when it prepares its first output. Clones of a sink share
+its closing state.
 
-`https` servers are verified against the platform's root certificates, loaded
-with the client; a platform without any fails every publication. The codec does
-not set `content-type`, so configure it in `headers`.
+`https` servers are verified against the platform's root certificates; a
+platform without any fails every `https` publication. The codec does not set
+`content-type`, so set it with `header`.
 
 ### Requests
 
 `HttpPublish<T>` carries the body and optional `headers`. A header name set on
-an output replaces every configured header of that name; repeating a name on
+an output replaces every handle and sink header of that name; repeating a name on
 the output sends each value. Header names are case-insensitive, and invalid
 names or values fail `prepare`, which the error policy routes as `Encode`. The
 prepared request keeps the encoded body and complete header set, so a retry
@@ -295,9 +334,9 @@ subscription's `concurrency` bounds the requests in flight to one destination.
 
 ### Closing the sink
 
-`close` refuses further publications from the sink and all its clones. Requests
-already in progress finish, and idle connections close when the last of them
-releases the pool.
+`close` only refuses further publications from the sink and all its clones.
+Requests already in progress finish, and the handle's connection pool stays
+open for its other sinks.
 
 ### Client metrics
 

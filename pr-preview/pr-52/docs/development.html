@@ -226,16 +226,16 @@ environment pointing at the broker. The credentials are for local use only.</p>
 the broker accepts from the host through the published port. It starts without
 queues; the live tests declare their own through the management API.</p>
 <p>ElasticMQ implements the SQS API in memory and accepts any credentials and
-region. Point <code>SqsSourceConfig::endpoint_url</code> and <code>SqsSinkConfig::endpoint_url</code>
-at it. It starts without queues; create one with the AWS CLI
+region. Point a handle at it with
+<code>Sqs::new().region(&quot;elasticmq&quot;).endpoint_url(&quot;http://localhost:9324&quot;)</code> and
+static credentials such as <code>.credentials(SqsCredentials::new(&quot;local&quot;, &quot;local&quot;))</code>.
+It starts without queues; create one with the AWS CLI
 (<code>aws --endpoint-url http://localhost:9324 sqs create-queue --queue-name orders</code>)
 or the query API, as the live tests do. It does not reproduce every AWS limit
 and behavior, so verify production settings against SQS itself.</p>
 <p>The Pub/Sub emulator, from the <code>google/cloud-sdk</code> emulators image, keeps topics
-and subscriptions in memory and needs no credentials. Point
-<code>PubSubSourceConfig::endpoint</code> and <code>PubSubSinkConfig::endpoint</code> at
-<code>http://localhost:8085</code> and set their <code>credentials</code> to
-<code>PubSubCredentials::Anonymous</code>. It starts without topics; create them through
+and subscriptions in memory and needs no credentials. Connect to it with
+<code>PubSub::new().endpoint(&quot;http://localhost:8085&quot;).anonymous()</code>. It starts without topics; create them through
 its REST API, as the live tests do:</p>
 <pre><code class="hljs language-sh">curl -X PUT http://localhost:8085/v1/projects/beavers/topics/orders
 curl -X PUT http://localhost:8085/v1/projects/beavers/subscriptions/orders \
@@ -244,7 +244,10 @@ curl -X PUT http://localhost:8085/v1/projects/beavers/subscriptions/orders \
 settings against Pub/Sub itself.</p>
 <p>The Service Bus emulator stores its entities in the <code>servicebus-sql</code> SQL Server
 container and reads its namespace from <code>dev/servicebus/config.json</code>, which
-defines the <code>beavers-events</code> topic with the <code>beavers-test</code> subscription. Its
+defines the <code>beavers-events</code> topic with the <code>beavers-test</code> subscription.
+Connect to it with <code>ServiceBus::from_connection_string(...)</code> and the connection
+string listed above; <code>UseDevelopmentEmulator=true</code> selects plain AMQP, which
+<code>.emulator()</code> sets on a handle built with <code>ServiceBus::new</code>. Its
 management API on port 5300 creates and deletes queues
 (<code>PUT /{queue}?api-version=2021-05</code> with an Atom <code>QueueDescription</code>), as the
 live tests do, but cannot create topic subscriptions, so add topics and

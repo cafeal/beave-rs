@@ -9,28 +9,41 @@ beavers = { version = "0.1", features = ["kafka"] }
 
 ## Configuration
 
-`KafkaSourceConfig` takes the bootstrap brokers, consumer group, and topics;
-`KafkaSinkConfig` takes the brokers and the topic every output is published to.
-Both accept additional librdkafka settings in `properties`. `validate` checks
-the values without contacting a broker. Both adapters validate their
-configuration when first used, then create their Kafka clients lazily, so an
-application can construct its pipeline before a broker is reachable.
+A `Kafka` handle holds the bootstrap brokers and the librdkafka settings that
+every client built from it uses. `property` sets a librdkafka property on every
+consumer and producer of the handle, `producer_property` on its producers only,
+and `sasl_plain` configures SASL/PLAIN authentication, over TLS unless
+`security.protocol` is set otherwise. `handle.source::<C>(group_id, topics)`
+builds a source and `handle.sink::<C>(topic)` a sink that publishes every
+output to `topic`; `source_with_codec` and `sink_with_codec` take a codec value
+as their first argument instead of using the codec's default. Optional settings
+are builder methods on the source and sink, such as `property` on a source for
+consumer-only settings like `auto.offset.reset`, or `max_pending` on a sink.
 
 ```rust
-use beavers::{Utf8, adapters::kafka::{KafkaPublish, KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig}};
+use beavers::{Utf8, adapters::kafka::{Kafka, KafkaPublish}};
 
-let source = KafkaSource::<Utf8>::new(KafkaSourceConfig::new(
-    "localhost:9092",
-    "orders-workers",
-    ["orders"],
-));
-let sink = KafkaSink::<Utf8>::new(KafkaSinkConfig::new(
-    "localhost:9092",
-    "processed-orders",
-));
+let kafka = Kafka::new("localhost:9092").property("client.id", "orders-service");
+let source = kafka
+    .source::<Utf8>("orders-workers", ["orders"])
+    .property("auto.offset.reset", "earliest");
+let sink = kafka.sink::<Utf8>("processed-orders").max_pending(500);
 
 let output = KafkaPublish::new("created".to_owned());
 ```
+
+Every non-transactional sink built from one handle publishes through one
+shared producer, created on the first publication of any of them. Each source
+has a consumer of its own, because a consumer belongs to one consumer group,
+and each [transactional sink](#transactions) has a producer of its own. Each
+builder method on the handle returns a handle with a producer of its own, so
+configure the handle before building sources and sinks from it.
+
+The handle, the source, and the sink each have `validate`, which checks the
+values without contacting a broker. Sources and sinks validate their settings
+when first used, then create their Kafka clients lazily, so an application can
+construct its pipeline before a broker is reachable. The handle's `Debug`
+output shows property names only, because their values can hold credentials.
 
 ## Records
 
@@ -94,8 +107,9 @@ arrives, so a subscription keeps several records in the producer while each
 input is still acknowledged only after Kafka has its output. `publish` queues
 the record and waits for the report.
 
-`KafkaSinkConfig::max_pending` bounds the records queued by `submit` whose
-report has not arrived; the default is 1000. `submit` waits while that many are
+`max_pending` bounds the records queued by `submit` on one sink whose report
+has not arrived; the default is 1000. The limit is per sink and shared by its
+clones, not by the other sinks of the handle. `submit` waits while that many are
 outstanding, and also while librdkafka's own queue
 (`queue.buffering.max.messages`, `queue.buffering.max.kbytes`) is full. A
 completion dropped before its report, as when the input's partition is revoked,
@@ -110,8 +124,12 @@ to queueing only, such as a record rejected before it reaches the queue.
 Records queued for one partition keep their order when the producer does not
 reorder retried batches. Set `enable.idempotence=true` so that a retry cannot
 move a record behind a later record with the same key.
-`close` stops new submissions and flushes the producer for at most
-`close_timeout`.
+`close` stops new submissions on that sink and flushes the shared producer for
+at most `close_timeout`, 30 seconds by default. The flush also waits for
+records the handle's other sinks have queued, and the producer stays open for
+them. Because the producer is shared, a cluster that stays unreachable past
+`delivery.timeout.ms` fails the queued records of every sink of the handle, and
+each subscription with a failed record stops.
 
 ## Metadata inheritance
 
@@ -183,21 +201,13 @@ begin transaction → produce outputs → send consumer offsets → commit trans
 ```
 
 ```rust
-use beavers::{
-    Subscription, Utf8,
-    adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
-};
+use beavers::{Subscription, Utf8, adapters::kafka::Kafka};
 
-let source = KafkaSource::<Utf8>::new(KafkaSourceConfig::new(
-    "localhost:9092",
-    "orders-workers",
-    ["orders"],
-));
-let sink = KafkaSink::<Utf8>::new(KafkaSinkConfig::new(
-    "localhost:9092",
-    "processed-orders",
-))
-.transactional("orders-workers-1");
+let kafka = Kafka::new("localhost:9092");
+let source = kafka.source::<Utf8>("orders-workers", ["orders"]);
+let sink = kafka
+    .sink::<Utf8>("processed-orders")
+    .transactional("orders-workers-1");
 let subscription = Subscription::new("orders", source, sink, |order: String| async move {
     Ok(order.to_uppercase())
 })
@@ -218,18 +228,22 @@ are published outside the transaction.
 The transactional ID becomes the producer's `transactional.id`. Give each
 running instance of the application its own ID and keep it across restarts of
 that instance: a new producer with the same ID fences the previous one and
-aborts its unfinished transaction. The adapter sets the ID itself, so
-`KafkaSinkConfig` rejects `transactional.id` in `properties`.
-`KafkaSinkConfig::transaction_timeout` bounds each blocking transaction call:
-initialization, sending offsets, commit, and abort. The producer is created and
-its transactions are initialized on first use.
+aborts its unfinished transaction. The adapter sets the ID itself, so the
+handle's `validate` rejects `transactional.id` set with `property` or
+`producer_property`. `KafkaTransactionalSink::transaction_timeout` bounds each
+blocking transaction call: initialization, sending offsets, commit, and abort;
+the default is 60 seconds. Its `close_timeout` defaults to the sink's. The
+transactional sink publishes through a producer of its own, created with the
+handle's properties and producer properties, and its transactions are
+initialized on first use.
 
 The source and sink must use the same Kafka cluster, because the offsets are
 committed through the group coordinator of the sink's cluster. Before the
 first delivery is processed, the sink compares the cluster ID reported by the
 source's consumer with the one reported by its brokers, read with a separate
-non-transactional client, and a mismatch stops the subscription. Different
-`brokers` lists for the same cluster are accepted. Each cluster ID request
+non-transactional client, and a mismatch stops the subscription. A source and
+sink built from different handles, or with different broker lists for the same
+cluster, are accepted. Each cluster ID request
 waits up to `transaction_timeout`.
 
 A producer runs one transaction at a time, so transactions from every clone of

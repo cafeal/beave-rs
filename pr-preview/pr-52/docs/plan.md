@@ -216,6 +216,18 @@ The ignored live tests check that completions resolve on delivery and that
 - Shutdown with pending completions drains them before the sink closes, within
   the subscription's shutdown timeout.
 
+## Shared connection follow-ups
+
+Sources and sinks share their adapter handle's connection; the adapter
+documents describe what each handle shares. Remaining work:
+
+- Verify against live brokers that the shared Service Bus connection authorizes
+  entities added after it opened, renews their tokens, and reopens for every
+  link after it is lost, and that the RabbitMQ handle reopens a lost
+  connection for every channel.
+- Decide whether HTTP sources should share one listener and route by path.
+- Decide whether to add Entra ID authentication to the Service Bus handle.
+
 ## Kafka rebalance behavior
 
 Revoked partitions currently abandon in-flight work immediately. Evaluate an
@@ -468,7 +480,7 @@ the first crates.io release:
 | 1 | Adapter pause/resume backpressure and graceful rebalance handoff |
 | 2 | Cross-platform metadata mapping policy |
 | 3 | Observability refinements |
-| 4 | Live verification of batched Kafka transactions |
+| 4 | Live verification of batched Kafka transactions and shared connections |
 | 5 | NATS JetStream adapter |
 | 6 | Schema Registry and additional codecs |
 
