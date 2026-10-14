@@ -137,7 +137,7 @@ and the sink connect to the same cluster, and the runtime calls it with the
 first delivery before processing it. See the
 <a href="runtime/transactions.html">runtime guide</a>.</p>
 <h3 id="configuration-ownership">Configuration ownership</h3>
-<p><code>SubscriptionConfig</code> holds processing policy. Source and Sink connection settings
+<p>A <code>Subscription</code> holds processing policy. Source and Sink connection settings
 belong to their adapters. Each broker adapter keeps its address and credentials
 on a connection handle, such as <code>Kafka</code> or <code>ServiceBus</code>, whose <code>source</code> and
 <code>sink</code> methods build sources and sinks with their own entity settings. They

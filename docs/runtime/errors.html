@@ -94,7 +94,9 @@ explicit choice to lose that delivery.</li>
 configured dead-letter sink stop without ACK: the input could not be processed
 and nothing can receive it. <code>DeadLetter</code> for decode or encode failures requires a dead-letter
 sink and fails validation otherwise. <code>ErrorPolicy::dead_letter_all()</code> routes
-every kind to the dead-letter sink.</p>
+every kind to the dead-letter sink. Set single actions with the method of the
+same name, such as
+<code>ErrorPolicy::default().decode(FailureAction::DeadLetter)</code>.</p>
 <p>Encoding happens for all emitted outputs before any publication, so an <code>Encode</code>
 failure never follows a partial publish; dead-lettering the input after it does
 not duplicate outputs.</p>
@@ -108,9 +110,9 @@ Errors without the marker are retried under <code>publish_retry</code>, and an e
 retry stops the subscription. A failed completion is never routed. A
 <a href="transactions.html#batches">transactional subscription</a> cannot route a rejected commit either.</p>
 <h2 id="dead-letters">Dead letters</h2>
-<p><code>Subscription::dlq(sink)</code> accepts a <code>Sink&lt;DeadLetter&lt;Input, Raw&gt;&gt;</code>, where <code>Raw</code>
+<p><code>Subscription::dead_letter(sink)</code> accepts a <code>Sink&lt;DeadLetter&lt;Input, Raw&gt;&gt;</code>, where <code>Raw</code>
 is the source message&#39;s undecoded form (<code>SourceRaw&lt;S&gt;</code>).
-<code>Subscription::dlq_with(sink, convert)</code> converts each envelope into the sink&#39;s
+<code>Subscription::dead_letter_with(sink, convert)</code> converts each envelope into the sink&#39;s
 own output type first, for example to forward the original payload to a broker
 topic with failure details as headers. Handlers never see dead letters.</p>
 <table>
@@ -194,7 +196,7 @@ native shape instead of passing through a universal structure:</p>
 <p><code>SourceMessage::Raw</code> implements <code>Serialize</code>, so <code>DeadLetter</code> implements it
 whenever its input does and a JSON sink can publish it directly.</p>
 <p>Conversion and preparation run once. Publication then retries under the
-<code>dlq_retry</code> policy. A conversion, preparation, or exhausted publication failure
+<code>dead_letter_retry</code> policy. A conversion, preparation, or exhausted publication failure
 stops without ACK; dead-letter failures are never routed again.</p>
 <h2 id="forwarding-dead-letters-to-a-broker-topic">Forwarding dead letters to a broker topic</h2>
 <p><code>KafkaPublish::from_dead_letter</code>, <code>PulsarPublish::from_dead_letter</code>,
@@ -270,7 +272,7 @@ JSON object into the <code>beavers-dlq-details</code> string attribute:</p>
 <pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">let</span> <span class="hljs-variable">dead_letters</span> = kafka.sink::&lt;RawBytes&gt;(<span class="hljs-string">&quot;orders-dlq&quot;</span>);
 
 Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, handle)
-    .<span class="hljs-title function_ invoke__">dlq_with</span>(dead_letters, |dead_letter| <span class="hljs-title function_ invoke__">Ok</span>(KafkaPublish::<span class="hljs-title function_ invoke__">from_dead_letter</span>(dead_letter)));
+    .<span class="hljs-title function_ invoke__">dead_letter_with</span>(dead_letters, |dead_letter| <span class="hljs-title function_ invoke__">Ok</span>(KafkaPublish::<span class="hljs-title function_ invoke__">from_dead_letter</span>(dead_letter)));
 </code></pre><p>When the dead-lettered record was itself received from a dead-letter topic, the
 origin headers are kept and the count is incremented, while the other details
 describe the latest failure. Previous dead-letter headers that are malformed

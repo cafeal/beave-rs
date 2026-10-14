@@ -327,7 +327,7 @@ first delivery before processing it. See the
 
 ### Configuration ownership
 
-`SubscriptionConfig` holds processing policy. Source and Sink connection settings
+A `Subscription` holds processing policy. Source and Sink connection settings
 belong to their adapters. Each broker adapter keeps its address and credentials
 on a connection handle, such as `Kafka` or `ServiceBus`, whose `source` and
 `sink` methods build sources and sinks with their own entity settings. They
@@ -379,13 +379,13 @@ App::new()
             .concurrency(16)
             .max_in_flight(64)
             .ordering(ProcessingOrder::PerKey)
-            .retry(handler_retry)
+            .handler_retry(handler_retry)
             .receive_retry(receive_retry)
             .publish_retry(publish_retry)
-            .dlq_retry(dead_letter_retry)
+            .dead_letter_retry(dead_letter_retry)
             .drain_timeout(Duration::from_secs(30))
             .middleware(MapMetadata::new(|_input, output| Ok(output)))
-            .dlq(dead_letter_sink)
+            .dead_letter(dead_letter_sink)
             .error_policy(ErrorPolicy::dead_letter_all()),
     )
     .run()
@@ -398,7 +398,6 @@ and metric labels, so it must be non-empty and unique within an `App`; an empty
 or duplicate name fails validation before any subscription starts.
 
 Registration constructs the application. Processing starts in `run()`.
-`SubscriptionConfig` can also be passed through `.config(...)`.
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -418,7 +417,8 @@ attempt counts fail validation before subscriptions start, as does an error
 policy that dead-letters decode or encode failures without a dead-letter sink.
 
 Each `RetryPolicy` doubles its delay after every failed attempt, starting at
-`initial_delay` and capped at `max_delay`. `jitter` randomizes the capped
+`initial_delay` and capped at `max_delay`. Set them with the methods of the same
+name, such as `RetryPolicy::default().max_attempts(5)`. `jitter` randomizes the capped
 delay: `Jitter::Full` waits a uniformly random duration up to it, and
 `Jitter::Equal` waits half of it plus a random share of the other half. Jitter
 spreads retries from many consumers that failed at the same moment.
@@ -646,7 +646,8 @@ platform-specific message models explicit below `beavers::adapters::kafka`,
 `beavers::adapters::servicebus`. Each decodes source
 messages into a broker-specific `*Record<T>` containing delivery metadata and
 accept a separate `*Publish<T>` type for user-controlled output. Prepared
-payloads hold encoded bytes for retries. See the dedicated guides for each
+outputs hold encoded bytes for retries; their fields are private, and
+`payload()` returns the encoded bytes. See the dedicated guides for each
 broker's configuration and delivery behavior.
 
 Each broker adapter starts from a connection handle: `Kafka`, `Pulsar`,
@@ -952,7 +953,7 @@ async fn prices_orders() {
         .subscription(
             Subscription::new("price", source, sink.clone(), price)
                 .middleware(KafkaInherit::new())
-                .dlq(dlq.clone())
+                .dead_letter(dlq.clone())
                 .error_policy(ErrorPolicy::dead_letter_all()),
         )
         .run()
@@ -1148,7 +1149,7 @@ Subscription::new("orders-redrive", source, invoices, |record: KafkaRecord<Order
     }
     handle(record).await
 })
-.dlq_with(parked, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)))
+.dead_letter_with(parked, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)))
 .error_policy(ErrorPolicy::dead_letter_all())
 ```
 
@@ -1225,7 +1226,7 @@ Subscription::new_emitting("orders-dlq-triage", source, invoices, |record: SqsRe
     }
     handle(record).await.map(Emit::One)
 })
-.dlq_with(parked, |dead_letter| Ok(SqsPublish::from_dead_letter(dead_letter)))
+.dead_letter_with(parked, |dead_letter| Ok(SqsPublish::from_dead_letter(dead_letter)))
 .error_policy(ErrorPolicy::dead_letter_all())
 ```
 
@@ -1241,7 +1242,7 @@ the triage subscription receives them only after that:
 
 ```rust,ignore
 Subscription::new("orders", source, invoices, handle)
-    .dlq_with(dead_letters, |dead_letter| {
+    .dead_letter_with(dead_letters, |dead_letter| {
         let mut publish = SqsPublish::from_dead_letter(dead_letter);
         publish.delay = Some(Duration::from_secs(300));
         Ok(publish)
@@ -1810,7 +1811,9 @@ Rejections, exhausted handler retries, and rejected publications without a
 configured dead-letter sink stop without ACK: the input could not be processed
 and nothing can receive it. `DeadLetter` for decode or encode failures requires a dead-letter
 sink and fails validation otherwise. `ErrorPolicy::dead_letter_all()` routes
-every kind to the dead-letter sink.
+every kind to the dead-letter sink. Set single actions with the method of the
+same name, such as
+`ErrorPolicy::default().decode(FailureAction::DeadLetter)`.
 
 Encoding happens for all emitted outputs before any publication, so an `Encode`
 failure never follows a partial publish; dead-lettering the input after it does
@@ -1828,9 +1831,9 @@ retry stops the subscription. A failed completion is never routed. A
 
 ## Dead letters
 
-`Subscription::dlq(sink)` accepts a `Sink<DeadLetter<Input, Raw>>`, where `Raw`
+`Subscription::dead_letter(sink)` accepts a `Sink<DeadLetter<Input, Raw>>`, where `Raw`
 is the source message's undecoded form (`SourceRaw<S>`).
-`Subscription::dlq_with(sink, convert)` converts each envelope into the sink's
+`Subscription::dead_letter_with(sink, convert)` converts each envelope into the sink's
 own output type first, for example to forward the original payload to a broker
 topic with failure details as headers. Handlers never see dead letters.
 
@@ -1862,7 +1865,7 @@ native shape instead of passing through a universal structure:
 whenever its input does and a JSON sink can publish it directly.
 
 Conversion and preparation run once. Publication then retries under the
-`dlq_retry` policy. A conversion, preparation, or exhausted publication failure
+`dead_letter_retry` policy. A conversion, preparation, or exhausted publication failure
 stops without ACK; dead-letter failures are never routed again.
 
 ## Forwarding dead letters to a broker topic
@@ -1902,7 +1905,7 @@ The sink must publish raw bytes:
 let dead_letters = kafka.sink::<RawBytes>("orders-dlq");
 
 Subscription::new("orders", source, sink, handle)
-    .dlq_with(dead_letters, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)));
+    .dead_letter_with(dead_letters, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)));
 ```
 
 When the dead-lettered record was itself received from a dead-letter topic, the
@@ -2033,8 +2036,7 @@ whichever comes first:
 | `max_deliveries` | 100 | Maximum deliveries committed in one transaction |
 | `max_linger` | 10 ms | Maximum wait of a batch's first delivery for more deliveries |
 
-Set it with `Subscription::transaction_batch` or
-`SubscriptionConfig::transaction_batch`; a zero `max_deliveries` fails
+Set it with `Subscription::transaction_batch`; a zero `max_deliveries` fails
 validation. `TransactionBatch::single()` commits every delivery in its own
 transaction without waiting. Other subscriptions ignore the setting.
 
@@ -2355,8 +2357,8 @@ No serialization codec is needed. Each item becomes a `Delivery<T>`; decoding
 clones its typed value. Iterator exhaustion produces `Receive::End` and the
 subscription drains before completing.
 
-The ACK callback increments a shared counter available through
-`acknowledgements()`. This is a completion counter, not durable storage or a
+The ACK callback increments a shared counter whose `Acknowledgements` handle,
+returned by `acknowledgements()`, reads it with `count()`. This is a completion counter, not durable storage or a
 redelivery mechanism.
 
 ## InMemorySink
@@ -2370,7 +2372,6 @@ Use it with IterSource to exercise a complete subscription:
 
 ```rust
 use beavers::{App, InMemorySink, IterSource, Result};
-use std::sync::atomic::Ordering;
 
 async fn double(value: u64) -> Result<u64> {
     Ok(value * 2)
@@ -2388,7 +2389,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     assert_eq!(sink.values(), vec![2, 4, 6]);
-    assert_eq!(acknowledgements.load(Ordering::SeqCst), 3);
+    assert_eq!(acknowledgements.count(), 3);
     Ok(())
 }
 ```
@@ -2575,14 +2576,14 @@ letters carry the value as their input and the original record, such as a
 their raw delivery. Through several channels, `ChannelRaw` stays the delivery
 of the first subscription. It serializes as that record, so a JSON dead-letter
 sink publishes it unchanged, and `ChannelRaw::downcast_ref` reads it as its
-concrete type in `dlq_with`, and `DeadLetter::try_map_raw` replaces it so
+concrete type in `dead_letter_with`, and `DeadLetter::try_map_raw` replaces it so
 the dead letter can be [forwarded to a broker topic](../runtime/errors.md#forwarding-dead-letters-to-a-broker-topic):
 
 ```rust,ignore
 type Raw = KafkaRecord<Vec<u8>>;
 
 Subscription::new("score", fetched, kafka_sink, score)
-    .dlq_with(dead_letter_sink, |dead_letter: DeadLetter<Document, ChannelRaw>| {
+    .dead_letter_with(dead_letter_sink, |dead_letter: DeadLetter<Document, ChannelRaw>| {
         let dead_letter = dead_letter.try_map_raw(|raw| {
             raw.downcast_ref::<Raw>().cloned().context("no Kafka record")
         })?;
@@ -4212,7 +4213,7 @@ use beavers::{
 };
 
 async fn to_request(record: KafkaRecord<Order>) -> Result<HttpPublish<Order>> {
-    let metadata = record.metadata().clone();
+    let metadata = record.metadata.clone();
     let order = record.value.ok_or_else(|| anyhow::anyhow!("tombstone"))?;
     // A stable key lets the service recognize a redelivered event.
     let key = format!("{}-{}-{}", metadata.topic, metadata.partition, metadata.offset);
@@ -5558,9 +5559,9 @@ The crate is published as `beavers`; versioning and the compatibility contract
 are described in [versioning and releases](releasing.md). Remaining work before
 the first crates.io release:
 
-- Review the public API: internal types leaking through public signatures,
-  `#[non_exhaustive]` on configuration structs and enums that are expected to
-  grow, and names that should change before `0.1.0`.
+- Decide a consistent set of `with_*` builder methods on the `*Publish` types,
+  which differ by adapter: `KafkaPublish` and `PulsarPublish` have none, while
+  `SqsPublish` has only `with_message_group_id`.
 - After the first release, add `cargo-semver-checks` to CI and switch the
   release workflow from the API token to crates.io trusted publishing.
 - Create the project icon and character, and place them in the landing page
@@ -5642,9 +5643,17 @@ and change only in a breaking release:
 - Data visible outside the process: header and property names written by the
   adapters, dead-letter metadata, trace-context propagation fields, metric
   names and labels, span names and fields, and the health endpoint paths.
-- Types from broker client crates, such as `rdkafka`, that appear in the
-  public API. Upgrading such a dependency to a semver-incompatible version is a
-  breaking change for `beavers`.
+- Types and traits of dependencies that appear in the public API: the
+  `apache-avro` crate's `AvroSchema` and `Schema` with the `avro` feature, and
+  the `prost` crate's `Message` with the `protobuf` feature. Upgrading such a
+  dependency to a semver-incompatible version is a breaking change for
+  `beavers`. Broker client crates, such as `rdkafka`, do not appear in the
+  public API.
+
+Enums and structs marked `#[non_exhaustive]`, such as `FailureKind`,
+`RetryPolicy`, and the adapters' `*Metadata` structs, may gain variants and
+fields in a backward-compatible release. Match them with a wildcard arm, and
+build them from their constructors or `Default` and setter methods.
 
 Fixing behavior that contradicts the documented contract is a bug fix, even
 when an application could observe the difference.

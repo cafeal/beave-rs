@@ -208,7 +208,7 @@ dead-lettered, or discarded is read from the output and dead-letter sinks.</p>
         .<span class="hljs-title function_ invoke__">subscription</span>(
             Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;price&quot;</span>, source, sink.<span class="hljs-title function_ invoke__">clone</span>(), price)
                 .<span class="hljs-title function_ invoke__">middleware</span>(KafkaInherit::<span class="hljs-title function_ invoke__">new</span>())
-                .<span class="hljs-title function_ invoke__">dlq</span>(dlq.<span class="hljs-title function_ invoke__">clone</span>())
+                .<span class="hljs-title function_ invoke__">dead_letter</span>(dlq.<span class="hljs-title function_ invoke__">clone</span>())
                 .<span class="hljs-title function_ invoke__">error_policy</span>(ErrorPolicy::<span class="hljs-title function_ invoke__">dead_letter_all</span>()),
         )
         .<span class="hljs-title function_ invoke__">run</span>()

@@ -182,7 +182,7 @@ Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class
     }
     <span class="hljs-title function_ invoke__">handle</span>(record).<span class="hljs-keyword">await</span>
 })
-.<span class="hljs-title function_ invoke__">dlq_with</span>(parked, |dead_letter| <span class="hljs-title function_ invoke__">Ok</span>(KafkaPublish::<span class="hljs-title function_ invoke__">from_dead_letter</span>(dead_letter)))
+.<span class="hljs-title function_ invoke__">dead_letter_with</span>(parked, |dead_letter| <span class="hljs-title function_ invoke__">Ok</span>(KafkaPublish::<span class="hljs-title function_ invoke__">from_dead_letter</span>(dead_letter)))
 .<span class="hljs-title function_ invoke__">error_policy</span>(ErrorPolicy::<span class="hljs-title function_ invoke__">dead_letter_all</span>())
 </code></pre><p>A payload that fails on reprocessing goes to <code>orders-parked</code> with its origin
 details kept and its count incremented. Publishing failures back to
@@ -250,7 +250,7 @@ Subscription::<span class="hljs-title function_ invoke__">new_emitting</span>(<s
     }
     <span class="hljs-title function_ invoke__">handle</span>(record).<span class="hljs-keyword">await</span>.<span class="hljs-title function_ invoke__">map</span>(Emit::One)
 })
-.<span class="hljs-title function_ invoke__">dlq_with</span>(parked, |dead_letter| <span class="hljs-title function_ invoke__">Ok</span>(SqsPublish::<span class="hljs-title function_ invoke__">from_dead_letter</span>(dead_letter)))
+.<span class="hljs-title function_ invoke__">dead_letter_with</span>(parked, |dead_letter| <span class="hljs-title function_ invoke__">Ok</span>(SqsPublish::<span class="hljs-title function_ invoke__">from_dead_letter</span>(dead_letter)))
 .<span class="hljs-title function_ invoke__">error_policy</span>(ErrorPolicy::<span class="hljs-title function_ invoke__">dead_letter_all</span>())
 </code></pre><p><code>Emit::None</code> acknowledges the dead letter without publishing anything, so the
 handler logs what it drops; nothing else records it. Run the subscription
@@ -261,7 +261,7 @@ An SQS message can be delayed by up to 15 minutes when it is sent to a
 standard queue, so the original subscription can delay its dead letters and
 the triage subscription receives them only after that:</p>
 <pre><code class="hljs language-rust,ignore">Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, invoices, handle)
-    .<span class="hljs-title function_ invoke__">dlq_with</span>(dead_letters, |dead_letter| {
+    .<span class="hljs-title function_ invoke__">dead_letter_with</span>(dead_letters, |dead_letter| {
         <span class="hljs-keyword">let</span> <span class="hljs-keyword">mut </span><span class="hljs-variable">publish</span> = SqsPublish::<span class="hljs-title function_ invoke__">from_dead_letter</span>(dead_letter);
         publish.delay = <span class="hljs-title function_ invoke__">Some</span>(Duration::<span class="hljs-title function_ invoke__">from_secs</span>(<span class="hljs-number">300</span>));
         <span class="hljs-title function_ invoke__">Ok</span>(publish)

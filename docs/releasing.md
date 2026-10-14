@@ -39,9 +39,17 @@ and change only in a breaking release:
 - Data visible outside the process: header and property names written by the
   adapters, dead-letter metadata, trace-context propagation fields, metric
   names and labels, span names and fields, and the health endpoint paths.
-- Types from broker client crates, such as `rdkafka`, that appear in the
-  public API. Upgrading such a dependency to a semver-incompatible version is a
-  breaking change for `beavers`.
+- Types and traits of dependencies that appear in the public API: the
+  `apache-avro` crate's `AvroSchema` and `Schema` with the `avro` feature, and
+  the `prost` crate's `Message` with the `protobuf` feature. Upgrading such a
+  dependency to a semver-incompatible version is a breaking change for
+  `beavers`. Broker client crates, such as `rdkafka`, do not appear in the
+  public API.
+
+Enums and structs marked `#[non_exhaustive]`, such as `FailureKind`,
+`RetryPolicy`, and the adapters' `*Metadata` structs, may gain variants and
+fields in a backward-compatible release. Match them with a wildcard arm, and
+build them from their constructors or `Default` and setter methods.
 
 Fixing behavior that contradicts the documented contract is a bug fix, even
 when an application could observe the difference.

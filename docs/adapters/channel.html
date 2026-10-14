@@ -120,12 +120,12 @@ letters carry the value as their input and the original record, such as a
 their raw delivery. Through several channels, <code>ChannelRaw</code> stays the delivery
 of the first subscription. It serializes as that record, so a JSON dead-letter
 sink publishes it unchanged, and <code>ChannelRaw::downcast_ref</code> reads it as its
-concrete type in <code>dlq_with</code>, and <code>DeadLetter::try_map_raw</code> replaces it so
+concrete type in <code>dead_letter_with</code>, and <code>DeadLetter::try_map_raw</code> replaces it so
 the dead letter can be <a href="../runtime/errors.html#forwarding-dead-letters-to-a-broker-topic">forwarded to a broker topic</a>:</p>
 <pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">type</span> <span class="hljs-title class_">Raw</span> = KafkaRecord&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;;
 
 Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;score&quot;</span>, fetched, kafka_sink, score)
-    .<span class="hljs-title function_ invoke__">dlq_with</span>(dead_letter_sink, |dead_letter: DeadLetter&lt;Document, ChannelRaw&gt;| {
+    .<span class="hljs-title function_ invoke__">dead_letter_with</span>(dead_letter_sink, |dead_letter: DeadLetter&lt;Document, ChannelRaw&gt;| {
         <span class="hljs-keyword">let</span> <span class="hljs-variable">dead_letter</span> = dead_letter.<span class="hljs-title function_ invoke__">try_map_raw</span>(|<span class="hljs-keyword">raw</span>| {
             <span class="hljs-keyword">raw</span>.downcast_ref::&lt;Raw&gt;().<span class="hljs-title function_ invoke__">cloned</span>().<span class="hljs-title function_ invoke__">context</span>(<span class="hljs-string">&quot;no Kafka record&quot;</span>)
         })?;

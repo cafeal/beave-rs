@@ -302,7 +302,7 @@ is handing events consumed from a broker to a service with an HTTP API:</p>
 };
 
 <span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">to_request</span>(record: KafkaRecord&lt;Order&gt;) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;HttpPublish&lt;Order&gt;&gt; {
-    <span class="hljs-keyword">let</span> <span class="hljs-variable">metadata</span> = record.<span class="hljs-title function_ invoke__">metadata</span>().<span class="hljs-title function_ invoke__">clone</span>();
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">metadata</span> = record.metadata.<span class="hljs-title function_ invoke__">clone</span>();
     <span class="hljs-keyword">let</span> <span class="hljs-variable">order</span> = record.value.<span class="hljs-title function_ invoke__">ok_or_else</span>(|| anyhow::anyhow!(<span class="hljs-string">&quot;tombstone&quot;</span>))?;
     <span class="hljs-comment">// A stable key lets the service recognize a redelivered event.</span>
     <span class="hljs-keyword">let</span> <span class="hljs-variable">key</span> = <span class="hljs-built_in">format!</span>(<span class="hljs-string">&quot;{}-{}-{}&quot;</span>, metadata.topic, metadata.partition, metadata.offset);

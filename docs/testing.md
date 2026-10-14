@@ -120,7 +120,7 @@ async fn prices_orders() {
         .subscription(
             Subscription::new("price", source, sink.clone(), price)
                 .middleware(KafkaInherit::new())
-                .dlq(dlq.clone())
+                .dead_letter(dlq.clone())
                 .error_policy(ErrorPolicy::dead_letter_all()),
         )
         .run()

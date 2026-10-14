@@ -441,9 +441,9 @@ before implementation.</p>
 are described in <a href="releasing.html">versioning and releases</a>. Remaining work before
 the first crates.io release:</p>
 <ul>
-<li>Review the public API: internal types leaking through public signatures,
-<code>#[non_exhaustive]</code> on configuration structs and enums that are expected to
-grow, and names that should change before <code>0.1.0</code>.</li>
+<li>Decide a consistent set of <code>with_*</code> builder methods on the <code>*Publish</code> types,
+which differ by adapter: <code>KafkaPublish</code> and <code>PulsarPublish</code> have none, while
+<code>SqsPublish</code> has only <code>with_message_group_id</code>.</li>
 <li>After the first release, add <code>cargo-semver-checks</code> to CI and switch the
 release workflow from the API token to crates.io trusted publishing.</li>
 <li>Create the project icon and character, and place them in the landing page
