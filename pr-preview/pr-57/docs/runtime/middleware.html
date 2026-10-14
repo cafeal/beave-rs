@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Middleware - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="middleware.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="handlers.html">Handlers</a></li><li><a href="middleware.html" aria-current="page">Middleware</a></li><li><a href="errors.html">Errors and retries</a></li><li><a href="tombstones.html">Tombstones</a></li><li><a href="transactions.html">Transactions</a></li><li><a href="observability.html">Observability</a></li><li><a href="health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/local.html">Local adapters</a></li><li><a href="../adapters/channel.html">Channel</a></li><li><a href="../adapters/kafka.html">Kafka</a></li><li><a href="../adapters/pulsar.html">Pulsar</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="../adapters/sqs.html">SQS</a></li><li><a href="../adapters/pubsub.html">Pub/Sub</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus</a></li><li><a href="../adapters/http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-bytes.html">Raw bytes</a></li><li><a href="../codecs/utf8.html">UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li><li><a href="../codecs/msgpack.html">MessagePack</a></li><li><a href="../codecs/cbor.html">CBOR</a></li><li><a href="../codecs/wrappers.html">Codec wrappers</a><ul><li><a href="../codecs/wrappers/base64.html">Base64</a></li><li><a href="../codecs/wrappers/gzip.html">Gzip</a></li><li><a href="../codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="middleware">Middleware</h1>
+<p><code>Subscription::middleware</code> registers a <code>Middleware&lt;Input, Output&gt;</code> with two
+asynchronous hooks, both of which default to doing nothing:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">pub</span> <span class="hljs-keyword">trait</span> <span class="hljs-title class_">Middleware</span>&lt;I, O&gt; {
+    <span class="hljs-keyword">fn</span> <span class="hljs-title function_">pre_handler</span>(&amp;<span class="hljs-keyword">self</span>, input: I) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-keyword">impl</span> <span class="hljs-title class_">Future</span>&lt;Output = <span class="hljs-type">Result</span>&lt;Flow&lt;I, O&gt;&gt;&gt; + <span class="hljs-built_in">Send</span>;
+    <span class="hljs-keyword">fn</span> <span class="hljs-title function_">post_handler</span>(&amp;<span class="hljs-keyword">self</span>, input: &amp;I, output: O) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-keyword">impl</span> <span class="hljs-title class_">Future</span>&lt;Output = <span class="hljs-type">Result</span>&lt;O&gt;&gt; + <span class="hljs-built_in">Send</span>;
+}
+
+<span class="hljs-keyword">pub</span> <span class="hljs-keyword">enum</span> <span class="hljs-title class_">Flow</span>&lt;I, O&gt; {
+    <span class="hljs-title function_ invoke__">Continue</span>(I),
+    <span class="hljs-title function_ invoke__">Intercept</span>(Emit&lt;O&gt;),
+}
+</code></pre><p>Implement the hooks with <code>async fn</code>. A hook can await external lookups, such
+as a cache, a schema registry, or a metadata service, before the handler runs
+or before the outputs are prepared:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">struct</span> <span class="hljs-title class_">Customers</span>(CustomerClient);
+
+<span class="hljs-keyword">impl</span> <span class="hljs-title class_">Middleware</span>&lt;KafkaRecord&lt;Order&gt;, KafkaPublish&lt;Order&gt;&gt; <span class="hljs-keyword">for</span> <span class="hljs-title class_">Customers</span> {
+    <span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">pre_handler</span>(
+        &amp;<span class="hljs-keyword">self</span>,
+        <span class="hljs-keyword">mut</span> input: KafkaRecord&lt;Order&gt;,
+    ) <span class="hljs-punctuation">-&gt;</span> beavers::<span class="hljs-type">Result</span>&lt;Flow&lt;KafkaRecord&lt;Order&gt;, KafkaPublish&lt;Order&gt;&gt;&gt; {
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> <span class="hljs-variable">Some</span>(order) = input.value.<span class="hljs-title function_ invoke__">as_mut</span>() {
+            order.customer = <span class="hljs-keyword">self</span>.<span class="hljs-number">0</span>.<span class="hljs-title function_ invoke__">fetch</span>(order.customer_id).<span class="hljs-keyword">await</span>.<span class="hljs-title function_ invoke__">map_err</span>(HandlerError::Retry)?;
+        }
+        <span class="hljs-title function_ invoke__">Ok</span>(Flow::<span class="hljs-title function_ invoke__">Continue</span>(input))
+    }
+}
+</code></pre><p>The runtime awaits each hook before starting the next, so the hooks of one
+delivery never run concurrently. Other deliveries keep processing while a hook
+waits, within the subscription&#39;s concurrency and ordering limits. The input and
+output types must be <code>Send</code>, and the input type also <code>Sync</code>, because the hook
+futures run on the multi-threaded Tokio executor. Like handlers, hooks must
+not block executor threads, and a hook future is dropped at its current await
+point when the delivery is revoked or a drain timeout cancels it; the delivery
+is then not acknowledged.</p>
+<p><code>pre_handler</code> runs once per delivery, before the handler, in registration
+order. Each middleware receives the input returned by the previous one.
+<code>Flow::Continue(input)</code> passes a possibly transformed input on, and the handler
+receives the final one. <code>Flow::Intercept(emit)</code> skips the remaining
+<code>pre_handler</code> hooks and the handler: <code>Emit::None</code> acknowledges the delivery
+without output, and other values become its outputs. Handler retries reuse the
+transformed input and never rerun <code>pre_handler</code>.</p>
+<p><code>post_handler</code> runs in registration order for every output, including outputs
+from an intercepting middleware, and every invocation receives the input as
+decoded from the source, before any <code>pre_handler</code> transformation. All outputs
+pass through <code>post_handler</code> and are prepared before the first publication, so
+publish retries never rerun a middleware. Handler outputs carry explicit
+publish fields; an inheriting middleware only fills fields that the output
+leaves unset.</p>
+<p>The source item and sink output types are checked at compile time, so a
+middleware written for one broker&#39;s record and publish types cannot be
+registered on a subscription whose source or sink uses different types. Wrap a
+synchronous function or closure in <code>MapMetadata::new</code> to use it as a
+<code>post_handler</code>, as in the
+<a href="#mapping-metadata-between-platforms">cross-platform mapping</a> below.</p>
+<p>A middleware error never reruns the handler or the middleware. <code>Reject</code> is a
+<code>Rejected</code> failure routed by the <a href="errors.html#error-policy">error policy</a> with the input as
+decoded from the source, and none of the delivery&#39;s outputs are published.
+<code>Retry</code> and <code>Fatal</code> stop processing without ACK.</p>
+<p>Adapters provide same-platform inheritance middleware: <code>KafkaInherit</code> for Kafka
+to Kafka, <code>PulsarInherit</code> for Pulsar to Pulsar, <code>RabbitMqInherit</code> for
+RabbitMQ to RabbitMQ, <code>SqsInherit</code> for SQS to SQS, <code>PubSubInherit</code> for
+Pub/Sub to Pub/Sub, and <code>ServiceBusInherit</code> for Azure Service Bus to Azure
+Service Bus. They copy user-controlled metadata and never copy delivery
+facts such as offsets, partitions, message IDs, routing keys, or broker
+timestamps. See the <a href="../adapters/kafka.html#metadata-inheritance">Kafka</a>,
+<a href="../adapters/pulsar.html#metadata-inheritance">Pulsar</a>,
+<a href="../adapters/rabbitmq.html#metadata-inheritance">RabbitMQ</a>,
+<a href="../adapters/sqs.html#metadata-inheritance">SQS</a>,
+<a href="../adapters/pubsub.html#metadata-inheritance">Pub/Sub</a>, and
+<a href="../adapters/servicebus.html#metadata-inheritance">Azure Service Bus</a> guides. A handler that
+returns the sink&#39;s publish record carries no received metadata into outputs
+unless middleware maps it; a handler that returns a plain value inherits the
+platform&#39;s defaults, as described in <a href="handlers.html#handler-shapes">handler shapes</a>.</p>
+<h2 id="mapping-metadata-between-platforms">Mapping metadata between platforms</h2>
+<p>beavers never copies metadata from one platform to another. A subscription
+whose source and sink belong to different platforms, such as Kafka to Pulsar,
+publishes outputs without the received headers, properties, attributes, or key
+unless the application maps them:</p>
+<ul>
+<li>A handler that returns a plain value requires a same-platform sink, so a
+value-only handler from Kafka to Pulsar does not compile and cannot drop
+metadata silently. Return the sink&#39;s publish record instead.</li>
+<li>No built-in middleware converts metadata between platforms. A header name can
+mean something different on the destination: an HTTP <code>content-type</code>
+describes the request body rather than the re-encoded output, an
+<code>authorization</code> header would leak credentials into a topic, RabbitMQ and its
+plugins act on names such as <code>x-delay</code>, and consumer libraries read headers
+such as Spring Kafka&#39;s <code>__TypeId__</code>. Only the application knows which
+fields keep their meaning.</li>
+<li>The key&#39;s meaning differs as well: a Kafka key selects a partition, a Pulsar
+key drives key-shared delivery and compaction, and a Pub/Sub ordering key, an
+SQS message group ID, or an Azure Service Bus session ID orders or groups
+messages. Map it only when the destination meaning is intended.</li>
+</ul>
+<p>Name the fields to carry and convert their values to the sink&#39;s types in a
+<code>MapMetadata</code> function. This Kafka-to-Pulsar mapping carries two headers with
+UTF-8 values as Pulsar properties and keeps any property the handler set:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{MapMetadata, Subscription};
+<span class="hljs-keyword">use</span> beavers::adapters::{kafka::KafkaRecord, pulsar::PulsarPublish};
+
+<span class="hljs-keyword">const</span> CARRIED: [&amp;<span class="hljs-type">str</span>; <span class="hljs-number">2</span>] = [<span class="hljs-string">&quot;tenant&quot;</span>, <span class="hljs-string">&quot;request-id&quot;</span>];
+
+<span class="hljs-keyword">fn</span> <span class="hljs-title function_">carry_headers</span>(input: &amp;KafkaRecord&lt;Order&gt;, <span class="hljs-keyword">mut</span> output: PulsarPublish&lt;Order&gt;) <span class="hljs-punctuation">-&gt;</span> beavers::<span class="hljs-type">Result</span>&lt;PulsarPublish&lt;Order&gt;&gt; {
+    <span class="hljs-keyword">for</span> (name, value) <span class="hljs-keyword">in</span> &amp;input.headers {
+        <span class="hljs-keyword">let</span> <span class="hljs-variable">text</span> = value.<span class="hljs-title function_ invoke__">as_deref</span>().<span class="hljs-title function_ invoke__">and_then</span>(|value| <span class="hljs-type">str</span>::<span class="hljs-title function_ invoke__">from_utf8</span>(value).<span class="hljs-title function_ invoke__">ok</span>());
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> (<span class="hljs-literal">true</span>, <span class="hljs-title function_ invoke__">Some</span>(text)) = (CARRIED.<span class="hljs-title function_ invoke__">contains</span>(&amp;name.<span class="hljs-title function_ invoke__">as_str</span>()), text) {
+            output.properties.<span class="hljs-title function_ invoke__">entry</span>(name.<span class="hljs-title function_ invoke__">clone</span>()).<span class="hljs-title function_ invoke__">or_insert_with</span>(|| text.<span class="hljs-title function_ invoke__">to_owned</span>());
+        }
+    }
+    <span class="hljs-title function_ invoke__">Ok</span>(output)
+}
+
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, kafka_source, pulsar_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(MapMetadata::<span class="hljs-title function_ invoke__">new</span>(carry_headers))
+</code></pre><p>Only the conversion of values changes with the platforms. An SQS sink takes
+<code>SqsAttributeValue::String(text)</code> in <code>output.attributes</code>, a Pub/Sub sink takes
+the text in <code>output.attributes</code>, and RabbitMQ and Azure Service Bus sinks take
+<code>text.into()</code> in <code>output.headers</code> and <code>output.application_properties</code>.
+Pub/Sub and Pulsar store text only, while the other platforms also carry binary
+or typed values that the application can map explicitly. Destination limits
+still apply: SQS accepts at most 10 attributes, Pub/Sub rejects attribute names
+starting with <code>goog</code>, and SQS rejects names starting with <code>AWS.</code> or <code>Amazon.</code>.</p>
+<p>Trace context needs no mapping: with the <code>opentelemetry</code> feature, the
+<code>TraceContext</code> middleware injects the processing span&#39;s context, such as W3C
+<code>traceparent</code>, into outputs of any platform, as described in
+<a href="observability.html#trace-context-propagation">trace-context propagation</a>. The
+<code>kafka_to_pulsar</code> example maps the key and named headers in the same way.</p>
+
+      <p class="source"><a href="middleware.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/runtime/middleware.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>
