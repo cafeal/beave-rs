@@ -48,6 +48,66 @@ starts, so install the recorder before <code>App::run</code>.</p>
 span. Its <code>commit</code> spans belong to the subscription, not to a delivery,
 because one transaction commits several deliveries.</p>
 <p><code>pre_handler</code> and <code>post_handler</code> middleware run in the <code>message</code> span.</p>
+<h3 id="messaging-attributes">Messaging attributes</h3>
+<p>Broker sources describe each delivery through
+<code>SourceMessage::messaging_attributes</code>, and the runtime records the
+<a href="https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/">OpenTelemetry messaging semantic conventions</a>
+on its <code>message</code> span. With an OpenTelemetry layer, the span is exported as a
+consumer span named <code>process &lt;destination&gt;</code>, such as <code>process orders</code>, and
+carries <code>messaging.operation.type</code> and <code>messaging.operation.name</code> set to
+<code>process</code> together with:</p>
+<table>
+<thead>
+<tr>
+<th>Adapter</th>
+<th><code>messaging.system</code></th>
+<th>Destination</th>
+<th>Other attributes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Kafka</td>
+<td><code>kafka</code></td>
+<td>Topic</td>
+<td><code>messaging.destination.partition.id</code>, <code>messaging.kafka.offset</code>, <code>messaging.consumer.group.name</code></td>
+</tr>
+<tr>
+<td>Pulsar</td>
+<td><code>pulsar</code></td>
+<td>Configured topic</td>
+<td><code>messaging.destination.partition.id</code> for a partitioned topic, <code>messaging.destination.subscription.name</code>, <code>messaging.message.id</code></td>
+</tr>
+<tr>
+<td>RabbitMQ</td>
+<td><code>rabbitmq</code></td>
+<td>Queue</td>
+<td><code>messaging.message.id</code> when the publisher set one</td>
+</tr>
+<tr>
+<td>SQS</td>
+<td><code>aws_sqs</code></td>
+<td>Queue name</td>
+<td><code>messaging.message.id</code></td>
+</tr>
+<tr>
+<td>Pub/Sub</td>
+<td><code>gcp_pubsub</code></td>
+<td>None</td>
+<td><code>messaging.destination.subscription.name</code>, <code>messaging.message.id</code></td>
+</tr>
+<tr>
+<td>Azure Service Bus</td>
+<td><code>servicebus</code></td>
+<td>Queue or topic</td>
+<td><code>messaging.destination.subscription.name</code> for a topic subscription, <code>messaging.message.id</code> when set</td>
+</tr>
+</tbody></table>
+<p>Other sources report no attributes, and their span keeps the name <code>message</code>.
+A custom source returns a <code>MessagingAttributes</code> built from its own metadata.
+Metrics do not carry these attributes, because partitions and message IDs would
+multiply the number of series. Outputs get no producer span of their own; the
+<a href="#trace-context-propagation">trace context</a> of the <code>message</code> span continues
+downstream.</p>
 <h2 id="events">Events</h2>
 <table>
 <thead>
@@ -155,6 +215,12 @@ because one transaction commits several deliveries.</p>
 <td>Received deliveries that have not finished</td>
 </tr>
 <tr>
+<td><code>beavers_source_connected</code></td>
+<td>gauge</td>
+<td></td>
+<td><code>1</code> while the source is connected to its broker, <code>0</code> while it is not; Kafka and Pulsar sources only</td>
+</tr>
+<tr>
 <td><code>beavers_stage_duration_seconds</code></td>
 <td>histogram</td>
 <td><code>stage</code></td>
@@ -174,7 +240,9 @@ dead-letter sink is reported as <code>stop</code>, which is what it does. A fail
 counted when it is routed, before the action runs. <code>handler</code> durations are
 per attempt and exclude retry backoff; <code>publish</code> durations cover all outputs
 of a delivery, including backoff. <code>commit</code> durations are per successful
-transaction and cover the whole batch.</p>
+transaction and cover the whole batch. The connection gauge copies the source&#39;s
+<a href="health.html#connection-state">health probe</a> every 5 seconds and is not reported
+until the source knows its state.</p>
 <h2 id="alerting">Alerting</h2>
 <p>beavers sends no notifications itself. Alert on the metrics with a monitoring
 system and let it route alerts, since per-message notifications flood a channel

@@ -40,7 +40,7 @@
 </thead>
 <tbody><tr>
 <td><code>live</code></td>
-<td><code>false</code> once a subscription has failed, which stops the application</td>
+<td><code>false</code> once a subscription has failed, which stops the application, or while a subscription is stalled</td>
 </tr>
 <tr>
 <td><code>ready</code></td>
@@ -60,16 +60,67 @@
 drains, and finally <code>Stopped</code> or <code>Failed</code>), <code>receive_failures</code>, the
 consecutive failed receives since the last successful one,
 <code>receive_backoff</code>, whether the runtime is waiting for a receive retry delay,
-and <code>publish_retries</code>, the deliveries whose output publication or transaction
-commit failed and is waiting to be retried. A subscription is ready while it is
-<code>Running</code> with no receive backoff and no publish retry. A subscription whose
-source ended and that stopped without an error stays ready, so a finite source
-next to a long-running one does not make the application unready.</p>
-<p>Readiness reflects only what the runtime observes. A retried receive that waits
-for input counts as ready again, because a source cannot tell an idle broker
-from an unreachable one while its receive is pending. Dead-letter publish
-retries do not affect readiness. Liveness reports that the runtime answers and
-that no subscription failed; it does not detect a handler that never returns.</p>
+<code>publish_retries</code>, the deliveries whose output publication or transaction
+commit failed and is waiting to be retried, <code>connected</code>, the source&#39;s
+<a href="#connection-state">connection state</a>, and <code>stalled</code>. A subscription is ready while it is
+<code>Running</code> with no receive backoff, no publish retry, and a source that does not
+report itself disconnected. A subscription whose source ended and that stopped
+without an error stays ready, so a finite source next to a long-running one
+does not make the application unready.</p>
+<p>A retried receive that waits for input counts as ready again, because the
+runtime cannot tell an idle broker from an unreachable one while a receive is
+pending; the source&#39;s connection state covers that case where the source
+reports it. Dead-letter publish retries do not affect readiness.</p>
+<h2 id="connection-state">Connection state</h2>
+<p>A source can report whether it is connected to its broker through
+<code>Source::probe</code>, which the health report reads on every request:</p>
+<table>
+<thead>
+<tr>
+<th>Adapter</th>
+<th><code>connected</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Kafka</td>
+<td>Any broker connection is up, from librdkafka statistics</td>
+</tr>
+<tr>
+<td>Pulsar</td>
+<td>Every partition&#39;s consumer is connected</td>
+</tr>
+<tr>
+<td>Other adapters</td>
+<td>Not reported</td>
+</tr>
+</tbody></table>
+<p>The value is <code>null</code> until the source has connected, and for Kafka until the
+first statistics arrive. The Kafka source sets <code>statistics.interval.ms</code> to 5000
+unless the handle or source sets it; <code>0</code> disables statistics and leaves the
+state unreported. librdkafka delivers statistics while the source polls its
+consumer, which the runtime does whenever it has room to receive, so while
+every delivery slot stays busy the Kafka state keeps its last reading. A source
+reporting <code>connected: false</code> makes its subscription unready. The Kafka and
+Pulsar clients reconnect by themselves, and readiness returns when they do.</p>
+<p>beavers does not report consumer lag. Alert on the broker&#39;s own measurement,
+listed in the <a href="../monitoring-and-alerting/index.html#backlog">monitoring guide</a>,
+which covers every instance of a consumer group and an application that is not
+running.</p>
+<h2 id="stall-detection">Stall detection</h2>
+<p>Liveness reports that the runtime answers and that no subscription failed. With
+<code>stall_timeout</code>, it also fails while a subscription is <code>stalled</code>: deliveries are
+in flight, but no handler attempt, publish or commit attempt, acknowledgement,
+or newly received delivery has occurred for that duration.</p>
+<pre><code class="hljs language-rust,ignore">Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, handler)
+    .<span class="hljs-title function_ invoke__">stall_timeout</span>(Duration::<span class="hljs-title function_ invoke__">from_secs</span>(<span class="hljs-number">300</span>))
+</code></pre><p>An idle subscription with nothing in flight is never stalled, and each failed
+retry attempt counts as progress, so backoff does not trigger it. Stall
+detection is disabled by default; choose a duration longer than the slowest
+expected handler attempt, because a restart abandons the deliveries in
+progress. It detects a subscription in which nothing progresses. One stuck
+delivery while others still complete, such as one ordering key blocked under
+<code>ProcessingOrder::PerKey</code>, keeps the subscription live; its partition&#39;s commit
+stops advancing, which shows as growing consumer lag on the broker.</p>
 <p>With the <code>health</code> feature, <code>HealthServer</code> answers probes over HTTP/1.1 while
 the application runs:</p>
 <pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">let</span> <span class="hljs-variable">server</span> = HealthServer::<span class="hljs-title function_ invoke__">bind</span>(<span class="hljs-string">&quot;0.0.0.0:8080&quot;</span>.<span class="hljs-title function_ invoke__">parse</span>()?)?;

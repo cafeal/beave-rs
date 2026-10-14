@@ -178,6 +178,14 @@ a key.</p>
 its original record and failure headers, and <code>KafkaDeadLetter::from_record</code>
 reads them back; see
 <a href="../runtime/errors.html#forwarding-dead-letters-to-a-broker-topic">forwarding dead letters</a>.</p>
+<h2 id="health-and-tracing">Health and tracing</h2>
+<p>The source reports its connection state to
+<a href="../runtime/health.html#connection-state">health checks</a> from librdkafka
+statistics, enabling <code>statistics.interval.ms</code> at 5000 ms unless the handle or
+source sets it. Consumer lag comes from the broker; see the
+<a href="../monitoring-and-alerting/index.html#backlog">monitoring guide</a>.
+Each delivery&#39;s <code>message</code> span carries the topic, partition, offset, and group
+ID as <a href="../runtime/observability.html#messaging-attributes">messaging attributes</a>.</p>
 <h2 id="delivery-guarantees">Delivery guarantees</h2>
 <p>With a <code>KafkaSink</code>, producer publication and source offset commits are separate
 operations, so a failure or rebalance between them can produce duplicates.

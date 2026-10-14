@@ -70,8 +70,9 @@ configure histogram buckets for <code>beavers_stage_duration_seconds</code>. The
 in this guide assume the exporter listens on port <code>9000</code> and serves <code>/metrics</code>.</p>
 <p><strong>Health.</strong> Enable the <code>health</code> feature and register a <code>HealthServer</code>. The
 examples assume port <code>8080</code>. Readiness turns <code>503</code> during shutdown, receive
-backoff, and output publish retries; liveness turns <code>503</code> after a subscription
-fails.</p>
+backoff, output publish retries, and while a Kafka or Pulsar source is
+disconnected; liveness turns <code>503</code> after a subscription fails, or while it is
+stalled when a <a href="../runtime/health.html#stall-detection">stall timeout</a> is set.</p>
 <p><strong>JSON logs.</strong> Emit events as JSON so that cloud log services can match the
 <code>subscription failed</code> event. With <code>tracing-subscriber</code> and its <code>json</code>
 feature:</p>
@@ -123,7 +124,13 @@ alert on <code>subscription failed</code>. Each platform guide shows both.</p>
 <td>Work is stuck</td>
 <td><code>beavers_deliveries_in_flight</code> above zero with no acknowledgement</td>
 <td>critical</td>
-<td>A handler or acknowledgement never completes; liveness does not detect this</td>
+<td>A handler or acknowledgement never completes; liveness detects this only with a <a href="../runtime/health.html#stall-detection">stall timeout</a></td>
+</tr>
+<tr>
+<td>The source lost its broker</td>
+<td><code>beavers_source_connected</code> at <code>0</code> for several minutes</td>
+<td>critical</td>
+<td>The Kafka or Pulsar client keeps reconnecting; readiness is <code>503</code> meanwhile</td>
 </tr>
 <tr>
 <td>Metrics disappeared</td>
@@ -248,9 +255,9 @@ histogram buckets, and its threshold must lie within them. <code>BeaversStalled<
 also fires for a subscription whose handler legitimately runs longer than 15
 minutes; raise the window above the longest expected handler duration.</p>
 <h2 id="backlog">Backlog</h2>
-<p>beavers does not report consumer lag yet; see the
-<a href="../plan.html#observability">design plan</a>. Alert on the broker&#39;s own measurement
-of the backlog, which also covers an application that is not running at all:</p>
+<p>beavers does not report consumer lag. Alert on the broker&#39;s own measurement of
+the backlog, which covers every instance of a consumer group and also an
+application that is not running at all:</p>
 <table>
 <thead>
 <tr>

@@ -45,11 +45,11 @@ The <a href="runtime.html">runtime guide</a> describes processing behavior, and 
 </thead>
 <tbody><tr>
 <td><code>Source</code></td>
-<td>Receive an associated <code>Message: SourceMessage</code>; report end of input or receive failure; declare whether application shutdown stops receiving</td>
+<td>Receive an associated <code>Message: SourceMessage</code>; report end of input or receive failure; declare whether application shutdown stops receiving; optionally expose a <code>SourceProbe</code> with its connection state</td>
 </tr>
 <tr>
 <td><code>SourceMessage</code></td>
-<td>Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, revocation, and propagation fields</td>
+<td>Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, revocation, propagation fields, and messaging attributes</td>
 </tr>
 <tr>
 <td><code>Handler&lt;Input&gt;</code></td>

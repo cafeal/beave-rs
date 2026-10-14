@@ -153,10 +153,15 @@ or duplicate name fails validation before any subscription starts.</p>
 <td>30 s</td>
 <td>Bound on draining; cleanup has a separate timeout of the same duration</td>
 </tr>
+<tr>
+<td>Stall timeout</td>
+<td>Disabled</td>
+<td>Liveness fails while deliveries are in flight without progress for this long; see <a href="runtime/health.html#stall-detection">stall detection</a></td>
+</tr>
 </tbody></table>
 <p>Receive, handler, output publish, and dead-letter publish retries have
 independent policies. Invalid zero concurrency, in-flight limits, or retry
-attempt counts fail validation before subscriptions start, as does an error
+attempt counts, and a zero stall timeout fail validation before subscriptions start, as does an error
 policy that dead-letters decode or encode failures without a dead-letter sink.</p>
 <p>Each <code>RetryPolicy</code> doubles its delay after every failed attempt, starting at
 <code>initial_delay</code> and capped at <code>max_delay</code>. Set them with the methods of the same
