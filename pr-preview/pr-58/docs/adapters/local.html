@@ -39,8 +39,8 @@ The iterator must be <code>Send + &#39;static</code>; input values must be
 <p>No serialization codec is needed. Each item becomes a <code>Delivery&lt;T&gt;</code>; decoding
 clones its typed value. Iterator exhaustion produces <code>Receive::End</code> and the
 subscription drains before completing.</p>
-<p>The ACK callback increments a shared counter available through
-<code>acknowledgements()</code>. This is a completion counter, not durable storage or a
+<p>The ACK callback increments a shared counter whose <code>Acknowledgements</code> handle,
+returned by <code>acknowledgements()</code>, reads it with <code>count()</code>. This is a completion counter, not durable storage or a
 redelivery mechanism.</p>
 <h2 id="inmemorysink">InMemorySink</h2>
 <p>InMemorySink stores published values in a shared vector. Cloning the sink shares
@@ -49,7 +49,6 @@ the typed value, and publication appends a clone. Values must implement
 <code>Clone + Send + Sync + &#39;static</code>.</p>
 <p>Use it with IterSource to exercise a complete subscription:</p>
 <pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{App, InMemorySink, IterSource, <span class="hljs-type">Result</span>};
-<span class="hljs-keyword">use</span> std::sync::atomic::Ordering;
 
 <span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">double</span>(value: <span class="hljs-type">u64</span>) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;<span class="hljs-type">u64</span>&gt; {
     <span class="hljs-title function_ invoke__">Ok</span>(value * <span class="hljs-number">2</span>)
@@ -67,7 +66,7 @@ the typed value, and publication appends a clone. Values must implement
         .<span class="hljs-keyword">await</span>?;
 
     <span class="hljs-built_in">assert_eq!</span>(sink.<span class="hljs-title function_ invoke__">values</span>(), <span class="hljs-built_in">vec!</span>[<span class="hljs-number">2</span>, <span class="hljs-number">4</span>, <span class="hljs-number">6</span>]);
-    <span class="hljs-built_in">assert_eq!</span>(acknowledgements.<span class="hljs-title function_ invoke__">load</span>(Ordering::SeqCst), <span class="hljs-number">3</span>);
+    <span class="hljs-built_in">assert_eq!</span>(acknowledgements.<span class="hljs-title function_ invoke__">count</span>(), <span class="hljs-number">3</span>);
     <span class="hljs-title function_ invoke__">Ok</span>(())
 }
 </code></pre><p>The example uses the default concurrency of one. Parallel handlers can publish

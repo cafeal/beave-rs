@@ -78,10 +78,17 @@ retried, routed to a dead-letter destination, or stops its subscription.</li>
 <li>Data visible outside the process: header and property names written by the
 adapters, dead-letter metadata, trace-context propagation fields, metric
 names and labels, span names and fields, and the health endpoint paths.</li>
-<li>Types from broker client crates, such as <code>rdkafka</code>, that appear in the
-public API. Upgrading such a dependency to a semver-incompatible version is a
-breaking change for <code>beavers</code>.</li>
+<li>Types and traits of dependencies that appear in the public API: the
+<code>apache-avro</code> crate&#39;s <code>AvroSchema</code> and <code>Schema</code> with the <code>avro</code> feature, and
+the <code>prost</code> crate&#39;s <code>Message</code> with the <code>protobuf</code> feature. Upgrading such a
+dependency to a semver-incompatible version is a breaking change for
+<code>beavers</code>. Broker client crates, such as <code>rdkafka</code>, do not appear in the
+public API.</li>
 </ul>
+<p>Enums and structs marked <code>#[non_exhaustive]</code>, such as <code>FailureKind</code>,
+<code>RetryPolicy</code>, and the adapters&#39; <code>*Metadata</code> structs, may gain variants and
+fields in a backward-compatible release. Match them with a wildcard arm, and
+build them from their constructors or <code>Default</code> and setter methods.</p>
 <p>Fixing behavior that contradicts the documented contract is a bug fix, even
 when an application could observe the difference.</p>
 <h2 id="minimum-supported-rust-version">Minimum supported Rust version</h2>

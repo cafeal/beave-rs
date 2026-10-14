@@ -78,13 +78,13 @@ retry policies have already been constructed:</p>
             .<span class="hljs-title function_ invoke__">concurrency</span>(<span class="hljs-number">16</span>)
             .<span class="hljs-title function_ invoke__">max_in_flight</span>(<span class="hljs-number">64</span>)
             .<span class="hljs-title function_ invoke__">ordering</span>(ProcessingOrder::PerKey)
-            .<span class="hljs-title function_ invoke__">retry</span>(handler_retry)
+            .<span class="hljs-title function_ invoke__">handler_retry</span>(handler_retry)
             .<span class="hljs-title function_ invoke__">receive_retry</span>(receive_retry)
             .<span class="hljs-title function_ invoke__">publish_retry</span>(publish_retry)
-            .<span class="hljs-title function_ invoke__">dlq_retry</span>(dead_letter_retry)
+            .<span class="hljs-title function_ invoke__">dead_letter_retry</span>(dead_letter_retry)
             .<span class="hljs-title function_ invoke__">drain_timeout</span>(Duration::<span class="hljs-title function_ invoke__">from_secs</span>(<span class="hljs-number">30</span>))
             .<span class="hljs-title function_ invoke__">middleware</span>(MapMetadata::<span class="hljs-title function_ invoke__">new</span>(|_input, output| <span class="hljs-title function_ invoke__">Ok</span>(output)))
-            .<span class="hljs-title function_ invoke__">dlq</span>(dead_letter_sink)
+            .<span class="hljs-title function_ invoke__">dead_letter</span>(dead_letter_sink)
             .<span class="hljs-title function_ invoke__">error_policy</span>(ErrorPolicy::<span class="hljs-title function_ invoke__">dead_letter_all</span>()),
     )
     .<span class="hljs-title function_ invoke__">run</span>()
@@ -93,8 +93,7 @@ retry policies have already been constructed:</p>
 <code>Subscription::new</code>, <code>Subscription::new_emitting</code>, and <code>App::subscribe</code>. The name appears in subscription errors, dead letters, spans,
 and metric labels, so it must be non-empty and unique within an <code>App</code>; an empty
 or duplicate name fails validation before any subscription starts.</p>
-<p>Registration constructs the application. Processing starts in <code>run()</code>.
-<code>SubscriptionConfig</code> can also be passed through <code>.config(...)</code>.</p>
+<p>Registration constructs the application. Processing starts in <code>run()</code>.</p>
 <table>
 <thead>
 <tr>
@@ -159,7 +158,8 @@ independent policies. Invalid zero concurrency, in-flight limits, or retry
 attempt counts, and a zero stall timeout fail validation before subscriptions start, as does an error
 policy that dead-letters decode or encode failures without a dead-letter sink.</p>
 <p>Each <code>RetryPolicy</code> doubles its delay after every failed attempt, starting at
-<code>initial_delay</code> and capped at <code>max_delay</code>. <code>jitter</code> randomizes the capped
+<code>initial_delay</code> and capped at <code>max_delay</code>. Set them with the methods of the same
+name, such as <code>RetryPolicy::default().max_attempts(5)</code>. <code>jitter</code> randomizes the capped
 delay: <code>Jitter::Full</code> waits a uniformly random duration up to it, and
 <code>Jitter::Equal</code> waits half of it plus a random share of the other half. Jitter
 spreads retries from many consumers that failed at the same moment.</p>

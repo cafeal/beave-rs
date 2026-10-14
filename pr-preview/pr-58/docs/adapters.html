@@ -169,7 +169,8 @@ platform-specific message models explicit below <code>beavers::adapters::kafka</
 <code>beavers::adapters::servicebus</code>. Each decodes source
 messages into a broker-specific <code>*Record&lt;T&gt;</code> containing delivery metadata and
 accept a separate <code>*Publish&lt;T&gt;</code> type for user-controlled output. Prepared
-payloads hold encoded bytes for retries. See the dedicated guides for each
+outputs hold encoded bytes for retries; their fields are private, and
+<code>payload()</code> returns the encoded bytes. See the dedicated guides for each
 broker&#39;s configuration and delivery behavior.</p>
 <p>Each broker adapter starts from a connection handle: <code>Kafka</code>, <code>Pulsar</code>,
 <code>RabbitMq</code>, <code>Sqs</code>, <code>PubSub</code>, or <code>ServiceBus</code>. The handle holds the broker

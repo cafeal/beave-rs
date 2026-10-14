@@ -68,8 +68,7 @@ whichever comes first:</p>
 <td>Maximum wait of a batch&#39;s first delivery for more deliveries</td>
 </tr>
 </tbody></table>
-<p>Set it with <code>Subscription::transaction_batch</code> or
-<code>SubscriptionConfig::transaction_batch</code>; a zero <code>max_deliveries</code> fails
+<p>Set it with <code>Subscription::transaction_batch</code>; a zero <code>max_deliveries</code> fails
 validation. <code>TransactionBatch::single()</code> commits every delivery in its own
 transaction without waiting. Other subscriptions ignore the setting.</p>
 <p>Batches of one subscription commit one at a time, in a task of their own, so a

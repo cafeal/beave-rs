@@ -29,13 +29,13 @@ App::new()
             .concurrency(16)
             .max_in_flight(64)
             .ordering(ProcessingOrder::PerKey)
-            .retry(handler_retry)
+            .handler_retry(handler_retry)
             .receive_retry(receive_retry)
             .publish_retry(publish_retry)
-            .dlq_retry(dead_letter_retry)
+            .dead_letter_retry(dead_letter_retry)
             .drain_timeout(Duration::from_secs(30))
             .middleware(MapMetadata::new(|_input, output| Ok(output)))
-            .dlq(dead_letter_sink)
+            .dead_letter(dead_letter_sink)
             .error_policy(ErrorPolicy::dead_letter_all()),
     )
     .run()
@@ -48,7 +48,6 @@ and metric labels, so it must be non-empty and unique within an `App`; an empty
 or duplicate name fails validation before any subscription starts.
 
 Registration constructs the application. Processing starts in `run()`.
-`SubscriptionConfig` can also be passed through `.config(...)`.
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -69,7 +68,8 @@ attempt counts, and a zero stall timeout fail validation before subscriptions st
 policy that dead-letters decode or encode failures without a dead-letter sink.
 
 Each `RetryPolicy` doubles its delay after every failed attempt, starting at
-`initial_delay` and capped at `max_delay`. `jitter` randomizes the capped
+`initial_delay` and capped at `max_delay`. Set them with the methods of the same
+name, such as `RetryPolicy::default().max_attempts(5)`. `jitter` randomizes the capped
 delay: `Jitter::Full` waits a uniformly random duration up to it, and
 `Jitter::Equal` waits half of it plus a random share of the other half. Jitter
 spreads retries from many consumers that failed at the same moment.
