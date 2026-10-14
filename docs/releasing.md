@@ -18,9 +18,10 @@ A dependency requirement of `beavers = "0.1"` therefore never picks up a
 breaking change.
 
 Version `0.0.1` is a placeholder published only to reserve the crate name on
-crates.io; it is not intended for use. Cargo treats every `0.0.x` version as
-incompatible with every other, so applications should wait for `0.1.0`, the
-first release intended for use.
+crates.io. Later `0.0.x` versions are previews for trying the API and may break
+anything in every release. Cargo treats every `0.0.x` version as incompatible
+with every other, so applications should wait for `0.1.0`, the first release
+intended for use.
 
 Pre-release versions such as `0.2.0-rc.1` may be published to let applications
 try a breaking release before it becomes the default.

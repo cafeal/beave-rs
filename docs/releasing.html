@@ -60,9 +60,10 @@ number:</p>
 <p>A dependency requirement of <code>beavers = &quot;0.1&quot;</code> therefore never picks up a
 breaking change.</p>
 <p>Version <code>0.0.1</code> is a placeholder published only to reserve the crate name on
-crates.io; it is not intended for use. Cargo treats every <code>0.0.x</code> version as
-incompatible with every other, so applications should wait for <code>0.1.0</code>, the
-first release intended for use.</p>
+crates.io. Later <code>0.0.x</code> versions are previews for trying the API and may break
+anything in every release. Cargo treats every <code>0.0.x</code> version as incompatible
+with every other, so applications should wait for <code>0.1.0</code>, the first release
+intended for use.</p>
 <p>Pre-release versions such as <code>0.2.0-rc.1</code> may be published to let applications
 try a breaking release before it becomes the default.</p>
 <h2 id="compatibility-contract">Compatibility contract</h2>
