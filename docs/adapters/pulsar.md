@@ -239,10 +239,10 @@ its original message and failure properties, and
 ## Health and tracing
 
 The source reports whether every partition's consumer is connected to
-[health checks](../runtime/health.md#connection-state-and-lag); a consumer
+[health checks](../runtime/health.md#connection-state); a consumer
 reconnecting after a topic unload or broker restart makes the subscription
-unready until it reconnects. It does not report lag, which needs the broker's
-subscription backlog. Each delivery's `message` span carries the configured
+unready until it reconnects. The subscription backlog comes from the broker's
+`pulsar_subscription_back_log` metric. Each delivery's `message` span carries the configured
 topic, partition, subscription, and message ID as
 [messaging attributes](../runtime/observability.md#messaging-attributes).
 

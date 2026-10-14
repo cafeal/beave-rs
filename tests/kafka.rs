@@ -1,8 +1,7 @@
 #![cfg(feature = "kafka")]
 
 use beavers::{
-    App, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage, SourceProbe,
-    Subscription, Utf8,
+    App, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage, Subscription, Utf8,
     adapters::kafka::{Kafka, KafkaPublish, KafkaRecord, KafkaSource, KafkaTransactionalSink},
 };
 use rdkafka::{
@@ -345,22 +344,20 @@ async fn submitted_records_complete_on_their_delivery_reports() {
 }
 
 /// Requires a reachable development broker. It uses `KAFKA_BROKERS` when set,
-/// otherwise `localhost:9092`. The probe reads connection state and lag from
-/// librdkafka statistics, which arrive once per `statistics.interval.ms`.
+/// otherwise `localhost:9092`. The probe reads the connection state from
+/// librdkafka statistics, which arrive while the source polls its consumer.
 #[tokio::test]
 #[ignore = "requires a Kafka broker; run with cargo test --features kafka -- --ignored"]
-async fn probe_reports_connection_and_lag() {
+async fn probe_reports_the_connection() {
     let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
     let topic = unique_name("beavers-kafka-probe");
     let kafka = Kafka::new(&brokers);
     let sink = kafka.sink::<Utf8>(&topic);
-    for value in ["a", "b", "c"] {
-        let prepared = sink.prepare(KafkaPublish::new(value.to_owned())).unwrap();
-        tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
-            .await
-            .expect("timed out publishing to Kafka")
-            .unwrap();
-    }
+    let prepared = sink.prepare(KafkaPublish::new("a".to_owned())).unwrap();
+    tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
+        .await
+        .expect("timed out publishing to Kafka")
+        .unwrap();
 
     let group = unique_name("beavers-kafka-probe");
     let mut source = kafka
@@ -369,21 +366,20 @@ async fn probe_reports_connection_and_lag() {
         .property("statistics.interval.ms", "200");
     let probe = source.probe().expect("the Kafka source reports a probe");
     assert_eq!(probe.connected(), None);
-    let mut messages = Vec::new();
-    while messages.len() < 3 {
+    let message = loop {
         match tokio::time::timeout(Duration::from_secs(20), source.receive())
             .await
-            .expect("timed out waiting for Kafka records")
+            .expect("timed out waiting for the Kafka record")
         {
-            Ok(Receive::Message(message)) => messages.push(message),
+            Ok(Receive::Message(message)) => break message,
             Ok(Receive::End) => panic!("Kafka source ended"),
             Err(ReceiveError::Retry(_)) => tokio::time::sleep(Duration::from_millis(100)).await,
             Err(ReceiveError::Fatal(error)) => panic!("Kafka source failed: {error:#}"),
         }
-    }
-    let metadata = messages[0].decode().unwrap().metadata;
+    };
+    let metadata = message.decode().unwrap().metadata;
     assert_eq!(
-        messages[0].messaging_attributes(),
+        message.messaging_attributes(),
         Some(
             beavers::MessagingAttributes::new("kafka")
                 .destination(&topic)
@@ -392,39 +388,13 @@ async fn probe_reports_connection_and_lag() {
                 .consumer_group(&group)
         )
     );
+    message.ack().await.unwrap();
 
-    // Received but unacknowledged records count as lag. Statistics arrive
-    // while the source polls its consumer, so keep receiving while waiting.
-    let reads = |connected, lag| {
-        move |probe: &dyn SourceProbe| probe.connected() == connected && probe.lag() == lag
-    };
-    polling(&mut source, &*probe, reads(Some(true), Some(3))).await;
-    let first = messages.remove(0);
-    first.ack().await.unwrap();
-    // The first record's partition is committed past it.
-    polling(&mut source, &*probe, reads(Some(true), Some(2))).await;
-    for message in messages {
-        message.ack().await.unwrap();
-    }
-    polling(&mut source, &*probe, reads(Some(true), Some(0))).await;
-
-    source.close().await.unwrap();
-    sink.close().await.unwrap();
-}
-
-/// Receives, expecting nothing, until the probe matches.
-async fn polling(
-    source: &mut KafkaSource<Utf8>,
-    probe: &dyn SourceProbe,
-    matches: impl Fn(&dyn SourceProbe) -> bool,
-) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-    while !matches(probe) {
+    while probe.connected() != Some(true) {
         assert!(
             tokio::time::Instant::now() < deadline,
-            "the probe never matched: {:?} {:?}",
-            probe.connected(),
-            probe.lag()
+            "the probe never reported the connection"
         );
         if let Ok(received) =
             tokio::time::timeout(Duration::from_millis(100), source.receive()).await
@@ -432,4 +402,7 @@ async fn polling(
             panic!("unexpected receive: {:?}", received.map(|_| ()).err());
         }
     }
+    source.close().await.unwrap();
+    assert_eq!(probe.connected(), None);
+    sink.close().await.unwrap();
 }

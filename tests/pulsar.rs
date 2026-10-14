@@ -455,7 +455,6 @@ async fn probe_reports_the_consumer_connection() -> Result<(), BoxError> {
     let mut source = exclusive_source(&topic, &subscription);
     let probe = source.probe().expect("the Pulsar source reports a probe");
     assert_eq!(probe.connected(), None);
-    assert_eq!(probe.lag(), None);
 
     publish_all(&topic, &["a"]).await?;
     let delivery = next_message(&mut source, Duration::from_secs(20))

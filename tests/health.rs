@@ -223,17 +223,13 @@ async fn draining_subscription_is_unready_but_live() {
     running.await.unwrap().unwrap();
 }
 
-/// Connection state and lag the test sets.
+/// Connection state the test sets.
 #[derive(Default)]
-struct Reading(Mutex<(Option<bool>, Option<u64>)>);
+struct Reading(Mutex<Option<bool>>);
 
 impl SourceProbe for Reading {
     fn connected(&self) -> Option<bool> {
-        self.0.lock().unwrap().0
-    }
-
-    fn lag(&self) -> Option<u64> {
-        self.0.lock().unwrap().1
+        *self.0.lock().unwrap()
     }
 }
 
@@ -253,7 +249,7 @@ impl Source for Probed {
 }
 
 #[tokio::test]
-async fn disconnected_source_makes_the_application_unready_and_lag_does_not() {
+async fn disconnected_source_makes_the_application_unready() {
     let reading = Arc::new(Reading::default());
     let (_input, receiver) = mpsc::unbounded_channel();
     let source = Probed(Scripted(receiver), reading.clone());
@@ -267,21 +263,18 @@ async fn disconnected_source_makes_the_application_unready_and_lag_does_not() {
     let shutdown = CancellationToken::new();
     let running = run(app, &shutdown);
     eventually(&health, Health::is_ready).await;
-    let report = health.report();
-    assert_eq!(report.subscriptions[0].connected, None);
-    assert_eq!(report.subscriptions[0].lag, None);
+    assert_eq!(health.report().subscriptions[0].connected, None);
 
-    *reading.0.lock().unwrap() = (Some(true), Some(1_000_000));
+    *reading.0.lock().unwrap() = Some(true);
     let report = health.report();
-    assert!(report.ready, "lag does not affect readiness");
+    assert!(report.ready);
     assert_eq!(report.subscriptions[0].connected, Some(true));
-    assert_eq!(report.subscriptions[0].lag, Some(1_000_000));
 
-    *reading.0.lock().unwrap() = (Some(false), Some(0));
+    *reading.0.lock().unwrap() = Some(false);
     let report = health.report();
     assert!(!report.ready && report.live);
 
-    *reading.0.lock().unwrap() = (Some(true), Some(0));
+    *reading.0.lock().unwrap() = Some(true);
     assert!(health.is_ready());
 
     shutdown.cancel();

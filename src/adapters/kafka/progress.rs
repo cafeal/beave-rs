@@ -30,7 +30,7 @@ struct PartitionProgress {
 }
 
 impl Progress {
-    pub(super) fn activate(&mut self, key: Partition) {
+    fn activate(&mut self, key: Partition) {
         self.active.entry(key.clone()).or_insert_with(|| {
             let generation = self.generations.entry(key).or_default();
             *generation = generation.wrapping_add(1);
@@ -124,12 +124,6 @@ impl Progress {
         Ok((candidate > next).then_some(candidate))
     }
 
-    /// The first offset of an assigned partition that this consumer has not
-    /// committed, once it has received a record of the partition.
-    pub(super) fn position(&self, key: &Partition) -> Option<i64> {
-        self.active.get(key)?.next
-    }
-
     /// Whether `generation` is the current assignment of the partition.
     pub(super) fn is_current(&self, generation: u64, key: &Partition) -> bool {
         self.active
@@ -164,8 +158,7 @@ pub(super) struct Context {
 
 impl ClientContext for Context {
     fn stats(&self, statistics: Statistics) {
-        self.probe
-            .update(&statistics, &self.progress.lock().unwrap());
+        self.probe.update(&statistics);
     }
 }
 

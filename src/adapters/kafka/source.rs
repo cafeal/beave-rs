@@ -82,7 +82,7 @@ impl<C> KafkaSource<C> {
         for (key, value) in &self.config.properties {
             config.set(key, value);
         }
-        // The health probe reads lag and connection state from statistics.
+        // The health probe reads the connection state from statistics.
         if config.get("statistics.interval.ms").is_none() {
             config.set("statistics.interval.ms", STATISTICS_INTERVAL_MS);
         }

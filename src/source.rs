@@ -54,31 +54,22 @@ pub trait Source: Send + 'static {
         async { Ok(()) }
     }
     /// A handle through which the runtime reads the source's connection state
-    /// and consumer lag for health reports and metrics. Called once, before the
+    /// for health reports and metrics. Called once, before the
     /// first `receive`; a source that connects lazily returns a handle that
-    /// reports unknown values until it connects. Sources that cannot observe
-    /// either return `None`.
+    /// reports an unknown state until it connects. Sources that cannot observe
+    /// their connection return `None`.
     fn probe(&self) -> Option<Arc<dyn SourceProbe>> {
         None
     }
 }
 
-/// Connection state and consumer lag observed by a source.
+/// Connection state observed by a source.
 ///
-/// Health reports read the probe on every request, so both methods must
-/// return immediately from state the source already holds, without network
-/// access. `None` means the value is unknown, for example before the source
-/// connects.
+/// Health reports read the probe on every request, so it must answer
+/// immediately from state the source already holds, without network access.
 pub trait SourceProbe: Send + Sync + 'static {
-    /// Whether the source is connected to its broker. A source that reports
+    /// Whether the source is connected to its broker, or `None` while unknown,
+    /// for example before the source connects. A source that reports
     /// `Some(false)` makes its subscription unready.
-    fn connected(&self) -> Option<bool> {
-        None
-    }
-    /// Messages available to the subscription that it has not acknowledged
-    /// yet, such as the distance from a Kafka partition's committed offset to
-    /// its end, summed over the partitions the source consumes.
-    fn lag(&self) -> Option<u64> {
-        None
-    }
+    fn connected(&self) -> Option<bool>;
 }

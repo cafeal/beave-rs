@@ -53,10 +53,6 @@ pub struct SubscriptionReport {
     /// Whether the source is connected to its broker, or `None` when the
     /// source does not report it or has not connected yet.
     pub connected: Option<bool>,
-    /// Messages available to the subscription that it has not acknowledged
-    /// yet, or `None` when the source does not report it. Lag does not affect
-    /// readiness.
-    pub lag: Option<u64>,
     /// Deliveries are in flight, but no processing step has finished for the
     /// subscription's stall timeout. A stalled subscription makes the
     /// application not live.
@@ -244,9 +240,9 @@ impl Tracker {
         let receive_backoff = self.receive_backoff.load(Ordering::Relaxed);
         let publish_retries = self.publish_retries.load(Ordering::Relaxed);
         let run = self.run.get();
-        let probe = run.and_then(|run| run.probe.as_deref());
-        let connected = probe.and_then(SourceProbe::connected);
-        let lag = probe.and_then(SourceProbe::lag);
+        let connected = run
+            .and_then(|run| run.probe.as_deref())
+            .and_then(SourceProbe::connected);
         let stalled = matches!(
             status,
             SubscriptionStatus::Running | SubscriptionStatus::Stopping
@@ -273,7 +269,6 @@ impl Tracker {
             receive_backoff,
             publish_retries,
             connected,
-            lag,
             stalled,
             ready,
         }

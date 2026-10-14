@@ -133,21 +133,17 @@ impl Instruments {
     }
 }
 
-/// How often the source's probe is copied into gauges.
+/// How often the source's probe is copied into its gauge.
 const PROBE_INTERVAL: Duration = Duration::from_secs(5);
 
-/// Copies the source's connection state and lag into gauges until aborted.
+/// Copies the source's connection state into a gauge until aborted.
 pub(super) async fn report_probe(subscription: String, probe: Arc<dyn SourceProbe>) {
-    let connected = gauge!("beavers_source_connected", "subscription" => subscription.clone());
-    let lag = gauge!("beavers_consumer_lag", "subscription" => subscription);
+    let connected = gauge!("beavers_source_connected", "subscription" => subscription);
     let mut interval = tokio::time::interval(PROBE_INTERVAL);
     loop {
         interval.tick().await;
         if let Some(value) = probe.connected() {
             connected.set(if value { 1.0 } else { 0.0 });
-        }
-        if let Some(value) = probe.lag() {
-            lag.set(value as f64);
         }
     }
 }

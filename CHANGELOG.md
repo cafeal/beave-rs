@@ -12,10 +12,9 @@ project follows the versioning policy in
 - OpenTelemetry messaging semantic-convention attributes on each delivery's
   `message` span, reported by the broker sources through
   `SourceMessage::messaging_attributes`.
-- Source connection state and consumer lag in health reports and in the
-  `beavers_source_connected` and `beavers_consumer_lag` gauges, through
-  `Source::probe`: connection state for Kafka and Pulsar, lag for Kafka. A
-  disconnected source makes its subscription unready.
+- Source connection state in health reports and in the
+  `beavers_source_connected` gauge, through `Source::probe`, for Kafka and
+  Pulsar. A disconnected source makes its subscription unready.
 - `Subscription::stall_timeout`, which makes liveness fail while deliveries are
   in flight without progress.
 
