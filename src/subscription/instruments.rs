@@ -2,9 +2,13 @@
 use crate::{
     error_policy::{ErrorPolicy, FailureAction, FailureKind},
     health::Tracker,
+    source::SourceProbe,
 };
 use metrics::{Counter, Gauge, Histogram, counter, gauge, histogram};
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 const KINDS: [FailureKind; 5] = [
     FailureKind::Decode,
@@ -116,8 +120,31 @@ impl Instruments {
         &self.failures[KINDS.iter().position(|known| *known == kind).unwrap()]
     }
 
+    /// Records a finished stage, which also counts as progress for stall
+    /// detection.
     pub(super) fn record(&self, stage: Stage, started: Instant) {
         self.stages[stage as usize].record(started.elapsed());
+        self.health.progressed();
+    }
+
+    pub(super) fn set_in_flight(&self, in_flight: usize) {
+        self.in_flight.set(in_flight as f64);
+        self.health.set_in_flight(in_flight);
+    }
+}
+
+/// How often the source's probe is copied into its gauge.
+const PROBE_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Copies the source's connection state into a gauge until aborted.
+pub(super) async fn report_probe(subscription: String, probe: Arc<dyn SourceProbe>) {
+    let connected = gauge!("beavers_source_connected", "subscription" => subscription);
+    let mut interval = tokio::time::interval(PROBE_INTERVAL);
+    loop {
+        interval.tick().await;
+        if let Some(value) = probe.connected() {
+            connected.set(if value { 1.0 } else { 0.0 });
+        }
     }
 }
 

@@ -279,27 +279,22 @@ pipeline on a broker restart. Other client limitations:
 
 ## Observability
 
-Spans, events, metrics, and trace-context propagation are described in the
-[runtime guide](runtime/observability.md). Remaining decisions:
+Spans, events, metrics, messaging attributes, and trace-context propagation
+are described in the [runtime guide](runtime/observability.md). Remaining
+decisions:
 
-- OpenTelemetry messaging semantic-convention attributes, such as destination,
-  partition, and offset, which need an adapter-provided description of each
-  delivery;
 - a producer span per published output instead of injecting the `message`
   span's context into every output.
 
-Health checks report runtime-observed state, as described in the
-[runtime guide](runtime/health.md). Remaining decisions:
+Health checks, source connection state, and stall detection are described in
+the [runtime guide](runtime/health.md). Consumer lag is left to broker metrics.
+Remaining decision:
 
-- consumer lag in the health report, which needs an adapter-provided
-  measurement such as the distance from a Kafka partition's committed offset to
-  its high watermark or a Pulsar subscription's backlog, and a policy for
-  whether lag above a threshold makes the application unready;
-- source connection state in readiness, since the Kafka and Pulsar clients
-  reconnect internally and a pending receive cannot tell an idle broker from an
-  unreachable one;
-- liveness that detects a stalled subscription, such as a handler or ACK that
-  never completes, without restarting instances that are merely idle.
+- connection state for the RabbitMQ, SQS, Pub/Sub, and Service Bus sources.
+
+The Pulsar probe's `is_connected` has not been verified across a broker
+restart, and neither probe across a multi-broker cluster in which one broker
+fails.
 
 Trace-context propagation and the
 [Prometheus export path](runtime/observability.md#exporting-metrics-to-opentelemetry) have not

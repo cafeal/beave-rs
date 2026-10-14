@@ -92,9 +92,13 @@ where
                 let failures = &instruments.publish_failures;
                 let rejected = async {
                     for output in &outputs {
-                        match retry_publish(policy, failures, Some(&instruments.health), || {
-                            self.0.submit(output)
-                        })
+                        match retry_publish(
+                            policy,
+                            failures,
+                            Some(&instruments.health),
+                            true,
+                            || self.0.submit(output),
+                        )
                         .await
                         {
                             Ok(completion) => completions.push(completion),
@@ -199,7 +203,7 @@ where
         policy: &'a RetryPolicy,
     ) -> BoxFuture<'a, Result<M, BoxError>> {
         Box::pin(async move {
-            retry_publish(policy, &Counter::noop(), None, || {
+            retry_publish(policy, &Counter::noop(), None, false, || {
                 self.sink.verify_source(&delivery)
             })
             .await

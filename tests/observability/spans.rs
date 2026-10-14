@@ -101,3 +101,34 @@ async fn subscription_failure_is_logged() {
     assert_eq!(failed.scope, ["subscription"]);
     assert!(failed.field("error").unwrap().contains("decode failed"));
 }
+
+#[tokio::test]
+async fn message_spans_carry_messaging_attributes() {
+    let capture = Capture::global();
+    App::new()
+        .subscription(Subscription::new(
+            "described",
+            FieldSource::text(&["1", "2"]).on_topic("orders"),
+            InMemorySink::default(),
+            |n: i32| async move { Ok(n) },
+        ))
+        .run()
+        .await
+        .unwrap();
+
+    let messages: Vec<_> = capture
+        .spans("described")
+        .into_iter()
+        .filter(|span| span.name == "message")
+        .collect();
+    assert_eq!(messages.len(), 2);
+    let last = &messages[1];
+    assert_eq!(last.field("otel.name"), Some("process orders"));
+    assert_eq!(last.field("messaging.system"), Some("kafka"));
+    assert_eq!(last.field("messaging.operation.type"), Some("process"));
+    assert_eq!(last.field("messaging.destination.name"), Some("orders"));
+    assert_eq!(last.field("messaging.destination.partition.id"), Some("0"));
+    assert_eq!(last.field("messaging.kafka.offset"), Some("1"));
+    assert_eq!(last.field("messaging.consumer.group.name"), Some("group"));
+    assert_eq!(last.field("messaging.message.id"), None);
+}

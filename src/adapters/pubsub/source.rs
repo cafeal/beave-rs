@@ -6,7 +6,7 @@ use super::{
 use crate::{
     codec::Decoder,
     error::{BoxError, Error},
-    message::{OrderingKey, SourceMessage},
+    message::{MessagingAttributes, OrderingKey, SourceMessage},
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
 };
@@ -292,6 +292,14 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for PubSubM
             .iter()
             .map(|(name, value)| (name.as_str(), value.as_str()))
             .collect()
+    }
+
+    fn messaging_attributes(&self) -> Option<MessagingAttributes<'_>> {
+        Some(
+            MessagingAttributes::new("gcp_pubsub")
+                .subscription(&self.subscription)
+                .message_id(self.message.message_id.as_str()),
+        )
     }
 }
 

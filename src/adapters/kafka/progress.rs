@@ -1,8 +1,10 @@
+use super::probe::KafkaProbe;
 use crate::error::{BoxError, Error, ensure};
 use crate::shutdown::CancellationToken;
 use rdkafka::{
     ClientContext, Offset, TopicPartitionList,
     consumer::{BaseConsumer, CommitMode, Consumer, ConsumerContext, Rebalance},
+    statistics::Statistics,
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -303,6 +305,7 @@ pub(super) struct Context {
     pub(super) commits: CommitGate,
     /// How long a revoke waits for started deliveries; `None` revokes at once.
     pub(super) handoff: Option<Duration>,
+    pub(super) probe: Arc<KafkaProbe>,
 }
 
 impl Context {
@@ -374,7 +377,11 @@ fn partitions(list: &TopicPartitionList) -> Vec<Partition> {
         .collect()
 }
 
-impl ClientContext for Context {}
+impl ClientContext for Context {
+    fn stats(&self, statistics: Statistics) {
+        self.probe.update(&statistics);
+    }
+}
 
 impl ConsumerContext for Context {
     fn pre_rebalance(&self, consumer: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {

@@ -113,7 +113,7 @@ fn text(value: Option<&Value>) -> Option<String> {
 
 /// A message ID as text: a string as is, a number in decimal, a UUID
 /// hyphenated, and binary in lowercase hexadecimal.
-fn message_id_text(id: &MessageId) -> String {
+pub(super) fn message_id_text(id: &MessageId) -> String {
     match id {
         MessageId::String(id) => id.clone(),
         MessageId::Ulong(id) => id.to_string(),

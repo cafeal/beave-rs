@@ -11,6 +11,7 @@ use crate::{
     error::{BoxContext, BoxError, Error, ensure},
     error_policy::ErrorPolicy,
     handler::{Emit, Handler},
+    health::Tracker,
     middleware::Middleware,
     retry::RetryPolicy,
     sink::Sink,
@@ -25,7 +26,9 @@ pub(super) type BoxHandler<I, O> =
     Arc<dyn Fn(I) -> BoxFuture<crate::handler::Result<Emit<O>>> + Send + Sync>;
 pub(super) type Mapper<I, O> = Arc<dyn DynMiddleware<I, O>>;
 pub(super) type DeadLetterRoute<I, R> = Arc<
-    dyn Fn(DeadLetter<I, R>, RetryPolicy, Counter) -> BoxFuture<Result<(), BoxError>> + Send + Sync,
+    dyn Fn(DeadLetter<I, R>, RetryPolicy, Counter, Arc<Tracker>) -> BoxFuture<Result<(), BoxError>>
+        + Send
+        + Sync,
 >;
 type CloseDeadLetter = Arc<dyn Fn() -> BoxFuture<Result<(), BoxError>> + Send + Sync>;
 
@@ -150,6 +153,15 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         self
     }
 
+    /// Makes the application not live when deliveries are in flight but no
+    /// handler attempt, publish attempt, or acknowledgement has finished for
+    /// `duration`. Disabled by default; choose a duration longer than the
+    /// slowest expected handler attempt.
+    pub fn stall_timeout(mut self, duration: Duration) -> Self {
+        self.config.stall_timeout = Some(duration);
+        self
+    }
+
     /// Dead-letter sink for failures the [`ErrorPolicy`] routes there. Each dead letter is
     /// published before the original delivery is acknowledged.
     pub fn dead_letter<D: Sink<DeadLetter<SourceItem<S>, SourceRaw<S>>>>(self, sink: D) -> Self {
@@ -174,16 +186,19 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             let sink = close_sink.clone();
             Box::pin(async move { sink.close().await })
         }));
-        self.dlq = Some(Arc::new(move |dead_letter, policy, failures| {
+        self.dlq = Some(Arc::new(move |dead_letter, policy, failures, health| {
             let sink = sink.clone();
             let convert = convert.clone();
             Box::pin(async move {
                 let prepared = convert(dead_letter)
                     .and_then(|output| sink.prepare(output))
                     .map_err(|error| error.context("prepare dead letter failed"))?;
-                processing::retry_publish(&policy, &failures, None, || sink.publish(&prepared))
-                    .await
-                    .map_err(|error| error.context("dead-letter publish failed"))
+                // Dead-letter retries do not affect readiness.
+                processing::retry_publish(&policy, &failures, Some(&health), false, || {
+                    sink.publish(&prepared)
+                })
+                .await
+                .map_err(|error| error.context("dead-letter publish failed"))
             })
         }));
         self

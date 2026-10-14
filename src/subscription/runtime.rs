@@ -1,7 +1,7 @@
 //! Receive scheduling, bounded concurrency, revocation, draining, and resource cleanup.
 use super::{
     builder::Subscription,
-    instruments::Instruments,
+    instruments::{Instruments, report_probe},
     processing::{PendingAck, Pipeline, process},
     scheduler::{FlowChange, Scheduler, Ticket},
 };
@@ -18,7 +18,7 @@ use tokio::{
     task::{JoinError, JoinSet},
     time::{Instant, sleep_until, timeout},
 };
-use tracing::{Instrument, debug, error, info, info_span, warn};
+use tracing::{Instrument, Span, debug, error, field::Empty, info, info_span, warn};
 
 /// A finished job's scheduler ticket and the acknowledgement still waiting for its outputs.
 type Jobs = JoinSet<Result<(Ticket, Option<PendingAck>), BoxError>>;
@@ -50,7 +50,9 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         health: Arc<Tracker>,
     ) -> Result<(), Error> {
         info!("subscription started");
-        health.set_status(SubscriptionStatus::Running);
+        let probe = self.source.probe();
+        health.start(probe.clone(), self.config.stall_timeout);
+        let probing = probe.map(|probe| tokio::spawn(report_probe(self.name.clone(), probe)));
         let instruments = Instruments::new(
             &self.name,
             &self.config.error_policy,
@@ -83,7 +85,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         let mut next_receive = Instant::now();
         let mut ended = false;
         let mut verified = false;
-        let in_flight = worker.pipeline.instruments.in_flight.clone();
+        let instruments = worker.pipeline.instruments.clone();
         // A source fed by an upstream subscription ends when that upstream closes it.
         let stop = if self.source.stops_on_shutdown() {
             shutdown.clone()
@@ -91,7 +93,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             CancellationToken::new()
         };
         loop {
-            in_flight.set((scheduler.outstanding() + acks.len()) as f64);
+            instruments.set_in_flight(scheduler.outstanding() + acks.len());
             worker.start_ready(&mut jobs, &mut scheduler, concurrency);
             for change in scheduler.take_flow_changes() {
                 match change {
@@ -141,7 +143,8 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                     match received {
                         Ok(Receive::End) => { ended = true; break; }
                         Ok(Receive::Message(delivery)) => {
-                            worker.pipeline.instruments.received.increment(1);
+                            instruments.received.increment(1);
+                            health.progressed();
                             failures = 0;
                             health.receive_succeeded();
                             next_receive = Instant::now();
@@ -185,7 +188,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                 if stop.is_cancelled() || failure.is_some() {
                     scheduler.discard_pending();
                 }
-                in_flight.set((scheduler.outstanding() + acks.len()) as f64);
+                instruments.set_in_flight(scheduler.outstanding() + acks.len());
                 worker.start_ready(&mut jobs, &mut scheduler, concurrency);
                 let result = tokio::select! {
                     Some(result) = jobs.join_next() => flatten(result).map(|(ticket, pending)| {
@@ -235,7 +238,10 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                 failure.get_or_insert_with(|| Error::timeout("close timeout").into());
             }
         }
-        in_flight.set(0.0);
+        instruments.set_in_flight(0);
+        if let Some(probing) = probing {
+            probing.abort();
+        }
         match failure {
             Some(failure) => {
                 shutdown.cancel();
@@ -276,7 +282,7 @@ impl<M: SourceMessage, O: Send + Sync + 'static> Worker<M, O> {
                 continue;
             }
             let revocation = delivery.revocation();
-            let span = info_span!("message", "otel.kind" = "consumer");
+            let span = message_span(&delivery);
             #[cfg(feature = "opentelemetry")]
             crate::telemetry::set_remote_parent(&span, &delivery.propagation_fields());
             let pipeline = self.pipeline.clone();
@@ -324,8 +330,60 @@ async fn abandon_on_revocation<T, M: SourceMessage, O>(
         },
     }
     pipeline.instruments.revoked.increment(1);
+    pipeline.instruments.health.progressed();
     debug!("abandoned revoked delivery");
     Ok(None)
+}
+
+/// The span of one delivery, with the messaging attributes its source reports.
+fn message_span(delivery: &impl SourceMessage) -> Span {
+    let span = info_span!(
+        "message",
+        "otel.kind" = "consumer",
+        "otel.name" = Empty,
+        "messaging.system" = Empty,
+        "messaging.operation.type" = Empty,
+        "messaging.operation.name" = Empty,
+        "messaging.destination.name" = Empty,
+        "messaging.destination.partition.id" = Empty,
+        "messaging.destination.subscription.name" = Empty,
+        "messaging.consumer.group.name" = Empty,
+        "messaging.message.id" = Empty,
+        "messaging.kafka.offset" = Empty,
+    );
+    if span.is_disabled() {
+        return span;
+    }
+    let Some(attributes) = delivery.messaging_attributes() else {
+        return span;
+    };
+    let name = match attributes.destination {
+        Some(destination) => format!("process {destination}"),
+        None => "process".to_owned(),
+    };
+    span.record("otel.name", name);
+    span.record("messaging.system", attributes.system);
+    span.record("messaging.operation.type", "process");
+    span.record("messaging.operation.name", "process");
+    if let Some(destination) = attributes.destination {
+        span.record("messaging.destination.name", destination);
+    }
+    if let Some(partition) = attributes.partition {
+        span.record("messaging.destination.partition.id", partition.to_string());
+    }
+    if let Some(subscription) = attributes.subscription {
+        span.record("messaging.destination.subscription.name", subscription);
+    }
+    if let Some(group) = attributes.consumer_group {
+        span.record("messaging.consumer.group.name", group);
+    }
+    if let Some(id) = &attributes.message_id {
+        span.record("messaging.message.id", id.as_ref());
+    }
+    if let Some(offset) = attributes.kafka_offset {
+        span.record("messaging.kafka.offset", offset);
+    }
+    span
 }
 
 fn flatten<T>(result: StdResult<Result<T, BoxError>, JoinError>) -> Result<T, BoxError> {

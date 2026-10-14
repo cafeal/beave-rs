@@ -1,4 +1,4 @@
-use beavers::{BoxError, Receive, ReceiveError, Source, SourceMessage};
+use beavers::{BoxError, MessagingAttributes, Receive, ReceiveError, Source, SourceMessage};
 use metrics_util::{
     CompositeKey,
     debugging::{DebugValue, DebuggingRecorder, Snapshotter},
@@ -17,7 +17,7 @@ use std::{
 use tracing::{
     Event, Subscriber,
     field::{Field, Visit},
-    span::{Attributes, Id},
+    span::{Attributes, Id, Record as Values},
 };
 use tracing_subscriber::{
     Layer,
@@ -26,10 +26,13 @@ use tracing_subscriber::{
     registry::{LookupSpan, SpanRef},
 };
 
-/// A text delivery that decodes as `i32` and carries text-map fields.
+/// A text delivery that decodes as `i32` and carries text-map fields, and
+/// messaging attributes when it has a topic.
 pub(crate) struct FieldMessage {
     payload: &'static str,
     fields: Vec<(String, String)>,
+    topic: Option<&'static str>,
+    offset: i64,
 }
 
 impl SourceMessage for FieldMessage {
@@ -54,6 +57,16 @@ impl SourceMessage for FieldMessage {
             .map(|(name, value)| (name.as_str(), value.as_str()))
             .collect()
     }
+
+    fn messaging_attributes(&self) -> Option<MessagingAttributes<'_>> {
+        Some(
+            MessagingAttributes::new("kafka")
+                .destination(self.topic?)
+                .partition(0)
+                .kafka_offset(self.offset)
+                .consumer_group("group"),
+        )
+    }
 }
 
 pub(crate) struct FieldSource(VecDeque<FieldMessage>);
@@ -71,12 +84,23 @@ impl FieldSource {
         Self(
             payloads
                 .iter()
-                .map(|payload| FieldMessage {
+                .zip(0..)
+                .map(|(payload, offset)| FieldMessage {
                     payload,
                     fields: fields.clone(),
+                    topic: None,
+                    offset,
                 })
                 .collect(),
         )
+    }
+
+    /// Deliveries that report messaging attributes for `topic`.
+    pub(crate) fn on_topic(mut self, topic: &'static str) -> Self {
+        for message in &mut self.0 {
+            message.topic = Some(topic);
+        }
+        self
     }
 }
 
@@ -268,6 +292,10 @@ pub(crate) fn exported_spans() -> Vec<SpanData> {
 #[derive(Clone, Default)]
 struct Fields(Vec<(String, String)>);
 
+/// Where a span's record is in `Capture::spans`.
+#[derive(Clone, Copy)]
+struct Position(usize);
+
 impl Fields {
     fn get(&self, name: &str) -> Option<&str> {
         self.0
@@ -307,7 +335,9 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for Capture {
         attributes.record(&mut fields);
         let span = context.span(id).unwrap();
         span.extensions_mut().insert(fields.clone());
-        self.spans.lock().unwrap().push(Record {
+        let mut spans = self.spans.lock().unwrap();
+        span.extensions_mut().insert(Position(spans.len()));
+        spans.push(Record {
             subscription: subscription(&span.scope().collect::<Vec<_>>()),
             name: span.name().to_owned(),
             level: *span.metadata().level(),
@@ -318,6 +348,16 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for Capture {
                 .collect(),
             fields: fields.0,
         });
+    }
+
+    fn on_record(&self, id: &Id, values: &Values<'_>, context: Context<'_, S>) {
+        let mut fields = Fields::default();
+        values.record(&mut fields);
+        let span = context.span(id).unwrap();
+        let Some(Position(position)) = span.extensions().get::<Position>().copied() else {
+            return;
+        };
+        self.spans.lock().unwrap()[position].fields.extend(fields.0);
     }
 
     fn on_event(&self, event: &Event<'_>, context: Context<'_, S>) {

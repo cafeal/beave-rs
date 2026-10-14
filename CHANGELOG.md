@@ -15,6 +15,14 @@ project follows the versioning policy in
   `count()`.
 - `payload()` on every adapter's prepared output, and `key()`, `headers()`, or
   `properties()` on the Kafka and Pulsar ones.
+- OpenTelemetry messaging semantic-convention attributes on each delivery's
+  `message` span, reported by the broker sources through
+  `SourceMessage::messaging_attributes`.
+- Source connection state in health reports and in the
+  `beavers_source_connected` gauge, through `Source::probe`, for Kafka and
+  Pulsar. A disconnected source makes its subscription unready.
+- `Subscription::stall_timeout`, which makes liveness fail while deliveries are
+  in flight without progress.
 - `Subscription::max_in_flight_per_key`, which pauses an ordering key that has
   too many unfinished deliveries through the new `Source::pause` and
   `Source::resume`, so one slow Kafka partition no longer stops the others.

@@ -520,3 +520,67 @@ async fn graceful_handoff_commits_a_delivery_acknowledged_during_the_revoke() {
     assert_ne!(next, Some((handed_off.partition, handed_off.offset)));
     first.close().await.unwrap();
 }
+
+/// Requires a reachable development broker. It uses `KAFKA_BROKERS` when set,
+/// otherwise `localhost:9092`. The probe reads the connection state from
+/// librdkafka statistics, which arrive while the source polls its consumer.
+#[tokio::test]
+#[ignore = "requires a Kafka broker; run with cargo test --features kafka -- --ignored"]
+async fn probe_reports_the_connection() {
+    let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
+    let topic = unique_name("beavers-kafka-probe");
+    let kafka = Kafka::new(&brokers);
+    let sink = kafka.sink::<Utf8>(&topic);
+    let prepared = sink.prepare(KafkaPublish::new("a".to_owned())).unwrap();
+    tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
+        .await
+        .expect("timed out publishing to Kafka")
+        .unwrap();
+
+    let group = unique_name("beavers-kafka-probe");
+    let mut source = kafka
+        .source::<Utf8>(&group, [&topic])
+        .property("auto.offset.reset", "earliest")
+        .property("statistics.interval.ms", "200");
+    let probe = source.probe().expect("the Kafka source reports a probe");
+    assert_eq!(probe.connected(), None);
+    let message = loop {
+        match tokio::time::timeout(Duration::from_secs(20), source.receive())
+            .await
+            .expect("timed out waiting for the Kafka record")
+        {
+            Ok(Receive::Message(message)) => break message,
+            Ok(Receive::End) => panic!("Kafka source ended"),
+            Err(ReceiveError::Retry(_)) => tokio::time::sleep(Duration::from_millis(100)).await,
+            Err(ReceiveError::Fatal(error)) => panic!("Kafka source failed: {error:#}"),
+        }
+    };
+    let metadata = message.decode().unwrap().metadata;
+    assert_eq!(
+        message.messaging_attributes(),
+        Some(
+            beavers::MessagingAttributes::new("kafka")
+                .destination(&topic)
+                .partition(metadata.partition.into())
+                .kafka_offset(metadata.offset)
+                .consumer_group(&group)
+        )
+    );
+    message.ack().await.unwrap();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while probe.connected() != Some(true) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the probe never reported the connection"
+        );
+        if let Ok(received) =
+            tokio::time::timeout(Duration::from_millis(100), source.receive()).await
+        {
+            panic!("unexpected receive: {:?}", received.map(|_| ()).err());
+        }
+    }
+    source.close().await.unwrap();
+    assert_eq!(probe.connected(), None);
+    sink.close().await.unwrap();
+}

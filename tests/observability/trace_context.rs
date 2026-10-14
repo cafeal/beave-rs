@@ -121,3 +121,40 @@ async fn channel_stages_continue_the_received_trace() {
             .any(|span| span.span_context.span_id() == downstream.parent_span_id)
     );
 }
+
+#[tokio::test]
+async fn exported_message_spans_follow_the_messaging_conventions() {
+    Capture::global();
+    App::new()
+        .subscription(Subscription::new(
+            "exported",
+            FieldSource::text(&["7"]).on_topic("invoices"),
+            InMemorySink::default(),
+            |n: i32| async move { Ok(n) },
+        ))
+        .run()
+        .await
+        .unwrap();
+
+    let span = exported_spans()
+        .into_iter()
+        .find(|span| span.name == "process invoices")
+        .expect("a message span named after its destination");
+    let attribute = |key: &str| {
+        span.attributes
+            .iter()
+            .find(|attribute| attribute.key.as_str() == key)
+            .map(|attribute| attribute.value.to_string())
+    };
+    assert_eq!(span.span_kind, opentelemetry::trace::SpanKind::Consumer);
+    assert_eq!(attribute("messaging.system").as_deref(), Some("kafka"));
+    assert_eq!(
+        attribute("messaging.destination.name").as_deref(),
+        Some("invoices")
+    );
+    assert_eq!(
+        attribute("messaging.destination.partition.id").as_deref(),
+        Some("0")
+    );
+    assert_eq!(attribute("messaging.kafka.offset").as_deref(), Some("0"));
+}
