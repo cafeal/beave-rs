@@ -56,7 +56,7 @@ where
                 InMemorySink::<u32>::default(),
                 handler,
             )
-            .dlq_with(dlq.clone(), |dead| {
+            .dead_letter_with(dlq.clone(), |dead| {
                 Ok(PubSubPublish::from_dead_letter(dead))
             })
             .error_policy(ErrorPolicy::dead_letter_all()),

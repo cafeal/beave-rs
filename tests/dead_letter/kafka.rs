@@ -1,7 +1,7 @@
 use beavers::{
     App, BoxError, ChannelRaw, DeadLetter, ErrorPolicy, FailureKind, HandlerError, InMemorySink,
     Json, Result, Subscription,
-    adapters::kafka::{KafkaDeadLetter, KafkaInherit, KafkaMetadata, KafkaPublish, KafkaRecord},
+    adapters::kafka::{KafkaDeadLetter, KafkaInherit, KafkaPublish, KafkaRecord},
     channel,
     testing::{KafkaTestSource, kafka_record},
 };
@@ -22,16 +22,13 @@ fn order(offset: i64, value: &str) -> KafkaRecord<Vec<u8>> {
 
 /// The record a consumer of the dead-letter topic receives for `publish`.
 fn received(publish: KafkaPublish<Vec<u8>>, offset: i64) -> KafkaRecord<Vec<u8>> {
+    let mut metadata = kafka_record("orders-dlq", 0, offset, "").metadata;
+    metadata.timestamp = Some(5_000);
     KafkaRecord {
         key: publish.key,
         value: publish.value,
         headers: publish.headers,
-        metadata: KafkaMetadata {
-            topic: "orders-dlq".into(),
-            partition: 0,
-            offset,
-            timestamp: Some(5_000),
-        },
+        metadata,
     }
 }
 
@@ -53,7 +50,7 @@ async fn dead_letter(name: &str, records: Vec<KafkaRecord<Vec<u8>>>) -> Vec<Kafk
                 InMemorySink::<u32>::default(),
                 reject_odd,
             )
-            .dlq_with(dlq.clone(), |dead| Ok(KafkaPublish::from_dead_letter(dead)))
+            .dead_letter_with(dlq.clone(), |dead| Ok(KafkaPublish::from_dead_letter(dead)))
             .error_policy(ErrorPolicy::dead_letter_all()),
         )
         .run()
@@ -186,7 +183,7 @@ async fn chained_dead_letters_forward_the_first_upstream_record() {
                 InMemorySink::default(),
                 |_: u32| async move { Err::<u32, _>(HandlerError::Reject(BoxError::from("odd"))) },
             )
-            .dlq_with(dlq.clone(), |dead: DeadLetter<u32, ChannelRaw>| {
+            .dead_letter_with(dlq.clone(), |dead: DeadLetter<u32, ChannelRaw>| {
                 let dead = dead.try_map_raw(|raw| {
                     raw.downcast_ref::<KafkaRecord<Vec<u8>>>()
                         .cloned()

@@ -60,7 +60,7 @@ async fn dead_letter(
                 InMemorySink::<u32>::default(),
                 reject_odd,
             )
-            .dlq_with(dlq.clone(), |dead| {
+            .dead_letter_with(dlq.clone(), |dead| {
                 Ok(ServiceBusPublish::from_dead_letter(dead))
             })
             .error_policy(ErrorPolicy::dead_letter_all()),

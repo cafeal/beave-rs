@@ -73,13 +73,13 @@ impl ServiceBusPublish<Vec<u8>> {
     /// application properties, and message properties, plus failure-detail string
     /// application properties named with [`DEAD_LETTER_HEADER_PREFIX`].
     ///
-    /// Pass it to [`Subscription::dlq_with`](crate::Subscription::dlq_with) with a sink that
-    /// sends raw bytes. When the original message already carries dead-letter properties,
+    /// Pass it to [`Subscription::dead_letter_with`](crate::Subscription::dead_letter_with) with a
+    /// sink that sends raw bytes. When the original message already carries dead-letter properties,
     /// because it was received from a dead-letter entity, its origin is kept and its count is
-    /// incremented. Malformed dead-letter properties are replaced as if the message had never
-    /// been dead-lettered. The message ID and time to live are cleared, so duplicate
-    /// detection on the dead-letter entity does not drop a payload dead-lettered again and
-    /// the dead letter does not expire with the original's time to live.
+    /// incremented. Malformed dead-letter properties are replaced as if the message had never been
+    /// dead-lettered. The message ID and time to live are cleared, so duplicate detection on the
+    /// dead-letter entity does not drop a payload dead-lettered again and the dead letter does not
+    /// expire with the original's time to live.
     pub fn from_dead_letter<I>(dead_letter: DeadLetter<I, ServiceBusRecord<Vec<u8>>>) -> Self {
         let previous = ServiceBusDeadLetter::from_record(&dead_letter.raw)
             .ok()

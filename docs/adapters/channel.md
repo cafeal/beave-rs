@@ -89,14 +89,14 @@ letters carry the value as their input and the original record, such as a
 their raw delivery. Through several channels, `ChannelRaw` stays the delivery
 of the first subscription. It serializes as that record, so a JSON dead-letter
 sink publishes it unchanged, and `ChannelRaw::downcast_ref` reads it as its
-concrete type in `dlq_with`, and `DeadLetter::try_map_raw` replaces it so
+concrete type in `dead_letter_with`, and `DeadLetter::try_map_raw` replaces it so
 the dead letter can be [forwarded to a broker topic](../runtime/errors.md#forwarding-dead-letters-to-a-broker-topic):
 
 ```rust,ignore
 type Raw = KafkaRecord<Vec<u8>>;
 
 Subscription::new("score", fetched, kafka_sink, score)
-    .dlq_with(dead_letter_sink, |dead_letter: DeadLetter<Document, ChannelRaw>| {
+    .dead_letter_with(dead_letter_sink, |dead_letter: DeadLetter<Document, ChannelRaw>| {
         let dead_letter = dead_letter.try_map_raw(|raw| {
             raw.downcast_ref::<Raw>().cloned().context("no Kafka record")
         })?;

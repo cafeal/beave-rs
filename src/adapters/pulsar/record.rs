@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 /// Read-only facts about a received message.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub struct PulsarMetadata {
     /// The topic the message was received from. For a partitioned topic this
     /// is the partition's topic, such as `persistent://tenant/ns/orders-partition-2`.
@@ -11,7 +12,7 @@ pub struct PulsarMetadata {
     /// Broker-assigned ID of the message.
     pub message_id: PulsarMessageId,
     /// Broker publish time in milliseconds since the Unix epoch.
-    pub publish_time: u64,
+    pub publish_time: i64,
 }
 
 /// The broker-assigned position of a message.
@@ -42,13 +43,6 @@ pub struct PulsarRecord<T> {
     pub event_time: Option<u64>,
     /// Topic, message ID, and publish time of the message.
     pub metadata: PulsarMetadata,
-}
-
-impl<T> PulsarRecord<T> {
-    /// Topic, message ID, and publish time of the message.
-    pub fn metadata(&self) -> &PulsarMetadata {
-        &self.metadata
-    }
 }
 
 /// User-controlled Pulsar output. A `None` value is a tombstone, published as

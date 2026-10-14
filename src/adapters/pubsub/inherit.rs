@@ -1,9 +1,9 @@
 use super::record::{PubSubPublish, PubSubRecord};
 use crate::{
     dead_letter::DEAD_LETTER_HEADER_PREFIX,
-    forward::{SamePlatform, ValueRecord},
     handler::Result,
     middleware::Middleware,
+    record::{SamePlatform, ValueRecord},
 };
 
 /// Pub/Sub-to-Pub/Sub middleware that copies the received message attributes,

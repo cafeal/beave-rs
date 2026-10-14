@@ -468,9 +468,9 @@ The crate is published as `beavers`; versioning and the compatibility contract
 are described in [versioning and releases](releasing.md). Remaining work before
 the first crates.io release:
 
-- Review the public API: internal types leaking through public signatures,
-  `#[non_exhaustive]` on configuration structs and enums that are expected to
-  grow, and names that should change before `0.1.0`.
+- Decide a consistent set of `with_*` builder methods on the `*Publish` types,
+  which differ by adapter: `KafkaPublish` and `PulsarPublish` have none, while
+  `SqsPublish` has only `with_message_group_id`.
 - After the first release, add `cargo-semver-checks` to CI and switch the
   release workflow from the API token to crates.io trusted publishing.
 - Create the project icon and character, and place them in the landing page

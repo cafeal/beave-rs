@@ -1,8 +1,8 @@
 use beavers::{
     App, Emit, InMemorySink, IterSource, PropagationCarrier, Result, Subscription, Tombstones,
-    adapters::kafka::{KafkaInherit, KafkaMetadata, KafkaPublish, KafkaRecord},
+    adapters::kafka::{KafkaInherit, KafkaPublish, KafkaRecord},
+    testing::kafka_record,
 };
-use std::sync::atomic::Ordering;
 
 type Header = (String, Option<Vec<u8>>);
 
@@ -11,16 +11,13 @@ fn header(name: &str, value: &str) -> Header {
 }
 
 fn record() -> KafkaRecord<String> {
+    let mut metadata = kafka_record("orders", 3, 42, "").metadata;
+    metadata.timestamp = Some(1_000);
     KafkaRecord {
         key: Some(b"customer-7".to_vec()),
         value: Some("order".to_owned()),
         headers: vec![header("trace", "abc"), header("kind", "new")],
-        metadata: KafkaMetadata {
-            topic: "orders".into(),
-            partition: 3,
-            offset: 42,
-            timestamp: Some(1_000),
-        },
+        metadata,
     }
 }
 
@@ -216,14 +213,14 @@ async fn value_handlers_reject_null_kafka_values() {
                 sink.clone(),
                 |value: String| async move { Ok(value) },
             )
-            .dlq_with(dlq.clone(), |dead_letter| Ok(dead_letter.input.unwrap())),
+            .dead_letter_with(dlq.clone(), |dead_letter| Ok(dead_letter.input.unwrap())),
         )
         .run()
         .await
         .unwrap();
     assert!(sink.values().is_empty());
     assert_eq!(dlq.values(), vec![tombstone]);
-    assert_eq!(acks.load(Ordering::SeqCst), 1);
+    assert_eq!(acks.count(), 1);
 }
 
 #[tokio::test]
@@ -245,7 +242,7 @@ async fn tombstone_policies_run_before_the_value_handler() {
                 |value: String| async move { Ok(value.len()) },
             )
             .middleware(Tombstones::propagate())
-            .dlq_with(dlq.clone(), |dead_letter| Ok(dead_letter.input.unwrap())),
+            .dead_letter_with(dlq.clone(), |dead_letter| Ok(dead_letter.input.unwrap())),
         )
         .run()
         .await
@@ -267,7 +264,7 @@ async fn tombstone_policies_run_before_the_value_handler() {
         ]
     );
     assert_eq!(dlq.values(), vec![keyless]);
-    assert_eq!(acks.load(Ordering::SeqCst), 3);
+    assert_eq!(acks.count(), 3);
 }
 
 #[tokio::test]
@@ -291,7 +288,7 @@ async fn skipped_tombstones_are_acknowledged_without_output() {
         .await
         .unwrap();
     assert!(sink.values().is_empty());
-    assert_eq!(acks.load(Ordering::SeqCst), 1);
+    assert_eq!(acks.count(), 1);
 }
 
 #[test]

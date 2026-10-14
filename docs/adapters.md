@@ -92,7 +92,8 @@ platform-specific message models explicit below `beavers::adapters::kafka`,
 `beavers::adapters::servicebus`. Each decodes source
 messages into a broker-specific `*Record<T>` containing delivery metadata and
 accept a separate `*Publish<T>` type for user-controlled output. Prepared
-payloads hold encoded bytes for retries. See the dedicated guides for each
+outputs hold encoded bytes for retries; their fields are private, and
+`payload()` returns the encoded bytes. See the dedicated guides for each
 broker's configuration and delivery behavior.
 
 Each broker adapter starts from a connection handle: `Kafka`, `Pulsar`,

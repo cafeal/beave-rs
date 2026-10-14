@@ -31,7 +31,7 @@ impl PulsarAuthentication {
     }
 
     pub(super) fn provider(&self) -> Arc<dyn AuthProvider> {
-        Arc::new(self.clone())
+        Arc::new(StaticAuth(self.clone()))
     }
 
     pub(super) fn validate(&self) -> Result<(), Error> {
@@ -49,13 +49,18 @@ impl PulsarAuthentication {
     }
 }
 
-impl AuthProvider for PulsarAuthentication {
+/// Sends [`PulsarAuthentication`] through the client without making the
+/// client's provider trait part of the public type.
+#[derive(Debug)]
+struct StaticAuth(PulsarAuthentication);
+
+impl AuthProvider for StaticAuth {
     fn method(&self) -> &str {
-        &self.name
+        &self.0.name
     }
 
     fn initial(&self) -> Result<Bytes, AuthError> {
-        Ok(Bytes::copy_from_slice(&self.data))
+        Ok(Bytes::copy_from_slice(&self.0.data))
     }
 }
 
@@ -73,13 +78,14 @@ pub enum PulsarSubscriptionType {
     KeyShared,
 }
 
-impl From<PulsarSubscriptionType> for SubType {
-    fn from(value: PulsarSubscriptionType) -> Self {
-        match value {
-            PulsarSubscriptionType::Exclusive => Self::Exclusive,
-            PulsarSubscriptionType::Shared => Self::Shared,
-            PulsarSubscriptionType::Failover => Self::Failover,
-            PulsarSubscriptionType::KeyShared => Self::KeyShared,
+impl PulsarSubscriptionType {
+    /// The client's subscription type.
+    pub(super) fn sub_type(self) -> SubType {
+        match self {
+            Self::Exclusive => SubType::Exclusive,
+            Self::Shared => SubType::Shared,
+            Self::Failover => SubType::Failover,
+            Self::KeyShared => SubType::KeyShared,
         }
     }
 }
@@ -103,12 +109,10 @@ impl SourceConfig {
             subscription_type: PulsarSubscriptionType::Shared,
             buffer_size: 100,
             empty_payload_is_tombstone: true,
-            ack_retry: RetryPolicy {
-                max_attempts: 5,
-                initial_delay: Duration::from_millis(100),
-                max_delay: Duration::from_secs(2),
-                ..RetryPolicy::default()
-            },
+            ack_retry: RetryPolicy::default()
+                .max_attempts(5)
+                .initial_delay(Duration::from_millis(100))
+                .max_delay(Duration::from_secs(2)),
         }
     }
 
@@ -143,12 +147,10 @@ impl SinkConfig {
             topic,
             producer_name: None,
             max_pending: 1000,
-            send_retry: RetryPolicy {
-                max_attempts: 10,
-                initial_delay: Duration::from_millis(100),
-                max_delay: Duration::from_secs(5),
-                ..RetryPolicy::default()
-            },
+            send_retry: RetryPolicy::default()
+                .max_attempts(10)
+                .initial_delay(Duration::from_millis(100))
+                .max_delay(Duration::from_secs(5)),
         }
     }
 

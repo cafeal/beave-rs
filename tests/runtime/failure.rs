@@ -24,7 +24,7 @@ async fn reject_goes_to_dlq_before_ack() {
                 InMemorySink::<i32>::default(),
                 |_| async { Err(HandlerError::Reject(BoxError::from("invalid"))) },
             )
-            .dlq(dlq.clone()),
+            .dead_letter(dlq.clone()),
         )
         .run()
         .await
@@ -35,7 +35,7 @@ async fn reject_goes_to_dlq_before_ack() {
     assert_eq!(dead_letter.error, "invalid");
     assert_eq!(dead_letter.attempts, 1);
     assert_eq!(dead_letter.input, Some(7));
-    assert_eq!(acks.load(Ordering::SeqCst), 1);
+    assert_eq!(acks.count(), 1);
 }
 
 #[tokio::test]
@@ -61,7 +61,7 @@ async fn rejects_without_dlq_and_fatal_leave_input_unacked() {
                 .await
                 .is_err()
         );
-        assert_eq!(acks.load(Ordering::SeqCst), 0);
+        assert_eq!(acks.count(), 0);
     }
 }
 
@@ -106,14 +106,14 @@ async fn failed_dlq_does_not_ack() {
                     InMemorySink::<i32>::default(),
                     |_| async { Err(HandlerError::Reject(BoxError::from("reject"))) }
                 )
-                .dlq_with(dlq, |dead_letter| Ok(dead_letter.input.unwrap()))
-                .dlq_retry(fast())
+                .dead_letter_with(dlq, |dead_letter| Ok(dead_letter.input.unwrap()))
+                .dead_letter_retry(fast())
             )
             .run()
             .await
             .is_err()
     );
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
 }
 
 #[tokio::test]
@@ -145,7 +145,7 @@ async fn mapping_failure_does_not_rerun_handler_or_publish() {
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(sink.values().is_empty());
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
 }
 
 #[tokio::test]
@@ -169,7 +169,7 @@ async fn rejected_mapping_publishes_no_output_and_dead_letters_input() {
                     Ok(n)
                 }
             }))
-            .dlq(dlq.clone()),
+            .dead_letter(dlq.clone()),
         )
         .run()
         .await
@@ -178,7 +178,7 @@ async fn rejected_mapping_publishes_no_output_and_dead_letters_input() {
     let [dead_letter]: [DeadLetter<i32, ()>; 1] = dlq.values().try_into().unwrap();
     assert_eq!(dead_letter.failure, FailureKind::Rejected);
     assert_eq!(dead_letter.input, Some(3));
-    assert_eq!(acks.load(Ordering::SeqCst), 1);
+    assert_eq!(acks.count(), 1);
 }
 
 #[tokio::test]
@@ -204,5 +204,5 @@ async fn rejected_mapping_without_dlq_leaves_input_unacked() {
             .is_err()
     );
     assert!(sink.values().is_empty());
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
 }

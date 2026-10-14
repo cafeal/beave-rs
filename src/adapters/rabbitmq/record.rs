@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 /// both read as `String`; a long string that is not UTF-8 is read as `Bytes`.
 /// `String` is published as a long string and `Bytes` as a byte array.
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[non_exhaustive]
 pub enum RabbitMqValue {
     /// A field without a value.
     Void,
@@ -123,6 +124,7 @@ pub struct RabbitMqProperties {
 
 /// Read-only facts about a received message.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub struct RabbitMqMetadata {
     /// The queue the source consumes.
     pub queue: String,
@@ -150,13 +152,6 @@ pub struct RabbitMqRecord<T> {
     pub properties: RabbitMqProperties,
     /// Queue, exchange, routing key, and delivery facts of the message.
     pub metadata: RabbitMqMetadata,
-}
-
-impl<T> RabbitMqRecord<T> {
-    /// Queue, exchange, routing key, and delivery facts of the message.
-    pub fn metadata(&self) -> &RabbitMqMetadata {
-        &self.metadata
-    }
 }
 
 /// User-controlled RabbitMQ output. The exchange comes from the sink configuration.

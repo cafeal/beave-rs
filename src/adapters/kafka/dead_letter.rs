@@ -56,11 +56,11 @@ impl KafkaPublish<Vec<u8>> {
     /// headers, followed by failure-detail headers named with
     /// [`DEAD_LETTER_HEADER_PREFIX`].
     ///
-    /// Pass it to [`Subscription::dlq_with`](crate::Subscription::dlq_with) with a sink that
-    /// publishes raw bytes. When the original record already carries dead-letter headers,
+    /// Pass it to [`Subscription::dead_letter_with`](crate::Subscription::dead_letter_with) with a
+    /// sink that publishes raw bytes. When the original record already carries dead-letter headers,
     /// because it was received from a dead-letter topic, its origin is kept and its count is
-    /// incremented. Malformed dead-letter headers are replaced as if the record had never
-    /// been dead-lettered. A null value stays null.
+    /// incremented. Malformed dead-letter headers are replaced as if the record had never been
+    /// dead-lettered. A null value stays null.
     pub fn from_dead_letter<I>(dead_letter: DeadLetter<I, KafkaRecord<Vec<u8>>>) -> Self {
         let previous = KafkaDeadLetter::from_record(&dead_letter.raw)
             .ok()

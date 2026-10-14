@@ -5,6 +5,7 @@ use std::time::Duration;
 
 /// How deliveries that share an [`OrderingKey`](crate::message::OrderingKey) are scheduled.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ProcessingOrder {
     /// Process deliveries with the same ordering key one at a time, in receive
     /// order. Deliveries with different keys, or without a key, run in parallel.
@@ -22,6 +23,7 @@ pub enum ProcessingOrder {
 /// delivery, whichever comes first. Batches commit one at a time; deliveries
 /// that complete while a batch commits form the next one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TransactionBatch {
     /// Maximum number of deliveries committed in one transaction.
     pub max_deliveries: usize,
@@ -62,38 +64,37 @@ impl Default for TransactionBatch {
 
 /// Concurrency, ordering, retry, and failure settings of one subscription.
 ///
-/// Set fields directly or through the matching [`Subscription`](crate::Subscription) builder
-/// methods. Invalid values fail validation before the application starts.
+/// Set through the matching [`Subscription`](crate::Subscription) builder methods. Invalid
+/// values fail validation before the application starts.
 #[derive(Clone, Debug)]
-pub struct SubscriptionConfig {
+pub(crate) struct SubscriptionConfig {
     /// Maximum number of deliveries processed at the same time.
-    pub concurrency: usize,
+    pub(crate) concurrency: usize,
     /// Maximum number of received deliveries that are unfinished, including
     /// deliveries waiting behind an earlier delivery with the same ordering key.
-    pub max_in_flight: usize,
+    pub(crate) max_in_flight: usize,
     /// Maximum number of received but unfinished deliveries with one ordering
     /// key before the source is asked to pause that key; `None` never pauses.
-    /// See [`Subscription::max_in_flight_per_key`](crate::Subscription::max_in_flight_per_key).
-    pub max_in_flight_per_key: Option<usize>,
+    pub(crate) max_in_flight_per_key: Option<usize>,
     /// How deliveries that share an ordering key are scheduled.
-    pub ordering: ProcessingOrder,
+    pub(crate) ordering: ProcessingOrder,
     /// Retries of the handler after [`HandlerError::Retry`](crate::HandlerError::Retry).
-    pub handler_retry: RetryPolicy,
+    pub(crate) handler_retry: RetryPolicy,
     /// Retries of [`Source::receive`](crate::Source::receive) after
     /// [`ReceiveError::Retry`](crate::ReceiveError::Retry).
-    pub receive_retry: RetryPolicy,
+    pub(crate) receive_retry: RetryPolicy,
     /// Retries of output publication.
-    pub publish_retry: RetryPolicy,
+    pub(crate) publish_retry: RetryPolicy,
     /// Retries of dead-letter publication.
-    pub dead_letter_retry: RetryPolicy,
+    pub(crate) dead_letter_retry: RetryPolicy,
     /// What happens to a delivery after a routable failure.
-    pub error_policy: ErrorPolicy,
+    pub(crate) error_policy: ErrorPolicy,
     /// Bound on draining outstanding deliveries when the subscription stops. Closing the
     /// source and sinks afterwards has a separate timeout of the same duration.
-    pub drain_timeout: Duration,
+    pub(crate) drain_timeout: Duration,
     /// Batching of a [transactional](crate::Subscription::transactional)
     /// subscription's commits; ignored by other subscriptions.
-    pub transaction_batch: TransactionBatch,
+    pub(crate) transaction_batch: TransactionBatch,
 }
 impl Default for SubscriptionConfig {
     fn default() -> Self {

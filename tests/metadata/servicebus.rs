@@ -1,13 +1,17 @@
 use beavers::{
     App, InMemorySink, IterSource, PropagationCarrier, Subscription,
     adapters::servicebus::{
-        ServiceBusApplicationProperties, ServiceBusInherit, ServiceBusMetadata,
-        ServiceBusProperties, ServiceBusPublish, ServiceBusRecord, ServiceBusValue,
+        ServiceBusApplicationProperties, ServiceBusInherit, ServiceBusProperties,
+        ServiceBusPublish, ServiceBusRecord, ServiceBusValue,
     },
+    testing::servicebus_record,
 };
 use std::time::Duration;
 
 fn record() -> ServiceBusRecord<String> {
+    let mut metadata = servicebus_record("orders", 10, "").metadata;
+    metadata.enqueued_time = Some(1);
+    metadata.lock_token = "00000000-0000-0000-0000-000000000001".into();
     ServiceBusRecord {
         value: "order".to_owned(),
         application_properties: ServiceBusApplicationProperties::from([
@@ -24,15 +28,7 @@ fn record() -> ServiceBusRecord<String> {
             partition_key: Some("customer-7".into()),
             ..ServiceBusProperties::default()
         },
-        metadata: ServiceBusMetadata {
-            entity_path: "orders".into(),
-            sequence_number: 10,
-            enqueued_time: Some(1),
-            scheduled_enqueue_time: None,
-            delivery_count: 1,
-            lock_token: "00000000-0000-0000-0000-000000000001".into(),
-            dead_letter_source: None,
-        },
+        metadata,
     }
 }
 

@@ -1,7 +1,7 @@
 use beavers::{
     App, BoxError, DeadLetter, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json,
     OrderingKey, Receive, Source, SourceMessage, Subscription,
-    adapters::kafka::{KafkaInherit, KafkaMetadata, KafkaPublish, KafkaRecord},
+    adapters::kafka::{KafkaInherit, KafkaPublish, KafkaRecord},
     testing::{KafkaTestSource, kafka_record},
 };
 
@@ -23,20 +23,15 @@ fn order(offset: i64, value: &str) -> KafkaRecord<Vec<u8>> {
 
 #[test]
 fn kafka_record_fills_the_delivery_location() {
-    assert_eq!(
-        kafka_record("orders", 3, 42, "7"),
-        KafkaRecord {
-            key: None,
-            value: Some(b"7".to_vec()),
-            headers: Vec::new(),
-            metadata: KafkaMetadata {
-                topic: "orders".into(),
-                partition: 3,
-                offset: 42,
-                timestamp: None,
-            },
-        }
-    );
+    let record = kafka_record("orders", 3, 42, "7");
+    assert_eq!(record.key, None);
+    assert_eq!(record.value, Some(b"7".to_vec()));
+    assert!(record.headers.is_empty());
+    let metadata = &record.metadata;
+    assert_eq!(metadata.topic, "orders");
+    assert_eq!(metadata.partition, 3);
+    assert_eq!(metadata.offset, 42);
+    assert_eq!(metadata.timestamp, None);
 }
 
 #[tokio::test]
@@ -123,7 +118,7 @@ async fn dead_letters_keep_the_raw_kafka_record() {
                     Ok(KafkaPublish::new(value))
                 },
             )
-            .dlq(dlq.clone())
+            .dead_letter(dlq.clone())
             .error_policy(ErrorPolicy::dead_letter_all()),
         )
         .run()

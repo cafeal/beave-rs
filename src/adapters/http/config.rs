@@ -53,6 +53,7 @@ pub(super) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Request method of an [`HttpSink`](super::HttpSink).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum HttpMethod {
     /// `POST`, the default.
     #[default]

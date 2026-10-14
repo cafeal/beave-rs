@@ -1,9 +1,9 @@
 use super::record::{SqsPublish, SqsRecord};
 use crate::{
     dead_letter::DEAD_LETTER_HEADER_PREFIX,
-    forward::{SamePlatform, ValueRecord},
     handler::Result,
     middleware::Middleware,
+    record::{SamePlatform, ValueRecord},
 };
 
 /// SQS-to-SQS middleware that copies the received message attributes, and

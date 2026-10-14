@@ -27,7 +27,7 @@ async fn shutdown_aborts_timed_out_processing_without_ack() {
         .drain_timeout(Duration::from_millis(10)),
     );
     assert!(app.run_until(token).await.is_err());
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
 }
 
 #[tokio::test]
@@ -65,8 +65,8 @@ async fn backpressure_limits_receiving_and_allows_parallel_work() {
     .await
     .unwrap();
     assert_eq!(entered.load(Ordering::SeqCst), 2);
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
     gate.add_permits(6);
     run.await.unwrap().unwrap();
-    assert_eq!(acks.load(Ordering::SeqCst), 6);
+    assert_eq!(acks.count(), 6);
 }

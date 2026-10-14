@@ -1,9 +1,9 @@
 use super::record::{RabbitMqPublish, RabbitMqRecord};
 use crate::{
     dead_letter::DEAD_LETTER_HEADER_PREFIX,
-    forward::{SamePlatform, ValueRecord},
     handler::Result,
     middleware::Middleware,
+    record::{SamePlatform, ValueRecord},
 };
 
 /// RabbitMQ-to-RabbitMQ middleware that copies the received headers and

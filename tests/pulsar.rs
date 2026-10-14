@@ -3,8 +3,8 @@
 use beavers::{
     BoxError, Receive, ReceiveError, RetryPolicy, Sink, Source, SourceMessage, Utf8,
     adapters::pulsar::{
-        Pulsar, PulsarAuthentication, PulsarMessage, PulsarMessageId, PulsarMetadata,
-        PulsarPublish, PulsarRecord, PulsarSource, PulsarSubscriptionType,
+        Pulsar, PulsarAuthentication, PulsarMessage, PulsarPublish, PulsarSource,
+        PulsarSubscriptionType,
     },
 };
 use tokio::{
@@ -13,42 +13,6 @@ use tokio::{
     task::JoinSet,
 };
 
-#[test]
-fn records_keep_delivery_facts_separate_from_application_fields() {
-    let record = PulsarRecord {
-        value: Some("order-1".to_owned()),
-        key: Some(b"customer-7".to_vec()),
-        properties: [("kind".to_owned(), "order".to_owned())].into(),
-        event_time: Some(42),
-        metadata: PulsarMetadata {
-            topic: "persistent://public/default/orders".to_owned(),
-            message_id: PulsarMessageId {
-                ledger_id: 7,
-                entry_id: 3,
-                partition: -1,
-                batch_index: -1,
-            },
-            publish_time: 41,
-        },
-    };
-    assert_eq!(record.key.as_deref(), Some(b"customer-7".as_slice()));
-    assert_eq!(
-        record.properties.get("kind").map(String::as_str),
-        Some("order")
-    );
-    assert_eq!(record.event_time, Some(42));
-    assert_eq!(record.metadata.topic, "persistent://public/default/orders");
-    assert_eq!(record.metadata.publish_time, 41);
-
-    let mut publish = PulsarPublish::new("processed".to_owned());
-    publish.key = record.key.clone();
-    publish.properties = record.properties.clone();
-    publish.event_time = record.event_time;
-    assert_eq!(publish.value.as_deref(), Some("processed"));
-    assert_eq!(publish.key, record.key);
-    assert_eq!(publish.properties, record.properties);
-    assert_eq!(publish.event_time, record.event_time);
-}
 use std::{
     collections::HashSet,
     env,
@@ -76,13 +40,13 @@ fn tombstones_are_prepared_as_null_values() {
     let tombstone = sink
         .prepare(PulsarPublish::tombstone(b"customer-7".to_vec()))
         .unwrap();
-    assert_eq!(tombstone.value, None);
-    assert_eq!(tombstone.key.as_deref(), Some(b"customer-7".as_slice()));
+    assert_eq!(tombstone.payload(), None);
+    assert_eq!(tombstone.key(), Some(b"customer-7".as_slice()));
     assert_eq!(
         sink.prepare(PulsarPublish::new(String::new()))
             .unwrap()
-            .value,
-        Some(Vec::new())
+            .payload(),
+        Some(&[][..])
     );
 }
 
@@ -134,10 +98,7 @@ fn settings_validate_without_connecting() {
             .validate()
             .is_err()
     );
-    let unsent = RetryPolicy {
-        max_attempts: 0,
-        ..RetryPolicy::default()
-    };
+    let unsent = RetryPolicy::default().max_attempts(0);
     assert!(
         pulsar
             .sink::<Utf8>("topic")
