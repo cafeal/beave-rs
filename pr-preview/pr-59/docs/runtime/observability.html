@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Observability - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="observability.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="handlers.html">Handlers</a></li><li><a href="script-handlers.html">Lua and Python handlers</a></li><li><a href="middleware.html">Middleware</a></li><li><a href="errors.html">Errors and retries</a></li><li><a href="tombstones.html">Tombstones</a></li><li><a href="transactions.html">Transactions</a></li><li><a href="observability.html" aria-current="page">Observability</a></li><li><a href="health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/local.html">Local adapters</a></li><li><a href="../adapters/channel.html">Channel</a></li><li><a href="../adapters/kafka.html">Kafka</a></li><li><a href="../adapters/pulsar.html">Pulsar</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="../adapters/sqs.html">SQS</a></li><li><a href="../adapters/pubsub.html">Pub/Sub</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus</a></li><li><a href="../adapters/http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-bytes.html">Raw bytes</a></li><li><a href="../codecs/utf8.html">UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li><li><a href="../codecs/msgpack.html">MessagePack</a></li><li><a href="../codecs/cbor.html">CBOR</a></li><li><a href="../codecs/wrappers.html">Codec wrappers</a><ul><li><a href="../codecs/wrappers/base64.html">Base64</a></li><li><a href="../codecs/wrappers/gzip.html">Gzip</a></li><li><a href="../codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="observability">Observability</h1>
+<p>The runtime reports through the <a href="https://docs.rs/tracing"><code>tracing</code></a> and
+<a href="https://docs.rs/metrics"><code>metrics</code></a> facades. Both do nothing until the
+application installs a subscriber or recorder, such as <code>tracing-subscriber</code>
+or a Prometheus exporter. Metric handles are registered when a subscription
+starts, so install the recorder before <code>App::run</code>.</p>
+<h2 id="spans">Spans</h2>
+<pre><code class="hljs language-text">subscription                 subscription = &lt;name&gt;
+  └── message                one per delivery
+       ├── decode
+       ├── handler           one per attempt, with `attempt`
+       ├── encode            `Sink::prepare` for every output
+       ├── publish           every output, including publish retries
+       ├── dead_letter       conversion and dead-letter publication
+       └── ack
+  └── commit                 transactional subscriptions: every attempt to commit
+                             a batch, with `deliveries` and `outputs`
+</code></pre><p>A <a href="transactions.html">transactional subscription</a> records no <code>publish</code> or <code>ack</code>
+span. Its <code>commit</code> spans belong to the subscription, not to a delivery,
+because one transaction commits several deliveries.</p>
+<p><code>pre_handler</code> and <code>post_handler</code> middleware run in the <code>message</code> span.</p>
+<h3 id="messaging-attributes">Messaging attributes</h3>
+<p>Broker sources describe each delivery through
+<code>SourceMessage::messaging_attributes</code>, and the runtime records the
+<a href="https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/">OpenTelemetry messaging semantic conventions</a>
+on its <code>message</code> span. With an OpenTelemetry layer, the span is exported as a
+consumer span named <code>process &lt;destination&gt;</code>, such as <code>process orders</code>, and
+carries <code>messaging.operation.type</code> and <code>messaging.operation.name</code> set to
+<code>process</code> together with:</p>
+<table>
+<thead>
+<tr>
+<th>Adapter</th>
+<th><code>messaging.system</code></th>
+<th>Destination</th>
+<th>Other attributes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Kafka</td>
+<td><code>kafka</code></td>
+<td>Topic</td>
+<td><code>messaging.destination.partition.id</code>, <code>messaging.kafka.offset</code>, <code>messaging.consumer.group.name</code></td>
+</tr>
+<tr>
+<td>Pulsar</td>
+<td><code>pulsar</code></td>
+<td>Configured topic</td>
+<td><code>messaging.destination.partition.id</code> for a partitioned topic, <code>messaging.destination.subscription.name</code>, <code>messaging.message.id</code></td>
+</tr>
+<tr>
+<td>RabbitMQ</td>
+<td><code>rabbitmq</code></td>
+<td>Queue</td>
+<td><code>messaging.message.id</code> when the publisher set one</td>
+</tr>
+<tr>
+<td>SQS</td>
+<td><code>aws_sqs</code></td>
+<td>Queue name</td>
+<td><code>messaging.message.id</code></td>
+</tr>
+<tr>
+<td>Pub/Sub</td>
+<td><code>gcp_pubsub</code></td>
+<td>None</td>
+<td><code>messaging.destination.subscription.name</code>, <code>messaging.message.id</code></td>
+</tr>
+<tr>
+<td>Azure Service Bus</td>
+<td><code>servicebus</code></td>
+<td>Queue or topic</td>
+<td><code>messaging.destination.subscription.name</code> for a topic subscription, <code>messaging.message.id</code> when set</td>
+</tr>
+</tbody></table>
+<p>Other sources report no attributes, and their span keeps the name <code>message</code>.
+A custom source returns a <code>MessagingAttributes</code> built from its own metadata.
+Metrics do not carry these attributes, because partitions and message IDs would
+multiply the number of series. Outputs get no producer span of their own; the
+<a href="#trace-context-propagation">trace context</a> of the <code>message</code> span continues
+downstream.</p>
+<h2 id="events">Events</h2>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Level</th>
+<th>Fields</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>subscription started</code> / <code>subscription stopped</code></td>
+<td>INFO</td>
+<td></td>
+</tr>
+<tr>
+<td><code>subscription failed</code></td>
+<td>ERROR</td>
+<td><code>error</code></td>
+</tr>
+<tr>
+<td><code>discarding delivery</code></td>
+<td>WARN</td>
+<td><code>failure</code>, <code>attempts</code>, <code>error</code></td>
+</tr>
+<tr>
+<td><code>dead-lettered delivery</code></td>
+<td>WARN</td>
+<td><code>failure</code>, <code>attempts</code>, <code>error</code></td>
+</tr>
+<tr>
+<td><code>retrying receive</code></td>
+<td>WARN</td>
+<td><code>attempt</code>, <code>delay</code>, <code>error</code></td>
+</tr>
+<tr>
+<td><code>retrying handler</code> / <code>retrying publish</code></td>
+<td>DEBUG</td>
+<td><code>attempt</code>, <code>error</code></td>
+</tr>
+<tr>
+<td><code>abandoned revoked delivery</code></td>
+<td>DEBUG</td>
+<td></td>
+</tr>
+</tbody></table>
+<p>A discarded delivery is always logged and counted, because
+<code>FailureAction::Discard</code> leaves no other trace.</p>
+<h2 id="metrics">Metrics</h2>
+<p>Every metric carries a <code>subscription</code> label with the subscription name.</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Type</th>
+<th>Additional labels</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>beavers_deliveries_received_total</code></td>
+<td>counter</td>
+<td></td>
+<td>Deliveries received from the source</td>
+</tr>
+<tr>
+<td><code>beavers_deliveries_acknowledged_total</code></td>
+<td>counter</td>
+<td></td>
+<td>Successful ACKs or transaction commits, including after discard and dead-lettering</td>
+</tr>
+<tr>
+<td><code>beavers_delivery_failures_total</code></td>
+<td>counter</td>
+<td><code>failure</code>, <code>action</code></td>
+<td>Routable failures by <code>FailureKind</code> and the action taken</td>
+</tr>
+<tr>
+<td><code>beavers_handler_retries_total</code></td>
+<td>counter</td>
+<td></td>
+<td>Handler attempts that returned <code>Retry</code> and were retried</td>
+</tr>
+<tr>
+<td><code>beavers_publish_failures_total</code></td>
+<td>counter</td>
+<td><code>sink</code> (<code>output</code>, <code>dead_letter</code>)</td>
+<td>Failed publish or transaction commit attempts, including retried ones</td>
+</tr>
+<tr>
+<td><code>beavers_receive_errors_total</code></td>
+<td>counter</td>
+<td></td>
+<td>Failed receive attempts</td>
+</tr>
+<tr>
+<td><code>beavers_deliveries_revoked_total</code></td>
+<td>counter</td>
+<td></td>
+<td>Deliveries abandoned after revocation</td>
+</tr>
+<tr>
+<td><code>beavers_deliveries_in_flight</code></td>
+<td>gauge</td>
+<td></td>
+<td>Received deliveries that have not finished</td>
+</tr>
+<tr>
+<td><code>beavers_source_connected</code></td>
+<td>gauge</td>
+<td></td>
+<td><code>1</code> while the source is connected to its broker, <code>0</code> while it is not; Kafka and Pulsar sources only</td>
+</tr>
+<tr>
+<td><code>beavers_stage_duration_seconds</code></td>
+<td>histogram</td>
+<td><code>stage</code></td>
+<td>Duration of <code>decode</code>, <code>handler</code>, <code>encode</code>, <code>publish</code>, <code>complete</code>, <code>dead_letter</code>, <code>ack</code>, and <code>commit</code></td>
+</tr>
+<tr>
+<td><code>beavers_transaction_deliveries</code></td>
+<td>histogram</td>
+<td></td>
+<td>Deliveries in each committed transaction</td>
+</tr>
+</tbody></table>
+<p><code>failure</code> is <code>decode</code>, <code>rejected</code>, <code>retry_exhausted</code>, <code>encode</code>, or
+<code>publish_rejected</code>. <code>action</code> is
+<code>stop</code>, <code>dead_letter</code>, or <code>discard</code>; a <code>DeadLetter</code> action without a
+dead-letter sink is reported as <code>stop</code>, which is what it does. A failure is
+counted when it is routed, before the action runs. <code>handler</code> durations are
+per attempt and exclude retry backoff; <code>publish</code> durations cover all outputs
+of a delivery, including backoff. <code>commit</code> durations are per successful
+transaction and cover the whole batch. The connection gauge copies the source&#39;s
+<a href="health.html#connection-state">health probe</a> every 5 seconds and is not reported
+until the source knows its state.</p>
+<h2 id="alerting">Alerting</h2>
+<p>beavers sends no notifications itself. Alert on the metrics with a monitoring
+system and let it route alerts, since per-message notifications flood a channel
+when many deliveries fail at once. The
+<a href="../monitoring-and-alerting/index.html">monitoring and alerting guide</a> lists the
+signals worth alerting on, PromQL alert rules, and configurations for
+Kubernetes, AWS, Google Cloud, and Azure. A failed subscription also makes the
+<a href="health.html">liveness probe</a> fail.</p>
+<h2 id="exporting-metrics-to-opentelemetry">Exporting metrics to OpenTelemetry</h2>
+<p>beavers does not bridge the <code>metrics</code> facade to OpenTelemetry metrics. An
+application that sends metrics through an OpenTelemetry Collector exposes them
+in the Prometheus format with
+<a href="https://docs.rs/metrics-exporter-prometheus"><code>metrics-exporter-prometheus</code></a>
+and lets the Collector scrape them.</p>
+<p>Install the exporter before <code>App::run</code>:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
+
+PrometheusBuilder::<span class="hljs-title function_ invoke__">new</span>()
+    .<span class="hljs-title function_ invoke__">with_http_listener</span>(([<span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>], <span class="hljs-number">9000</span>))
+    .<span class="hljs-title function_ invoke__">set_buckets_for_metric</span>(
+        Matcher::<span class="hljs-title function_ invoke__">Full</span>(<span class="hljs-string">&quot;beavers_stage_duration_seconds&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()),
+        &amp;[<span class="hljs-number">0.001</span>, <span class="hljs-number">0.005</span>, <span class="hljs-number">0.01</span>, <span class="hljs-number">0.05</span>, <span class="hljs-number">0.1</span>, <span class="hljs-number">0.5</span>, <span class="hljs-number">1.0</span>, <span class="hljs-number">5.0</span>],
+    )?
+    .<span class="hljs-title function_ invoke__">install</span>()?;
+
+app.<span class="hljs-title function_ invoke__">run</span>().<span class="hljs-keyword">await</span>?;
+</code></pre><p>The listener serves <code>/metrics</code> over HTTP. Without configured buckets, the
+exporter writes histograms as Prometheus summaries, which arrive as
+OpenTelemetry summaries that many backends do not support; configure buckets for
+<code>beavers_stage_duration_seconds</code> and any histograms the application records
+itself.</p>
+<p>Scrape the endpoint with the Collector&#39;s Prometheus receiver, which is part of
+the <code>otelcol-contrib</code> distribution, and forward the metrics to any exporter:</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">receivers:</span>
+  <span class="hljs-attr">prometheus:</span>
+    <span class="hljs-attr">config:</span>
+      <span class="hljs-attr">scrape_configs:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">job_name:</span> <span class="hljs-string">beavers</span>
+          <span class="hljs-attr">scrape_interval:</span> <span class="hljs-string">15s</span>
+          <span class="hljs-attr">static_configs:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">targets:</span> [<span class="hljs-string">&quot;my-app:9000&quot;</span>]
+
+<span class="hljs-attr">exporters:</span>
+  <span class="hljs-attr">otlp:</span>
+    <span class="hljs-attr">endpoint:</span> <span class="hljs-string">my-backend:4317</span>
+
+<span class="hljs-attr">service:</span>
+  <span class="hljs-attr">pipelines:</span>
+    <span class="hljs-attr">metrics:</span>
+      <span class="hljs-attr">receivers:</span> [<span class="hljs-string">prometheus</span>]
+      <span class="hljs-attr">exporters:</span> [<span class="hljs-string">otlp</span>]
+</code></pre><p>Counters arrive as cumulative OpenTelemetry sums, the in-flight gauge as a
+gauge, and bucketed histograms as histograms. Labels become data-point
+attributes, and the receiver maps the scrape&#39;s <code>job</code> and <code>instance</code> to the
+<code>service.name</code> and <code>service.instance.id</code> resource attributes.</p>
+<h2 id="trace-context-propagation">Trace-context propagation</h2>
+<p><code>SourceMessage::propagation_fields</code> exposes text-map fields received with a
+delivery, and <code>PropagationCarrier</code> lets an output record accept them. Each
+adapter maps the fields to its own metadata:</p>
+<table>
+<thead>
+<tr>
+<th>Adapter</th>
+<th>Received fields</th>
+<th>Output fields</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Kafka</td>
+<td>Headers with UTF-8 values</td>
+<td>Headers; every header of the same name is replaced</td>
+</tr>
+<tr>
+<td>Pulsar</td>
+<td>Properties</td>
+<td>Properties</td>
+</tr>
+<tr>
+<td>RabbitMQ</td>
+<td>String headers</td>
+<td>String headers</td>
+</tr>
+<tr>
+<td>SQS</td>
+<td>String message attributes</td>
+<td>String message attributes</td>
+</tr>
+<tr>
+<td>Pub/Sub</td>
+<td>Attributes</td>
+<td>Attributes</td>
+</tr>
+<tr>
+<td>Azure Service Bus</td>
+<td>String application properties</td>
+<td>String application properties</td>
+</tr>
+<tr>
+<td>Channel</td>
+<td>The sender&#39;s trace context, captured when a value is enqueued</td>
+<td>Captured automatically; no carrier needed</td>
+</tr>
+<tr>
+<td><code>Delivery</code></td>
+<td>Fields set with <code>Delivery::with_propagation_fields</code></td>
+<td>Not supported</td>
+</tr>
+<tr>
+<td>Other local adapters</td>
+<td>None</td>
+<td>Not supported</td>
+</tr>
+</tbody></table>
+<p>With the <code>opentelemetry</code> feature, the runtime extracts each <code>message</code> span&#39;s
+remote parent from those fields through the global text-map propagator, and
+the <code>TraceContext</code> middleware injects the <code>message</code> span&#39;s context into every
+output:</p>
+<p>A <a href="../adapters/channel.html">channel</a> needs no middleware. With the
+<code>opentelemetry</code> feature, <code>ChannelSink</code> and <code>ChannelSender</code> capture the current
+span&#39;s context when they enqueue a value, so the receiving subscription&#39;s
+<code>message</code> span continues the trace as a child of the sending stage.</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::TraceContext;
+
+opentelemetry::global::<span class="hljs-title function_ invoke__">set_text_map_propagator</span>(TraceContextPropagator::<span class="hljs-title function_ invoke__">new</span>());
+<span class="hljs-comment">// Install a tracing subscriber with a tracing-opentelemetry layer.</span>
+
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, kafka_source, kafka_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(TraceContext::<span class="hljs-title function_ invoke__">new</span>())
+</code></pre><p>Inheritance middleware such as <code>KafkaInherit</code> copies every header, including
+<code>traceparent</code>, unchanged. Without <code>TraceContext</code>, an output therefore carries
+the received context, and the processing step is invisible to the trace. With
+<code>TraceContext</code> registered after the inheritance middleware, the injected
+context replaces the inherited one, so downstream consumers continue the trace
+as children of the processing step. Middleware runs in registration order, and
+a handler returning a plain value registers the inheritance middleware first.</p>
+
+      <p class="source"><a href="observability.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/runtime/observability.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>

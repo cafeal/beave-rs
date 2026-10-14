@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lua and Python handlers - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="script-handlers.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="handlers.html">Handlers</a></li><li><a href="script-handlers.html" aria-current="page">Lua and Python handlers</a></li><li><a href="middleware.html">Middleware</a></li><li><a href="errors.html">Errors and retries</a></li><li><a href="tombstones.html">Tombstones</a></li><li><a href="transactions.html">Transactions</a></li><li><a href="observability.html">Observability</a></li><li><a href="health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/local.html">Local adapters</a></li><li><a href="../adapters/channel.html">Channel</a></li><li><a href="../adapters/kafka.html">Kafka</a></li><li><a href="../adapters/pulsar.html">Pulsar</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="../adapters/sqs.html">SQS</a></li><li><a href="../adapters/pubsub.html">Pub/Sub</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus</a></li><li><a href="../adapters/http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-bytes.html">Raw bytes</a></li><li><a href="../codecs/utf8.html">UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li><li><a href="../codecs/msgpack.html">MessagePack</a></li><li><a href="../codecs/cbor.html">CBOR</a></li><li><a href="../codecs/wrappers.html">Codec wrappers</a><ul><li><a href="../codecs/wrappers/base64.html">Base64</a></li><li><a href="../codecs/wrappers/gzip.html">Gzip</a></li><li><a href="../codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="lua-and-python-handlers">Lua and Python handlers</h1>
+<p>The <code>lua</code> and <code>python</code> features add handlers in <code>beavers::handlers</code> that run
+code written in Lua or Python instead of Rust. Each takes the decoded input as
+a JSON value and emits zero, one, or many JSON values, so it is registered with
+<code>Subscription::new_emitting</code> between a source and a sink that use the
+<code>Json&lt;serde_json::Value&gt;</code> codec:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{App, Json, Subscription, adapters::kafka::Kafka, handlers::Python};
+<span class="hljs-keyword">use</span> serde_json::Value;
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">paid</span> = Python::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">r#&quot;
+def handle(input):
+    if input[&quot;status&quot;] != &quot;paid&quot;:
+        return None
+    return {&quot;order_id&quot;: input[&quot;id&quot;], &quot;amount&quot;: input[&quot;total&quot;]}
+&quot;#</span>)?;
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>);
+App::<span class="hljs-title function_ invoke__">new</span>()
+    .<span class="hljs-title function_ invoke__">subscription</span>(Subscription::<span class="hljs-title function_ invoke__">new_emitting</span>(
+        <span class="hljs-string">&quot;paid-orders&quot;</span>,
+        kafka.source::&lt;Json&lt;Value&gt;&gt;(<span class="hljs-string">&quot;paid-orders&quot;</span>, [<span class="hljs-string">&quot;orders&quot;</span>]),
+        kafka.sink::&lt;Json&lt;Value&gt;&gt;(<span class="hljs-string">&quot;paid-orders&quot;</span>),
+        paid,
+    ))
+    .<span class="hljs-title function_ invoke__">run</span>()
+    .<span class="hljs-keyword">await</span>?;
+</code></pre><p>The handler takes the record&#39;s value, so outputs inherit the input&#39;s key and
+headers as described in <a href="handlers.html#handler-shapes">handler shapes</a>. The code
+cannot read or set broker metadata.</p>
+<h2 id="lua">Lua</h2>
+<p><code>Lua::new(code)</code> compiles a Lua 5.4 chunk and reports syntax errors as
+<code>Error::Config</code>. The chunk runs once per input:</p>
+<pre><code class="hljs language-lua"><span class="hljs-keyword">if</span> <span class="hljs-built_in">input</span>.<span class="hljs-built_in">status</span> ~= <span class="hljs-string">&quot;paid&quot;</span> <span class="hljs-keyword">then</span> <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span> <span class="hljs-keyword">end</span>
+<span class="hljs-keyword">return</span> { order_id = <span class="hljs-built_in">input</span>.id, amount = <span class="hljs-built_in">input</span>.total }
+</code></pre><table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Input</td>
+<td>The local <code>input</code>, converted from JSON: objects and arrays become tables, JSON <code>null</code> is <code>beavers.null</code></td>
+</tr>
+<tr>
+<td>Outputs</td>
+<td>No value or <code>nil</code> emits nothing; each returned value other than <code>nil</code> is one output, so <code>return a, b</code> emits two</td>
+</tr>
+<tr>
+<td>Output conversion</td>
+<td>Tables with consecutive integer keys from 1 become arrays, other tables, including empty ones, objects; a function or other value that JSON cannot represent rejects the input</td>
+</tr>
+<tr>
+<td>Errors</td>
+<td>A Lua error rejects the input; <code>beavers.retry(message)</code> raises an error that retries it under the handler retry policy</td>
+</tr>
+<tr>
+<td>Libraries</td>
+<td><code>table</code>, <code>string</code>, <code>utf8</code>, <code>math</code>, and <code>coroutine</code>; <code>io</code>, <code>os</code>, <code>require</code>, and <code>debug</code> are not available</td>
+</tr>
+<tr>
+<td>Execution</td>
+<td>One Lua state per handler on its own worker thread, one input at a time; globals persist between inputs and retries</td>
+</tr>
+</tbody></table>
+<p>Lua 5.4 is compiled into the crate, so the <code>lua</code> feature needs a C compiler
+at build time and nothing at run time.</p>
+<h2 id="python">Python</h2>
+<p><code>Python::new(code)</code> runs the code once in the embedded CPython interpreter and
+looks up its <code>handle(input)</code> function. Syntax errors, exceptions raised while
+the code runs, and a missing <code>handle</code> are reported as <code>Error::Config</code>.</p>
+<pre><code class="hljs language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">handle</span>(<span class="hljs-params"><span class="hljs-built_in">input</span></span>):
+    <span class="hljs-keyword">for</span> item <span class="hljs-keyword">in</span> <span class="hljs-built_in">input</span>[<span class="hljs-string">&quot;items&quot;</span>]:
+        <span class="hljs-keyword">yield</span> {<span class="hljs-string">&quot;order_id&quot;</span>: <span class="hljs-built_in">input</span>[<span class="hljs-string">&quot;id&quot;</span>], <span class="hljs-string">&quot;item&quot;</span>: item}
+</code></pre><table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Input</td>
+<td>The value passed through <code>json.loads</code></td>
+</tr>
+<tr>
+<td>Outputs</td>
+<td><code>None</code> emits nothing; a generator emits one output per yielded value; any other value, including a list, is one output</td>
+</tr>
+<tr>
+<td>Output conversion</td>
+<td><code>json.dumps</code>; a value it cannot encode rejects the input</td>
+</tr>
+<tr>
+<td>Errors</td>
+<td>An exception rejects the input; <code>raise beavers.Retry(message)</code> retries it under the handler retry policy</td>
+</tr>
+<tr>
+<td><code>beavers</code> module</td>
+<td>Predefined in the code&#39;s globals; <code>import beavers</code> returns the same module</td>
+</tr>
+<tr>
+<td>Modules</td>
+<td>The standard library and any package installed for the interpreter can be imported</td>
+</tr>
+<tr>
+<td>Execution</td>
+<td>Calls run on a <code>BlockingPool::default()</code> pool; module globals persist between inputs and are shared by concurrent calls</td>
+</tr>
+</tbody></table>
+<p>The interpreter&#39;s global lock lets one call run Python code at a time, so
+concurrent calls overlap only while one waits for I/O. Every Python handler of
+a process shares one interpreter.</p>
+<p>The <code>python</code> feature links against <code>libpython</code>. Building needs a Python 3
+interpreter that PyO3 can find, by default <code>python3</code> on <code>PATH</code> or the one named
+by <code>PYO3_PYTHON</code>, and running needs the same version&#39;s shared library. Neither
+handler can interrupt code that does not return: an endless loop occupies its
+worker thread until the process exits.</p>
+
+      <p class="source"><a href="script-handlers.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/runtime/script-handlers.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>

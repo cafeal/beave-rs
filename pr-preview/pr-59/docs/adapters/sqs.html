@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SQS adapter - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="sqs.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="../runtime/handlers.html">Handlers</a></li><li><a href="../runtime/script-handlers.html">Lua and Python handlers</a></li><li><a href="../runtime/middleware.html">Middleware</a></li><li><a href="../runtime/errors.html">Errors and retries</a></li><li><a href="../runtime/tombstones.html">Tombstones</a></li><li><a href="../runtime/transactions.html">Transactions</a></li><li><a href="../runtime/observability.html">Observability</a></li><li><a href="../runtime/health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="local.html">Local adapters</a></li><li><a href="channel.html">Channel</a></li><li><a href="kafka.html">Kafka</a></li><li><a href="pulsar.html">Pulsar</a></li><li><a href="rabbitmq.html">RabbitMQ</a></li><li><a href="sqs.html" aria-current="page">SQS</a></li><li><a href="pubsub.html">Pub/Sub</a></li><li><a href="servicebus.html">Azure Service Bus</a></li><li><a href="http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-bytes.html">Raw bytes</a></li><li><a href="../codecs/utf8.html">UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li><li><a href="../codecs/msgpack.html">MessagePack</a></li><li><a href="../codecs/cbor.html">CBOR</a></li><li><a href="../codecs/wrappers.html">Codec wrappers</a><ul><li><a href="../codecs/wrappers/base64.html">Base64</a></li><li><a href="../codecs/wrappers/gzip.html">Gzip</a></li><li><a href="../codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="sqs-adapter">SQS adapter</h1>
+<p>The optional <code>sqs</code> feature provides typed Amazon SQS source and sink adapters
+backed by the AWS SDK for Rust (<code>aws-sdk-sqs</code>).</p>
+<pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;sqs&quot;</span>] }
+</code></pre><h2 id="configuration">Configuration</h2>
+<p>An <code>Sqs</code> handle holds how the adapter reaches SQS. <code>region</code>, <code>endpoint_url</code>,
+and <code>credentials</code> are optional builder methods on it: unset, the SDK&#39;s default
+chains resolve the region and credentials from the environment, shared
+configuration files, web identity, or container and instance metadata. Set
+<code>endpoint_url</code> to use an SQS-compatible emulator such as ElasticMQ or
+LocalStack. <code>SqsCredentials::new</code> takes an access key ID and secret access key;
+the <code>Debug</code> output of <code>SqsCredentials</code> hides the secret key and session token.</p>
+<p><code>handle.source::&lt;C&gt;(queue_url)</code> and <code>handle.sink::&lt;C&gt;(queue_url)</code> build a
+source and a sink for one queue; <code>source_with_codec</code> and <code>sink_with_codec</code> take
+a codec value as their first argument instead of using the codec&#39;s default. A
+URL ending in <code>.fifo</code> names a FIFO queue.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::sqs::{Sqs, SqsPublish}};
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sqs</span> = Sqs::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">region</span>(<span class="hljs-string">&quot;eu-west-1&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = sqs.source::&lt;Utf8&gt;(
+    <span class="hljs-string">&quot;https://sqs.eu-west-1.amazonaws.com/123456789012/orders&quot;</span>,
+);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = sqs.sink::&lt;Utf8&gt;(
+    <span class="hljs-string">&quot;https://sqs.eu-west-1.amazonaws.com/123456789012/processed-orders.fifo&quot;</span>,
+);
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = SqsPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()).<span class="hljs-title function_ invoke__">with_message_group_id</span>(<span class="hljs-string">&quot;customer-7&quot;</span>);
+</code></pre><p>All sources and sinks built from one handle share one SDK client, with its
+credential provider and HTTP connection pool. The client is created on the
+first <code>receive</code> or publication of any of them, which also validates the
+settings. Each builder method on the handle returns a handle with a client of
+its own, so configure the handle before building sources and sinks from it.
+The handle, the source, and the sink each have <code>validate</code>, which checks the
+values without contacting AWS.</p>
+<p>The adapters create no queues and set no queue attributes such as a redrive
+policy. Create them with infrastructure tooling before the subscription starts.</p>
+<p>The source receives with long polling. Its <code>max_messages</code> (1 to 10, default
+10) is the batch size of each <code>ReceiveMessage</code> call and <code>wait_time</code>
+(at most 20 seconds, the default) how long a call waits for messages.
+<code>visibility_timeout</code>, 30 seconds by default, is requested with every receive and
+overrides the queue&#39;s own default.</p>
+<h2 id="records">Records</h2>
+<p><code>SqsRecord&lt;T&gt;</code> is the decoded input and <code>SqsPublish&lt;T&gt;</code> the output. The codec
+applies to the message body. SQS has no null body, so the value is always
+present and SQS records support no tombstones. SQS bodies are text: <code>prepare</code>
+rejects an encoded value that is not UTF-8, so binary codecs such as Protobuf
+and Avro need a text representation, such as the
+<a href="../codecs/wrappers/base64.html"><code>Base64</code> wrapper</a>, before they can be sent.</p>
+<p><code>attributes</code> holds the message attributes as <code>SqsAttributeValue::String</code>,
+<code>Number</code> in its decimal text form, or <code>Binary</code>. A custom type label such as
+<code>Number.float</code> is read as its base type and not published again. SQS accepts at
+most 10 attributes per message.</p>
+<p><code>SqsMetadata</code> contains read-only facts about a received message: the queue URL,
+message ID, receive count, sent and first-receive timestamps, and for FIFO
+queues the message group, deduplication ID, and sequence number. <code>SqsPublish</code>
+has none of them except the FIFO message group and deduplication ID, which the
+output sets itself, and an optional delivery <code>delay</code>.</p>
+<p>The raw form of an <code>SqsMessage</code> is an <code>SqsRecord&lt;Vec&lt;u8&gt;&gt;</code> with the undecoded
+body. Dead letters carry it, so the original body, attributes, and metadata
+survive even when decoding fails.</p>
+<h2 id="acknowledgements-and-ordering">Acknowledgements and ordering</h2>
+<p>A received message stays invisible to other consumers for the visibility
+timeout. The source keeps every message it has received and not yet deleted
+invisible: a background task extends a message&#39;s visibility with
+<code>ChangeMessageVisibilityBatch</code> once a third of its timeout has passed, until it
+is acknowledged or released. SQS limits visibility to 12 hours from the receipt;
+a message held longer becomes visible again.</p>
+<p>A successful ACK deletes the message with <code>DeleteMessage</code>, retried under the
+source&#39;s <code>ack_retry</code>. Dropping an <code>SqsMessage</code> without acknowledging it,
+or closing the source, changes the visibility of its remaining messages to zero,
+so another receive takes them at once with an incremented receive count.</p>
+<p>A receipt handle is valid only for the receipt that returned it. When an
+extension fails or arrives too late, SQS may already have handed the message to
+another consumer, so the adapter cancels that delivery&#39;s revocation token. The
+runtime abandons a revoked delivery without ACK or subscription failure. An
+acknowledgement that finds its visibility expired, or that SQS rejects as an
+invalid receipt handle, also revokes the delivery and fails.</p>
+<p>A standard queue delivers messages in no particular order, so its deliveries
+have no ordering key and run in parallel up to the subscription&#39;s
+<code>concurrency</code>. A FIFO queue delivers each message group in order; each delivery&#39;s
+ordering key is its message group, so <code>ProcessingOrder::PerKey</code> processes one
+message per group at a time while groups run in parallel.</p>
+<p><code>ReceiveMessage</code> runs as a task the source keeps: dropping a pending <code>receive</code>
+leaves the call running, and the next <code>receive</code> takes its messages.</p>
+<h2 id="publication">Publication</h2>
+<p><code>prepare</code> encodes the value and converts the attributes once, so publish
+retries reuse them. It requires a message group ID for a FIFO queue, rejects a
+per-message delay there because FIFO queues accept only a queue-wide delay, and
+limits the delay to 15 minutes elsewhere. A FIFO queue without content-based
+deduplication also needs <code>deduplication_id</code>.</p>
+<p><code>SqsSink::publish</code> sends the message with <code>SendMessage</code> and succeeds once SQS
+has stored it. The SDK retries throttling and transient errors itself.
+Parameter errors such as an invalid attribute fail as <code>PublishRejected</code>, which
+the subscription&#39;s error policy can dead-letter instead of retrying. The sink
+keeps no pending messages, so <code>close</code> only stops new publications.</p>
+<h2 id="metadata-inheritance">Metadata inheritance</h2>
+<p>Register <code>SqsInherit</code> on an SQS-to-SQS subscription to forward the received
+message attributes:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::adapters::sqs::SqsInherit;
+
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, sqs_source, sqs_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(SqsInherit::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">with_message_group</span>())
+</code></pre><p>A received attribute is added only when the output does not set that name, and
+dead-letter attributes starting with <code>beavers-dlq-</code> are never inherited.
+<code>with_message_group()</code> also forwards the FIFO message group when the output
+leaves it <code>None</code>, for pipelines between FIFO queues. The message ID,
+deduplication ID, and delay are never inherited. <code>without_attributes()</code>
+disables attribute inheritance.</p>
+<p>A handler that returns a plain value between an SQS source and sink gets
+<code>SqsInherit::new()</code> automatically; register
+<code>SqsInherit::new().with_message_group()</code> explicitly to forward groups. See the
+<a href="../runtime/handlers.html#handler-shapes">runtime guide</a>. Register
+<code>TraceContext</code> after <code>SqsInherit</code> to replace inherited trace-context
+attributes; the source reads trace context from string attributes.</p>
+<h2 id="dead-letters">Dead letters</h2>
+<p><code>SqsPublish::from_dead_letter</code> forwards a dead letter with its original body,
+attributes, and FIFO message group. Because SQS accepts at most 10 attributes,
+the failure details and the URL and message ID of the first receipt are written
+as one JSON object into the <code>beavers-dlq-details</code> string attribute; a message
+that already has 10 attributes is rejected by SQS. <code>SqsDeadLetter::from_record</code>
+reads them back; see
+<a href="../runtime/errors.html#forwarding-dead-letters-to-a-broker-topic">forwarding dead letters</a>.</p>
+<p>A queue&#39;s redrive policy moves a message to its dead-letter queue after
+<code>maxReceiveCount</code> receives without deletion. The subscription&#39;s error policy
+decides what happens to a failed delivery first, so the redrive policy applies
+to messages that are received again and again without being acknowledged, for
+example because they crash the process every time. Keep <code>maxReceiveCount</code> high
+enough that the releases of a source&#39;s shutdowns do not exhaust it.</p>
+<h2 id="delivery-guarantees">Delivery guarantees</h2>
+<p>A source ACK and a sink publication are separate requests, so a failure between
+them, or a visibility timeout that expires before the deletion, can produce a
+duplicate. Standard queues may also deliver a message more than once. SQS
+pipelines are at-least-once; FIFO deduplication applies only to messages sent
+within its five-minute window.</p>
+
+      <p class="source"><a href="sqs.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/adapters/sqs.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>

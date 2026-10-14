@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>beave-rs — Design plan - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="alternate" type="text/markdown" href="plan.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../">beave-rs</a>
+      <nav>
+        <a href="index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html">Architecture</a></li><li><a href="runtime.html">Runtime guide</a><ul><li><a href="runtime/handlers.html">Handlers</a></li><li><a href="runtime/script-handlers.html">Lua and Python handlers</a></li><li><a href="runtime/middleware.html">Middleware</a></li><li><a href="runtime/errors.html">Errors and retries</a></li><li><a href="runtime/tombstones.html">Tombstones</a></li><li><a href="runtime/transactions.html">Transactions</a></li><li><a href="runtime/observability.html">Observability</a></li><li><a href="runtime/health.html">Health checks</a></li></ul></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/local.html">Local adapters</a></li><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/json.html">JSON</a></li><li><a href="codecs/raw-bytes.html">Raw bytes</a></li><li><a href="codecs/utf8.html">UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li><li><a href="codecs/msgpack.html">MessagePack</a></li><li><a href="codecs/cbor.html">CBOR</a></li><li><a href="codecs/wrappers.html">Codec wrappers</a><ul><li><a href="codecs/wrappers/base64.html">Base64</a></li><li><a href="codecs/wrappers/gzip.html">Gzip</a></li><li><a href="codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html">Local development brokers</a></li><li><a href="plan.html" aria-current="page">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="beave-rs--design-plan">beave-rs — Design plan</h1>
+<p>This document contains planned work and unresolved design decisions. Current
+behavior belongs in the <a href="architecture.html">architecture</a>, <a href="runtime.html">runtime</a>,
+<a href="adapters.html">adapter</a>, and <a href="codecs.html">codec</a> documentation. When planned work
+is implemented, remove it from this document and document the resulting
+contract in the appropriate guide.</p>
+<h2 id="direction">Direction</h2>
+<p>beave-rs is a lightweight Rust message-processing framework for Kafka, Pulsar,
+NATS JetStream, SQS, Azure Service Bus, and other transports:</p>
+<pre><code class="hljs language-text">Source → Handler → Sink
+</code></pre><p>A <code>Subscription</code> connects one source, one handler, and one sink.</p>
+<p>Application code should primarily contain typed <code>Input → Output</code> handlers. The
+framework should own connectivity, serialization, acknowledgements, retries,
+concurrency, shutdown, and observability while describing delivery guarantees
+according to the actual source and sink capabilities.</p>
+<p>The project does not aim to provide stateful stream processing, windows, joins,
+watermarks, state stores, distributed scheduling, SQL, or general DAG execution.</p>
+<h2 id="middleware">Middleware</h2>
+<p>The asynchronous <code>pre_handler</code> and <code>post_handler</code> hooks are described in the
+<a href="runtime/middleware.html">runtime guide</a>. Remaining decisions:</p>
+<ul>
+<li>whether a middleware <code>Retry</code> error should be retried with a policy of its
+own, as handler errors are, instead of stopping the subscription without ACK
+now that hooks can perform I/O;</li>
+<li>whether <code>MapMetadata</code> should gain an asynchronous counterpart once closures
+returning <code>Send</code> futures that borrow the input can be expressed on stable
+Rust.</li>
+</ul>
+<h2 id="serialization-and-codecs">Serialization and codecs</h2>
+<p>Potential codec work includes:</p>
+<ul>
+<li>Schema Registry integration for Avro;</li>
+<li>writer-schema and reader-schema resolution;</li>
+<li>evaluation of typed key codecs where a broker supports typed keys;</li>
+<li>recording a wrapper&#39;s content encoding, such as gzip, in message metadata so
+one subscription can accept both wrapped and unwrapped payloads. <code>Decoder</code>
+receives payload bytes only, so this needs metadata in the decoding contract.</li>
+</ul>
+<p>Schema Registry support must keep wire framing separate from raw Avro datum
+encoding and define schema lookup caching, compatibility failures, and behavior
+when the registry is unavailable.</p>
+<h2 id="delivery-semantics-and-transactions">Delivery semantics and transactions</h2>
+<p>Kafka-to-Kafka transactions are described in the
+<a href="runtime/transactions.html">runtime guide</a> and the
+<a href="adapters/kafka.html#transactions">Kafka guide</a>, including the
+<a href="runtime/transactions.html#batches">batching</a> of deliveries into one transaction. Remaining
+work:</p>
+<ul>
+<li>A commit that times out after its retriable retries has an unknown outcome.
+The transaction is then aborted or its producer replaced, and the retry can
+duplicate outputs if the timed-out commit had in fact completed. Batching
+widens this to every delivery of the batch.</li>
+<li>A rejected batch commit (<code>PublishRejected</code>) cannot be attributed to one
+delivery, so it stops the subscription instead of being routed by the error
+policy. Committing the batch&#39;s deliveries one by one would identify the
+rejected output, but its failure routing must finish before later batches
+commit past it.</li>
+<li>The Kafka sink commits a batch of one source only; a batch with deliveries of
+several consumers fails. Several subscriptions sharing one transactional sink
+each form their own batches and serialize on its producer.</li>
+</ul>
+<p>The ignored <code>transactional_pipeline_commits_outputs_with_offsets</code> test passes
+against a single-node Kafka 3.9 broker with the default <code>TransactionBatch</code>.
+Failure and rebalance paths of batched commits have not been verified against
+a live broker. Verify with Kafka:</p>
+<ul>
+<li>A batch with deliveries of several partitions commits the offset after each
+partition&#39;s last delivery, and the committed offsets match the outputs
+visible to <code>read_committed</code> consumers.</li>
+<li>Throughput and commit latency for the default <code>TransactionBatch</code> and for
+larger batches, and a batch whose outputs approach <code>transaction.timeout.ms</code>.</li>
+<li>A revoke during a batch&#39;s commit aborts it, the retry without the revoked
+partition&#39;s deliveries commits, and the revoked records are reprocessed by the
+next owner.</li>
+<li>Outputs of an aborted transaction stay invisible to <code>read_committed</code>
+consumers, and the retried delivery commits once.</li>
+<li>A revoke waits for a commit in progress, and a delivery of the revoked
+partition is aborted instead of committed. Blocking the rebalance callback
+on a commit must not stall the consumer beyond <code>max.poll.interval.ms</code>.</li>
+<li>Restarting an instance with the same transactional ID fences the old
+producer, and replacing a producer after a fatal error recovers.</li>
+<li>Offsets sent with the group metadata of a consumer that has rejoined the
+group are accepted only for partitions it still owns, including under
+cooperative rebalancing.</li>
+<li>A sink on a different cluster is rejected by the cluster ID check. The
+development environment runs one Kafka cluster, so no live test covers the
+mismatch.</li>
+</ul>
+<p>Pulsar transactions were removed. <code>magnetar-driver</code> 1.7 reuses the consumer&#39;s
+session-wide batch bitset for transactional acknowledgements of batched
+messages, so the broker rejects all but the first message of a batch, does not
+repeat its transaction coordinator handshake after a broker restart, and fails
+every retry of a redelivered delivery whose original transaction committed.
+Reintroducing them needs a client that fixes these defects.</p>
+<p>Multiple sinks within one subscription remain deferred because partial publish
+success makes retry and acknowledgement behavior ambiguous. Any future design
+must define atomicity or explicit partial-failure semantics.</p>
+<h2 id="failure-defaults">Failure defaults</h2>
+<p><code>ErrorPolicy::default()</code> stops the subscription without ACK on a decode or
+encode failure, and on a handler rejection or exhausted retry when no
+dead-letter sink is configured. For a durable broker source, one poison record
+then stops the application on every restart until it is handled. For a source
+fed by untrusted clients, such as the HTTP source, one bad request would stop
+the server; the HTTP source avoids this for decode failures by decoding before
+a request becomes a delivery, but handler rejections without a dead-letter sink
+still stop it. Remaining decisions:</p>
+<ul>
+<li>whether the defaults stay uniform or each source declares its own, for
+example through a capability trait, so a broker source keeps <code>Stop</code> while a
+request-driven source defaults to discarding or rejecting the input;</li>
+<li>whether a subscription without a dead-letter sink should warn or fail at
+startup when its policy can stop on a single input;</li>
+<li>the HTTP server&#39;s default limits: request and header-read timeouts, the
+number of concurrent connections, and how many requests may wait for the
+subscription before new ones are refused with <code>503</code>.</li>
+</ul>
+<h2 id="dead-letter-handling">Dead-letter handling</h2>
+<p>Forwarding dead letters with failure headers is described in the
+<a href="runtime/errors.html#forwarding-dead-letters-to-a-broker-topic">runtime guide</a>, and
+examining, reprocessing, parking, and dropping them in the
+<a href="dead-letter-handling.html">dead-letter handling guide</a>.
+The library deliberately sends no notifications and has no redrive command.
+Remaining decisions:</p>
+<ul>
+<li>a source option that ends once it reaches the end of its topics as of
+startup, such as each Kafka partition&#39;s high watermark or the last Pulsar
+message ID, so a one-off reprocessing run exits by itself instead of being
+stopped once its lag reaches zero;</li>
+<li>delayed reprocessing without a sleeping handler, such as Pulsar&#39;s delayed
+delivery on the dead-letter producer or pausing a Kafka partition until its
+next record is due, if the <code>max.poll.interval.ms</code> limit becomes a problem.</li>
+</ul>
+<p>Dead-letter headers and properties have not been verified against live
+brokers.</p>
+<h2 id="per-key-backpressure">Per-key backpressure</h2>
+<p><code>max_in_flight_per_key</code> pauses and resumes keys through <code>Source::pause</code>, as
+described in the <a href="runtime.html#ordering-and-backpressure">runtime guide</a>. Only
+the Kafka source can pause a key. Remaining decisions:</p>
+<ul>
+<li>pausing a Pulsar partition under Failover or Exclusive subscriptions, which
+needs <code>magnetar-driver</code> to stop requesting messages for one partition&#39;s
+consumer; Key_Shared keys are message keys, which cannot be paused;</li>
+<li>whether a default per-key limit, such as a share of <code>max_in_flight</code>, should
+apply when a source can pause.</li>
+</ul>
+<h2 id="chained-subscriptions">Chained subscriptions</h2>
+<p><code>channel</code> chains subscriptions, as described in the
+<a href="adapters/channel.html">channel adapter guide</a>. Remaining decisions:</p>
+<ul>
+<li>fan-out to several downstream subscriptions, which needs a completion rule
+for one upstream value observed by several stages;</li>
+<li>startup validation that both ends of a channel are registered in the same
+<code>App</code>, since an unregistered upstream leaves the downstream subscription
+waiting for <code>Receive::End</code> during shutdown.</li>
+</ul>
+<p>Upstream revocation and redelivery through a channel are covered by local tests
+only. Verify with Kafka that a partition revocation during a downstream stage
+abandons the downstream work and that the next owner reprocesses it.</p>
+<h2 id="pipelined-broker-publication">Pipelined broker publication</h2>
+<p>Kafka and Pulsar sinks accept a record when the producer queues it and complete
+it on the delivery report or broker receipt, as described in the
+<a href="adapters/kafka.html#publication">Kafka</a> and
+<a href="adapters/pulsar.html#publication">Pulsar</a> guides. Remaining decisions:</p>
+<ul>
+<li>A failed Kafka delivery report, or a Pulsar receipt that still fails after
+the sink&#39;s <code>send_retry</code>, stops the subscription, because the failure usually
+means the producer cannot recover. The runtime could instead publish the
+prepared output again under <code>publish_retry</code>, at the cost of reordering it
+behind later outputs.</li>
+<li><code>max_pending</code> bounds each sink separately. Several subscriptions sharing one
+sink share its bound, and a subscription cannot reserve part of it.</li>
+</ul>
+<p>Only the offline acceptance bound of the Kafka sink is covered by default tests.
+The ignored live tests check that completions resolve on delivery and that
+<code>max_pending</code> holds. Verify with the brokers:</p>
+<ul>
+<li>Kafka with <code>enable.idempotence=false</code> and retried produce requests: outputs of
+one key can reorder; confirm that <code>enable.idempotence=true</code> keeps them in
+submission order.</li>
+<li>A partition revocation while completions are pending abandons their
+acknowledgements, and the new owner reprocesses those records.</li>
+<li>Shutdown with pending completions drains them before the sink closes, within
+the subscription&#39;s shutdown timeout.</li>
+</ul>
+<h2 id="shared-connection-follow-ups">Shared connection follow-ups</h2>
+<p>Sources and sinks share their adapter handle&#39;s connection; the adapter
+documents describe what each handle shares. Remaining work:</p>
+<ul>
+<li>Verify against live brokers that the shared Service Bus connection authorizes
+entities added after it opened, renews their tokens, and reopens for every
+link after it is lost, and that the RabbitMQ handle reopens a lost
+connection for every channel.</li>
+<li>Decide whether HTTP sources should share one listener and route by path.</li>
+<li>Decide whether to add Entra ID authentication to the Service Bus handle.</li>
+</ul>
+<h2 id="kafka-rebalance-behavior">Kafka rebalance behavior</h2>
+<p>The <a href="adapters/kafka.html#graceful-handoff">graceful handoff</a> and partition pause
+are covered by unit, runtime, and ignored live tests. The live tests pause and
+resume one partition, and hand off a partition with an eager rebalance while
+its delivery is acknowledged, against single-node Kafka 3.9 and 4.1 brokers.
+Verify with Kafka:</p>
+<ul>
+<li>A synchronous commit from an acknowledgement task completes while the
+polling thread waits in the revoke callback, under load and with several
+partitions.</li>
+<li>A handoff under <code>partition.assignment.strategy=cooperative-sticky</code> revokes
+only the moved partitions, and the other partitions resume receiving once the
+callback returns.</li>
+<li>A handoff that reaches its timeout abandons the remaining deliveries, and the
+next owner reprocesses them from the committed offset.</li>
+<li>A transactional subscription with a graceful handoff commits the started
+deliveries&#39; batches before the revoke completes.</li>
+<li>Pausing and resuming under sustained traffic neither skips nor duplicates
+records, including records librdkafka had fetched ahead before the pause, and
+a paused partition that is revoked and assigned again stays paused.</li>
+</ul>
+<p>Partition scheduling and revocation are covered by unit and runtime tests but
+have not been verified against a live broker. Verify with Kafka:</p>
+<ul>
+<li>The source skips records of partitions the adapter does not consider assigned.
+This assumes rdkafka always runs <code>post_rebalance</code> with the assignment before
+it returns the first record of a newly assigned partition. If that does not
+hold, the source silently skips every record of that partition.</li>
+<li>Eager and cooperative (<code>partition.assignment.strategy=cooperative-sticky</code>)
+rebalances both cancel the revoked partitions&#39; tokens and reassign cleanly.</li>
+<li>After <code>assignment_lost</code>, all tokens are cancelled and the next assignment
+resumes processing.</li>
+<li>A revoked delivery&#39;s in-flight commit does not affect the next assignment.</li>
+<li>Commits advance past offset gaps on a compacted topic and on a topic written
+by transactional producers (<code>isolation.level=read_committed</code>, including
+aborted transactions). This assumes the consumer returns a partition&#39;s
+records in strictly increasing offset order within an assignment.</li>
+</ul>
+<p>Verify with Pulsar that Failover and Key_Shared deliveries carry the partition
+index and ordering key expected by the adapter.</p>
+<h2 id="pulsar-client">Pulsar client</h2>
+<p>The Pulsar adapter uses <code>magnetar-driver</code>. Its consumers and producers
+reattach after topic unloads and broker restarts, while the <code>pulsar</code> crate
+adapter it replaced stalled its consumer after a topic unload and ended the
+pipeline on a broker restart. Other client limitations:</p>
+<ul>
+<li>Acknowledging through a client after <code>close</code> never completes, so a source
+keeps its client open until the last of its deliveries is dropped.</li>
+<li>The source and sink read the partition count when they connect. Partitions
+added to a topic later are neither consumed nor published to until the
+application restarts.</li>
+<li>A send the broker rejects is not replayed by the client, unlike the Java
+client, which reconnects and replays every pending send in order. The sink
+sends rejected messages again itself, after later messages the client has
+already replayed, so a broker restart or topic unload can reorder outputs of
+one partition. Keeping the order needs a client that replays rejected sends.</li>
+</ul>
+<h2 id="observability">Observability</h2>
+<p>Spans, events, metrics, messaging attributes, and trace-context propagation
+are described in the <a href="runtime/observability.html">runtime guide</a>. Remaining
+decisions:</p>
+<ul>
+<li>a producer span per published output instead of injecting the <code>message</code>
+span&#39;s context into every output.</li>
+</ul>
+<p>Health checks, source connection state, and stall detection are described in
+the <a href="runtime/health.html">runtime guide</a>. Consumer lag is left to broker metrics.
+Remaining decision:</p>
+<ul>
+<li>connection state for the RabbitMQ, SQS, Pub/Sub, and Service Bus sources.</li>
+</ul>
+<p>The Pulsar probe&#39;s <code>is_connected</code> has not been verified across a broker
+restart, and neither probe across a multi-broker cluster in which one broker
+fails.</p>
+<p>Trace-context propagation and the
+<a href="runtime/observability.html#exporting-metrics-to-opentelemetry">Prometheus export path</a> have not
+been verified against live brokers or an OpenTelemetry Collector.</p>
+<p>The <a href="monitoring-and-alerting/index.html">monitoring and alerting guide</a> has not
+been verified against live cloud accounts. In particular, check the CloudWatch
+dimension sets produced by the <code>awsemf</code> exporter, the <code>job</code> label that the
+Azure Monitor <code>PodMonitor</code> assigns, and the <code>customMetrics</code> values that the
+<code>azuremonitor</code> exporter writes after <code>cumulativetodelta</code>.</p>
+<h2 id="testing-utilities">Testing utilities</h2>
+<p>The <code>testing</code> feature is described in the <a href="testing.html">testing guide</a>.
+Remaining decisions:</p>
+<ul>
+<li>fabricated HTTP requests, whose source decodes the body before a request
+becomes a delivery and answers <code>400</code> instead of reporting a decode failure;</li>
+<li>Key_Shared and Shared ordering scopes for fabricated Pulsar messages, which
+depend on the subscription type rather than on the record;</li>
+<li>scripted receive errors and revocations, and a sink that fails publication
+or completion on demand, for testing retry and revocation paths.</li>
+</ul>
+<h2 id="running-without-rust">Running without Rust</h2>
+<p>Simple processing should be deployable without writing Rust: a prebuilt
+binary and container image start subscriptions listed in a configuration file,
+with handlers chosen from ready-made ones. The <a href="runtime/script-handlers.html">Lua and Python
+handlers</a> are the first of them. Remaining work:</p>
+<ul>
+<li>handlers that delegate to a serverless function, such as AWS Lambda, and a
+generic HTTP function handler for Cloud Run, Azure Functions, or a service of
+the application, with function errors rejecting the input and throttling,
+<code>5xx</code>, and timeouts retrying it; batching several inputs into one call;</li>
+<li>a separate crate with a <code>beavers</code> binary that reads YAML or TOML naming
+connections, subscriptions, sources, sinks, codecs, handlers, retry and
+dead-letter settings, and health endpoints, with environment variable
+substitution for secrets; serde stays out of the library, which keeps its
+handle builders;</li>
+<li>a container image with the Python runtime, and how users add Python
+packages to it;</li>
+<li>Avro and Protobuf in configuration, which need schemas read from <code>.avsc</code> or
+<code>.proto</code> files at run time instead of Rust types;</li>
+<li>whether Lua and Python code should read and set broker metadata, such as
+keys and headers, which the value-only handlers cannot today;</li>
+<li>a time limit for Lua and Python calls, since neither handler can interrupt
+code that does not return, and <code>async def</code> handlers for Python.</li>
+</ul>
+<h2 id="future-adapters">Future adapters</h2>
+<p>Candidate adapters are:</p>
+<ul>
+<li>NATS JetStream source and sink;</li>
+<li>local file input and output if concrete debugging use cases justify their
+framing and durability semantics.</li>
+</ul>
+<p>The HTTP source answers each request with a status only. Remaining decisions:</p>
+<ul>
+<li>a request-reply mode that returns handler output in the response body, which
+needs a sink bound to the originating request;</li>
+<li>TLS and HTTP/2 in the adapter rather than at a reverse proxy;</li>
+<li>routing paths of one listener to different subscriptions;</li>
+<li>idempotency keys that let a retried request be recognized as a duplicate.</li>
+</ul>
+<p>Its server limits are listed under <a href="#failure-defaults">failure defaults</a>.</p>
+<p>The HTTP sink sends one request per output and classifies responses with a
+fixed rule. Remaining decisions:</p>
+<ul>
+<li>configurable classification of retryable and rejected statuses, and honoring
+<code>Retry-After</code> on <code>429</code> and <code>503</code> instead of the <code>publish_retry</code> delay;</li>
+<li>a path or query chosen per output, for destinations that address resources in
+the URL;</li>
+<li>custom root certificates, client certificates, and HTTP/2;</li>
+<li>batching several outputs into one request for destinations with bulk APIs.</li>
+</ul>
+<p>The <a href="adapters/rabbitmq.html">RabbitMQ adapter</a> consumes one queue and publishes
+to one exchange. Remaining decisions:</p>
+<ul>
+<li>sending a rejected message again on a new channel, as the Pulsar sink does,
+instead of stopping the subscription when a channel is lost before its
+publisher confirmation arrives;</li>
+<li>whether an error policy should be able to reject a delivery
+(<code>basic.reject</code> without requeue) so RabbitMQ&#39;s dead-letter exchange receives
+it, instead of publishing dead letters through a sink;</li>
+<li>several queues per source, consumer priorities, and RabbitMQ streams;</li>
+<li>configured TLS client certificates beyond what <code>amqps://</code> URIs provide.</li>
+</ul>
+<p>The ignored RabbitMQ live tests cover publication with confirmations, ACK,
+redelivery after close, revocation after a connection is closed by the broker,
+unroutable messages, and a forwarding pipeline against a single RabbitMQ 4.1
+node. Verify with
+RabbitMQ:</p>
+<ul>
+<li>a broker restart and a network partition, where heartbeats rather than a
+closed socket detect the loss;</li>
+<li>publisher confirmations of persistent messages on quorum queues under load,
+and <code>max_pending</code> against RabbitMQ&#39;s flow control;</li>
+<li>a single-active-consumer queue with <code>ordered</code> sources on several instances,
+including the handover when the active consumer stops.</li>
+</ul>
+<p>The <a href="adapters/sqs.html">SQS adapter</a> consumes and sends to one queue with one
+request per message. Remaining decisions:</p>
+<ul>
+<li>batching acknowledgements with <code>DeleteMessageBatch</code> and publications with
+<code>SendMessageBatch</code>, which needs completions that resolve per entry;</li>
+<li>the extended client&#39;s S3 payloads beyond 256 KiB;</li>
+<li>whether an error policy should leave a failed delivery visible again so the
+queue&#39;s redrive policy moves it, instead of publishing dead letters through a
+sink;</li>
+<li>releasing an abandoned message after a configurable delay rather than at
+once, so a message that keeps failing does not loop through the queue.</li>
+</ul>
+<p>The ignored SQS live tests cover sending with attributes, deletion on ACK,
+visibility extension, release on drop and close, FIFO group ordering, and a
+forwarding pipeline against ElasticMQ. Verify with Amazon SQS:</p>
+<ul>
+<li>visibility extension near the 12-hour limit, throttling of
+<code>ChangeMessageVisibilityBatch</code> with many held messages, and receipt handles
+rejected after a failed extension;</li>
+<li>FIFO queues with high-throughput mode, and message group IDs on standard
+queues (fair queues);</li>
+<li>a redrive policy&#39;s <code>maxReceiveCount</code> against releases on shutdown;</li>
+<li>the default credential chain with web identity and container credentials.</li>
+</ul>
+<p>The <a href="adapters/pubsub.html">Pub/Sub adapter</a> consumes one subscription with the
+official client&#39;s streaming pull and publishes to one topic. Remaining
+decisions:</p>
+<ul>
+<li>whether an error policy should nack a failed delivery so the subscription&#39;s
+dead-letter policy moves it, instead of publishing dead letters through a
+sink;</li>
+<li>revoking a delivery when the client fails to extend its lease, which the
+client does not report, rather than only at <code>max_lease</code>;</li>
+<li>push subscriptions, which deliver through HTTP and would build on the HTTP
+source.</li>
+</ul>
+<p>The ignored Pub/Sub live tests cover publication with attributes, ACK, lease
+extension, revocation at the maximum lease, redelivery after a drop and close,
+ordering keys, and a forwarding pipeline against the emulator. Verify with
+Google Cloud Pub/Sub:</p>
+<ul>
+<li>exactly-once delivery subscriptions, including confirmed acknowledgements
+and <code>LeaseExpired</code> revocations;</li>
+<li>ordering keys through the global endpoint, and publication resumed after an
+ordering key failed;</li>
+<li>a dead-letter policy&#39;s <code>maxDeliveryAttempts</code> against the nacks of shutdowns
+and dropped deliveries, and the reported <code>delivery_attempt</code>;</li>
+<li>Application Default Credentials on GKE workload identity and Cloud Run, and
+flow control with <code>max_outstanding_messages</code> across several instances.</li>
+</ul>
+<p>The <a href="adapters/servicebus.html">Azure Service Bus adapter</a> receives from one queue
+or subscription in peek-lock mode and sends to one queue or topic over AMQP.
+Remaining decisions:</p>
+<ul>
+<li>session-enabled entities, which need a session receiver per session and an
+ordering key per session ID;</li>
+<li>Microsoft Entra ID credentials, through <code>azure_identity</code> or a token callback;</li>
+<li>sending batches with one transfer, and settling several messages at once;</li>
+<li>confirming completions, which Service Bus settles without an answer, so a
+completion lost with the connection is only seen as a redelivery;</li>
+<li>whether an error policy should abandon a failed delivery until the entity&#39;s
+<code>MaxDeliveryCount</code> moves it to the dead-letter subqueue, instead of
+publishing dead letters through a sink.</li>
+</ul>
+<p>The ignored Service Bus live tests cover sending with application properties,
+completion, lock renewal, abandonment on drop, release of prefetched messages
+on close, the dead-letter subqueue, topic subscriptions, scheduled messages,
+and a forwarding pipeline against the Service Bus emulator. The emulator serves
+plain AMQP only and cannot create topic subscriptions through its management
+API. Verify with an Azure namespace:</p>
+<ul>
+<li>AMQP over TLS on port 5671 with the system root certificates, and the
+<code>sb://</code> token audiences of claims-based security;</li>
+<li><code>com.microsoft:renew-lock</code> and lock-lost errors on a premium namespace, and
+renewal of many held locks against throttling;</li>
+<li>clock skew between the host and Service Bus, since the lock expiry Service
+Bus reports is compared with the local clock;</li>
+<li>partitioned entities with a partition key, and duplicate detection with the
+message IDs that dead letters clear;</li>
+<li>maximum message sizes of standard and premium namespaces.</li>
+</ul>
+<p>Each broker adapter must define its native record and publish types, ACK model,
+redelivery behavior, ordering scope, cancellation behavior, connection
+lifecycle, and mapping of trace-context propagation fields (NATS headers)
+before implementation.</p>
+<h2 id="release-preparation">Release preparation</h2>
+<p>The crate is published as <code>beavers</code>; versioning and the compatibility contract
+are described in <a href="releasing.html">versioning and releases</a>. Remaining work before
+the first crates.io release:</p>
+<ul>
+<li>Decide a consistent set of <code>with_*</code> builder methods on the <code>*Publish</code> types,
+which differ by adapter: <code>KafkaPublish</code> and <code>PulsarPublish</code> have none, while
+<code>SqsPublish</code> has only <code>with_message_group_id</code>.</li>
+<li>After the first release, add <code>cargo-semver-checks</code> to CI and switch the
+release workflow from the API token to crates.io trusted publishing.</li>
+<li>Create the project icon and character, and place them in the landing page
+(<code>site/index.html</code>) and the README.</li>
+<li>Publish <code>0.1.0</code> as the first release intended for use.</li>
+</ul>
+<h2 id="implementation-order">Implementation order</h2>
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Scope</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Observability refinements</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Live verification of batched Kafka transactions, shared connections, and Kafka rebalance handoff</td>
+</tr>
+<tr>
+<td>3</td>
+<td>NATS JetStream adapter</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Schema Registry and additional codecs</td>
+</tr>
+</tbody></table>
+<p>The order may change when a concrete application requires a later capability.
+When work begins, update this document with any newly resolved decisions. When
+the work is complete, remove its planning details and place the stable behavior
+in the relevant durable documentation.</p>
+<h2 id="open-questions">Open questions</h2>
+<ol>
+<li>Further refinement of source, message, and sink generics, lifetimes, and
+error types.</li>
+<li>Handler ergonomics for implicit versus explicit <code>Emit</code> registration.</li>
+<li>Compile-time versus startup validation of broker capabilities.</li>
+<li>Shutdown deadlines and cancellation policy.</li>
+<li>Adapter and codec crate boundaries as optional dependencies grow.</li>
+<li>Isolation of async handler futures, which can block an executor thread, from
+communication and control execution.</li>
+</ol>
+<h2 id="core-philosophy">Core philosophy</h2>
+<p>Application code should process events. beave-rs should manage the surrounding
+flow without promising capabilities that the underlying platform cannot
+provide.</p>
+
+      <p class="source"><a href="plan.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/plan.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>
