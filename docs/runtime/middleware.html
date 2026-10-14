@@ -81,14 +81,9 @@ leaves unset.</p>
 middleware written for one broker&#39;s record and publish types cannot be
 registered on a subscription whose source or sink uses different types. Wrap a
 synchronous function or closure in <code>MapMetadata::new</code> to use it as a
-<code>post_handler</code>,
-including for conversions between different platforms:</p>
-<pre><code class="hljs language-rust,ignore">Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, kafka_source, pulsar_sink, handler)
-    .<span class="hljs-title function_ invoke__">middleware</span>(MapMetadata::<span class="hljs-title function_ invoke__">new</span>(|input: &amp;KafkaRecord&lt;Order&gt;, <span class="hljs-keyword">mut</span> output: PulsarPublish&lt;Order&gt;| {
-        output.key = input.key.<span class="hljs-title function_ invoke__">clone</span>();
-        <span class="hljs-title function_ invoke__">Ok</span>(output)
-    }))
-</code></pre><p>A middleware error never reruns the handler or the middleware. <code>Reject</code> is a
+<code>post_handler</code>, as in the
+<a href="#mapping-metadata-between-platforms">cross-platform mapping</a> below.</p>
+<p>A middleware error never reruns the handler or the middleware. <code>Reject</code> is a
 <code>Rejected</code> failure routed by the <a href="errors.html#error-policy">error policy</a> with the input as
 decoded from the source, and none of the delivery&#39;s outputs are published.
 <code>Retry</code> and <code>Fatal</code> stop processing without ACK.</p>
@@ -107,6 +102,60 @@ timestamps. See the <a href="../adapters/kafka.html#metadata-inheritance">Kafka<
 returns the sink&#39;s publish record carries no received metadata into outputs
 unless middleware maps it; a handler that returns a plain value inherits the
 platform&#39;s defaults, as described in <a href="handlers.html#handler-shapes">handler shapes</a>.</p>
+<h2 id="mapping-metadata-between-platforms">Mapping metadata between platforms</h2>
+<p>beavers never copies metadata from one platform to another. A subscription
+whose source and sink belong to different platforms, such as Kafka to Pulsar,
+publishes outputs without the received headers, properties, attributes, or key
+unless the application maps them:</p>
+<ul>
+<li>A handler that returns a plain value requires a same-platform sink, so a
+value-only handler from Kafka to Pulsar does not compile and cannot drop
+metadata silently. Return the sink&#39;s publish record instead.</li>
+<li>No built-in middleware converts metadata between platforms. A header name can
+mean something different on the destination: an HTTP <code>content-type</code>
+describes the request body rather than the re-encoded output, an
+<code>authorization</code> header would leak credentials into a topic, RabbitMQ and its
+plugins act on names such as <code>x-delay</code>, and consumer libraries read headers
+such as Spring Kafka&#39;s <code>__TypeId__</code>. Only the application knows which
+fields keep their meaning.</li>
+<li>The key&#39;s meaning differs as well: a Kafka key selects a partition, a Pulsar
+key drives key-shared delivery and compaction, and a Pub/Sub ordering key, an
+SQS message group ID, or an Azure Service Bus session ID orders or groups
+messages. Map it only when the destination meaning is intended.</li>
+</ul>
+<p>Name the fields to carry and convert their values to the sink&#39;s types in a
+<code>MapMetadata</code> function. This Kafka-to-Pulsar mapping carries two headers with
+UTF-8 values as Pulsar properties and keeps any property the handler set:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{MapMetadata, Subscription};
+<span class="hljs-keyword">use</span> beavers::adapters::{kafka::KafkaRecord, pulsar::PulsarPublish};
+
+<span class="hljs-keyword">const</span> CARRIED: [&amp;<span class="hljs-type">str</span>; <span class="hljs-number">2</span>] = [<span class="hljs-string">&quot;tenant&quot;</span>, <span class="hljs-string">&quot;request-id&quot;</span>];
+
+<span class="hljs-keyword">fn</span> <span class="hljs-title function_">carry_headers</span>(input: &amp;KafkaRecord&lt;Order&gt;, <span class="hljs-keyword">mut</span> output: PulsarPublish&lt;Order&gt;) <span class="hljs-punctuation">-&gt;</span> beavers::<span class="hljs-type">Result</span>&lt;PulsarPublish&lt;Order&gt;&gt; {
+    <span class="hljs-keyword">for</span> (name, value) <span class="hljs-keyword">in</span> &amp;input.headers {
+        <span class="hljs-keyword">let</span> <span class="hljs-variable">text</span> = value.<span class="hljs-title function_ invoke__">as_deref</span>().<span class="hljs-title function_ invoke__">and_then</span>(|value| <span class="hljs-type">str</span>::<span class="hljs-title function_ invoke__">from_utf8</span>(value).<span class="hljs-title function_ invoke__">ok</span>());
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> (<span class="hljs-literal">true</span>, <span class="hljs-title function_ invoke__">Some</span>(text)) = (CARRIED.<span class="hljs-title function_ invoke__">contains</span>(&amp;name.<span class="hljs-title function_ invoke__">as_str</span>()), text) {
+            output.properties.<span class="hljs-title function_ invoke__">entry</span>(name.<span class="hljs-title function_ invoke__">clone</span>()).<span class="hljs-title function_ invoke__">or_insert_with</span>(|| text.<span class="hljs-title function_ invoke__">to_owned</span>());
+        }
+    }
+    <span class="hljs-title function_ invoke__">Ok</span>(output)
+}
+
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, kafka_source, pulsar_sink, handler)
+    .<span class="hljs-title function_ invoke__">middleware</span>(MapMetadata::<span class="hljs-title function_ invoke__">new</span>(carry_headers))
+</code></pre><p>Only the conversion of values changes with the platforms. An SQS sink takes
+<code>SqsAttributeValue::String(text)</code> in <code>output.attributes</code>, a Pub/Sub sink takes
+the text in <code>output.attributes</code>, and RabbitMQ and Azure Service Bus sinks take
+<code>text.into()</code> in <code>output.headers</code> and <code>output.application_properties</code>.
+Pub/Sub and Pulsar store text only, while the other platforms also carry binary
+or typed values that the application can map explicitly. Destination limits
+still apply: SQS accepts at most 10 attributes, Pub/Sub rejects attribute names
+starting with <code>goog</code>, and SQS rejects names starting with <code>AWS.</code> or <code>Amazon.</code>.</p>
+<p>Trace context needs no mapping: with the <code>opentelemetry</code> feature, the
+<code>TraceContext</code> middleware injects the processing span&#39;s context, such as W3C
+<code>traceparent</code>, into outputs of any platform, as described in
+<a href="observability.html#trace-context-propagation">trace-context propagation</a>. The
+<code>kafka_to_pulsar</code> example maps the key and named headers in the same way.</p>
 
       <p class="source"><a href="middleware.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/runtime/middleware.md">Source on GitHub</a></p>
     </main>

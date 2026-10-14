@@ -44,19 +44,6 @@ concurrency, shutdown, and observability while describing delivery guarantees
 according to the actual source and sink capabilities.</p>
 <p>The project does not aim to provide stateful stream processing, windows, joins,
 watermarks, state stores, distributed scheduling, SQL, or general DAG execution.</p>
-<h2 id="cross-platform-metadata-mapping">Cross-platform metadata mapping</h2>
-<p>Typed output middleware and same-platform inheritance are described in the
-<a href="runtime/middleware.html">runtime guide</a>. Cross-platform mappings are
-currently application-written <code>MapMetadata</code> functions. Remaining decisions:</p>
-<ul>
-<li>whether adapters should provide reusable conversions between platforms, such
-as Kafka headers to Pulsar properties or SQS message attributes, without a
-universal metadata structure;</li>
-<li>a clear policy when cross-platform value-only forwarding would discard
-metadata, including whether such a subscription should warn or fail at
-startup;</li>
-<li>typed Kafka keys as a possible refinement of the byte-oriented key field.</li>
-</ul>
 <h2 id="middleware">Middleware</h2>
 <p>The asynchronous <code>pre_handler</code> and <code>post_handler</code> hooks are described in the
 <a href="runtime/middleware.html">runtime guide</a>. Remaining decisions:</p>
@@ -477,22 +464,18 @@ release workflow from the API token to crates.io trusted publishing.</li>
 </tr>
 <tr>
 <td>2</td>
-<td>Cross-platform metadata mapping policy</td>
-</tr>
-<tr>
-<td>3</td>
 <td>Observability refinements</td>
 </tr>
 <tr>
-<td>4</td>
+<td>3</td>
 <td>Live verification of batched Kafka transactions and shared connections</td>
 </tr>
 <tr>
-<td>5</td>
+<td>4</td>
 <td>NATS JetStream adapter</td>
 </tr>
 <tr>
-<td>6</td>
+<td>5</td>
 <td>Schema Registry and additional codecs</td>
 </tr>
 </tbody></table>

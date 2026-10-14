@@ -161,8 +161,8 @@ see the sink retry, stop after its publish retries, and resume from the
 uncommitted offset on the next run.
 
 `kafka_to_pulsar` maps metadata explicitly with `MapMetadata`: the Kafka key
-becomes the Pulsar key and Kafka headers with UTF-8 values become Pulsar
-properties. It skips Kafka tombstones with `Tombstones::skip()`.
+becomes the Pulsar key and the `tenant` and `request-id` headers with UTF-8
+values become Pulsar properties. It skips Kafka tombstones with `Tombstones::skip()`.
 
 The Kafka examples read from the earliest offset when their consumer group has
 no committed offset, and the Pulsar example uses the subscription created by
