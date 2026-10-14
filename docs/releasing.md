@@ -68,11 +68,15 @@ what applications must change.
 2. Rename `Unreleased` in `CHANGELOG.md` to the version and release date, and
    start a new empty `Unreleased` section.
 3. Set `version` in `Cargo.toml` and run `cargo check` to update `Cargo.lock`.
-4. Merge these changes to `main` and wait for CI, including the package check.
-5. Run the `Release` workflow on `main` from the Actions tab. It refuses a
-   version that already has a tag or is already on crates.io, runs
-   `cargo publish`, tags the commit as `vX.Y.Z`, and creates a GitHub release
-   whose notes are the version's changelog section.
+4. Open a pull request with these changes, wait for CI, including the package
+   check, and merge it to `main`.
+5. Approve the `crates-io` deployment of the `Release` workflow. The workflow
+   runs on every push to `main` that changes `Cargo.toml` and releases only
+   when the version has no `vX.Y.Z` tag and is not on crates.io, so other
+   changes to `Cargo.toml` do not ask for approval. It runs `cargo publish`,
+   tags the commit as `vX.Y.Z`, and creates a GitHub release whose notes are
+   the version's changelog section. If publishing fails, re-run the failed job
+   from the Actions tab.
 
 The workflow publishes with the `CARGO_REGISTRY_TOKEN` secret, a crates.io API
 token with the `publish-new` and `publish-update` scopes, limited to the
