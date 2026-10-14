@@ -7,7 +7,7 @@ use super::{
 use crate::{
     codec::Decoder,
     error::{BoxError, Context, Error},
-    message::{OrderingKey, SourceMessage},
+    message::{MessagingAttributes, OrderingKey, SourceMessage},
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
 };
@@ -256,5 +256,13 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for RabbitM
                 Some((name.as_str(), text))
             })
             .collect()
+    }
+
+    fn messaging_attributes(&self) -> Option<MessagingAttributes<'_>> {
+        let mut attributes = MessagingAttributes::new("rabbitmq").destination(&self.queue);
+        if let Some(id) = self.delivery.properties.message_id() {
+            attributes = attributes.message_id(id.as_str());
+        }
+        Some(attributes)
     }
 }

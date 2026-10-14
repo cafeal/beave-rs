@@ -6,9 +6,9 @@ use super::{
 use crate::{
     codec::Decoder,
     error::{BoxError, Context, Error, ensure},
-    message::{OrderingKey, SourceMessage},
+    message::{MessagingAttributes, OrderingKey, SourceMessage},
     retry::RetryPolicy,
-    source::{Receive, ReceiveError, Source},
+    source::{Receive, ReceiveError, Source, SourceProbe},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use futures_util::future::select_all;
@@ -19,7 +19,7 @@ use magnetar::{
 use std::{
     collections::HashMap,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -34,7 +34,27 @@ pub struct PulsarSource<C> {
     config: SourceConfig,
     codec: Arc<C>,
     connection: Option<Connection>,
+    probe: Arc<PulsarProbe>,
+    names: Arc<Names>,
     closed: bool,
+}
+
+/// The configured topic and subscription, which deliveries report as messaging
+/// attributes.
+struct Names {
+    topic: String,
+    subscription: String,
+}
+
+/// Reports whether every partition's consumer is connected.
+#[derive(Default)]
+struct PulsarProbe(Mutex<Vec<Consumer>>);
+
+impl SourceProbe for PulsarProbe {
+    fn connected(&self) -> Option<bool> {
+        let consumers = self.0.lock().unwrap();
+        (!consumers.is_empty()).then(|| consumers.iter().all(Consumer::is_connected))
+    }
 }
 
 struct Connection {
@@ -50,9 +70,14 @@ impl<C> PulsarSource<C> {
     pub(super) fn new(pulsar: Pulsar, config: SourceConfig, codec: C) -> Self {
         Self {
             pulsar,
+            names: Arc::new(Names {
+                topic: config.topic.clone(),
+                subscription: config.subscription.clone(),
+            }),
             config,
             codec: Arc::new(codec),
             connection: None,
+            probe: Arc::default(),
             closed: false,
         }
     }
@@ -158,7 +183,9 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for PulsarSource<C
             return Ok(Receive::End);
         }
         if self.connection.is_none() {
-            self.connection = Some(self.connect().await.map_err(ReceiveError::Fatal)?);
+            let connection = self.connect().await.map_err(ReceiveError::Fatal)?;
+            *self.probe.0.lock().unwrap() = connection.consumers.clone();
+            self.connection = Some(connection);
         }
         let connection = self.connection.as_mut().expect("connected source");
         let (consumer, message) = connection.receive().await?;
@@ -172,6 +199,7 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for PulsarSource<C
             properties: delivery.properties,
             event_time: delivery.event_time,
             metadata: delivery.metadata,
+            names: self.names.clone(),
             codec: self.codec.clone(),
             acknowledgement: Acknowledgement {
                 consumer,
@@ -188,10 +216,15 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for PulsarSource<C
             return Ok(());
         }
         self.closed = true;
+        self.probe.0.lock().unwrap().clear();
         match self.connection.take() {
             Some(connection) => connection.close().await,
             None => Ok(()),
         }
+    }
+
+    fn probe(&self) -> Option<Arc<dyn SourceProbe>> {
+        Some(self.probe.clone())
     }
 }
 
@@ -324,6 +357,7 @@ pub struct PulsarMessage<C> {
     properties: HashMap<String, String>,
     event_time: Option<u64>,
     metadata: PulsarMetadata,
+    names: Arc<Names>,
     codec: Arc<C>,
     acknowledgement: Acknowledgement,
 }
@@ -389,6 +423,23 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for PulsarM
             .iter()
             .map(|(name, value)| (name.as_str(), value.as_str()))
             .collect()
+    }
+
+    fn messaging_attributes(&self) -> Option<MessagingAttributes<'_>> {
+        let id = self.metadata.message_id;
+        // The textual form of the Java client's message IDs.
+        let mut text = format!("{}:{}:{}", id.ledger_id, id.entry_id, id.partition);
+        if id.batch_index >= 0 {
+            text.push_str(&format!(":{}", id.batch_index));
+        }
+        let mut attributes = MessagingAttributes::new("pulsar")
+            .destination(&self.names.topic)
+            .subscription(&self.names.subscription)
+            .message_id(text);
+        if id.partition >= 0 {
+            attributes = attributes.partition(i64::from(id.partition));
+        }
+        Some(attributes)
     }
 }
 

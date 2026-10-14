@@ -30,8 +30,9 @@ in this guide assume the exporter listens on port `9000` and serves `/metrics`.
 
 **Health.** Enable the `health` feature and register a `HealthServer`. The
 examples assume port `8080`. Readiness turns `503` during shutdown, receive
-backoff, and output publish retries; liveness turns `503` after a subscription
-fails.
+backoff, output publish retries, and while a Kafka or Pulsar source is
+disconnected; liveness turns `503` after a subscription fails, or while it is
+stalled when a [stall timeout](../runtime/health.md#stall-detection) is set.
 
 **JSON logs.** Emit events as JSON so that cloud log services can match the
 `subscription failed` event. With `tracing-subscriber` and its `json`
@@ -63,12 +64,13 @@ alert on `subscription failed`. Each platform guide shows both.
 | Dead letters cannot be published | `beavers_publish_failures_total{sink="dead_letter"}` | critical | Failed deliveries cannot leave the subscription, so it stops making progress |
 | Outputs cannot be published | `beavers_publish_failures_total{sink="output"}` for several minutes | critical | Deliveries wait for publish retries; readiness is `503` meanwhile |
 | The source keeps failing | `beavers_receive_errors_total` for several minutes | critical | The broker is unreachable or rejects the client; readiness is `503` during backoff |
-| Work is stuck | `beavers_deliveries_in_flight` above zero with no acknowledgement | critical | A handler or acknowledgement never completes; liveness does not detect this |
+| Work is stuck | `beavers_deliveries_in_flight` above zero with no acknowledgement | critical | A handler or acknowledgement never completes; liveness detects this only with a [stall timeout](../runtime/health.md#stall-detection) |
+| The source lost its broker | `beavers_source_connected` at `0` for several minutes | critical | The Kafka or Pulsar client keeps reconnecting; readiness is `503` meanwhile |
 | Metrics disappeared | The scrape target is down | critical | Nothing else on this list can fire |
 | Deliveries were dead-lettered | `beavers_delivery_failures_total{action="dead_letter"}` | warning | Someone needs to inspect and redrive them; see the [dead-letter handling guide](../dead-letter-handling.md) |
 | Producers send undecodable records | Ratio of `failure="decode"` to received deliveries | warning | Usually a schema or producer change |
 | Handlers are slow | The 99th percentile of `beavers_stage_duration_seconds{stage="handler"}` | warning | The backlog grows when processing falls behind the input rate |
-| The backlog grows | Consumer lag or queue depth from the broker | warning | beavers does not report lag; see [Backlog](#backlog) |
+| The backlog grows | Consumer lag or queue depth from the broker | warning | beavers reports lag for Kafka sources only; see [Backlog](#backlog) |
 
 Send `warning` alerts to the owning team's channel and `critical` alerts to
 on-call paging. A dead letter needs investigation during working hours, while a
@@ -171,9 +173,12 @@ minutes; raise the window above the longest expected handler duration.
 
 ## Backlog
 
-beavers does not report consumer lag yet; see the
-[design plan](../plan.md#observability). Alert on the broker's own measurement
-of the backlog, which also covers an application that is not running at all:
+A Kafka source reports its lag as `beavers_consumer_lag`, the distance from
+its committed offsets to the end of the partitions it consumes. The series
+exists only while an instance runs and covers only the partitions assigned to
+that instance; sum it across instances. Other sources do not report lag. Alert
+on the broker's own measurement of the backlog, which also covers an
+application that is not running at all:
 
 | Broker | Metric |
 |---|---|

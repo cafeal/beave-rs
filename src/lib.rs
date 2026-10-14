@@ -153,13 +153,13 @@ pub use error_policy::{ErrorPolicy, FailureAction, FailureKind};
 pub use forward::{SamePlatform, ValueRecord};
 pub use handler::{Classify, Emit, Handler, HandlerError, Result};
 pub use health::Health;
-pub use message::{Delivery, OrderingKey, SourceMessage};
+pub use message::{Delivery, MessagingAttributes, OrderingKey, SourceMessage};
 pub use middleware::{Flow, MapMetadata, Middleware};
 pub use propagation::PropagationCarrier;
 pub use retry::{Jitter, RetryPolicy};
 pub use shutdown::CancellationToken;
 pub use sink::{Completion, PublishRejected, Sink};
-pub use source::{Receive, ReceiveError, Source, SourceItem, SourceRaw};
+pub use source::{Receive, ReceiveError, Source, SourceItem, SourceProbe, SourceRaw};
 pub use subscription::{
     ByRecord, ByValue, IntoHandler, ProcessingOrder, Subscription, SubscriptionConfig,
     TransactionBatch,

@@ -61,10 +61,11 @@ Registration constructs the application. Processing starts in `run()`.
 | Retry jitter | `Jitter::None` | Randomization of each backoff delay |
 | Error policy | `ErrorPolicy::default()` | Dead-letter handler failures and rejected publications; stop on decode and encode failures |
 | Drain timeout | 30 s | Bound on draining; cleanup has a separate timeout of the same duration |
+| Stall timeout | Disabled | Liveness fails while deliveries are in flight without progress for this long; see [stall detection](runtime/health.md#stall-detection) |
 
 Receive, handler, output publish, and dead-letter publish retries have
 independent policies. Invalid zero concurrency, in-flight limits, or retry
-attempt counts fail validation before subscriptions start, as does an error
+attempt counts, and a zero stall timeout fail validation before subscriptions start, as does an error
 policy that dead-letters decode or encode failures without a dead-letter sink.
 
 Each `RetryPolicy` doubles its delay after every failed attempt, starting at

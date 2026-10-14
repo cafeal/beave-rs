@@ -274,27 +274,24 @@ pipeline on a broker restart. Other client limitations:
 
 ## Observability
 
-Spans, events, metrics, and trace-context propagation are described in the
-[runtime guide](runtime/observability.md). Remaining decisions:
+Spans, events, metrics, messaging attributes, and trace-context propagation
+are described in the [runtime guide](runtime/observability.md). Remaining
+decisions:
 
-- OpenTelemetry messaging semantic-convention attributes, such as destination,
-  partition, and offset, which need an adapter-provided description of each
-  delivery;
 - a producer span per published output instead of injecting the `message`
   span's context into every output.
 
-Health checks report runtime-observed state, as described in the
-[runtime guide](runtime/health.md). Remaining decisions:
+Health checks, source connection state and lag, and stall detection are
+described in the [runtime guide](runtime/health.md). Remaining decisions:
 
-- consumer lag in the health report, which needs an adapter-provided
-  measurement such as the distance from a Kafka partition's committed offset to
-  its high watermark or a Pulsar subscription's backlog, and a policy for
-  whether lag above a threshold makes the application unready;
-- source connection state in readiness, since the Kafka and Pulsar clients
-  reconnect internally and a pending receive cannot tell an idle broker from an
-  unreachable one;
-- liveness that detects a stalled subscription, such as a handler or ACK that
-  never completes, without restarting instances that are merely idle.
+- lag for the Pulsar, RabbitMQ, SQS, Pub/Sub, and Service Bus sources, whose
+  clients cannot read a backlog without an administration or management API;
+- connection state for the RabbitMQ, SQS, Pub/Sub, and Service Bus sources.
+
+The Kafka probe's reading of librdkafka statistics (`consumer_lag` of the
+consumed partitions and the broker `state`) and the Pulsar probe's
+`is_connected` have not been verified against live brokers, including after a
+broker restart.
 
 Trace-context propagation and the
 [Prometheus export path](runtime/observability.md#exporting-metrics-to-opentelemetry) have not

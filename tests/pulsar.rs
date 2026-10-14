@@ -442,3 +442,29 @@ async fn submitted_messages_complete_on_their_broker_receipts() -> Result<(), Bo
     sink.close().await?;
     Ok(())
 }
+
+/// Requires the development broker at `PULSAR_URL`. The probe reports no
+/// connection state before the source subscribes, then reports the consumer
+/// connected, and the delivery describes itself with messaging attributes.
+#[tokio::test]
+#[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
+async fn probe_reports_the_consumer_connection() -> Result<(), BoxError> {
+    let topic = unique_topic("beavers-pulsar-probe");
+    let subscription = unique_name("beavers-pulsar-probe");
+    create_subscription(&topic, &subscription).await?;
+    let mut source = exclusive_source(&topic, &subscription);
+    let probe = source.probe().expect("the Pulsar source reports a probe");
+    assert_eq!(probe.connected(), None);
+    assert_eq!(probe.lag(), None);
+
+    publish_all(&topic, &["a"]).await?;
+    let delivery = next_message(&mut source, Duration::from_secs(20))
+        .await?
+        .expect("timed out waiting for input");
+    assert_eq!(probe.connected(), Some(true));
+    assert!(delivery.messaging_attributes().is_some());
+    delivery.ack().await?;
+    source.close().await?;
+    assert_eq!(probe.connected(), None);
+    Ok(())
+}

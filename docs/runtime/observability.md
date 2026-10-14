@@ -27,6 +27,32 @@ because one transaction commits several deliveries.
 
 `pre_handler` and `post_handler` middleware run in the `message` span.
 
+### Messaging attributes
+
+Broker sources describe each delivery through
+`SourceMessage::messaging_attributes`, and the runtime records the
+[OpenTelemetry messaging semantic conventions](https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/)
+on its `message` span. With an OpenTelemetry layer, the span is exported as a
+consumer span named `process <destination>`, such as `process orders`, and
+carries `messaging.operation.type` and `messaging.operation.name` set to
+`process` together with:
+
+| Adapter | `messaging.system` | Destination | Other attributes |
+|---|---|---|---|
+| Kafka | `kafka` | Topic | `messaging.destination.partition.id`, `messaging.kafka.offset`, `messaging.consumer.group.name` |
+| Pulsar | `pulsar` | Configured topic | `messaging.destination.partition.id` for a partitioned topic, `messaging.destination.subscription.name`, `messaging.message.id` |
+| RabbitMQ | `rabbitmq` | Queue | `messaging.message.id` when the publisher set one |
+| SQS | `aws_sqs` | Queue name | `messaging.message.id` |
+| Pub/Sub | `gcp_pubsub` | None | `messaging.destination.subscription.name`, `messaging.message.id` |
+| Azure Service Bus | `servicebus` | Queue or topic | `messaging.destination.subscription.name` for a topic subscription, `messaging.message.id` when set |
+
+Other sources report no attributes, and their span keeps the name `message`.
+A custom source returns a `MessagingAttributes` built from its own metadata.
+Metrics do not carry these attributes, because partitions and message IDs would
+multiply the number of series. Outputs get no producer span of their own; the
+[trace context](#trace-context-propagation) of the `message` span continues
+downstream.
+
 ## Events
 
 | Event | Level | Fields |
@@ -56,6 +82,8 @@ Every metric carries a `subscription` label with the subscription name.
 | `beavers_receive_errors_total` | counter | | Failed receive attempts |
 | `beavers_deliveries_revoked_total` | counter | | Deliveries abandoned after revocation |
 | `beavers_deliveries_in_flight` | gauge | | Received deliveries that have not finished |
+| `beavers_source_connected` | gauge | | `1` while the source is connected to its broker, `0` while it is not; Kafka and Pulsar sources only |
+| `beavers_consumer_lag` | gauge | | Messages the subscription has not acknowledged yet; Kafka sources only |
 | `beavers_stage_duration_seconds` | histogram | `stage` | Duration of `decode`, `handler`, `encode`, `publish`, `complete`, `dead_letter`, `ack`, and `commit` |
 | `beavers_transaction_deliveries` | histogram | | Deliveries in each committed transaction |
 
@@ -66,7 +94,9 @@ dead-letter sink is reported as `stop`, which is what it does. A failure is
 counted when it is routed, before the action runs. `handler` durations are
 per attempt and exclude retry backoff; `publish` durations cover all outputs
 of a delivery, including backoff. `commit` durations are per successful
-transaction and cover the whole batch.
+transaction and cover the whole batch. The connection and lag gauges copy the
+source's [health probe](health.md#connection-state-and-lag) every 5 seconds and
+are not reported until the source knows the value.
 
 ## Alerting
 

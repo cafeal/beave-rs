@@ -5,7 +5,7 @@ use super::{
     convert::{
         DEAD_LETTER_SOURCE, ENQUEUED_TIME, LOCK_TOKEN, LOCKED_UNTIL, SCHEDULED_ENQUEUE_TIME,
         SEQUENCE_NUMBER, annotation, application_properties_from_amqp, body_bytes, find,
-        properties_from_amqp, timestamp, uuid_text,
+        message_id_text, properties_from_amqp, timestamp, uuid_text,
     },
     lock::{Locks, keep},
     management::Management,
@@ -14,7 +14,7 @@ use super::{
 use crate::error::{BoxError, Context as _, Error};
 use crate::{
     codec::Decoder,
-    message::SourceMessage,
+    message::{MessagingAttributes, SourceMessage},
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
 };
@@ -492,6 +492,26 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for Service
                 _ => None,
             })
             .collect()
+    }
+
+    fn messaging_attributes(&self) -> Option<MessagingAttributes<'_>> {
+        let (entity, subscription) = match self.entity_path.split_once("/Subscriptions/") {
+            Some((topic, subscription)) => (topic, Some(subscription)),
+            None => (self.entity_path.as_str(), None),
+        };
+        let mut attributes = MessagingAttributes::new("servicebus").destination(entity);
+        if let Some(subscription) = subscription {
+            attributes = attributes.subscription(subscription);
+        }
+        if let Some(id) = self
+            .message
+            .properties
+            .as_ref()
+            .and_then(|properties| properties.message_id.as_ref())
+        {
+            attributes = attributes.message_id(message_id_text(id));
+        }
+        Some(attributes)
     }
 }
 

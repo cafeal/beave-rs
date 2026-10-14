@@ -1,9 +1,12 @@
 //! Health state recorded by subscription runtimes and read as a [`HealthReport`].
-use crate::shutdown::CancellationToken;
+use crate::{shutdown::CancellationToken, source::SourceProbe};
 use serde::Serialize;
-use std::sync::{
-    Arc, Mutex, OnceLock,
-    atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
+use std::{
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering},
+    },
+    time::{Duration, Instant},
 };
 
 /// Lifecycle stage of one subscription.
@@ -47,16 +50,28 @@ pub struct SubscriptionReport {
     /// Deliveries whose output publication or transaction commit failed and is
     /// waiting to be retried.
     pub publish_retries: usize,
-    /// Whether this subscription counts as ready: it is running and neither
-    /// waiting to retry a receive nor retrying a publication, or its source
-    /// ended and it stopped.
+    /// Whether the source is connected to its broker, or `None` when the
+    /// source does not report it or has not connected yet.
+    pub connected: Option<bool>,
+    /// Messages available to the subscription that it has not acknowledged
+    /// yet, or `None` when the source does not report it. Lag does not affect
+    /// readiness.
+    pub lag: Option<u64>,
+    /// Deliveries are in flight, but no processing step has finished for the
+    /// subscription's stall timeout. A stalled subscription makes the
+    /// application not live.
+    pub stalled: bool,
+    /// Whether this subscription counts as ready: it is running, its source is
+    /// not disconnected, and it is neither waiting to retry a receive nor
+    /// retrying a publication, or its source ended and it stopped.
     pub ready: bool,
 }
 
 /// Application health at the time of the report.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct HealthReport {
-    /// `false` once a subscription has failed, which stops the application.
+    /// `false` once a subscription has failed, which stops the application, or
+    /// while a subscription is stalled.
     pub live: bool,
     /// `true` while the application runs, has not started shutting down, and
     /// every subscription is ready.
@@ -95,9 +110,9 @@ impl Health {
         let started = self.0.shutdown.get();
         let shutting_down = started.is_some_and(CancellationToken::is_cancelled);
         HealthReport {
-            live: subscriptions
-                .iter()
-                .all(|subscription| subscription.status != SubscriptionStatus::Failed),
+            live: subscriptions.iter().all(|subscription| {
+                subscription.status != SubscriptionStatus::Failed && !subscription.stalled
+            }),
             ready: started.is_some()
                 && !shutting_down
                 && subscriptions.iter().all(|subscription| subscription.ready),
@@ -106,7 +121,7 @@ impl Health {
         }
     }
 
-    /// Whether no subscription has failed; see [`HealthReport::live`].
+    /// Whether no subscription has failed or stalled; see [`HealthReport::live`].
     pub fn is_live(&self) -> bool {
         self.report().live
     }
@@ -134,6 +149,19 @@ pub(crate) struct Tracker {
     receive_failures: AtomicUsize,
     receive_backoff: AtomicBool,
     publish_retries: AtomicUsize,
+    /// Received deliveries that have not finished.
+    in_flight: AtomicUsize,
+    /// Reference point of `last_progress`.
+    epoch: Instant,
+    /// Milliseconds from `epoch` to the last finished processing step.
+    last_progress: AtomicU64,
+    /// Set when the subscription starts running.
+    run: OnceLock<Run>,
+}
+
+struct Run {
+    probe: Option<Arc<dyn SourceProbe>>,
+    stall_timeout: Option<Duration>,
 }
 
 impl Tracker {
@@ -144,11 +172,44 @@ impl Tracker {
             receive_failures: AtomicUsize::new(0),
             receive_backoff: AtomicBool::new(false),
             publish_retries: AtomicUsize::new(0),
+            in_flight: AtomicUsize::new(0),
+            epoch: Instant::now(),
+            last_progress: AtomicU64::new(0),
+            run: OnceLock::new(),
         }
+    }
+
+    /// Records the source's probe and the stall timeout when the subscription
+    /// starts running.
+    pub(crate) fn start(
+        &self,
+        probe: Option<Arc<dyn SourceProbe>>,
+        stall_timeout: Option<Duration>,
+    ) {
+        let _ = self.run.set(Run {
+            probe,
+            stall_timeout,
+        });
+        self.progressed();
+        self.set_status(SubscriptionStatus::Running);
     }
 
     pub(crate) fn set_status(&self, status: SubscriptionStatus) {
         self.status.store(status as u8, Ordering::Relaxed);
+    }
+
+    pub(crate) fn set_in_flight(&self, in_flight: usize) {
+        self.in_flight.store(in_flight, Ordering::Relaxed);
+    }
+
+    /// Records that a processing step finished or a delivery arrived, which
+    /// restarts the stall timeout.
+    pub(crate) fn progressed(&self) {
+        let elapsed = self.epoch.elapsed().as_millis();
+        self.last_progress.store(
+            u64::try_from(elapsed).unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
     }
 
     /// Records a failed receive; the runtime waits before receiving again.
@@ -174,12 +235,32 @@ impl Tracker {
     }
 
     fn report(&self) -> SubscriptionReport {
+        self.report_at(Instant::now())
+    }
+
+    fn report_at(&self, now: Instant) -> SubscriptionReport {
         let status = SubscriptionStatus::ALL[self.status.load(Ordering::Relaxed) as usize];
         let receive_failures = self.receive_failures.load(Ordering::Relaxed);
         let receive_backoff = self.receive_backoff.load(Ordering::Relaxed);
         let publish_retries = self.publish_retries.load(Ordering::Relaxed);
+        let run = self.run.get();
+        let probe = run.and_then(|run| run.probe.as_deref());
+        let connected = probe.and_then(SourceProbe::connected);
+        let lag = probe.and_then(SourceProbe::lag);
+        let stalled = matches!(
+            status,
+            SubscriptionStatus::Running | SubscriptionStatus::Stopping
+        ) && self.in_flight.load(Ordering::Relaxed) > 0
+            && run
+                .and_then(|run| run.stall_timeout)
+                .is_some_and(|timeout| {
+                    let last = Duration::from_millis(self.last_progress.load(Ordering::Relaxed));
+                    now.saturating_duration_since(self.epoch + last) >= timeout
+                });
         let ready = match status {
-            SubscriptionStatus::Running => !receive_backoff && publish_retries == 0,
+            SubscriptionStatus::Running => {
+                !receive_backoff && publish_retries == 0 && connected != Some(false)
+            }
             SubscriptionStatus::Stopped => true,
             SubscriptionStatus::Pending
             | SubscriptionStatus::Stopping
@@ -191,6 +272,9 @@ impl Tracker {
             receive_failures,
             receive_backoff,
             publish_retries,
+            connected,
+            lag,
+            stalled,
             ready,
         }
     }
@@ -244,5 +328,25 @@ mod tests {
 
         orders.set_status(SubscriptionStatus::Failed);
         assert!(!health.is_live());
+    }
+
+    #[test]
+    fn stall_needs_deliveries_in_flight_without_progress() {
+        let health = Health::default();
+        let orders = health.register("orders");
+        orders.start(None, Some(Duration::from_secs(60)));
+        let later = Instant::now() + Duration::from_secs(120);
+        assert!(!orders.report_at(later).stalled, "idle is not stalled");
+
+        orders.set_in_flight(1);
+        assert!(!orders.report().stalled);
+        assert!(orders.report_at(later).stalled);
+        orders.set_status(SubscriptionStatus::Stopped);
+        assert!(!orders.report_at(later).stalled);
+
+        let unchecked = health.register("unchecked");
+        unchecked.start(None, None);
+        unchecked.set_in_flight(1);
+        assert!(!unchecked.report_at(later).stalled);
     }
 }

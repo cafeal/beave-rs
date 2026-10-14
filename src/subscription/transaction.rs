@@ -222,6 +222,7 @@ where
                 Err(error) => error,
             };
             self.instruments.publish_failures.increment(1);
+            self.instruments.health.progressed();
             if PublishRejected::is(error.as_ref()) {
                 return Err(error.context("a transaction batch cannot route a rejected output"));
             }
