@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Errors and retries - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="errors.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="handlers.html">Handlers</a></li><li><a href="middleware.html">Middleware</a></li><li><a href="errors.html" aria-current="page">Errors and retries</a></li><li><a href="tombstones.html">Tombstones</a></li><li><a href="transactions.html">Transactions</a></li><li><a href="observability.html">Observability</a></li><li><a href="health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/local.html">Local adapters</a></li><li><a href="../adapters/channel.html">Channel</a></li><li><a href="../adapters/kafka.html">Kafka</a></li><li><a href="../adapters/pulsar.html">Pulsar</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="../adapters/sqs.html">SQS</a></li><li><a href="../adapters/pubsub.html">Pub/Sub</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus</a></li><li><a href="../adapters/http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-bytes.html">Raw bytes</a></li><li><a href="../codecs/utf8.html">UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li><li><a href="../codecs/msgpack.html">MessagePack</a></li><li><a href="../codecs/cbor.html">CBOR</a></li><li><a href="../codecs/wrappers.html">Codec wrappers</a><ul><li><a href="../codecs/wrappers/base64.html">Base64</a></li><li><a href="../codecs/wrappers/gzip.html">Gzip</a></li><li><a href="../codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="errors-and-retries">Errors and retries</h1>
+<p><code>beavers::Result&lt;T&gt;</code> uses <code>HandlerError</code>, whose variants hold a <code>BoxError</code>.
+Ordinary errors propagated with <code>?</code>, from any <code>std::error::Error + Send + Sync</code>
+type, <code>String</code>, <code>&amp;str</code>, or <code>anyhow::Error</code>, become <code>Reject</code>: the handler is not
+retried, and the input is dead-lettered by default. The runtime cannot tell a
+transient failure from a deterministic one, so the handler requests other
+outcomes at the call site with the <code>Classify</code> extension trait. <code>.reject()?</code>
+states the default explicitly, <code>.retry()?</code> reruns the handler under its retry
+policy and dead-letters the input once that is
+exhausted; <code>.fatal()?</code> stops the subscription:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{Classify, <span class="hljs-type">Result</span>};
+
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">handle</span>(order: Order) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;Output&gt; {
+    <span class="hljs-title function_ invoke__">validate</span>(&amp;order).<span class="hljs-title function_ invoke__">reject</span>()?; <span class="hljs-comment">// invalid input: dead-letter now (same as `?`)</span>
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">user</span> = db.<span class="hljs-title function_ invoke__">find_user</span>(order.user_id).<span class="hljs-keyword">await</span>.<span class="hljs-title function_ invoke__">retry</span>()?; <span class="hljs-comment">// transient: retry, then dead-letter</span>
+    <span class="hljs-title function_ invoke__">Ok</span>(<span class="hljs-title function_ invoke__">build_output</span>(order, user))
+}
+</code></pre><h2 id="error-policy">Error policy</h2>
+<p><code>ErrorPolicy</code> decides what happens to a delivery after one of five routable
+failures, identified by <code>FailureKind</code>:</p>
+<table>
+<thead>
+<tr>
+<th><code>FailureKind</code></th>
+<th>Cause</th>
+<th>Default action</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Decode</code></td>
+<td><code>SourceMessage::decode</code> failed</td>
+<td><code>Stop</code></td>
+</tr>
+<tr>
+<td><code>Rejected</code></td>
+<td>The handler or a middleware returned <code>Reject</code>, including errors propagated with <code>?</code></td>
+<td><code>DeadLetter</code></td>
+</tr>
+<tr>
+<td><code>RetryExhausted</code></td>
+<td>The handler returned <code>Retry</code> on its final permitted attempt</td>
+<td><code>DeadLetter</code></td>
+</tr>
+<tr>
+<td><code>Encode</code></td>
+<td><code>Sink::prepare</code> failed for an emitted output</td>
+<td><code>Stop</code></td>
+</tr>
+<tr>
+<td><code>PublishRejected</code></td>
+<td>The sink&#39;s destination refused an output permanently</td>
+<td><code>DeadLetter</code></td>
+</tr>
+</tbody></table>
+<p>Each failure maps to one <code>FailureAction</code>:</p>
+<ul>
+<li><code>Stop</code> returns an error and leaves the delivery unacknowledged, so a durable
+broker can redeliver it after restart.</li>
+<li><code>DeadLetter</code> publishes a <code>DeadLetter</code> envelope to the dead-letter sink and
+then acknowledges the delivery.</li>
+<li><code>Discard</code> acknowledges the delivery without publishing anything. It is an
+explicit choice to lose that delivery.</li>
+</ul>
+<p>Rejections, exhausted handler retries, and rejected publications without a
+configured dead-letter sink stop without ACK: the input could not be processed
+and nothing can receive it. <code>DeadLetter</code> for decode or encode failures requires a dead-letter
+sink and fails validation otherwise. <code>ErrorPolicy::dead_letter_all()</code> routes
+every kind to the dead-letter sink.</p>
+<p>Encoding happens for all emitted outputs before any publication, so an <code>Encode</code>
+failure never follows a partial publish; dead-lettering the input after it does
+not duplicate outputs.</p>
+<p>A sink reports a permanent refusal, such as an HTTP <code>4xx</code> response, by marking
+its publish, submit, or commit error with <code>PublishRejected::wrap</code>. The runtime
+does not retry a rejected output and submits no later outputs of the delivery.
+Outputs submitted before it stay published, and their completions are awaited
+before the delivery is routed, so a <code>DeadLetter</code> or <code>Discard</code> action
+acknowledges it only after they reached the sink&#39;s acknowledgement boundary.
+Errors without the marker are retried under <code>publish_retry</code>, and an exhausted
+retry stops the subscription. A failed completion is never routed. A
+<a href="transactions.html#batches">transactional subscription</a> cannot route a rejected commit either.</p>
+<h2 id="dead-letters">Dead letters</h2>
+<p><code>Subscription::dlq(sink)</code> accepts a <code>Sink&lt;DeadLetter&lt;Input, Raw&gt;&gt;</code>, where <code>Raw</code>
+is the source message&#39;s undecoded form (<code>SourceRaw&lt;S&gt;</code>).
+<code>Subscription::dlq_with(sink, convert)</code> converts each envelope into the sink&#39;s
+own output type first, for example to forward the original payload to a broker
+topic with failure details as headers. Handlers never see dead letters.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>subscription</code></td>
+<td>Name of the failing subscription</td>
+</tr>
+<tr>
+<td><code>failure</code></td>
+<td>The <code>FailureKind</code></td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td>Error message including its context chain</td>
+</tr>
+<tr>
+<td><code>attempts</code></td>
+<td>Handler attempts made; zero for decode failures</td>
+</tr>
+<tr>
+<td><code>input</code></td>
+<td>Decoded handler input; <code>None</code> after a decode failure</td>
+</tr>
+<tr>
+<td><code>raw</code></td>
+<td>The delivery as received, with its broker metadata</td>
+</tr>
+</tbody></table>
+<p><code>SourceMessage::Raw</code> defines <code>raw</code> per source, so broker metadata keeps its
+native shape instead of passing through a universal structure:</p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th><code>Raw</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Kafka</td>
+<td><code>KafkaRecord&lt;Vec&lt;u8&gt;&gt;</code>: value bytes, key, headers, and delivery metadata</td>
+</tr>
+<tr>
+<td>Pulsar</td>
+<td><code>PulsarRecord&lt;Vec&lt;u8&gt;&gt;</code>: payload bytes, key, properties, event time, and delivery metadata</td>
+</tr>
+<tr>
+<td>RabbitMQ</td>
+<td><code>RabbitMqRecord&lt;Vec&lt;u8&gt;&gt;</code>: body bytes, headers, properties, and delivery metadata</td>
+</tr>
+<tr>
+<td>SQS</td>
+<td><code>SqsRecord&lt;Vec&lt;u8&gt;&gt;</code>: body bytes, message attributes, and message metadata</td>
+</tr>
+<tr>
+<td>Pub/Sub</td>
+<td><code>PubSubRecord&lt;Vec&lt;u8&gt;&gt;</code>: data bytes, attributes, ordering key, and message metadata</td>
+</tr>
+<tr>
+<td>Azure Service Bus</td>
+<td><code>ServiceBusRecord&lt;Vec&lt;u8&gt;&gt;</code>: body bytes, application properties, message properties, and message metadata</td>
+</tr>
+<tr>
+<td>Stdin</td>
+<td><code>Vec&lt;u8&gt;</code>: the received line</td>
+</tr>
+<tr>
+<td><code>Delivery</code> (<code>IterSource</code>)</td>
+<td><code>()</code>: input is already typed</td>
+</tr>
+<tr>
+<td>Channel</td>
+<td><code>ChannelRaw</code>: the raw form of the upstream delivery that produced the value</td>
+</tr>
+</tbody></table>
+<p><code>SourceMessage::Raw</code> implements <code>Serialize</code>, so <code>DeadLetter</code> implements it
+whenever its input does and a JSON sink can publish it directly.</p>
+<p>Conversion and preparation run once. Publication then retries under the
+<code>dlq_retry</code> policy. A conversion, preparation, or exhausted publication failure
+stops without ACK; dead-letter failures are never routed again.</p>
+<h2 id="forwarding-dead-letters-to-a-broker-topic">Forwarding dead letters to a broker topic</h2>
+<p><code>KafkaPublish::from_dead_letter</code>, <code>PulsarPublish::from_dead_letter</code>,
+<code>RabbitMqPublish::from_dead_letter</code>, <code>SqsPublish::from_dead_letter</code>,
+<code>PubSubPublish::from_dead_letter</code>, and <code>ServiceBusPublish::from_dead_letter</code>
+convert a dead letter into a record for a
+dead-letter topic or queue of the same platform. The record keeps the original
+key, value bytes, and headers or properties (and the Pulsar event time), so the
+payload can be inspected with ordinary broker tools and decoded by the same
+codec as the original topic. Failure details are added as text headers (Kafka),
+properties (Pulsar), string headers (RabbitMQ), string application properties
+(Azure Service Bus), or attributes (Pub/Sub, whose 1024-byte value limit cuts a
+longer error message). SQS accepts at most 10
+message attributes, so the SQS adapter writes the same names and values as one
+JSON object into the <code>beavers-dlq-details</code> string attribute:</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>beavers-dlq-subscription</code></td>
+<td>Subscription that dead-lettered the payload</td>
+</tr>
+<tr>
+<td><code>beavers-dlq-failure</code></td>
+<td><code>FailureKind</code> name, such as <code>rejected</code></td>
+</tr>
+<tr>
+<td><code>beavers-dlq-error</code></td>
+<td>Error message including its context chain</td>
+</tr>
+<tr>
+<td><code>beavers-dlq-attempts</code></td>
+<td>Handler attempts made</td>
+</tr>
+<tr>
+<td><code>beavers-dlq-count</code></td>
+<td>Times the payload has been dead-lettered, including this one</td>
+</tr>
+<tr>
+<td><code>beavers-dlq-origin-topic</code></td>
+<td>Kafka or Pulsar topic the payload was first received from</td>
+</tr>
+<tr>
+<td><code>beavers-dlq-origin-partition</code>, <code>-offset</code>, <code>-timestamp</code></td>
+<td>Kafka location and record timestamp of the first receipt</td>
+</tr>
+<tr>
+<td><code>beavers-dlq-origin-message-id</code>, <code>-publish-time</code></td>
+<td>Pulsar message ID (<code>ledger:entry:partition:batch</code>) and publish time of the first receipt</td>
+</tr>
+<tr>
+<td><code>beavers-dlq-origin-queue</code>, <code>-exchange</code>, <code>-routing-key</code></td>
+<td>RabbitMQ queue of the first receipt, and the exchange and routing key it was published with</td>
+</tr>
+<tr>
+<td><code>beavers-dlq-origin-queue-url</code>, <code>-message-id</code></td>
+<td>SQS queue URL and message ID of the first receipt</td>
+</tr>
+<tr>
+<td><code>beavers-dlq-origin-subscription</code>, <code>-message-id</code></td>
+<td>Pub/Sub subscription and message ID of the first receipt</td>
+</tr>
+<tr>
+<td><code>beavers-dlq-origin-entity-path</code>, <code>-sequence-number</code></td>
+<td>Azure Service Bus entity path and sequence number of the first receipt</td>
+</tr>
+</tbody></table>
+<p>The sink must publish raw bytes:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">let</span> <span class="hljs-variable">dead_letters</span> = kafka.sink::&lt;RawBytes&gt;(<span class="hljs-string">&quot;orders-dlq&quot;</span>);
+
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, handle)
+    .<span class="hljs-title function_ invoke__">dlq_with</span>(dead_letters, |dead_letter| <span class="hljs-title function_ invoke__">Ok</span>(KafkaPublish::<span class="hljs-title function_ invoke__">from_dead_letter</span>(dead_letter)));
+</code></pre><p>When the dead-lettered record was itself received from a dead-letter topic, the
+origin headers are kept and the count is incremented, while the other details
+describe the latest failure. Previous dead-letter headers that are malformed
+are replaced as if the payload had never been dead-lettered.
+<code>KafkaDeadLetter::from_record</code>, <code>PulsarDeadLetter::from_record</code>,
+<code>RabbitMqDeadLetter::from_record</code>, <code>SqsDeadLetter::from_record</code>,
+<code>PubSubDeadLetter::from_record</code>, and <code>ServiceBusDeadLetter::from_record</code> read
+the details back from a received record
+and return <code>None</code> for a record without them. The inheritance middleware of each
+adapter never copies names starting with
+<code>DEAD_LETTER_HEADER_PREFIX</code> into outputs.</p>
+<p>The dead-letter record&#39;s own timestamp or publish time is when it was
+dead-lettered. A subscription downstream of a <a href="../adapters/channel.html">channel</a>
+receives a <code>ChannelRaw</code>; <code>DeadLetter::try_map_raw</code> reads it as the upstream
+record before conversion.</p>
+<h2 id="reprocessing-dead-letters">Reprocessing dead letters</h2>
+<p>beavers has no dedicated redrive command. A dead-letter topic is an ordinary
+topic, so dead letters are reprocessed by a subscription whose source reads the
+dead-letter topic and whose handler is the original one, or a wrapper around
+it that inspects <code>KafkaDeadLetter::from_record</code> first, for example to stop
+after a limit on <code>details.count</code>. The
+<a href="../dead-letter-handling.html">dead-letter handling guide</a> describes how to find
+the cause of dead letters, how to reprocess, park, or drop them on log and
+queue brokers, and complete examples.</p>
+<h2 id="other-failures">Other failures</h2>
+<table>
+<thead>
+<tr>
+<th>Failure</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Handler <code>Retry</code></td>
+<td>Retry the handler with cloned input, then apply <code>RetryExhausted</code> routing</td>
+</tr>
+<tr>
+<td>Handler <code>Fatal</code></td>
+<td>Stop without ACK</td>
+</tr>
+<tr>
+<td>Receive <code>Retry</code></td>
+<td>Back off and retry receive; reset the failure count after receiving a message</td>
+</tr>
+<tr>
+<td>Receive <code>Fatal</code> or exhausted retry</td>
+<td>Stop receiving, drain outstanding work, return an error</td>
+</tr>
+<tr>
+<td>Value-only input unavailable (tombstone)</td>
+<td><code>Rejected</code> routing without invoking the handler</td>
+</tr>
+<tr>
+<td>Middleware <code>Reject</code></td>
+<td><code>Rejected</code> routing with the decoded input; publish no outputs</td>
+</tr>
+<tr>
+<td>Middleware <code>Retry</code> or <code>Fatal</code></td>
+<td>Stop without ACK; never rerun the handler or middleware</td>
+</tr>
+<tr>
+<td>Publish failure</td>
+<td>Retry the prepared output; never rerun handler, middleware, or encoding</td>
+</tr>
+<tr>
+<td>Publish rejected by the destination</td>
+<td><code>PublishRejected</code> routing without retry</td>
+</tr>
+<tr>
+<td>Exhausted publish</td>
+<td>Stop without ACK; infrastructure failures are never dead-lettered</td>
+</tr>
+<tr>
+<td>ACK failure</td>
+<td>Return an error; do not claim successful completion</td>
+</tr>
+</tbody></table>
+<p>Publication, dead-letter publication, and ACK results are never assumed. An
+interrupted or failed attempt is not treated as success.</p>
+<p>Sources and sinks built from one broker handle share its connection. A lost
+shared connection therefore affects every subscription that uses it at once:
+each one sees its own receive, publish, or ACK failure and handles it as
+above, so a subscription still stops on its own fatal or exhausted failure.</p>
+
+      <p class="source"><a href="errors.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/runtime/errors.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>
