@@ -7,9 +7,9 @@
 //!
 //! Consumes the Kafka `orders` topic and republishes each order to
 //! `persistent://public/default/orders-from-kafka` until interrupted with
-//! Ctrl-C. The Kafka key becomes the Pulsar key, and Kafka headers with UTF-8
-//! values become Pulsar properties; beavers never maps metadata between
-//! platforms implicitly. Set `KAFKA_BROKERS` and `PULSAR_URL` to use other
+//! Ctrl-C. The Kafka key becomes the Pulsar key, and the named Kafka headers
+//! with UTF-8 values become Pulsar properties; beavers never maps metadata
+//! between platforms implicitly. Set `KAFKA_BROKERS` and `PULSAR_URL` to use other
 //! brokers.
 use beavers::{
     App, Json, MapMetadata, Result, Subscription, Tombstones,
@@ -23,6 +23,9 @@ use std::env;
 
 const KAFKA_TOPIC: &str = "orders";
 const PULSAR_TOPIC: &str = "persistent://public/default/orders-from-kafka";
+/// Kafka headers carried as Pulsar properties. Other headers are dropped,
+/// because their meaning on Pulsar is unknown.
+const CARRIED_HEADERS: [&str; 2] = ["tenant", "request-id"];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct Order {
@@ -49,6 +52,9 @@ fn map_metadata(
 ) -> Result<PulsarPublish<Order>> {
     output.key = input.key.clone();
     for (name, value) in &input.headers {
+        if !CARRIED_HEADERS.contains(&name.as_str()) {
+            continue;
+        }
         if let Some(value) = value
             .as_deref()
             .and_then(|value| str::from_utf8(value).ok())
