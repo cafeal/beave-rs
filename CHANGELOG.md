@@ -9,6 +9,8 @@ project follows the versioning policy in
 
 ### Added
 
+- `handlers::Lua` and `handlers::Python` (`lua` and `python` features), which
+  run Lua or Python code on JSON values instead of a Rust handler.
 - Setter methods on `RetryPolicy` and `ErrorPolicy`, such as
   `RetryPolicy::default().max_attempts(5)`.
 - `Acknowledgements`, returned by `IterSource::acknowledgements`, with

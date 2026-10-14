@@ -299,6 +299,31 @@ Remaining decisions:
 - scripted receive errors and revocations, and a sink that fails publication
   or completion on demand, for testing retry and revocation paths.
 
+## Running without Rust
+
+Simple processing should be deployable without writing Rust: a prebuilt
+binary and container image start subscriptions listed in a configuration file,
+with handlers chosen from ready-made ones. The [Lua and Python
+handlers](runtime/script-handlers.md) are the first of them. Remaining work:
+
+- handlers that delegate to a serverless function, such as AWS Lambda, and a
+  generic HTTP function handler for Cloud Run, Azure Functions, or a service of
+  the application, with function errors rejecting the input and throttling,
+  `5xx`, and timeouts retrying it; batching several inputs into one call;
+- a separate crate with a `beavers` binary that reads YAML or TOML naming
+  connections, subscriptions, sources, sinks, codecs, handlers, retry and
+  dead-letter settings, and health endpoints, with environment variable
+  substitution for secrets; serde stays out of the library, which keeps its
+  handle builders;
+- a container image with the Python runtime, and how users add Python
+  packages to it;
+- Avro and Protobuf in configuration, which need schemas read from `.avsc` or
+  `.proto` files at run time instead of Rust types;
+- whether Lua and Python code should read and set broker metadata, such as
+  keys and headers, which the value-only handlers cannot today;
+- a time limit for Lua and Python calls, since neither handler can interrupt
+  code that does not return, and `async def` handlers for Python.
+
 ## Future adapters
 
 Candidate adapters are:

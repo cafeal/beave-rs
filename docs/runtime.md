@@ -9,6 +9,7 @@ Topic guides cover the rest of the runtime:
 | Guide | Covers |
 |---|---|
 | [Handlers](runtime/handlers.md) | Handler signatures, emitting outputs, and blocking handlers |
+| [Lua and Python handlers](runtime/script-handlers.md) | Handlers written in Lua or Python instead of Rust |
 | [Middleware](runtime/middleware.md) | Hooks around the handler and metadata inheritance |
 | [Errors and retries](runtime/errors.md) | Retry policies, the error policy, and dead letters |
 | [Tombstones](runtime/tombstones.md) | Handling null-value records |

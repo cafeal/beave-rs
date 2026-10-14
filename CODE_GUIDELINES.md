@@ -35,6 +35,7 @@ src/
 │   ├── state.rs           # Health handle, reports, and per-subscription state
 │   └── server.rs          # Liveness and readiness probes (`health` feature)
 ├── testing/               # Test sources for fabricated records (`testing` feature)
+├── handlers/              # Lua and Python handlers (`lua` and `python` features)
 ├── codec/
 │   ├── mod.rs             # Codec, Decoder, and Encoder contracts
 │   ├── json.rs            # JSON codec

@@ -13,6 +13,7 @@
 | [Monitoring and alerting](monitoring-and-alerting/README.md) | Signals to alert on, alert rules, and setups for Kubernetes, AWS, Google Cloud, and Azure |
 
 Runtime topics: [Handlers](runtime/handlers.md),
+[Lua and Python handlers](runtime/script-handlers.md),
 [Middleware](runtime/middleware.md), [Errors and retries](runtime/errors.md),
 [Tombstones](runtime/tombstones.md), [Transactions](runtime/transactions.md),
 [Observability](runtime/observability.md), and [Health checks](runtime/health.md).
