@@ -273,10 +273,9 @@ described in the <a href="runtime/health.html">runtime guide</a>. Remaining deci
 clients cannot read a backlog without an administration or management API;</li>
 <li>connection state for the RabbitMQ, SQS, Pub/Sub, and Service Bus sources.</li>
 </ul>
-<p>The Kafka probe&#39;s reading of librdkafka statistics (<code>consumer_lag</code> of the
-consumed partitions and the broker <code>state</code>) and the Pulsar probe&#39;s
-<code>is_connected</code> have not been verified against live brokers, including after a
-broker restart.</p>
+<p>The Pulsar probe&#39;s <code>is_connected</code> has not been verified across a broker
+restart, and neither probe across a multi-broker cluster in which one broker
+fails.</p>
 <p>Trace-context propagation and the
 <a href="runtime/observability.html#exporting-metrics-to-opentelemetry">Prometheus export path</a> have not
 been verified against live brokers or an OpenTelemetry Collector.</p>

@@ -5494,10 +5494,9 @@ described in the [runtime guide](runtime/health.md). Remaining decisions:
   clients cannot read a backlog without an administration or management API;
 - connection state for the RabbitMQ, SQS, Pub/Sub, and Service Bus sources.
 
-The Kafka probe's reading of librdkafka statistics (`consumer_lag` of the
-consumed partitions and the broker `state`) and the Pulsar probe's
-`is_connected` have not been verified against live brokers, including after a
-broker restart.
+The Pulsar probe's `is_connected` has not been verified across a broker
+restart, and neither probe across a multi-broker cluster in which one broker
+fails.
 
 Trace-context propagation and the
 [Prometheus export path](runtime/observability.md#exporting-metrics-to-opentelemetry) have not
