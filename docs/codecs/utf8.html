@@ -33,7 +33,8 @@ and encodes a <code>String</code> using its UTF-8 representation. It does not tr
 strip a byte-order mark, normalize Unicode, or remove line endings. An empty
 payload decodes to an empty string. Malformed UTF-8 returns an error. It is a
 unit struct that implements <code>Default</code>, so adapters that construct their codec
-internally can use it, and it needs no Cargo feature.</p>
+internally can use it, and it needs no Cargo feature. Its value type is fixed,
+so a source or sink names it without a type argument, as in <code>KafkaSink&lt;Utf8&gt;</code>.</p>
 <pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Decoder, Encoder, Utf8};
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">codec</span> = Utf8;

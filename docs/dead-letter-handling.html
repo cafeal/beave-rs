@@ -139,10 +139,10 @@ topic and print a summary of each dead letter as one JSON line:</p>
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>);
 <span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = kafka
-    .source::&lt;RawBytes, <span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;(<span class="hljs-string">&quot;orders-dlq-examine&quot;</span>, [<span class="hljs-string">&quot;orders-dlq&quot;</span>])
+    .source::&lt;RawBytes&gt;(<span class="hljs-string">&quot;orders-dlq-examine&quot;</span>, [<span class="hljs-string">&quot;orders-dlq&quot;</span>])
     .<span class="hljs-title function_ invoke__">property</span>(<span class="hljs-string">&quot;auto.offset.reset&quot;</span>, <span class="hljs-string">&quot;earliest&quot;</span>);
 
-Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders-dlq-examine&quot;</span>, source, StdoutSink::&lt;Json&gt;::<span class="hljs-title function_ invoke__">new</span>(), |record: KafkaRecord&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;| <span class="hljs-keyword">async</span> <span class="hljs-keyword">move</span> {
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders-dlq-examine&quot;</span>, source, StdoutSink::&lt;Json&lt;_&gt;&gt;::<span class="hljs-title function_ invoke__">new</span>(), |record: KafkaRecord&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;| <span class="hljs-keyword">async</span> <span class="hljs-keyword">move</span> {
     <span class="hljs-keyword">let</span> <span class="hljs-variable">dead</span> = KafkaDeadLetter::<span class="hljs-title function_ invoke__">from_record</span>(&amp;record).<span class="hljs-title function_ invoke__">ok</span>().<span class="hljs-title function_ invoke__">flatten</span>();
     <span class="hljs-title function_ invoke__">Ok</span>(Summary {
         failure: dead.<span class="hljs-title function_ invoke__">as_ref</span>().<span class="hljs-title function_ invoke__">map</span>(|dead| dead.details.failure.<span class="hljs-title function_ invoke__">as_str</span>().<span class="hljs-title function_ invoke__">to_owned</span>()),
@@ -172,8 +172,8 @@ dead-lettered three times:</p>
     adapters::kafka::{KafkaDeadLetter, KafkaPublish, KafkaRecord},
 };
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = kafka.source::&lt;Json, Order&gt;(<span class="hljs-string">&quot;orders-redrive&quot;</span>, [<span class="hljs-string">&quot;orders-dlq&quot;</span>]);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">parked</span> = kafka.sink::&lt;RawBytes, <span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;(<span class="hljs-string">&quot;orders-parked&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = kafka.source::&lt;Json&lt;Order&gt;&gt;(<span class="hljs-string">&quot;orders-redrive&quot;</span>, [<span class="hljs-string">&quot;orders-dlq&quot;</span>]);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">parked</span> = kafka.sink::&lt;RawBytes&gt;(<span class="hljs-string">&quot;orders-parked&quot;</span>);
 
 Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders-redrive&quot;</span>, source, invoices, |record: KafkaRecord&lt;Order&gt;| <span class="hljs-keyword">async</span> <span class="hljs-keyword">move</span> {
     <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> <span class="hljs-variable">Some</span>(dead) = KafkaDeadLetter::<span class="hljs-title function_ invoke__">from_record</span>(&amp;record).<span class="hljs-title function_ invoke__">reject</span>()?.<span class="hljs-title function_ invoke__">filter</span>(|dead| dead.details.count &gt;= <span class="hljs-number">3</span>) {
@@ -236,8 +236,8 @@ SQS; the other platforms have the same shape with <code>RabbitMqDeadLetter</code
 };
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">sqs</span> = Sqs::<span class="hljs-title function_ invoke__">new</span>();
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = sqs.source::&lt;Json, Order&gt;(orders_dlq_url);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">parked</span> = sqs.sink::&lt;RawBytes, <span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;(orders_parked_url);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = sqs.source::&lt;Json&lt;Order&gt;&gt;(orders_dlq_url);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">parked</span> = sqs.sink::&lt;RawBytes&gt;(orders_parked_url);
 
 Subscription::<span class="hljs-title function_ invoke__">new_emitting</span>(<span class="hljs-string">&quot;orders-dlq-triage&quot;</span>, source, invoices, |record: SqsRecord&lt;Order&gt;| <span class="hljs-keyword">async</span> <span class="hljs-keyword">move</span> {
     <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> <span class="hljs-variable">Some</span>(dead) = SqsDeadLetter::<span class="hljs-title function_ invoke__">from_record</span>(&amp;record).<span class="hljs-title function_ invoke__">reject</span>()?.<span class="hljs-title function_ invoke__">filter</span>(|dead| dead.details.count &gt;= <span class="hljs-number">3</span>) {
@@ -291,9 +291,9 @@ redirected to a file:</p>
     body: <span class="hljs-type">String</span>,
 }
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = sqs.source::&lt;RawBytes, <span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;(orders_dlq_url);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = sqs.source::&lt;RawBytes&gt;(orders_dlq_url);
 
-Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders-dlq-archive&quot;</span>, source, StdoutSink::&lt;Json&gt;::<span class="hljs-title function_ invoke__">new</span>(), |record: SqsRecord&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;| <span class="hljs-keyword">async</span> <span class="hljs-keyword">move</span> {
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders-dlq-archive&quot;</span>, source, StdoutSink::&lt;Json&lt;_&gt;&gt;::<span class="hljs-title function_ invoke__">new</span>(), |record: SqsRecord&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;| <span class="hljs-keyword">async</span> <span class="hljs-keyword">move</span> {
     <span class="hljs-keyword">let</span> <span class="hljs-variable">dead</span> = SqsDeadLetter::<span class="hljs-title function_ invoke__">from_record</span>(&amp;record).<span class="hljs-title function_ invoke__">ok</span>().<span class="hljs-title function_ invoke__">flatten</span>();
     <span class="hljs-title function_ invoke__">Ok</span>(Archived {
         message_id: record.metadata.message_id.<span class="hljs-title function_ invoke__">clone</span>(),

@@ -29,8 +29,8 @@
     <main class="doc">
 <h1 id="cbor-codec">CBOR codec</h1>
 <p><code>Cbor</code> converts between CBOR (<a href="https://www.rfc-editor.org/rfc/rfc8949">RFC 8949</a>)
-payloads and any type implementing Serde&#39;s traits, the same types <code>Json</code>
-accepts. It is a unit struct that implements <code>Default</code>. Enable the <code>cbor</code> Cargo
+payloads and a type <code>T</code> implementing Serde&#39;s traits, the same types <code>Json</code>
+accepts. <code>Cbor&lt;T&gt;</code> holds no state and implements <code>Default</code>. Enable the <code>cbor</code> Cargo
 feature to use it:</p>
 <pre><code class="hljs language-toml"><span class="hljs-section">[dependencies]</span>
 <span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;cbor&quot;</span>] }
@@ -44,8 +44,8 @@ over the complete payload.</p>
     sensor: <span class="hljs-type">String</span>,
 }
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">bytes</span> = Cbor.<span class="hljs-title function_ invoke__">encode</span>(&amp;Reading { sensor: <span class="hljs-string">&quot;dam-1&quot;</span>.<span class="hljs-title function_ invoke__">into</span>() })?;
-<span class="hljs-keyword">let</span> <span class="hljs-variable">reading</span>: Reading = Cbor.<span class="hljs-title function_ invoke__">decode</span>(&amp;bytes)?;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">bytes</span> = Cbor::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">encode</span>(&amp;Reading { sensor: <span class="hljs-string">&quot;dam-1&quot;</span>.<span class="hljs-title function_ invoke__">into</span>() })?;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">reading</span>: Reading = Cbor::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">decode</span>(&amp;bytes)?;
 <span class="hljs-built_in">assert_eq!</span>(reading.sensor, <span class="hljs-string">&quot;dam-1&quot;</span>);
 # Ok::&lt;(), beavers::BoxError&gt;(())
 </code></pre><h2 id="representation">Representation</h2>

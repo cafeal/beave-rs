@@ -57,7 +57,7 @@ inner codec, so payloads from other gzip writers decode as well.</p>
 </tbody></table>
 <pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Decoder, Encoder, Gzip, Json};
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">codec</span> = Gzip::<span class="hljs-title function_ invoke__">new</span>(Json).<span class="hljs-title function_ invoke__">with_level</span>(<span class="hljs-number">9</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">codec</span> = Gzip::<span class="hljs-title function_ invoke__">new</span>(Json::<span class="hljs-title function_ invoke__">new</span>()).<span class="hljs-title function_ invoke__">with_level</span>(<span class="hljs-number">9</span>);
 <span class="hljs-keyword">let</span> <span class="hljs-variable">bytes</span> = codec.<span class="hljs-title function_ invoke__">encode</span>(&amp;<span class="hljs-built_in">vec!</span>[<span class="hljs-string">&quot;beaver&quot;</span>; <span class="hljs-number">100</span>])?;
 <span class="hljs-keyword">let</span> <span class="hljs-variable">value</span>: <span class="hljs-type">Vec</span>&lt;<span class="hljs-type">String</span>&gt; = codec.<span class="hljs-title function_ invoke__">decode</span>(&amp;bytes)?;
 <span class="hljs-built_in">assert_eq!</span>(value.<span class="hljs-title function_ invoke__">len</span>(), <span class="hljs-number">100</span>);

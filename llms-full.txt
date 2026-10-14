@@ -84,8 +84,8 @@ async fn summarize(article: String) -> Result<String> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let kafka = Kafka::new("localhost:9092");
-    let articles = kafka.source::<Utf8, _>("summarizer", ["articles"]);
-    let summaries = kafka.sink::<Utf8, _>("summaries");
+    let articles = kafka.source::<Utf8>("summarizer", ["articles"]);
+    let summaries = kafka.sink::<Utf8>("summaries");
 
     App::new()
         .subscribe("summarize", articles, summaries, summarize)
@@ -235,7 +235,7 @@ The [runtime guide](runtime.md) describes processing behavior, and the
 | `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure; declare whether application shutdown stops receiving |
 | `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, revocation, and propagation fields |
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
-| `Decoder<T>` / `Encoder<T>` | Convert serialization formats without broker operations |
+| `Codec` / `Decoder` / `Encoder` | Convert serialization formats without broker operations |
 | `Sink<T>` | Prepare an associated output representation, submit or publish it, report its completion, and close resources |
 
 ### Errors
@@ -570,19 +570,19 @@ types are also re-exported at the crate root.
 | Adapter | Role | Typical use |
 |---|---|---|
 | `IterSource<T>` | Typed input | Fixtures, examples, finite jobs |
-| `StdinSource<C, T>` | Line-delimited input | Files, pipes, interactive input |
+| `StdinSource<C>` | Line-delimited input | Files, pipes, interactive input |
 | `InMemorySink<T>` | Typed output collection | Assertions and local inspection |
 | `StdoutSink<C>` | Line-delimited output | JSON output, files, pipes |
 | `ChannelSource<T>` / `ChannelSink<T>` | Chained subscriptions and application ends | Pipeline stages whose upstream ACK waits for the downstream stage; in-process workers fed and read by application code |
-| `KafkaSource<C, T>` / `KafkaSink<C, T>` | Kafka records and publishes | Durable broker pipelines (`kafka` feature) |
-| `KafkaTransactionalSink<C, T>` | Kafka publishes in producer transactions | Exactly-once Kafka-to-Kafka pipelines (`kafka` feature) |
-| `PulsarSource<C, T>` / `PulsarSink<C, T>` | Pulsar records and publishes | Durable broker pipelines (`pulsar` feature) |
-| `RabbitMqSource<C, T>` / `RabbitMqSink<C, T>` | RabbitMQ queue deliveries and exchange publishes | Work queues and routed messaging (`rabbitmq` feature) |
-| `SqsSource<C, T>` / `SqsSink<C, T>` | Amazon SQS queue messages and sends | Managed work queues on AWS (`sqs` feature) |
-| `PubSubSource<C, T>` / `PubSubSink<C, T>` | Google Cloud Pub/Sub subscription messages and topic publishes | Managed messaging on Google Cloud (`pubsub` feature) |
-| `ServiceBusSource<C, T>` / `ServiceBusSink<C, T>` | Azure Service Bus queue and subscription messages and sends | Managed work queues and topics on Azure (`servicebus` feature) |
-| `HttpSource<C, T>` | HTTP `POST` requests answered on ACK | Webhooks and push ingestion (`http` feature) |
-| `HttpSink<C, T>` | HTTP requests that succeed on a `2xx` response | Delivering events to HTTP services (`http` feature) |
+| `KafkaSource<C>` / `KafkaSink<C>` | Kafka records and publishes | Durable broker pipelines (`kafka` feature) |
+| `KafkaTransactionalSink<C>` | Kafka publishes in producer transactions | Exactly-once Kafka-to-Kafka pipelines (`kafka` feature) |
+| `PulsarSource<C>` / `PulsarSink<C>` | Pulsar records and publishes | Durable broker pipelines (`pulsar` feature) |
+| `RabbitMqSource<C>` / `RabbitMqSink<C>` | RabbitMQ queue deliveries and exchange publishes | Work queues and routed messaging (`rabbitmq` feature) |
+| `SqsSource<C>` / `SqsSink<C>` | Amazon SQS queue messages and sends | Managed work queues on AWS (`sqs` feature) |
+| `PubSubSource<C>` / `PubSubSink<C>` | Google Cloud Pub/Sub subscription messages and topic publishes | Managed messaging on Google Cloud (`pubsub` feature) |
+| `ServiceBusSource<C>` / `ServiceBusSink<C>` | Azure Service Bus queue and subscription messages and sends | Managed work queues and topics on Azure (`servicebus` feature) |
+| `HttpSource<C>` | HTTP `POST` requests answered on ACK | Webhooks and push ingestion (`http` feature) |
+| `HttpSink<C>` | HTTP requests that succeed on a `2xx` response | Delivering events to HTTP services (`http` feature) |
 
 NATS JetStream is [planned](plan.md#future-adapters). Local and
 channel adapters do not provide durable delivery guarantees.
@@ -663,8 +663,8 @@ one connection pool, and `HttpSource::new(addr)` binds a server.
 use beavers::{Json, adapters::kafka::Kafka};
 
 let kafka = Kafka::new("localhost:9092").sasl_plain("user", "password");
-let orders = kafka.source::<Json, Order>("billing", ["orders"]);
-let invoices = kafka.sink::<Json, Invoice>("invoices").max_pending(500);
+let orders = kafka.source::<Json<Order>>("billing", ["orders"]);
+let invoices = kafka.sink::<Json<Invoice>>("invoices").max_pending(500);
 ```
 
 Builder methods consume and return the value, and every handle, source, and
@@ -688,25 +688,42 @@ responsibilities belong to [adapters](adapters.md) and the
 
 ## Contracts
 
-The framework defines separate decoding and encoding traits:
+A codec names the typed value it converts, and implements decoding, encoding,
+or both:
 
 ```rust
-pub trait Decoder<T>: Send + Sync + 'static {
-    fn decode(&self, bytes: &[u8]) -> Result<T, BoxError>;
+pub trait Codec: Send + Sync + 'static {
+    type Value;
 }
 
-pub trait Encoder<T>: Send + Sync + 'static {
-    fn encode(&self, value: &T) -> Result<Vec<u8>, BoxError>;
+pub trait Decoder: Codec {
+    fn decode(&self, bytes: &[u8]) -> Result<Self::Value, BoxError>;
+}
+
+pub trait Encoder: Codec {
+    fn encode(&self, value: &Self::Value) -> Result<Vec<u8>, BoxError>;
 }
 ```
 
-A codec can implement either or both. These are synchronous transformations;
+Sources and sinks take their payload type from the codec, so the codec is their
+only type parameter. A format that serializes many types carries the type as
+its parameter, as in `Json<Order>`; a codec bound to one type, such as `Utf8`
+for `String`, has none:
+
+```rust,ignore
+let orders: KafkaSource<Json<Order>> = KafkaSource::new(source_config);
+let invoices: KafkaSink<Avro<Invoice>> = KafkaSink::new(sink_config);
+let lines: KafkaSink<Utf8> = KafkaSink::new(lines_config);
+```
+
+When a handler parameter fixes the type, the codec parameter can be left to
+inference, as in `StdinSource::<Json<_>>::new()`. These are synchronous transformations;
 implementations should not perform blocking network or filesystem operations.
 Expensive serialization still occupies the executing thread; there is currently
 no dedicated codec execution pool.
 
 The traits do not require Serde. Each codec chooses its own representation and
-payload bounds. `Decoder`, `Encoder`, `Json`, `RawBytes`, and `Utf8` are available
+payload bounds. `Codec`, `Decoder`, `Encoder`, `Json`, `RawBytes`, and `Utf8` are available
 through `beavers::codec` and re-exported at the crate root. `Protobuf`, `Avro`,
 `MessagePack`, `Cbor`, and the `Base64`, `Gzip`, and `Zstd` wrappers are
 available when their corresponding Cargo features are enabled.
@@ -740,27 +757,35 @@ decode failure, whereas a failed stdin read is a receive failure.
 
 ## Implementing a codec
 
-Implement the relevant trait for the payload type. For example, a UTF-8 string
-codec needs no Serde dependency:
+Implement `Codec` to name the value type, then the relevant direction. For
+example, a UTF-8 string codec needs no Serde dependency:
 
 ```rust
-use beavers::{BoxError, Decoder, Encoder};
+use beavers::{BoxError, Codec, Decoder, Encoder};
 
 #[derive(Default)]
 struct Utf8;
 
-impl Decoder<String> for Utf8 {
+impl Codec for Utf8 {
+    type Value = String;
+}
+
+impl Decoder for Utf8 {
     fn decode(&self, bytes: &[u8]) -> Result<String, BoxError> {
         Ok(std::str::from_utf8(bytes)?.to_owned())
     }
 }
 
-impl Encoder<String> for Utf8 {
+impl Encoder for Utf8 {
     fn encode(&self, value: &String) -> Result<Vec<u8>, BoxError> {
         Ok(value.as_bytes().to_vec())
     }
 }
 ```
+
+A codec for a format that serializes many types takes the type as a parameter
+and holds it in `PhantomData<fn() -> T>`, as `Json<T>` does, so the codec stays
+`Send`, `Sync`, and `Copy` whatever `T` is.
 
 `Utf8` is an exported built-in codec; see [Utf8](codecs/utf8.md)
 for its exact behavior and [`RawBytes`](codecs/raw-bytes.md) for arbitrary payloads. The local stdin and
@@ -824,8 +849,8 @@ additionally need the `kafka`, `pulsar`, `rabbitmq`, `sqs`, `pubsub`, or
 
 | Need | Use |
 |---|---|
-| Feed Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, or Service Bus records with chosen metadata, key, headers, properties, or attributes | `KafkaTestSource<C, T>`, `PulsarTestSource<C, T>`, `RabbitMqTestSource<C, T>`, `SqsTestSource<C, T>`, `PubSubTestSource<C, T>`, `ServiceBusTestSource<C, T>`, with `kafka_record`, `pulsar_record`, `rabbitmq_record`, `sqs_record`, `pubsub_record`, and `servicebus_record` |
-| Feed bare payloads through a codec | `TestSource<C, T, Vec<u8>>` |
+| Feed Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, or Service Bus records with chosen metadata, key, headers, properties, or attributes | `KafkaTestSource<C>`, `PulsarTestSource<C>`, `RabbitMqTestSource<C>`, `SqsTestSource<C>`, `PubSubTestSource<C>`, `ServiceBusTestSource<C>`, with `kafka_record`, `pulsar_record`, `rabbitmq_record`, `sqs_record`, `pubsub_record`, and `servicebus_record` |
+| Feed bare payloads through a codec | `TestSource<C, Vec<u8>>` |
 | Check which records were acknowledged or left unacknowledged | `TestSource::deliveries()` |
 | Capture published outputs | `InMemorySink<T>` for the subscription's output type |
 | Capture dead letters | `InMemorySink<DeadLetter<I, R>>` as the dead-letter sink |
@@ -837,7 +862,7 @@ trace-context fields.
 
 ## TestSource
 
-A `TestSource<C, T, R>` holds a finite list of records of type `R` with their
+A `TestSource<C, R>` holds a finite list of records of type `R` with their
 payload left undecoded, such as `KafkaRecord<Vec<u8>>`. Each record becomes one
 delivery, and the source ends after the last one. The delivery matches the
 adapter the record type belongs to:
@@ -918,7 +943,7 @@ async fn prices_orders() {
     let free = kafka_record("orders", 3, 43, "0");
     let malformed = kafka_record("orders", 3, 44, "not json");
 
-    let source = KafkaTestSource::<Json, u32>::new([order, free, malformed]);
+    let source = KafkaTestSource::<Json<u32>>::new([order, free, malformed]);
     let deliveries = source.deliveries();
     let sink = InMemorySink::default();
     let dlq = InMemorySink::<DeadLetter<KafkaRecord<u32>, KafkaRecord<Vec<u8>>>>::default();
@@ -1067,10 +1092,10 @@ struct Summary {
 
 let kafka = Kafka::new("localhost:9092");
 let source = kafka
-    .source::<RawBytes, Vec<u8>>("orders-dlq-examine", ["orders-dlq"])
+    .source::<RawBytes>("orders-dlq-examine", ["orders-dlq"])
     .property("auto.offset.reset", "earliest");
 
-Subscription::new("orders-dlq-examine", source, StdoutSink::<Json>::new(), |record: KafkaRecord<Vec<u8>>| async move {
+Subscription::new("orders-dlq-examine", source, StdoutSink::<Json<_>>::new(), |record: KafkaRecord<Vec<u8>>| async move {
     let dead = KafkaDeadLetter::from_record(&record).ok().flatten();
     Ok(Summary {
         failure: dead.as_ref().map(|dead| dead.details.failure.as_str().to_owned()),
@@ -1113,8 +1138,8 @@ use beavers::{
     adapters::kafka::{KafkaDeadLetter, KafkaPublish, KafkaRecord},
 };
 
-let source = kafka.source::<Json, Order>("orders-redrive", ["orders-dlq"]);
-let parked = kafka.sink::<RawBytes, Vec<u8>>("orders-parked");
+let source = kafka.source::<Json<Order>>("orders-redrive", ["orders-dlq"]);
+let parked = kafka.sink::<RawBytes>("orders-parked");
 
 Subscription::new("orders-redrive", source, invoices, |record: KafkaRecord<Order>| async move {
     if let Some(dead) = KafkaDeadLetter::from_record(&record).reject()?.filter(|dead| dead.details.count >= 3) {
@@ -1186,8 +1211,8 @@ use beavers::{
 };
 
 let sqs = Sqs::new();
-let source = sqs.source::<Json, Order>(orders_dlq_url);
-let parked = sqs.sink::<RawBytes, Vec<u8>>(orders_parked_url);
+let source = sqs.source::<Json<Order>>(orders_dlq_url);
+let parked = sqs.sink::<RawBytes>(orders_parked_url);
 
 Subscription::new_emitting("orders-dlq-triage", source, invoices, |record: SqsRecord<Order>| async move {
     if let Some(dead) = SqsDeadLetter::from_record(&record).reject()?.filter(|dead| dead.details.count >= 3) {
@@ -1252,9 +1277,9 @@ struct Archived {
     body: String,
 }
 
-let source = sqs.source::<RawBytes, Vec<u8>>(orders_dlq_url);
+let source = sqs.source::<RawBytes>(orders_dlq_url);
 
-Subscription::new("orders-dlq-archive", source, StdoutSink::<Json>::new(), |record: SqsRecord<Vec<u8>>| async move {
+Subscription::new("orders-dlq-archive", source, StdoutSink::<Json<_>>::new(), |record: SqsRecord<Vec<u8>>| async move {
     let dead = SqsDeadLetter::from_record(&record).ok().flatten();
     Ok(Archived {
         message_id: record.metadata.message_id.clone(),
@@ -1821,7 +1846,7 @@ JSON object into the `beavers-dlq-details` string attribute:
 The sink must publish raw bytes:
 
 ```rust,ignore
-let dead_letters = kafka.sink::<RawBytes, Vec<u8>>("orders-dlq");
+let dead_letters = kafka.sink::<RawBytes>("orders-dlq");
 
 Subscription::new("orders", source, sink, handle)
     .dlq_with(dead_letters, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)));
@@ -2326,9 +2351,9 @@ deliveries were acknowledged, use the `testing` feature described in the
 ## StdinSource
 
 StdinSource reads newline-delimited input. `new()` uses a default-constructed
-`Decoder<T>` and `with_codec(codec)` an existing one. JSON input normally uses
-`StdinSource::<Json, _>::new()`, with the input type inferred from the handler. With Json, input must also implement Serde's
-`DeserializeOwned`.
+`Decoder` and `with_codec(codec)` an existing one. JSON input normally uses
+`StdinSource::<Json<_>>::new()`, with the input type inferred from the handler.
+With `Json`, input must also implement Serde's `DeserializeOwned`.
 
 ```rust
 use beavers::{App, Json, Result, StdinSource, StdoutSink};
@@ -2342,8 +2367,8 @@ async fn main() -> anyhow::Result<()> {
     App::new()
         .subscribe(
             "double",
-            StdinSource::<Json, _>::new(),
-            StdoutSink::<Json>::new(),
+            StdinSource::<Json<_>>::new(),
+            StdoutSink::<Json<_>>::new(),
             double,
         )
         .run()
@@ -2381,8 +2406,8 @@ a no-op completion marker; consumed lines cannot be recovered automatically.
 
 ## StdoutSink
 
-`StdoutSink::new()` default-constructs an `Encoder<T>`, and `with_codec(codec)`
-accepts an existing one. `StdoutSink::<Json>::new()` requires
+`StdoutSink::new()` default-constructs an `Encoder`, and `with_codec(codec)`
+accepts an existing one. `StdoutSink::<Json<_>>::new()` requires
 Serde-serializable output and emits compact JSON followed by a newline.
 
 Preparation encodes the value once and appends the newline. Publication writes
@@ -2615,8 +2640,8 @@ A `Kafka` handle holds the bootstrap brokers and the librdkafka settings that
 every client built from it uses. `property` sets a librdkafka property on every
 consumer and producer of the handle, `producer_property` on its producers only,
 and `sasl_plain` configures SASL/PLAIN authentication, over TLS unless
-`security.protocol` is set otherwise. `handle.source::<C, T>(group_id, topics)`
-builds a source and `handle.sink::<C, T>(topic)` a sink that publishes every
+`security.protocol` is set otherwise. `handle.source::<C>(group_id, topics)`
+builds a source and `handle.sink::<C>(topic)` a sink that publishes every
 output to `topic`; `source_with_codec` and `sink_with_codec` take a codec value
 as their first argument instead of using the codec's default. Optional settings
 are builder methods on the source and sink, such as `property` on a source for
@@ -2627,9 +2652,9 @@ use beavers::{Utf8, adapters::kafka::{Kafka, KafkaPublish}};
 
 let kafka = Kafka::new("localhost:9092").property("client.id", "orders-service");
 let source = kafka
-    .source::<Utf8, String>("orders-workers", ["orders"])
+    .source::<Utf8>("orders-workers", ["orders"])
     .property("auto.offset.reset", "earliest");
-let sink = kafka.sink::<Utf8, String>("processed-orders").max_pending(500);
+let sink = kafka.sink::<Utf8>("processed-orders").max_pending(500);
 
 let output = KafkaPublish::new("created".to_owned());
 ```
@@ -2806,9 +2831,9 @@ begin transaction → produce outputs → send consumer offsets → commit trans
 use beavers::{Subscription, Utf8, adapters::kafka::Kafka};
 
 let kafka = Kafka::new("localhost:9092");
-let source = kafka.source::<Utf8, String>("orders-workers", ["orders"]);
+let source = kafka.source::<Utf8>("orders-workers", ["orders"]);
 let sink = kafka
-    .sink::<Utf8, String>("processed-orders")
+    .sink::<Utf8>("processed-orders")
     .transactional("orders-workers-1");
 let subscription = Subscription::new("orders", source, sink, |order: String| async move {
     Ok(order.to_uppercase())
@@ -2890,8 +2915,8 @@ beavers = { version = "0.1", features = ["pulsar"] }
 
 A `Pulsar` handle holds the service URL, using the `pulsar://` or
 `pulsar+ssl://` scheme, and optional static authentication.
-`handle.source::<C, T>(topic, subscription)` builds a source and
-`handle.sink::<C, T>(topic)` a sink; `source_with_codec` and `sink_with_codec`
+`handle.source::<C>(topic, subscription)` builds a source and
+`handle.sink::<C>(topic)` a sink; `source_with_codec` and `sink_with_codec`
 take a codec value as their first argument instead of using the codec's
 default. Optional settings are builder methods on the handle, the source, and
 the sink.
@@ -2902,7 +2927,7 @@ use beavers::adapters::pulsar::{Pulsar, PulsarSubscriptionType};
 
 let pulsar = Pulsar::new("pulsar://localhost:6650");
 let source = pulsar
-    .source::<Utf8, String>("persistent://public/default/orders", "orders-workers")
+    .source::<Utf8>("persistent://public/default/orders", "orders-workers")
     .subscription_type(PulsarSubscriptionType::Failover);
 ```
 
@@ -2937,7 +2962,7 @@ use beavers::{Sink, Utf8};
 use beavers::adapters::pulsar::{Pulsar, PulsarPublish};
 
 let pulsar = Pulsar::new("pulsar://localhost:6650").token("eyJhbGciOi...");
-let sink = pulsar.sink::<Utf8, String>("persistent://public/default/processed-orders");
+let sink = pulsar.sink::<Utf8>("persistent://public/default/processed-orders");
 let mut output = PulsarPublish::new("processed".to_owned());
 output.key = Some(b"customer-42".to_vec());
 output.properties.insert("kind".into(), "order".into());
@@ -3136,8 +3161,8 @@ beavers = { version = "0.1", features = ["rabbitmq"] }
 
 ## Configuration
 
-A `RabbitMq` handle holds the broker URI. `handle.source::<C, T>(queue)` builds
-a source that consumes `queue`, and `handle.sink::<C, T>(exchange, routing_key)`
+A `RabbitMq` handle holds the broker URI. `handle.source::<C>(queue)` builds
+a source that consumes `queue`, and `handle.sink::<C>(exchange, routing_key)`
 a sink that publishes to `exchange` with `routing_key` for outputs that do not
 set their own; `source_with_codec` and `sink_with_codec` take a codec value as
 their first argument instead of using the codec's default. The empty exchange
@@ -3150,8 +3175,8 @@ use beavers::{Utf8, adapters::rabbitmq::{RabbitMq, RabbitMqPublish}};
 
 let rabbit = RabbitMq::new("amqp://guest:guest@localhost:5672/%2f")
     .connection_name("orders-service");
-let source = rabbit.source::<Utf8, String>("orders").prefetch(32);
-let sink = rabbit.sink::<Utf8, String>("", "processed-orders");
+let source = rabbit.source::<Utf8>("orders").prefetch(32);
+let sink = rabbit.sink::<Utf8>("", "processed-orders");
 
 let output = RabbitMqPublish::new("created".to_owned()).with_routing_key("audit");
 ```
@@ -3351,7 +3376,7 @@ configuration files, web identity, or container and instance metadata. Set
 LocalStack. `SqsCredentials::new` takes an access key ID and secret access key;
 the `Debug` output of `SqsCredentials` hides the secret key and session token.
 
-`handle.source::<C, T>(queue_url)` and `handle.sink::<C, T>(queue_url)` build a
+`handle.source::<C>(queue_url)` and `handle.sink::<C>(queue_url)` build a
 source and a sink for one queue; `source_with_codec` and `sink_with_codec` take
 a codec value as their first argument instead of using the codec's default. A
 URL ending in `.fifo` names a FIFO queue.
@@ -3360,10 +3385,10 @@ URL ending in `.fifo` names a FIFO queue.
 use beavers::{Utf8, adapters::sqs::{Sqs, SqsPublish}};
 
 let sqs = Sqs::new().region("eu-west-1");
-let source = sqs.source::<Utf8, String>(
+let source = sqs.source::<Utf8>(
     "https://sqs.eu-west-1.amazonaws.com/123456789012/orders",
 );
-let sink = sqs.sink::<Utf8, String>(
+let sink = sqs.sink::<Utf8>(
     "https://sqs.eu-west-1.amazonaws.com/123456789012/processed-orders.fifo",
 );
 
@@ -3545,8 +3570,8 @@ which checks the values without contacting Google Cloud.
 use beavers::{Utf8, adapters::pubsub::{PubSub, PubSubPublish}};
 
 let pubsub = PubSub::new();
-let source = pubsub.source::<Utf8, String>("projects/my-project/subscriptions/orders");
-let sink = pubsub.sink::<Utf8, String>("projects/my-project/topics/processed-orders");
+let source = pubsub.source::<Utf8>("projects/my-project/subscriptions/orders");
+let sink = pubsub.sink::<Utf8>("projects/my-project/topics/processed-orders");
 
 let output = PubSubPublish::new("created".to_owned()).with_ordering_key("customer-7");
 ```
@@ -3575,11 +3600,11 @@ use std::time::Duration;
 
 let pubsub = PubSub::new();
 let source = pubsub
-    .source::<Utf8, String>("projects/my-project/subscriptions/orders")
+    .source::<Utf8>("projects/my-project/subscriptions/orders")
     .max_outstanding_messages(200)
     .ack_deadline(Duration::from_secs(120));
 let sink = pubsub
-    .sink::<Utf8, String>("projects/my-project/topics/processed-orders")
+    .sink::<Utf8>("projects/my-project/topics/processed-orders")
     .batch_delay(Duration::from_millis(50));
 ```
 
@@ -3750,8 +3775,8 @@ use beavers::{Utf8, adapters::servicebus::{ServiceBus, ServiceBusPublish}};
 let bus = ServiceBus::from_connection_string(
     "Endpoint=sb://contoso.servicebus.windows.net/;SharedAccessKeyName=app;SharedAccessKey=...",
 )?;
-let source = bus.source::<Utf8, String>("orders/Subscriptions/billing");
-let sink = bus.sink::<Utf8, String>("processed-orders");
+let source = bus.source::<Utf8>("orders/Subscriptions/billing");
+let sink = bus.sink::<Utf8>("processed-orders");
 
 let output = ServiceBusPublish::new("created".to_owned()).with_message_id("order-7");
 # Ok::<(), beavers::Error>(())
@@ -3773,8 +3798,8 @@ use beavers::{Utf8, adapters::servicebus::ServiceBus};
 
 let bus = ServiceBus::new("contoso.servicebus.windows.net")
     .shared_access_key("app", "...");
-let source = bus.source::<Utf8, String>("orders").prefetch(20);
-let sink = bus.sink::<Utf8, String>("processed-orders").max_pending(100);
+let source = bus.source::<Utf8>("orders").prefetch(20);
+let sink = bus.sink::<Utf8>("processed-orders").max_pending(100);
 ```
 
 `source_with_codec` and `sink_with_codec` take a codec value first. The handle,
@@ -3950,9 +3975,9 @@ async fn accept(record: HttpRecord<Order>) -> Result<Order> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let source = HttpSource::<Json, Order>::new("0.0.0.0:8080".parse()?)?;
+    let source = HttpSource::<Json<Order>>::new("0.0.0.0:8080".parse()?)?;
     App::new()
-        .subscribe("orders", source, StdoutSink::<Json>::new(), accept)
+        .subscribe("orders", source, StdoutSink::<Json<_>>::new(), accept)
         .run()
         .await?;
     Ok(())
@@ -3983,7 +4008,7 @@ validates them again when it starts accepting connections on the first
 ```rust,no_run
 use beavers::{Utf8, adapters::http::{HttpSource, ResponseTiming}};
 
-let source = HttpSource::<Utf8, String>::new("0.0.0.0:8080".parse()?)?
+let source = HttpSource::<Utf8>::new("0.0.0.0:8080".parse()?)?
     .max_body_bytes(64 * 1024)
     .response(ResponseTiming::Receive);
 # Ok::<(), Box<dyn std::error::Error>>(())
@@ -4120,7 +4145,7 @@ never reach the subscription's `beavers_delivery_failures_total`.
 
 ## Sink
 
-`HttpSink<C, T>` accepts `HttpPublish<T>` outputs. It encodes each body with
+`HttpSink<C>` accepts `HttpPublish<T>` outputs, where `T` is the codec's value type. It encodes each body with
 its codec and sends one request per output to its URL. A typical use
 is handing events consumed from a broker to a service with an HTTP API:
 
@@ -4141,9 +4166,9 @@ async fn to_request(record: KafkaRecord<Order>) -> Result<HttpPublish<Order>> {
     Ok(HttpPublish::new(order).with_header("idempotency-key", key))
 }
 
-let source = Kafka::new("localhost:9092").source::<Json, Order>("orders-to-billing", ["orders"]);
+let source = Kafka::new("localhost:9092").source::<Json<Order>>("orders-to-billing", ["orders"]);
 let sink = HttpClient::new()
-    .sink::<Json, Order>("https://billing.internal/orders")
+    .sink::<Json<Order>>("https://billing.internal/orders")
     .header("content-type", "application/json");
 App::new().subscribe("orders", source, sink, to_request).run().await?;
 ```
@@ -4165,7 +4190,7 @@ handle shows header names only.
 | `header(name, value)` | none | Header sent with every request of every sink, such as `authorization` |
 | `timeout(duration)` | 30 s | Limit for one attempt, from connecting until the response body is read, for sinks that set none |
 
-`sink::<C, T>(url)` builds a sink with the codec's default value, and
+`sink::<C>(url)` builds a sink with the codec's default value, and
 `sink_with_codec(codec, url)` with a configured codec. The URL is required; the
 other settings are sink builder methods:
 
@@ -4184,10 +4209,10 @@ let http = HttpClient::new()
     .header("authorization", "Bearer token")
     .timeout(Duration::from_secs(10));
 let orders = http
-    .sink::<Json, String>("https://billing.example.com/orders")
+    .sink::<Json<String>>("https://billing.example.com/orders")
     .header("content-type", "application/json");
 let refunds = http
-    .sink::<Json, String>("https://billing.example.com/refunds")
+    .sink::<Json<String>>("https://billing.example.com/refunds")
     .method(HttpMethod::Put)
     .timeout(Duration::from_secs(60));
 ```
@@ -4276,10 +4301,10 @@ holding the response status, `error` for a failed connection or response, or
 
 # JSON codec
 
-`Json` converts between JSON payloads and any type implementing Serde's
-traits. It is a unit struct that implements `Default` and is always available;
-it needs no Cargo feature. Decode into `serde_json::Value` when the payload has
-no fixed schema.
+`Json<T>` converts between JSON payloads and a type `T` implementing Serde's
+traits. It holds no state, implements `Default` for every `T`, and is always
+available; it needs no Cargo feature. Decode into `serde_json::Value` when the
+payload has no fixed schema; see [JSON without a schema](#json-without-a-schema).
 
 `Json` uses `serde_json::from_slice` for decoding and `serde_json::to_vec` for
 encoding.
@@ -4295,7 +4320,7 @@ StdinSource reads one line at a time and StdoutSink appends a newline after enco
 
 ## Using JSON with adapters
 
-Select the codec through the adapter's type parameters. The handler determines
+Select the codec through the adapter's type parameter. The handler determines
 the input and output payload types:
 
 ```rust
@@ -4321,8 +4346,8 @@ async fn main() -> anyhow::Result<()> {
     App::new()
         .subscribe(
             "orders",
-            StdinSource::<Json, _>::new(),
-            StdoutSink::<Json>::new(),
+            StdinSource::<Json<_>>::new(),
+            StdoutSink::<Json<_>>::new(),
             handler,
         )
         .run()
@@ -4331,8 +4356,8 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-The second StdinSource type argument is the decoded input type, inferred here as
-Order. Input values also need the runtime's `Clone + Send + Sync + 'static`
+The `_` in `Json<_>` is the payload type, inferred here from the handler as
+`Order` for the source and `Event` for the sink. Input values also need the runtime's `Clone + Send + Sync + 'static`
 bounds; those are not additional requirements of the JSON format.
 
 The [transform example](https://github.com/cafeal/beave-rs/blob/main/examples/transform.rs) provides this pipeline. Feed it
@@ -4345,6 +4370,36 @@ printf '%s\n' '{"id":10}' '{"id":20}' | cargo run --example transform -- --stdin
 IterSource and InMemorySink already exchange typed values, so they require no
 serialization codec.
 
+## JSON without a schema
+
+When payloads have no fixed shape, decode into `serde_json::Value` and read the
+fields the handler needs. Any valid JSON decodes; only malformed JSON is a
+decode failure. Import `Value` so the codec type stays short:
+
+```rust,ignore
+use beavers::{App, Json, Result, StdoutSink, adapters::kafka::Kafka};
+use serde_json::Value;
+
+async fn audit(event: Value) -> Result<Value> {
+    let kind = event["type"].as_str().unwrap_or("unknown");
+    Ok(serde_json::json!({ "type": kind }))
+}
+
+let kafka = Kafka::new("localhost:9092");
+App::new()
+    .subscribe(
+        "audit",
+        kafka.source::<Json<Value>>("audit", ["events"]),
+        StdoutSink::<Json<Value>>::new(),
+        audit,
+    )
+    .run()
+    .await?;
+```
+
+A `Json<Value>` sink accepts any `Value`, so a handler can also build output
+with `serde_json::json!` without declaring a struct.
+
 <!-- https://cafeal.github.io/beave-rs/docs/codecs/raw-bytes.md -->
 
 # Raw bytes codec
@@ -4353,7 +4408,8 @@ serialization codec.
 It copies the payload without interpreting it. Empty payloads and every byte
 value are valid, including zero bytes and malformed UTF-8. It is a unit struct
 that implements `Default`, so adapters that construct their codec internally
-can use it, and it needs no Cargo feature.
+can use it, and it needs no Cargo feature. Its value type is fixed, so a source
+or sink names it without a type argument, as in `KafkaSink<RawBytes>`.
 
 ```rust
 use beavers::{Decoder, Encoder, RawBytes};
@@ -4378,7 +4434,8 @@ and encodes a `String` using its UTF-8 representation. It does not trim text,
 strip a byte-order mark, normalize Unicode, or remove line endings. An empty
 payload decodes to an empty string. Malformed UTF-8 returns an error. It is a
 unit struct that implements `Default`, so adapters that construct their codec
-internally can use it, and it needs no Cargo feature.
+internally can use it, and it needs no Cargo feature. Its value type is fixed,
+so a source or sink names it without a type argument, as in `KafkaSink<Utf8>`.
 
 ```rust
 use beavers::{Decoder, Encoder, Utf8};
@@ -4399,7 +4456,7 @@ arbitrary bytes, use [`RawBytes`](raw-bytes.md).
 
 # Protobuf codec
 
-`Protobuf` encodes and decodes types implementing [`prost::Message`]. Enable
+`Protobuf<T>` encodes and decodes a type `T` implementing [`prost::Message`]. Enable
 the `protobuf` Cargo feature to use it:
 
 ```toml
@@ -4416,9 +4473,9 @@ empty payload and an empty payload decodes to the message's `Default` value.
 use beavers::{Decoder, Encoder, Protobuf};
 
 // `Event` is a type generated by prost (or derives `prost::Message`).
-let codec = Protobuf;
+let codec = Protobuf::<Event>::new();
 let bytes = codec.encode(&event)?;
-let decoded: Event = codec.decode(&bytes)?;
+let decoded = codec.decode(&bytes)?;
 # Ok::<(), beavers::BoxError>(())
 ```
 
@@ -4495,9 +4552,9 @@ reader directly with explicit writer and reader schemas.
 
 # MessagePack codec
 
-`MessagePack` converts between [MessagePack](https://msgpack.org/) payloads and
-any type implementing Serde's traits, the same types `Json` accepts. It is a
-unit struct that implements `Default`. Enable the `msgpack` Cargo feature to
+`MessagePack<T>` converts between [MessagePack](https://msgpack.org/) payloads
+and a type `T` implementing Serde's traits, the same types `Json` accepts. It
+holds no state and implements `Default`. Enable the `msgpack` Cargo feature to
 use it:
 
 ```toml
@@ -4517,8 +4574,8 @@ struct Order {
     id: u64,
 }
 
-let bytes = MessagePack.encode(&Order { id: 42 })?;
-let order: Order = MessagePack.decode(&bytes)?;
+let bytes = MessagePack::new().encode(&Order { id: 42 })?;
+let order: Order = MessagePack::new().decode(&bytes)?;
 assert_eq!(order, Order { id: 42 });
 # Ok::<(), beavers::BoxError>(())
 ```
@@ -4547,8 +4604,8 @@ brokers whose bodies carry text only, such as SQS, need the
 # CBOR codec
 
 `Cbor` converts between CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949))
-payloads and any type implementing Serde's traits, the same types `Json`
-accepts. It is a unit struct that implements `Default`. Enable the `cbor` Cargo
+payloads and a type `T` implementing Serde's traits, the same types `Json`
+accepts. `Cbor<T>` holds no state and implements `Default`. Enable the `cbor` Cargo
 feature to use it:
 
 ```toml
@@ -4568,8 +4625,8 @@ struct Reading {
     sensor: String,
 }
 
-let bytes = Cbor.encode(&Reading { sensor: "dam-1".into() })?;
-let reading: Reading = Cbor.decode(&bytes)?;
+let bytes = Cbor::new().encode(&Reading { sensor: "dam-1".into() })?;
+let reading: Reading = Cbor::new().decode(&bytes)?;
 assert_eq!(reading.sensor, "dam-1");
 # Ok::<(), beavers::BoxError>(())
 ```
@@ -4599,8 +4656,8 @@ bodies carry text only, such as SQS, need the
 `Base64<C>`, `Gzip<C>`, and `Zstd<C>` wrap another codec `C` and transform its
 payload. Encoding runs the inner codec first and then the wrapper; decoding runs
 the wrapper first and passes its output to the inner codec. They accept any
-inner codec, including other wrappers, and implement `Decoder<T>` or
-`Encoder<T>` whenever the inner codec does.
+inner codec, including other wrappers, and implement `Decoder` or
+`Encoder` whenever the inner codec does, with the inner codec's value type.
 
 | Wrapper | Cargo feature | Payload |
 |---|---|---|
@@ -4618,7 +4675,7 @@ use beavers::adapters::sqs::Sqs;
 use beavers::{Base64, Gzip, Protobuf};
 
 // Protobuf bytes, gzip-compressed, carried as text in an SQS body.
-let sink = Sqs::new().sink::<Base64<Gzip<Protobuf>>, Event>(queue_url);
+let sink = Sqs::new().sink::<Base64<Gzip<Protobuf<Event>>>>(queue_url);
 ```
 
 The order of nested wrappers is the order of the encoding steps from the inside
@@ -4704,7 +4761,7 @@ inner codec, so payloads from other gzip writers decode as well.
 ```rust
 use beavers::{Decoder, Encoder, Gzip, Json};
 
-let codec = Gzip::new(Json).with_level(9);
+let codec = Gzip::new(Json::new()).with_level(9);
 let bytes = codec.encode(&vec!["beaver"; 100])?;
 let value: Vec<String> = codec.decode(&bytes)?;
 assert_eq!(value.len(), 100);
@@ -4743,7 +4800,7 @@ inner codec, so payloads from other Zstandard writers decode as well.
 ```rust
 use beavers::{Decoder, Encoder, Json, Zstd};
 
-let codec = Zstd::new(Json)
+let codec = Zstd::new(Json::new())
     .with_level(9)
     .with_max_decoded_len(1024 * 1024);
 let bytes = codec.encode(&vec!["beaver"; 100])?;

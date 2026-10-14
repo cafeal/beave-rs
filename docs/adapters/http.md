@@ -35,9 +35,9 @@ async fn accept(record: HttpRecord<Order>) -> Result<Order> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let source = HttpSource::<Json, Order>::new("0.0.0.0:8080".parse()?)?;
+    let source = HttpSource::<Json<Order>>::new("0.0.0.0:8080".parse()?)?;
     App::new()
-        .subscribe("orders", source, StdoutSink::<Json>::new(), accept)
+        .subscribe("orders", source, StdoutSink::<Json<_>>::new(), accept)
         .run()
         .await?;
     Ok(())
@@ -68,7 +68,7 @@ validates them again when it starts accepting connections on the first
 ```rust,no_run
 use beavers::{Utf8, adapters::http::{HttpSource, ResponseTiming}};
 
-let source = HttpSource::<Utf8, String>::new("0.0.0.0:8080".parse()?)?
+let source = HttpSource::<Utf8>::new("0.0.0.0:8080".parse()?)?
     .max_body_bytes(64 * 1024)
     .response(ResponseTiming::Receive);
 # Ok::<(), Box<dyn std::error::Error>>(())
@@ -205,7 +205,7 @@ never reach the subscription's `beavers_delivery_failures_total`.
 
 ## Sink
 
-`HttpSink<C, T>` accepts `HttpPublish<T>` outputs. It encodes each body with
+`HttpSink<C>` accepts `HttpPublish<T>` outputs, where `T` is the codec's value type. It encodes each body with
 its codec and sends one request per output to its URL. A typical use
 is handing events consumed from a broker to a service with an HTTP API:
 
@@ -226,9 +226,9 @@ async fn to_request(record: KafkaRecord<Order>) -> Result<HttpPublish<Order>> {
     Ok(HttpPublish::new(order).with_header("idempotency-key", key))
 }
 
-let source = Kafka::new("localhost:9092").source::<Json, Order>("orders-to-billing", ["orders"]);
+let source = Kafka::new("localhost:9092").source::<Json<Order>>("orders-to-billing", ["orders"]);
 let sink = HttpClient::new()
-    .sink::<Json, Order>("https://billing.internal/orders")
+    .sink::<Json<Order>>("https://billing.internal/orders")
     .header("content-type", "application/json");
 App::new().subscribe("orders", source, sink, to_request).run().await?;
 ```
@@ -250,7 +250,7 @@ handle shows header names only.
 | `header(name, value)` | none | Header sent with every request of every sink, such as `authorization` |
 | `timeout(duration)` | 30 s | Limit for one attempt, from connecting until the response body is read, for sinks that set none |
 
-`sink::<C, T>(url)` builds a sink with the codec's default value, and
+`sink::<C>(url)` builds a sink with the codec's default value, and
 `sink_with_codec(codec, url)` with a configured codec. The URL is required; the
 other settings are sink builder methods:
 
@@ -269,10 +269,10 @@ let http = HttpClient::new()
     .header("authorization", "Bearer token")
     .timeout(Duration::from_secs(10));
 let orders = http
-    .sink::<Json, String>("https://billing.example.com/orders")
+    .sink::<Json<String>>("https://billing.example.com/orders")
     .header("content-type", "application/json");
 let refunds = http
-    .sink::<Json, String>("https://billing.example.com/refunds")
+    .sink::<Json<String>>("https://billing.example.com/refunds")
     .method(HttpMethod::Put)
     .timeout(Duration::from_secs(60));
 ```

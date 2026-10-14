@@ -39,17 +39,17 @@ configuration files, web identity, or container and instance metadata. Set
 <code>endpoint_url</code> to use an SQS-compatible emulator such as ElasticMQ or
 LocalStack. <code>SqsCredentials::new</code> takes an access key ID and secret access key;
 the <code>Debug</code> output of <code>SqsCredentials</code> hides the secret key and session token.</p>
-<p><code>handle.source::&lt;C, T&gt;(queue_url)</code> and <code>handle.sink::&lt;C, T&gt;(queue_url)</code> build a
+<p><code>handle.source::&lt;C&gt;(queue_url)</code> and <code>handle.sink::&lt;C&gt;(queue_url)</code> build a
 source and a sink for one queue; <code>source_with_codec</code> and <code>sink_with_codec</code> take
 a codec value as their first argument instead of using the codec&#39;s default. A
 URL ending in <code>.fifo</code> names a FIFO queue.</p>
 <pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::sqs::{Sqs, SqsPublish}};
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">sqs</span> = Sqs::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">region</span>(<span class="hljs-string">&quot;eu-west-1&quot;</span>);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = sqs.source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = sqs.source::&lt;Utf8&gt;(
     <span class="hljs-string">&quot;https://sqs.eu-west-1.amazonaws.com/123456789012/orders&quot;</span>,
 );
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = sqs.sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = sqs.sink::&lt;Utf8&gt;(
     <span class="hljs-string">&quot;https://sqs.eu-west-1.amazonaws.com/123456789012/processed-orders.fifo&quot;</span>,
 );
 

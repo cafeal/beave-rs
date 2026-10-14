@@ -45,8 +45,8 @@ use beavers::{Utf8, adapters::servicebus::{ServiceBus, ServiceBusPublish}};
 let bus = ServiceBus::from_connection_string(
     "Endpoint=sb://contoso.servicebus.windows.net/;SharedAccessKeyName=app;SharedAccessKey=...",
 )?;
-let source = bus.source::<Utf8, String>("orders/Subscriptions/billing");
-let sink = bus.sink::<Utf8, String>("processed-orders");
+let source = bus.source::<Utf8>("orders/Subscriptions/billing");
+let sink = bus.sink::<Utf8>("processed-orders");
 
 let output = ServiceBusPublish::new("created".to_owned()).with_message_id("order-7");
 # Ok::<(), beavers::Error>(())
@@ -68,8 +68,8 @@ use beavers::{Utf8, adapters::servicebus::ServiceBus};
 
 let bus = ServiceBus::new("contoso.servicebus.windows.net")
     .shared_access_key("app", "...");
-let source = bus.source::<Utf8, String>("orders").prefetch(20);
-let sink = bus.sink::<Utf8, String>("processed-orders").max_pending(100);
+let source = bus.source::<Utf8>("orders").prefetch(20);
+let sink = bus.sink::<Utf8>("processed-orders").max_pending(100);
 ```
 
 `source_with_codec` and `sink_with_codec` take a codec value first. The handle,

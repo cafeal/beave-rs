@@ -34,8 +34,8 @@ adapters backed by the <code>magnetar-driver</code> 1.7 client.</p>
 </code></pre><h2 id="configuration">Configuration</h2>
 <p>A <code>Pulsar</code> handle holds the service URL, using the <code>pulsar://</code> or
 <code>pulsar+ssl://</code> scheme, and optional static authentication.
-<code>handle.source::&lt;C, T&gt;(topic, subscription)</code> builds a source and
-<code>handle.sink::&lt;C, T&gt;(topic)</code> a sink; <code>source_with_codec</code> and <code>sink_with_codec</code>
+<code>handle.source::&lt;C&gt;(topic, subscription)</code> builds a source and
+<code>handle.sink::&lt;C&gt;(topic)</code> a sink; <code>source_with_codec</code> and <code>sink_with_codec</code>
 take a codec value as their first argument instead of using the codec&#39;s
 default. Optional settings are builder methods on the handle, the source, and
 the sink.</p>
@@ -44,7 +44,7 @@ the sink.</p>
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">pulsar</span> = Pulsar::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;pulsar://localhost:6650&quot;</span>);
 <span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = pulsar
-    .source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;persistent://public/default/orders&quot;</span>, <span class="hljs-string">&quot;orders-workers&quot;</span>)
+    .source::&lt;Utf8&gt;(<span class="hljs-string">&quot;persistent://public/default/orders&quot;</span>, <span class="hljs-string">&quot;orders-workers&quot;</span>)
     .<span class="hljs-title function_ invoke__">subscription_type</span>(PulsarSubscriptionType::Failover);
 </code></pre><p>All sources and sinks built from one handle share one client. The client
 connects on the first <code>receive</code> or publication of any of them, which also
@@ -71,7 +71,7 @@ Set the key, ordering key, event time, and user properties before preparation:</
 <span class="hljs-keyword">use</span> beavers::adapters::pulsar::{Pulsar, PulsarPublish};
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">pulsar</span> = Pulsar::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;pulsar://localhost:6650&quot;</span>).<span class="hljs-title function_ invoke__">token</span>(<span class="hljs-string">&quot;eyJhbGciOi...&quot;</span>);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = pulsar.sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;persistent://public/default/processed-orders&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = pulsar.sink::&lt;Utf8&gt;(<span class="hljs-string">&quot;persistent://public/default/processed-orders&quot;</span>);
 <span class="hljs-keyword">let</span> <span class="hljs-keyword">mut </span><span class="hljs-variable">output</span> = PulsarPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;processed&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>());
 output.key = <span class="hljs-title function_ invoke__">Some</span>(<span class="hljs-string">b&quot;customer-42&quot;</span>.<span class="hljs-title function_ invoke__">to_vec</span>());
 output.properties.<span class="hljs-title function_ invoke__">insert</span>(<span class="hljs-string">&quot;kind&quot;</span>.<span class="hljs-title function_ invoke__">into</span>(), <span class="hljs-string">&quot;order&quot;</span>.<span class="hljs-title function_ invoke__">into</span>());

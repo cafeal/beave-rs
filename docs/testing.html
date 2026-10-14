@@ -46,11 +46,11 @@ additionally need the <code>kafka</code>, <code>pulsar</code>, <code>rabbitmq</c
 </thead>
 <tbody><tr>
 <td>Feed Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, or Service Bus records with chosen metadata, key, headers, properties, or attributes</td>
-<td><code>KafkaTestSource&lt;C, T&gt;</code>, <code>PulsarTestSource&lt;C, T&gt;</code>, <code>RabbitMqTestSource&lt;C, T&gt;</code>, <code>SqsTestSource&lt;C, T&gt;</code>, <code>PubSubTestSource&lt;C, T&gt;</code>, <code>ServiceBusTestSource&lt;C, T&gt;</code>, with <code>kafka_record</code>, <code>pulsar_record</code>, <code>rabbitmq_record</code>, <code>sqs_record</code>, <code>pubsub_record</code>, and <code>servicebus_record</code></td>
+<td><code>KafkaTestSource&lt;C&gt;</code>, <code>PulsarTestSource&lt;C&gt;</code>, <code>RabbitMqTestSource&lt;C&gt;</code>, <code>SqsTestSource&lt;C&gt;</code>, <code>PubSubTestSource&lt;C&gt;</code>, <code>ServiceBusTestSource&lt;C&gt;</code>, with <code>kafka_record</code>, <code>pulsar_record</code>, <code>rabbitmq_record</code>, <code>sqs_record</code>, <code>pubsub_record</code>, and <code>servicebus_record</code></td>
 </tr>
 <tr>
 <td>Feed bare payloads through a codec</td>
-<td><code>TestSource&lt;C, T, Vec&lt;u8&gt;&gt;</code></td>
+<td><code>TestSource&lt;C, Vec&lt;u8&gt;&gt;</code></td>
 </tr>
 <tr>
 <td>Check which records were acknowledged or left unacknowledged</td>
@@ -70,7 +70,7 @@ It yields already typed <code>Delivery&lt;T&gt;</code> values, so decoding canno
 letters carry <code>()</code> as their raw form, and deliveries have no ordering key or
 trace-context fields.</p>
 <h2 id="testsource">TestSource</h2>
-<p>A <code>TestSource&lt;C, T, R&gt;</code> holds a finite list of records of type <code>R</code> with their
+<p>A <code>TestSource&lt;C, R&gt;</code> holds a finite list of records of type <code>R</code> with their
 payload left undecoded, such as <code>KafkaRecord&lt;Vec&lt;u8&gt;&gt;</code>. Each record becomes one
 delivery, and the source ends after the last one. The delivery matches the
 adapter the record type belongs to:</p>
@@ -199,7 +199,7 @@ dead-lettered, or discarded is read from the output and dead-letter sinks.</p>
     <span class="hljs-keyword">let</span> <span class="hljs-variable">free</span> = <span class="hljs-title function_ invoke__">kafka_record</span>(<span class="hljs-string">&quot;orders&quot;</span>, <span class="hljs-number">3</span>, <span class="hljs-number">43</span>, <span class="hljs-string">&quot;0&quot;</span>);
     <span class="hljs-keyword">let</span> <span class="hljs-variable">malformed</span> = <span class="hljs-title function_ invoke__">kafka_record</span>(<span class="hljs-string">&quot;orders&quot;</span>, <span class="hljs-number">3</span>, <span class="hljs-number">44</span>, <span class="hljs-string">&quot;not json&quot;</span>);
 
-    <span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = KafkaTestSource::&lt;Json, <span class="hljs-type">u32</span>&gt;::<span class="hljs-title function_ invoke__">new</span>([order, free, malformed]);
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = KafkaTestSource::&lt;Json&lt;<span class="hljs-type">u32</span>&gt;&gt;::<span class="hljs-title function_ invoke__">new</span>([order, free, malformed]);
     <span class="hljs-keyword">let</span> <span class="hljs-variable">deliveries</span> = source.<span class="hljs-title function_ invoke__">deliveries</span>();
     <span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = InMemorySink::<span class="hljs-title function_ invoke__">default</span>();
     <span class="hljs-keyword">let</span> <span class="hljs-variable">dlq</span> = InMemorySink::&lt;DeadLetter&lt;KafkaRecord&lt;<span class="hljs-type">u32</span>&gt;, KafkaRecord&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;&gt;&gt;&gt;::<span class="hljs-title function_ invoke__">default</span>();

@@ -47,7 +47,7 @@ types are also re-exported at the crate root.</p>
 <td>Fixtures, examples, finite jobs</td>
 </tr>
 <tr>
-<td><code>StdinSource&lt;C, T&gt;</code></td>
+<td><code>StdinSource&lt;C&gt;</code></td>
 <td>Line-delimited input</td>
 <td>Files, pipes, interactive input</td>
 </tr>
@@ -67,47 +67,47 @@ types are also re-exported at the crate root.</p>
 <td>Pipeline stages whose upstream ACK waits for the downstream stage; in-process workers fed and read by application code</td>
 </tr>
 <tr>
-<td><code>KafkaSource&lt;C, T&gt;</code> / <code>KafkaSink&lt;C, T&gt;</code></td>
+<td><code>KafkaSource&lt;C&gt;</code> / <code>KafkaSink&lt;C&gt;</code></td>
 <td>Kafka records and publishes</td>
 <td>Durable broker pipelines (<code>kafka</code> feature)</td>
 </tr>
 <tr>
-<td><code>KafkaTransactionalSink&lt;C, T&gt;</code></td>
+<td><code>KafkaTransactionalSink&lt;C&gt;</code></td>
 <td>Kafka publishes in producer transactions</td>
 <td>Exactly-once Kafka-to-Kafka pipelines (<code>kafka</code> feature)</td>
 </tr>
 <tr>
-<td><code>PulsarSource&lt;C, T&gt;</code> / <code>PulsarSink&lt;C, T&gt;</code></td>
+<td><code>PulsarSource&lt;C&gt;</code> / <code>PulsarSink&lt;C&gt;</code></td>
 <td>Pulsar records and publishes</td>
 <td>Durable broker pipelines (<code>pulsar</code> feature)</td>
 </tr>
 <tr>
-<td><code>RabbitMqSource&lt;C, T&gt;</code> / <code>RabbitMqSink&lt;C, T&gt;</code></td>
+<td><code>RabbitMqSource&lt;C&gt;</code> / <code>RabbitMqSink&lt;C&gt;</code></td>
 <td>RabbitMQ queue deliveries and exchange publishes</td>
 <td>Work queues and routed messaging (<code>rabbitmq</code> feature)</td>
 </tr>
 <tr>
-<td><code>SqsSource&lt;C, T&gt;</code> / <code>SqsSink&lt;C, T&gt;</code></td>
+<td><code>SqsSource&lt;C&gt;</code> / <code>SqsSink&lt;C&gt;</code></td>
 <td>Amazon SQS queue messages and sends</td>
 <td>Managed work queues on AWS (<code>sqs</code> feature)</td>
 </tr>
 <tr>
-<td><code>PubSubSource&lt;C, T&gt;</code> / <code>PubSubSink&lt;C, T&gt;</code></td>
+<td><code>PubSubSource&lt;C&gt;</code> / <code>PubSubSink&lt;C&gt;</code></td>
 <td>Google Cloud Pub/Sub subscription messages and topic publishes</td>
 <td>Managed messaging on Google Cloud (<code>pubsub</code> feature)</td>
 </tr>
 <tr>
-<td><code>ServiceBusSource&lt;C, T&gt;</code> / <code>ServiceBusSink&lt;C, T&gt;</code></td>
+<td><code>ServiceBusSource&lt;C&gt;</code> / <code>ServiceBusSink&lt;C&gt;</code></td>
 <td>Azure Service Bus queue and subscription messages and sends</td>
 <td>Managed work queues and topics on Azure (<code>servicebus</code> feature)</td>
 </tr>
 <tr>
-<td><code>HttpSource&lt;C, T&gt;</code></td>
+<td><code>HttpSource&lt;C&gt;</code></td>
 <td>HTTP <code>POST</code> requests answered on ACK</td>
 <td>Webhooks and push ingestion (<code>http</code> feature)</td>
 </tr>
 <tr>
-<td><code>HttpSink&lt;C, T&gt;</code></td>
+<td><code>HttpSink&lt;C&gt;</code></td>
 <td>HTTP requests that succeed on a <code>2xx</code> response</td>
 <td>Delivering events to HTTP services (<code>http</code> feature)</td>
 </tr>
@@ -177,8 +177,8 @@ one connection pool, and <code>HttpSource::new(addr)</code> binds a server.</p>
 <pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{Json, adapters::kafka::Kafka};
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>).<span class="hljs-title function_ invoke__">sasl_plain</span>(<span class="hljs-string">&quot;user&quot;</span>, <span class="hljs-string">&quot;password&quot;</span>);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">orders</span> = kafka.source::&lt;Json, Order&gt;(<span class="hljs-string">&quot;billing&quot;</span>, [<span class="hljs-string">&quot;orders&quot;</span>]);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">invoices</span> = kafka.sink::&lt;Json, Invoice&gt;(<span class="hljs-string">&quot;invoices&quot;</span>).<span class="hljs-title function_ invoke__">max_pending</span>(<span class="hljs-number">500</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">orders</span> = kafka.source::&lt;Json&lt;Order&gt;&gt;(<span class="hljs-string">&quot;billing&quot;</span>, [<span class="hljs-string">&quot;orders&quot;</span>]);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">invoices</span> = kafka.sink::&lt;Json&lt;Invoice&gt;&gt;(<span class="hljs-string">&quot;invoices&quot;</span>).<span class="hljs-title function_ invoke__">max_pending</span>(<span class="hljs-number">500</span>);
 </code></pre><p>Builder methods consume and return the value, and every handle, source, and
 sink has a <code>validate()</code> that checks its settings without network access. A
 builder method on a handle returns a handle with a connection of its own, so

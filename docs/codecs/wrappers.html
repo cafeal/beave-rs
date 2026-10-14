@@ -31,8 +31,8 @@
 <p><code>Base64&lt;C&gt;</code>, <code>Gzip&lt;C&gt;</code>, and <code>Zstd&lt;C&gt;</code> wrap another codec <code>C</code> and transform its
 payload. Encoding runs the inner codec first and then the wrapper; decoding runs
 the wrapper first and passes its output to the inner codec. They accept any
-inner codec, including other wrappers, and implement <code>Decoder&lt;T&gt;</code> or
-<code>Encoder&lt;T&gt;</code> whenever the inner codec does.</p>
+inner codec, including other wrappers, and implement <code>Decoder</code> or
+<code>Encoder</code> whenever the inner codec does, with the inner codec&#39;s value type.</p>
 <table>
 <thead>
 <tr>
@@ -65,7 +65,7 @@ non-default settings or a configured inner codec such as <code>Avro</code>.</p>
 <span class="hljs-keyword">use</span> beavers::{Base64, Gzip, Protobuf};
 
 <span class="hljs-comment">// Protobuf bytes, gzip-compressed, carried as text in an SQS body.</span>
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = Sqs::<span class="hljs-title function_ invoke__">new</span>().sink::&lt;Base64&lt;Gzip&lt;Protobuf&gt;&gt;, Event&gt;(queue_url);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = Sqs::<span class="hljs-title function_ invoke__">new</span>().sink::&lt;Base64&lt;Gzip&lt;Protobuf&lt;Event&gt;&gt;&gt;&gt;(queue_url);
 </code></pre><p>The order of nested wrappers is the order of the encoding steps from the inside
 out: <code>Base64&lt;Gzip&lt;Json&gt;&gt;</code> compresses JSON and then encodes the compressed bytes
 as Base64. The reader of the payload must use the same nesting.</p>

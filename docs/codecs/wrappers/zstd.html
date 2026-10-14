@@ -58,7 +58,7 @@ inner codec, so payloads from other Zstandard writers decode as well.</p>
 </tbody></table>
 <pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Decoder, Encoder, Json, Zstd};
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">codec</span> = Zstd::<span class="hljs-title function_ invoke__">new</span>(Json)
+<span class="hljs-keyword">let</span> <span class="hljs-variable">codec</span> = Zstd::<span class="hljs-title function_ invoke__">new</span>(Json::<span class="hljs-title function_ invoke__">new</span>())
     .<span class="hljs-title function_ invoke__">with_level</span>(<span class="hljs-number">9</span>)
     .<span class="hljs-title function_ invoke__">with_max_decoded_len</span>(<span class="hljs-number">1024</span> * <span class="hljs-number">1024</span>);
 <span class="hljs-keyword">let</span> <span class="hljs-variable">bytes</span> = codec.<span class="hljs-title function_ invoke__">encode</span>(&amp;<span class="hljs-built_in">vec!</span>[<span class="hljs-string">&quot;beaver&quot;</span>; <span class="hljs-number">100</span>])?;

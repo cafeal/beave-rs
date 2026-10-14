@@ -58,9 +58,9 @@ accepted every output.</li>
 
 <span class="hljs-meta">#[tokio::main]</span>
 <span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">main</span>() <span class="hljs-punctuation">-&gt;</span> anyhow::<span class="hljs-type">Result</span>&lt;()&gt; {
-    <span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = HttpSource::&lt;Json, Order&gt;::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;0.0.0.0:8080&quot;</span>.<span class="hljs-title function_ invoke__">parse</span>()?)?;
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = HttpSource::&lt;Json&lt;Order&gt;&gt;::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;0.0.0.0:8080&quot;</span>.<span class="hljs-title function_ invoke__">parse</span>()?)?;
     App::<span class="hljs-title function_ invoke__">new</span>()
-        .<span class="hljs-title function_ invoke__">subscribe</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, StdoutSink::&lt;Json&gt;::<span class="hljs-title function_ invoke__">new</span>(), accept)
+        .<span class="hljs-title function_ invoke__">subscribe</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, StdoutSink::&lt;Json&lt;_&gt;&gt;::<span class="hljs-title function_ invoke__">new</span>(), accept)
         .<span class="hljs-title function_ invoke__">run</span>()
         .<span class="hljs-keyword">await</span>?;
     <span class="hljs-title function_ invoke__">Ok</span>(())
@@ -100,7 +100,7 @@ validates them again when it starts accepting connections on the first
 <code>receive</code>.</p>
 <pre><code class="hljs language-rust,no_run"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::http::{HttpSource, ResponseTiming}};
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = HttpSource::&lt;Utf8, <span class="hljs-type">String</span>&gt;::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;0.0.0.0:8080&quot;</span>.<span class="hljs-title function_ invoke__">parse</span>()?)?
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = HttpSource::&lt;Utf8&gt;::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;0.0.0.0:8080&quot;</span>.<span class="hljs-title function_ invoke__">parse</span>()?)?
     .<span class="hljs-title function_ invoke__">max_body_bytes</span>(<span class="hljs-number">64</span> * <span class="hljs-number">1024</span>)
     .<span class="hljs-title function_ invoke__">response</span>(ResponseTiming::Receive);
 # Ok::&lt;(), <span class="hljs-type">Box</span>&lt;<span class="hljs-keyword">dyn</span> std::error::Error&gt;&gt;(())
@@ -290,7 +290,7 @@ request-reply endpoint, is not supported.</li>
 long shutdown waits for open requests.</li>
 </ul>
 <h2 id="sink">Sink</h2>
-<p><code>HttpSink&lt;C, T&gt;</code> accepts <code>HttpPublish&lt;T&gt;</code> outputs. It encodes each body with
+<p><code>HttpSink&lt;C&gt;</code> accepts <code>HttpPublish&lt;T&gt;</code> outputs, where <code>T</code> is the codec&#39;s value type. It encodes each body with
 its codec and sends one request per output to its URL. A typical use
 is handing events consumed from a broker to a service with an HTTP API:</p>
 <pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::{
@@ -309,9 +309,9 @@ is handing events consumed from a broker to a service with an HTTP API:</p>
     <span class="hljs-title function_ invoke__">Ok</span>(HttpPublish::<span class="hljs-title function_ invoke__">new</span>(order).<span class="hljs-title function_ invoke__">with_header</span>(<span class="hljs-string">&quot;idempotency-key&quot;</span>, key))
 }
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>).source::&lt;Json, Order&gt;(<span class="hljs-string">&quot;orders-to-billing&quot;</span>, [<span class="hljs-string">&quot;orders&quot;</span>]);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>).source::&lt;Json&lt;Order&gt;&gt;(<span class="hljs-string">&quot;orders-to-billing&quot;</span>, [<span class="hljs-string">&quot;orders&quot;</span>]);
 <span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = HttpClient::<span class="hljs-title function_ invoke__">new</span>()
-    .sink::&lt;Json, Order&gt;(<span class="hljs-string">&quot;https://billing.internal/orders&quot;</span>)
+    .sink::&lt;Json&lt;Order&gt;&gt;(<span class="hljs-string">&quot;https://billing.internal/orders&quot;</span>)
     .<span class="hljs-title function_ invoke__">header</span>(<span class="hljs-string">&quot;content-type&quot;</span>, <span class="hljs-string">&quot;application/json&quot;</span>);
 App::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">subscribe</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, to_request).<span class="hljs-title function_ invoke__">run</span>().<span class="hljs-keyword">await</span>?;
 </code></pre><h3 id="sink-configuration">Sink configuration</h3>
@@ -343,7 +343,7 @@ handle shows header names only.</p>
 <td>Limit for one attempt, from connecting until the response body is read, for sinks that set none</td>
 </tr>
 </tbody></table>
-<p><code>sink::&lt;C, T&gt;(url)</code> builds a sink with the codec&#39;s default value, and
+<p><code>sink::&lt;C&gt;(url)</code> builds a sink with the codec&#39;s default value, and
 <code>sink_with_codec(codec, url)</code> with a configured codec. The URL is required; the
 other settings are sink builder methods:</p>
 <table>
@@ -382,10 +382,10 @@ other settings are sink builder methods:</p>
     .<span class="hljs-title function_ invoke__">header</span>(<span class="hljs-string">&quot;authorization&quot;</span>, <span class="hljs-string">&quot;Bearer token&quot;</span>)
     .<span class="hljs-title function_ invoke__">timeout</span>(Duration::<span class="hljs-title function_ invoke__">from_secs</span>(<span class="hljs-number">10</span>));
 <span class="hljs-keyword">let</span> <span class="hljs-variable">orders</span> = http
-    .sink::&lt;Json, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;https://billing.example.com/orders&quot;</span>)
+    .sink::&lt;Json&lt;<span class="hljs-type">String</span>&gt;&gt;(<span class="hljs-string">&quot;https://billing.example.com/orders&quot;</span>)
     .<span class="hljs-title function_ invoke__">header</span>(<span class="hljs-string">&quot;content-type&quot;</span>, <span class="hljs-string">&quot;application/json&quot;</span>);
 <span class="hljs-keyword">let</span> <span class="hljs-variable">refunds</span> = http
-    .sink::&lt;Json, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;https://billing.example.com/refunds&quot;</span>)
+    .sink::&lt;Json&lt;<span class="hljs-type">String</span>&gt;&gt;(<span class="hljs-string">&quot;https://billing.example.com/refunds&quot;</span>)
     .<span class="hljs-title function_ invoke__">method</span>(HttpMethod::Put)
     .<span class="hljs-title function_ invoke__">timeout</span>(Duration::<span class="hljs-title function_ invoke__">from_secs</span>(<span class="hljs-number">60</span>));
 </code></pre><p>The handle and the sink each have <code>validate</code>. The sink&#39;s returns an error for a

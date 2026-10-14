@@ -36,8 +36,8 @@ backed by <code>rdkafka</code>.</p>
 every client built from it uses. <code>property</code> sets a librdkafka property on every
 consumer and producer of the handle, <code>producer_property</code> on its producers only,
 and <code>sasl_plain</code> configures SASL/PLAIN authentication, over TLS unless
-<code>security.protocol</code> is set otherwise. <code>handle.source::&lt;C, T&gt;(group_id, topics)</code>
-builds a source and <code>handle.sink::&lt;C, T&gt;(topic)</code> a sink that publishes every
+<code>security.protocol</code> is set otherwise. <code>handle.source::&lt;C&gt;(group_id, topics)</code>
+builds a source and <code>handle.sink::&lt;C&gt;(topic)</code> a sink that publishes every
 output to <code>topic</code>; <code>source_with_codec</code> and <code>sink_with_codec</code> take a codec value
 as their first argument instead of using the codec&#39;s default. Optional settings
 are builder methods on the source and sink, such as <code>property</code> on a source for
@@ -46,9 +46,9 @@ consumer-only settings like <code>auto.offset.reset</code>, or <code>max_pending
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>).<span class="hljs-title function_ invoke__">property</span>(<span class="hljs-string">&quot;client.id&quot;</span>, <span class="hljs-string">&quot;orders-service&quot;</span>);
 <span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = kafka
-    .source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;orders-workers&quot;</span>, [<span class="hljs-string">&quot;orders&quot;</span>])
+    .source::&lt;Utf8&gt;(<span class="hljs-string">&quot;orders-workers&quot;</span>, [<span class="hljs-string">&quot;orders&quot;</span>])
     .<span class="hljs-title function_ invoke__">property</span>(<span class="hljs-string">&quot;auto.offset.reset&quot;</span>, <span class="hljs-string">&quot;earliest&quot;</span>);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = kafka.sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;processed-orders&quot;</span>).<span class="hljs-title function_ invoke__">max_pending</span>(<span class="hljs-number">500</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = kafka.sink::&lt;Utf8&gt;(<span class="hljs-string">&quot;processed-orders&quot;</span>).<span class="hljs-title function_ invoke__">max_pending</span>(<span class="hljs-number">500</span>);
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = KafkaPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>());
 </code></pre><p>Every non-transactional sink built from one handle publishes through one
@@ -187,9 +187,9 @@ partition:</p>
 </code></pre><pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Subscription, Utf8, adapters::kafka::Kafka};
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = kafka.source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;orders-workers&quot;</span>, [<span class="hljs-string">&quot;orders&quot;</span>]);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = kafka.source::&lt;Utf8&gt;(<span class="hljs-string">&quot;orders-workers&quot;</span>, [<span class="hljs-string">&quot;orders&quot;</span>]);
 <span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = kafka
-    .sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;processed-orders&quot;</span>)
+    .sink::&lt;Utf8&gt;(<span class="hljs-string">&quot;processed-orders&quot;</span>)
     .<span class="hljs-title function_ invoke__">transactional</span>(<span class="hljs-string">&quot;orders-workers-1&quot;</span>);
 <span class="hljs-keyword">let</span> <span class="hljs-variable">subscription</span> = Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, |order: <span class="hljs-type">String</span>| <span class="hljs-keyword">async</span> <span class="hljs-keyword">move</span> {
     <span class="hljs-title function_ invoke__">Ok</span>(order.<span class="hljs-title function_ invoke__">to_uppercase</span>())

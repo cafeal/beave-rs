@@ -32,8 +32,8 @@
 for AMQP 0-9-1, backed by the <code>lapin</code> 4 client.</p>
 <pre><code class="hljs language-toml"><span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;rabbitmq&quot;</span>] }
 </code></pre><h2 id="configuration">Configuration</h2>
-<p>A <code>RabbitMq</code> handle holds the broker URI. <code>handle.source::&lt;C, T&gt;(queue)</code> builds
-a source that consumes <code>queue</code>, and <code>handle.sink::&lt;C, T&gt;(exchange, routing_key)</code>
+<p>A <code>RabbitMq</code> handle holds the broker URI. <code>handle.source::&lt;C&gt;(queue)</code> builds
+a source that consumes <code>queue</code>, and <code>handle.sink::&lt;C&gt;(exchange, routing_key)</code>
 a sink that publishes to <code>exchange</code> with <code>routing_key</code> for outputs that do not
 set their own; <code>source_with_codec</code> and <code>sink_with_codec</code> take a codec value as
 their first argument instead of using the codec&#39;s default. The empty exchange
@@ -44,8 +44,8 @@ source, and the sink.</p>
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">rabbit</span> = RabbitMq::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;amqp://guest:guest@localhost:5672/%2f&quot;</span>)
     .<span class="hljs-title function_ invoke__">connection_name</span>(<span class="hljs-string">&quot;orders-service&quot;</span>);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = rabbit.source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;orders&quot;</span>).<span class="hljs-title function_ invoke__">prefetch</span>(<span class="hljs-number">32</span>);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = rabbit.sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;&quot;</span>, <span class="hljs-string">&quot;processed-orders&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = rabbit.source::&lt;Utf8&gt;(<span class="hljs-string">&quot;orders&quot;</span>).<span class="hljs-title function_ invoke__">prefetch</span>(<span class="hljs-number">32</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = rabbit.sink::&lt;Utf8&gt;(<span class="hljs-string">&quot;&quot;</span>, <span class="hljs-string">&quot;processed-orders&quot;</span>);
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = RabbitMqPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()).<span class="hljs-title function_ invoke__">with_routing_key</span>(<span class="hljs-string">&quot;audit&quot;</span>);
 </code></pre><p>The handle opens one connection for all of its sources and one for all of its

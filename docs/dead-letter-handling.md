@@ -107,10 +107,10 @@ struct Summary {
 
 let kafka = Kafka::new("localhost:9092");
 let source = kafka
-    .source::<RawBytes, Vec<u8>>("orders-dlq-examine", ["orders-dlq"])
+    .source::<RawBytes>("orders-dlq-examine", ["orders-dlq"])
     .property("auto.offset.reset", "earliest");
 
-Subscription::new("orders-dlq-examine", source, StdoutSink::<Json>::new(), |record: KafkaRecord<Vec<u8>>| async move {
+Subscription::new("orders-dlq-examine", source, StdoutSink::<Json<_>>::new(), |record: KafkaRecord<Vec<u8>>| async move {
     let dead = KafkaDeadLetter::from_record(&record).ok().flatten();
     Ok(Summary {
         failure: dead.as_ref().map(|dead| dead.details.failure.as_str().to_owned()),
@@ -153,8 +153,8 @@ use beavers::{
     adapters::kafka::{KafkaDeadLetter, KafkaPublish, KafkaRecord},
 };
 
-let source = kafka.source::<Json, Order>("orders-redrive", ["orders-dlq"]);
-let parked = kafka.sink::<RawBytes, Vec<u8>>("orders-parked");
+let source = kafka.source::<Json<Order>>("orders-redrive", ["orders-dlq"]);
+let parked = kafka.sink::<RawBytes>("orders-parked");
 
 Subscription::new("orders-redrive", source, invoices, |record: KafkaRecord<Order>| async move {
     if let Some(dead) = KafkaDeadLetter::from_record(&record).reject()?.filter(|dead| dead.details.count >= 3) {
@@ -226,8 +226,8 @@ use beavers::{
 };
 
 let sqs = Sqs::new();
-let source = sqs.source::<Json, Order>(orders_dlq_url);
-let parked = sqs.sink::<RawBytes, Vec<u8>>(orders_parked_url);
+let source = sqs.source::<Json<Order>>(orders_dlq_url);
+let parked = sqs.sink::<RawBytes>(orders_parked_url);
 
 Subscription::new_emitting("orders-dlq-triage", source, invoices, |record: SqsRecord<Order>| async move {
     if let Some(dead) = SqsDeadLetter::from_record(&record).reject()?.filter(|dead| dead.details.count >= 3) {
@@ -292,9 +292,9 @@ struct Archived {
     body: String,
 }
 
-let source = sqs.source::<RawBytes, Vec<u8>>(orders_dlq_url);
+let source = sqs.source::<RawBytes>(orders_dlq_url);
 
-Subscription::new("orders-dlq-archive", source, StdoutSink::<Json>::new(), |record: SqsRecord<Vec<u8>>| async move {
+Subscription::new("orders-dlq-archive", source, StdoutSink::<Json<_>>::new(), |record: SqsRecord<Vec<u8>>| async move {
     let dead = SqsDeadLetter::from_record(&record).ok().flatten();
     Ok(Archived {
         message_id: record.metadata.message_id.clone(),

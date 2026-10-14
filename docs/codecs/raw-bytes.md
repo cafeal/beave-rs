@@ -4,7 +4,8 @@
 It copies the payload without interpreting it. Empty payloads and every byte
 value are valid, including zero bytes and malformed UTF-8. It is a unit struct
 that implements `Default`, so adapters that construct their codec internally
-can use it, and it needs no Cargo feature.
+can use it, and it needs no Cargo feature. Its value type is fixed, so a source
+or sink names it without a type argument, as in `KafkaSink<RawBytes>`.
 
 ```rust
 use beavers::{Decoder, Encoder, RawBytes};

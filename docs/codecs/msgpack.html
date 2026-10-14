@@ -28,9 +28,9 @@
     </nav>
     <main class="doc">
 <h1 id="messagepack-codec">MessagePack codec</h1>
-<p><code>MessagePack</code> converts between <a href="https://msgpack.org/">MessagePack</a> payloads and
-any type implementing Serde&#39;s traits, the same types <code>Json</code> accepts. It is a
-unit struct that implements <code>Default</code>. Enable the <code>msgpack</code> Cargo feature to
+<p><code>MessagePack&lt;T&gt;</code> converts between <a href="https://msgpack.org/">MessagePack</a> payloads
+and a type <code>T</code> implementing Serde&#39;s traits, the same types <code>Json</code> accepts. It
+holds no state and implements <code>Default</code>. Enable the <code>msgpack</code> Cargo feature to
 use it:</p>
 <pre><code class="hljs language-toml"><span class="hljs-section">[dependencies]</span>
 <span class="hljs-attr">beavers</span> = { version = <span class="hljs-string">&quot;0.1&quot;</span>, features = [<span class="hljs-string">&quot;msgpack&quot;</span>] }
@@ -44,8 +44,8 @@ with <code>rmp_serde</code>.</p>
     id: <span class="hljs-type">u64</span>,
 }
 
-<span class="hljs-keyword">let</span> <span class="hljs-variable">bytes</span> = MessagePack.<span class="hljs-title function_ invoke__">encode</span>(&amp;Order { id: <span class="hljs-number">42</span> })?;
-<span class="hljs-keyword">let</span> <span class="hljs-variable">order</span>: Order = MessagePack.<span class="hljs-title function_ invoke__">decode</span>(&amp;bytes)?;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">bytes</span> = MessagePack::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">encode</span>(&amp;Order { id: <span class="hljs-number">42</span> })?;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">order</span>: Order = MessagePack::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">decode</span>(&amp;bytes)?;
 <span class="hljs-built_in">assert_eq!</span>(order, Order { id: <span class="hljs-number">42</span> });
 # Ok::&lt;(), beavers::BoxError&gt;(())
 </code></pre><h2 id="struct-representation">Struct representation</h2>

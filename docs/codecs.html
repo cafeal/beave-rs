@@ -33,20 +33,33 @@ messages, publish output, route metadata, or acknowledge deliveries. Those
 responsibilities belong to <a href="adapters.html">adapters</a> and the
 <a href="runtime.html">subscription runtime</a>.</p>
 <h2 id="contracts">Contracts</h2>
-<p>The framework defines separate decoding and encoding traits:</p>
-<pre><code class="hljs language-rust"><span class="hljs-keyword">pub</span> <span class="hljs-keyword">trait</span> <span class="hljs-title class_">Decoder</span>&lt;T&gt;: <span class="hljs-built_in">Send</span> + <span class="hljs-built_in">Sync</span> + <span class="hljs-symbol">&#x27;static</span> {
-    <span class="hljs-keyword">fn</span> <span class="hljs-title function_">decode</span>(&amp;<span class="hljs-keyword">self</span>, bytes: &amp;[<span class="hljs-type">u8</span>]) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;T, BoxError&gt;;
+<p>A codec names the typed value it converts, and implements decoding, encoding,
+or both:</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">pub</span> <span class="hljs-keyword">trait</span> <span class="hljs-title class_">Codec</span>: <span class="hljs-built_in">Send</span> + <span class="hljs-built_in">Sync</span> + <span class="hljs-symbol">&#x27;static</span> {
+    <span class="hljs-keyword">type</span> <span class="hljs-title class_">Value</span>;
 }
 
-<span class="hljs-keyword">pub</span> <span class="hljs-keyword">trait</span> <span class="hljs-title class_">Encoder</span>&lt;T&gt;: <span class="hljs-built_in">Send</span> + <span class="hljs-built_in">Sync</span> + <span class="hljs-symbol">&#x27;static</span> {
-    <span class="hljs-keyword">fn</span> <span class="hljs-title function_">encode</span>(&amp;<span class="hljs-keyword">self</span>, value: &amp;T) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;, BoxError&gt;;
+<span class="hljs-keyword">pub</span> <span class="hljs-keyword">trait</span> <span class="hljs-title class_">Decoder</span>: Codec {
+    <span class="hljs-keyword">fn</span> <span class="hljs-title function_">decode</span>(&amp;<span class="hljs-keyword">self</span>, bytes: &amp;[<span class="hljs-type">u8</span>]) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;<span class="hljs-keyword">Self</span>::Value, BoxError&gt;;
 }
-</code></pre><p>A codec can implement either or both. These are synchronous transformations;
+
+<span class="hljs-keyword">pub</span> <span class="hljs-keyword">trait</span> <span class="hljs-title class_">Encoder</span>: Codec {
+    <span class="hljs-keyword">fn</span> <span class="hljs-title function_">encode</span>(&amp;<span class="hljs-keyword">self</span>, value: &amp;<span class="hljs-keyword">Self</span>::Value) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;, BoxError&gt;;
+}
+</code></pre><p>Sources and sinks take their payload type from the codec, so the codec is their
+only type parameter. A format that serializes many types carries the type as
+its parameter, as in <code>Json&lt;Order&gt;</code>; a codec bound to one type, such as <code>Utf8</code>
+for <code>String</code>, has none:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">let</span> <span class="hljs-variable">orders</span>: KafkaSource&lt;Json&lt;Order&gt;&gt; = KafkaSource::<span class="hljs-title function_ invoke__">new</span>(source_config);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">invoices</span>: KafkaSink&lt;Avro&lt;Invoice&gt;&gt; = KafkaSink::<span class="hljs-title function_ invoke__">new</span>(sink_config);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">lines</span>: KafkaSink&lt;Utf8&gt; = KafkaSink::<span class="hljs-title function_ invoke__">new</span>(lines_config);
+</code></pre><p>When a handler parameter fixes the type, the codec parameter can be left to
+inference, as in <code>StdinSource::&lt;Json&lt;_&gt;&gt;::new()</code>. These are synchronous transformations;
 implementations should not perform blocking network or filesystem operations.
 Expensive serialization still occupies the executing thread; there is currently
 no dedicated codec execution pool.</p>
 <p>The traits do not require Serde. Each codec chooses its own representation and
-payload bounds. <code>Decoder</code>, <code>Encoder</code>, <code>Json</code>, <code>RawBytes</code>, and <code>Utf8</code> are available
+payload bounds. <code>Codec</code>, <code>Decoder</code>, <code>Encoder</code>, <code>Json</code>, <code>RawBytes</code>, and <code>Utf8</code> are available
 through <code>beavers::codec</code> and re-exported at the crate root. <code>Protobuf</code>, <code>Avro</code>,
 <code>MessagePack</code>, <code>Cbor</code>, and the <code>Base64</code>, <code>Gzip</code>, and <code>Zstd</code> wrappers are
 available when their corresponding Cargo features are enabled.</p>
@@ -71,25 +84,32 @@ default both stop processing without ACK; the subscription&#39;s
 as <code>FailureKind::Decode</code> and <code>FailureKind::Encode</code>. An invalid JSON line is a
 decode failure, whereas a failed stdin read is a receive failure.</p>
 <h2 id="implementing-a-codec">Implementing a codec</h2>
-<p>Implement the relevant trait for the payload type. For example, a UTF-8 string
-codec needs no Serde dependency:</p>
-<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{BoxError, Decoder, Encoder};
+<p>Implement <code>Codec</code> to name the value type, then the relevant direction. For
+example, a UTF-8 string codec needs no Serde dependency:</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{BoxError, Codec, Decoder, Encoder};
 
 <span class="hljs-meta">#[derive(Default)]</span>
 <span class="hljs-keyword">struct</span> <span class="hljs-title class_">Utf8</span>;
 
-<span class="hljs-keyword">impl</span> <span class="hljs-title class_">Decoder</span>&lt;<span class="hljs-type">String</span>&gt; <span class="hljs-keyword">for</span> <span class="hljs-title class_">Utf8</span> {
+<span class="hljs-keyword">impl</span> <span class="hljs-title class_">Codec</span> <span class="hljs-keyword">for</span> <span class="hljs-title class_">Utf8</span> {
+    <span class="hljs-keyword">type</span> <span class="hljs-title class_">Value</span> = <span class="hljs-type">String</span>;
+}
+
+<span class="hljs-keyword">impl</span> <span class="hljs-title class_">Decoder</span> <span class="hljs-keyword">for</span> <span class="hljs-title class_">Utf8</span> {
     <span class="hljs-keyword">fn</span> <span class="hljs-title function_">decode</span>(&amp;<span class="hljs-keyword">self</span>, bytes: &amp;[<span class="hljs-type">u8</span>]) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;<span class="hljs-type">String</span>, BoxError&gt; {
         <span class="hljs-title function_ invoke__">Ok</span>(std::<span class="hljs-type">str</span>::<span class="hljs-title function_ invoke__">from_utf8</span>(bytes)?.<span class="hljs-title function_ invoke__">to_owned</span>())
     }
 }
 
-<span class="hljs-keyword">impl</span> <span class="hljs-title class_">Encoder</span>&lt;<span class="hljs-type">String</span>&gt; <span class="hljs-keyword">for</span> <span class="hljs-title class_">Utf8</span> {
+<span class="hljs-keyword">impl</span> <span class="hljs-title class_">Encoder</span> <span class="hljs-keyword">for</span> <span class="hljs-title class_">Utf8</span> {
     <span class="hljs-keyword">fn</span> <span class="hljs-title function_">encode</span>(&amp;<span class="hljs-keyword">self</span>, value: &amp;<span class="hljs-type">String</span>) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;<span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;, BoxError&gt; {
         <span class="hljs-title function_ invoke__">Ok</span>(value.<span class="hljs-title function_ invoke__">as_bytes</span>().<span class="hljs-title function_ invoke__">to_vec</span>())
     }
 }
-</code></pre><p><code>Utf8</code> is an exported built-in codec; see <a href="codecs/utf8.html">Utf8</a>
+</code></pre><p>A codec for a format that serializes many types takes the type as a parameter
+and holds it in <code>PhantomData&lt;fn() -&gt; T&gt;</code>, as <code>Json&lt;T&gt;</code> does, so the codec stays
+<code>Send</code>, <code>Sync</code>, and <code>Copy</code> whatever <code>T</code> is.</p>
+<p><code>Utf8</code> is an exported built-in codec; see <a href="codecs/utf8.html">Utf8</a>
 for its exact behavior and <a href="codecs/raw-bytes.html"><code>RawBytes</code></a> for arbitrary payloads. The local stdin and
 stdout adapters default-construct their codec, so using a custom codec with them
 requires <code>Default</code>. The codec traits themselves do not require it. Broker

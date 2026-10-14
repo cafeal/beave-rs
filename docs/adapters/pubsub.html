@@ -54,8 +54,8 @@ which checks the values without contacting Google Cloud.</p>
 <pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Utf8, adapters::pubsub::{PubSub, PubSubPublish}};
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">pubsub</span> = PubSub::<span class="hljs-title function_ invoke__">new</span>();
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = pubsub.source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;projects/my-project/subscriptions/orders&quot;</span>);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = pubsub.sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;projects/my-project/topics/processed-orders&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = pubsub.source::&lt;Utf8&gt;(<span class="hljs-string">&quot;projects/my-project/subscriptions/orders&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = pubsub.sink::&lt;Utf8&gt;(<span class="hljs-string">&quot;projects/my-project/topics/processed-orders&quot;</span>);
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = PubSubPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()).<span class="hljs-title function_ invoke__">with_ordering_key</span>(<span class="hljs-string">&quot;customer-7&quot;</span>);
 </code></pre><p>For the <a href="../development.html#broker-configuration">Pub/Sub emulator</a>, set the
@@ -77,11 +77,11 @@ collects outputs into one <code>Publish</code> request.</p>
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">pubsub</span> = PubSub::<span class="hljs-title function_ invoke__">new</span>();
 <span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = pubsub
-    .source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;projects/my-project/subscriptions/orders&quot;</span>)
+    .source::&lt;Utf8&gt;(<span class="hljs-string">&quot;projects/my-project/subscriptions/orders&quot;</span>)
     .<span class="hljs-title function_ invoke__">max_outstanding_messages</span>(<span class="hljs-number">200</span>)
     .<span class="hljs-title function_ invoke__">ack_deadline</span>(Duration::<span class="hljs-title function_ invoke__">from_secs</span>(<span class="hljs-number">120</span>));
 <span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = pubsub
-    .sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;projects/my-project/topics/processed-orders&quot;</span>)
+    .sink::&lt;Utf8&gt;(<span class="hljs-string">&quot;projects/my-project/topics/processed-orders&quot;</span>)
     .<span class="hljs-title function_ invoke__">batch_delay</span>(Duration::<span class="hljs-title function_ invoke__">from_millis</span>(<span class="hljs-number">50</span>));
 </code></pre><h2 id="records">Records</h2>
 <p><code>PubSubRecord&lt;T&gt;</code> is the decoded input and <code>PubSubPublish&lt;T&gt;</code> the output. The

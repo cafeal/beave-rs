@@ -64,8 +64,8 @@ sinks from it.</p>
 <span class="hljs-keyword">let</span> <span class="hljs-variable">bus</span> = ServiceBus::<span class="hljs-title function_ invoke__">from_connection_string</span>(
     <span class="hljs-string">&quot;Endpoint=sb://contoso.servicebus.windows.net/;SharedAccessKeyName=app;SharedAccessKey=...&quot;</span>,
 )?;
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = bus.source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;orders/Subscriptions/billing&quot;</span>);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = bus.sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;processed-orders&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = bus.source::&lt;Utf8&gt;(<span class="hljs-string">&quot;orders/Subscriptions/billing&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = bus.sink::&lt;Utf8&gt;(<span class="hljs-string">&quot;processed-orders&quot;</span>);
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">output</span> = ServiceBusPublish::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;created&quot;</span>.<span class="hljs-title function_ invoke__">to_owned</span>()).<span class="hljs-title function_ invoke__">with_message_id</span>(<span class="hljs-string">&quot;order-7&quot;</span>);
 # Ok::&lt;(), beavers::Error&gt;(())
@@ -82,8 +82,8 @@ limits the messages sent and not yet accepted.</p>
 
 <span class="hljs-keyword">let</span> <span class="hljs-variable">bus</span> = ServiceBus::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;contoso.servicebus.windows.net&quot;</span>)
     .<span class="hljs-title function_ invoke__">shared_access_key</span>(<span class="hljs-string">&quot;app&quot;</span>, <span class="hljs-string">&quot;...&quot;</span>);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = bus.source::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;orders&quot;</span>).<span class="hljs-title function_ invoke__">prefetch</span>(<span class="hljs-number">20</span>);
-<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = bus.sink::&lt;Utf8, <span class="hljs-type">String</span>&gt;(<span class="hljs-string">&quot;processed-orders&quot;</span>).<span class="hljs-title function_ invoke__">max_pending</span>(<span class="hljs-number">100</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">source</span> = bus.source::&lt;Utf8&gt;(<span class="hljs-string">&quot;orders&quot;</span>).<span class="hljs-title function_ invoke__">prefetch</span>(<span class="hljs-number">20</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">sink</span> = bus.sink::&lt;Utf8&gt;(<span class="hljs-string">&quot;processed-orders&quot;</span>).<span class="hljs-title function_ invoke__">max_pending</span>(<span class="hljs-number">100</span>);
 </code></pre><p><code>source_with_codec</code> and <code>sink_with_codec</code> take a codec value first. The handle,
 source, and sink each have <code>validate</code>, which checks the values without
 contacting Service Bus. The adapters create no entities; create queues, topics,
