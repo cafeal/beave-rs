@@ -68,6 +68,12 @@ Keep these contracts explicit:
 - A source that accepts input from clients, such as a server, stops accepting
   it in `Source::stop_receiving`, which the runtime calls when it stops
   receiving on shutdown or failure, before draining.
+- A broker source describes each delivery with
+  `SourceMessage::messaging_attributes` for its
+  [trace span](runtime/observability.md#messaging-attributes), and can report
+  its connection state through `Source::probe` for
+  [health checks](runtime/health.md#connection-state). A probe answers
+  from state the source already holds, without network access.
 
 `Delivery::with_ordering_key` and `Delivery::with_revocation` provide both for
 custom sources built on `Delivery<T>`, and `Delivery::with_raw` sets the raw

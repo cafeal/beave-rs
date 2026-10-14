@@ -232,8 +232,8 @@ The [runtime guide](runtime.md) describes processing behavior, and the
 
 | Contract | Responsibility |
 |---|---|
-| `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure; declare whether application shutdown stops receiving |
-| `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, revocation, and propagation fields |
+| `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure; declare whether application shutdown stops receiving; optionally expose a `SourceProbe` with its connection state |
+| `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, revocation, propagation fields, and messaging attributes |
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
 | `Codec` / `Decoder` / `Encoder` | Convert serialization formats without broker operations |
 | `Sink<T>` | Prepare an associated output representation, submit or publish it, report its completion, and close resources |
@@ -410,10 +410,11 @@ Registration constructs the application. Processing starts in `run()`.
 | Retry jitter | `Jitter::None` | Randomization of each backoff delay |
 | Error policy | `ErrorPolicy::default()` | Dead-letter handler failures and rejected publications; stop on decode and encode failures |
 | Drain timeout | 30 s | Bound on draining; cleanup has a separate timeout of the same duration |
+| Stall timeout | Disabled | Liveness fails while deliveries are in flight without progress for this long; see [stall detection](runtime/health.md#stall-detection) |
 
 Receive, handler, output publish, and dead-letter publish retries have
 independent policies. Invalid zero concurrency, in-flight limits, or retry
-attempt counts fail validation before subscriptions start, as does an error
+attempt counts, and a zero stall timeout fail validation before subscriptions start, as does an error
 policy that dead-letters decode or encode failures without a dead-letter sink.
 
 Each `RetryPolicy` doubles its delay after every failed attempt, starting at
@@ -629,6 +630,12 @@ Keep these contracts explicit:
 - A source that accepts input from clients, such as a server, stops accepting
   it in `Source::stop_receiving`, which the runtime calls when it stops
   receiving on shutdown or failure, before draining.
+- A broker source describes each delivery with
+  `SourceMessage::messaging_attributes` for its
+  [trace span](runtime/observability.md#messaging-attributes), and can report
+  its connection state through `Source::probe` for
+  [health checks](runtime/health.md#connection-state). A probe answers
+  from state the source already holds, without network access.
 
 `Delivery::with_ordering_key` and `Delivery::with_revocation` provide both for
 custom sources built on `Delivery<T>`, and `Delivery::with_raw` sets the raw
@@ -1352,8 +1359,9 @@ in this guide assume the exporter listens on port `9000` and serves `/metrics`.
 
 **Health.** Enable the `health` feature and register a `HealthServer`. The
 examples assume port `8080`. Readiness turns `503` during shutdown, receive
-backoff, and output publish retries; liveness turns `503` after a subscription
-fails.
+backoff, output publish retries, and while a Kafka or Pulsar source is
+disconnected; liveness turns `503` after a subscription fails, or while it is
+stalled when a [stall timeout](../runtime/health.md#stall-detection) is set.
 
 **JSON logs.** Emit events as JSON so that cloud log services can match the
 `subscription failed` event. With `tracing-subscriber` and its `json`
@@ -1385,7 +1393,8 @@ alert on `subscription failed`. Each platform guide shows both.
 | Dead letters cannot be published | `beavers_publish_failures_total{sink="dead_letter"}` | critical | Failed deliveries cannot leave the subscription, so it stops making progress |
 | Outputs cannot be published | `beavers_publish_failures_total{sink="output"}` for several minutes | critical | Deliveries wait for publish retries; readiness is `503` meanwhile |
 | The source keeps failing | `beavers_receive_errors_total` for several minutes | critical | The broker is unreachable or rejects the client; readiness is `503` during backoff |
-| Work is stuck | `beavers_deliveries_in_flight` above zero with no acknowledgement | critical | A handler or acknowledgement never completes; liveness does not detect this |
+| Work is stuck | `beavers_deliveries_in_flight` above zero with no acknowledgement | critical | A handler or acknowledgement never completes; liveness detects this only with a [stall timeout](../runtime/health.md#stall-detection) |
+| The source lost its broker | `beavers_source_connected` at `0` for several minutes | critical | The Kafka or Pulsar client keeps reconnecting; readiness is `503` meanwhile |
 | Metrics disappeared | The scrape target is down | critical | Nothing else on this list can fire |
 | Deliveries were dead-lettered | `beavers_delivery_failures_total{action="dead_letter"}` | warning | Someone needs to inspect and redrive them; see the [dead-letter handling guide](../dead-letter-handling.md) |
 | Producers send undecodable records | Ratio of `failure="decode"` to received deliveries | warning | Usually a schema or producer change |
@@ -1493,9 +1502,9 @@ minutes; raise the window above the longest expected handler duration.
 
 ## Backlog
 
-beavers does not report consumer lag yet; see the
-[design plan](../plan.md#observability). Alert on the broker's own measurement
-of the backlog, which also covers an application that is not running at all:
+beavers does not report consumer lag. Alert on the broker's own measurement of
+the backlog, which covers every instance of a consumer group and also an
+application that is not running at all:
 
 | Broker | Metric |
 |---|---|
@@ -2116,6 +2125,32 @@ because one transaction commits several deliveries.
 
 `pre_handler` and `post_handler` middleware run in the `message` span.
 
+### Messaging attributes
+
+Broker sources describe each delivery through
+`SourceMessage::messaging_attributes`, and the runtime records the
+[OpenTelemetry messaging semantic conventions](https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/)
+on its `message` span. With an OpenTelemetry layer, the span is exported as a
+consumer span named `process <destination>`, such as `process orders`, and
+carries `messaging.operation.type` and `messaging.operation.name` set to
+`process` together with:
+
+| Adapter | `messaging.system` | Destination | Other attributes |
+|---|---|---|---|
+| Kafka | `kafka` | Topic | `messaging.destination.partition.id`, `messaging.kafka.offset`, `messaging.consumer.group.name` |
+| Pulsar | `pulsar` | Configured topic | `messaging.destination.partition.id` for a partitioned topic, `messaging.destination.subscription.name`, `messaging.message.id` |
+| RabbitMQ | `rabbitmq` | Queue | `messaging.message.id` when the publisher set one |
+| SQS | `aws_sqs` | Queue name | `messaging.message.id` |
+| Pub/Sub | `gcp_pubsub` | None | `messaging.destination.subscription.name`, `messaging.message.id` |
+| Azure Service Bus | `servicebus` | Queue or topic | `messaging.destination.subscription.name` for a topic subscription, `messaging.message.id` when set |
+
+Other sources report no attributes, and their span keeps the name `message`.
+A custom source returns a `MessagingAttributes` built from its own metadata.
+Metrics do not carry these attributes, because partitions and message IDs would
+multiply the number of series. Outputs get no producer span of their own; the
+[trace context](#trace-context-propagation) of the `message` span continues
+downstream.
+
 ## Events
 
 | Event | Level | Fields |
@@ -2145,6 +2180,7 @@ Every metric carries a `subscription` label with the subscription name.
 | `beavers_receive_errors_total` | counter | | Failed receive attempts |
 | `beavers_deliveries_revoked_total` | counter | | Deliveries abandoned after revocation |
 | `beavers_deliveries_in_flight` | gauge | | Received deliveries that have not finished |
+| `beavers_source_connected` | gauge | | `1` while the source is connected to its broker, `0` while it is not; Kafka and Pulsar sources only |
 | `beavers_stage_duration_seconds` | histogram | `stage` | Duration of `decode`, `handler`, `encode`, `publish`, `complete`, `dead_letter`, `ack`, and `commit` |
 | `beavers_transaction_deliveries` | histogram | | Deliveries in each committed transaction |
 
@@ -2155,7 +2191,9 @@ dead-letter sink is reported as `stop`, which is what it does. A failure is
 counted when it is routed, before the action runs. `handler` durations are
 per attempt and exclude retry backoff; `publish` durations cover all outputs
 of a delivery, including backoff. `commit` durations are per successful
-transaction and cover the whole batch.
+transaction and cover the whole batch. The connection gauge copies the source's
+[health probe](health.md#connection-state) every 5 seconds and is not reported
+until the source knows its state.
 
 ## Alerting
 
@@ -2282,7 +2320,7 @@ a handler returning a plain value registers the inheritance middleware first.
 
 | Field | Meaning |
 |---|---|
-| `live` | `false` once a subscription has failed, which stops the application |
+| `live` | `false` once a subscription has failed, which stops the application, or while a subscription is stalled |
 | `ready` | The application is running, shutdown has not started, and every subscription is ready |
 | `shutting_down` | Shutdown was requested by a signal, the `run_until` token, or a failure |
 | `subscriptions` | One `SubscriptionReport` per subscription, in registration order |
@@ -2292,17 +2330,64 @@ Each `SubscriptionReport` carries the subscription `name`, its `status`
 drains, and finally `Stopped` or `Failed`), `receive_failures`, the
 consecutive failed receives since the last successful one,
 `receive_backoff`, whether the runtime is waiting for a receive retry delay,
-and `publish_retries`, the deliveries whose output publication or transaction
-commit failed and is waiting to be retried. A subscription is ready while it is
-`Running` with no receive backoff and no publish retry. A subscription whose
-source ended and that stopped without an error stays ready, so a finite source
-next to a long-running one does not make the application unready.
+`publish_retries`, the deliveries whose output publication or transaction
+commit failed and is waiting to be retried, `connected`, the source's
+[connection state](#connection-state), and `stalled`. A subscription is ready while it is
+`Running` with no receive backoff, no publish retry, and a source that does not
+report itself disconnected. A subscription whose source ended and that stopped
+without an error stays ready, so a finite source next to a long-running one
+does not make the application unready.
 
-Readiness reflects only what the runtime observes. A retried receive that waits
-for input counts as ready again, because a source cannot tell an idle broker
-from an unreachable one while its receive is pending. Dead-letter publish
-retries do not affect readiness. Liveness reports that the runtime answers and
-that no subscription failed; it does not detect a handler that never returns.
+A retried receive that waits for input counts as ready again, because the
+runtime cannot tell an idle broker from an unreachable one while a receive is
+pending; the source's connection state covers that case where the source
+reports it. Dead-letter publish retries do not affect readiness.
+
+## Connection state
+
+A source can report whether it is connected to its broker through
+`Source::probe`, which the health report reads on every request:
+
+| Adapter | `connected` |
+|---|---|
+| Kafka | Any broker connection is up, from librdkafka statistics |
+| Pulsar | Every partition's consumer is connected |
+| Other adapters | Not reported |
+
+The value is `null` until the source has connected, and for Kafka until the
+first statistics arrive. The Kafka source sets `statistics.interval.ms` to 5000
+unless the handle or source sets it; `0` disables statistics and leaves the
+state unreported. librdkafka delivers statistics while the source polls its
+consumer, which the runtime does whenever it has room to receive, so while
+every delivery slot stays busy the Kafka state keeps its last reading. A source
+reporting `connected: false` makes its subscription unready. The Kafka and
+Pulsar clients reconnect by themselves, and readiness returns when they do.
+
+beavers does not report consumer lag. Alert on the broker's own measurement,
+listed in the [monitoring guide](../monitoring-and-alerting/README.md#backlog),
+which covers every instance of a consumer group and an application that is not
+running.
+
+## Stall detection
+
+Liveness reports that the runtime answers and that no subscription failed. With
+`stall_timeout`, it also fails while a subscription is `stalled`: deliveries are
+in flight, but no handler attempt, publish or commit attempt, acknowledgement,
+or newly received delivery has occurred for that duration.
+
+```rust,ignore
+Subscription::new("orders", source, sink, handler)
+    .stall_timeout(Duration::from_secs(300))
+```
+
+An idle subscription with nothing in flight is never stalled, and each failed
+retry attempt counts as progress, so backoff does not trigger it. Stall
+detection is disabled by default; choose a duration longer than the slowest
+expected handler attempt, because a restart abandons the deliveries in
+progress. It detects a subscription in which nothing progresses. One stuck
+delivery while others still complete, such as one ordering key blocked under
+`ProcessingOrder::PerKey`, keeps the subscription live; its partition's commit
+stops advancing, which shows as growing consumer lag on the broker.
 
 With the `health` feature, `HealthServer` answers probes over HTTP/1.1 while
 the application runs:
@@ -2858,6 +2943,16 @@ its original record and failure headers, and `KafkaDeadLetter::from_record`
 reads them back; see
 [forwarding dead letters](../runtime/errors.md#forwarding-dead-letters-to-a-broker-topic).
 
+## Health and tracing
+
+The source reports its connection state to
+[health checks](../runtime/health.md#connection-state) from librdkafka
+statistics, enabling `statistics.interval.ms` at 5000 ms unless the handle or
+source sets it. Consumer lag comes from the broker; see the
+[monitoring guide](../monitoring-and-alerting/README.md#backlog).
+Each delivery's `message` span carries the topic, partition, offset, and group
+ID as [messaging attributes](../runtime/observability.md#messaging-attributes).
+
 ## Delivery guarantees
 
 With a `KafkaSink`, producer publication and source offset commits are separate
@@ -3193,6 +3288,16 @@ See [tombstones](../runtime/tombstones.md).
 its original message and failure properties, and
 `PulsarDeadLetter::from_record` reads them back; see
 [forwarding dead letters](../runtime/errors.md#forwarding-dead-letters-to-a-broker-topic).
+
+## Health and tracing
+
+The source reports whether every partition's consumer is connected to
+[health checks](../runtime/health.md#connection-state); a consumer
+reconnecting after a topic unload or broker restart makes the subscription
+unready until it reconnects. The subscription backlog comes from the broker's
+`pulsar_subscription_back_log` metric. Each delivery's `message` span carries the configured
+topic, partition, subscription, and message ID as
+[messaging attributes](../runtime/observability.md#messaging-attributes).
 
 ## Delivery guarantees
 
@@ -5370,27 +5475,22 @@ pipeline on a broker restart. Other client limitations:
 
 ## Observability
 
-Spans, events, metrics, and trace-context propagation are described in the
-[runtime guide](runtime/observability.md). Remaining decisions:
+Spans, events, metrics, messaging attributes, and trace-context propagation
+are described in the [runtime guide](runtime/observability.md). Remaining
+decisions:
 
-- OpenTelemetry messaging semantic-convention attributes, such as destination,
-  partition, and offset, which need an adapter-provided description of each
-  delivery;
 - a producer span per published output instead of injecting the `message`
   span's context into every output.
 
-Health checks report runtime-observed state, as described in the
-[runtime guide](runtime/health.md). Remaining decisions:
+Health checks, source connection state, and stall detection are described in
+the [runtime guide](runtime/health.md). Consumer lag is left to broker metrics.
+Remaining decision:
 
-- consumer lag in the health report, which needs an adapter-provided
-  measurement such as the distance from a Kafka partition's committed offset to
-  its high watermark or a Pulsar subscription's backlog, and a policy for
-  whether lag above a threshold makes the application unready;
-- source connection state in readiness, since the Kafka and Pulsar clients
-  reconnect internally and a pending receive cannot tell an idle broker from an
-  unreachable one;
-- liveness that detects a stalled subscription, such as a handler or ACK that
-  never completes, without restarting instances that are merely idle.
+- connection state for the RabbitMQ, SQS, Pub/Sub, and Service Bus sources.
+
+The Pulsar probe's `is_connected` has not been verified across a broker
+restart, and neither probe across a multi-broker cluster in which one broker
+fails.
 
 Trace-context propagation and the
 [Prometheus export path](runtime/observability.md#exporting-metrics-to-opentelemetry) have not

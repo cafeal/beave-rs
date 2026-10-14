@@ -259,28 +259,22 @@ already replayed, so a broker restart or topic unload can reorder outputs of
 one partition. Keeping the order needs a client that replays rejected sends.</li>
 </ul>
 <h2 id="observability">Observability</h2>
-<p>Spans, events, metrics, and trace-context propagation are described in the
-<a href="runtime/observability.html">runtime guide</a>. Remaining decisions:</p>
+<p>Spans, events, metrics, messaging attributes, and trace-context propagation
+are described in the <a href="runtime/observability.html">runtime guide</a>. Remaining
+decisions:</p>
 <ul>
-<li>OpenTelemetry messaging semantic-convention attributes, such as destination,
-partition, and offset, which need an adapter-provided description of each
-delivery;</li>
 <li>a producer span per published output instead of injecting the <code>message</code>
 span&#39;s context into every output.</li>
 </ul>
-<p>Health checks report runtime-observed state, as described in the
-<a href="runtime/health.html">runtime guide</a>. Remaining decisions:</p>
+<p>Health checks, source connection state, and stall detection are described in
+the <a href="runtime/health.html">runtime guide</a>. Consumer lag is left to broker metrics.
+Remaining decision:</p>
 <ul>
-<li>consumer lag in the health report, which needs an adapter-provided
-measurement such as the distance from a Kafka partition&#39;s committed offset to
-its high watermark or a Pulsar subscription&#39;s backlog, and a policy for
-whether lag above a threshold makes the application unready;</li>
-<li>source connection state in readiness, since the Kafka and Pulsar clients
-reconnect internally and a pending receive cannot tell an idle broker from an
-unreachable one;</li>
-<li>liveness that detects a stalled subscription, such as a handler or ACK that
-never completes, without restarting instances that are merely idle.</li>
+<li>connection state for the RabbitMQ, SQS, Pub/Sub, and Service Bus sources.</li>
 </ul>
+<p>The Pulsar probe&#39;s <code>is_connected</code> has not been verified across a broker
+restart, and neither probe across a multi-broker cluster in which one broker
+fails.</p>
 <p>Trace-context propagation and the
 <a href="runtime/observability.html#exporting-metrics-to-opentelemetry">Prometheus export path</a> have not
 been verified against live brokers or an OpenTelemetry Collector.</p>

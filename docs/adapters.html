@@ -149,6 +149,12 @@ delivery is no longer owned.</li>
 <li>A source that accepts input from clients, such as a server, stops accepting
 it in <code>Source::stop_receiving</code>, which the runtime calls when it stops
 receiving on shutdown or failure, before draining.</li>
+<li>A broker source describes each delivery with
+<code>SourceMessage::messaging_attributes</code> for its
+<a href="runtime/observability.html#messaging-attributes">trace span</a>, and can report
+its connection state through <code>Source::probe</code> for
+<a href="runtime/health.html#connection-state">health checks</a>. A probe answers
+from state the source already holds, without network access.</li>
 </ul>
 <p><code>Delivery::with_ordering_key</code> and <code>Delivery::with_revocation</code> provide both for
 custom sources built on <code>Delivery&lt;T&gt;</code>, and <code>Delivery::with_raw</code> sets the raw

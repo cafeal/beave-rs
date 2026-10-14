@@ -177,6 +177,16 @@ its original record and failure headers, and `KafkaDeadLetter::from_record`
 reads them back; see
 [forwarding dead letters](../runtime/errors.md#forwarding-dead-letters-to-a-broker-topic).
 
+## Health and tracing
+
+The source reports its connection state to
+[health checks](../runtime/health.md#connection-state) from librdkafka
+statistics, enabling `statistics.interval.ms` at 5000 ms unless the handle or
+source sets it. Consumer lag comes from the broker; see the
+[monitoring guide](../monitoring-and-alerting/README.md#backlog).
+Each delivery's `message` span carries the topic, partition, offset, and group
+ID as [messaging attributes](../runtime/observability.md#messaging-attributes).
+
 ## Delivery guarantees
 
 With a `KafkaSink`, producer publication and source offset commits are separate

@@ -231,6 +231,14 @@ See <a href="../runtime/tombstones.html">tombstones</a>.</p>
 its original message and failure properties, and
 <code>PulsarDeadLetter::from_record</code> reads them back; see
 <a href="../runtime/errors.html#forwarding-dead-letters-to-a-broker-topic">forwarding dead letters</a>.</p>
+<h2 id="health-and-tracing">Health and tracing</h2>
+<p>The source reports whether every partition&#39;s consumer is connected to
+<a href="../runtime/health.html#connection-state">health checks</a>; a consumer
+reconnecting after a topic unload or broker restart makes the subscription
+unready until it reconnects. The subscription backlog comes from the broker&#39;s
+<code>pulsar_subscription_back_log</code> metric. Each delivery&#39;s <code>message</code> span carries the configured
+topic, partition, subscription, and message ID as
+<a href="../runtime/observability.html#messaging-attributes">messaging attributes</a>.</p>
 <h2 id="delivery-guarantees">Delivery guarantees</h2>
 <p>A source ACK and a sink publication are separate broker operations, so a
 process failure between them can produce a duplicate on redelivery. The
