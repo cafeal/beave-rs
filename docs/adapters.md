@@ -64,13 +64,20 @@ Keep these contracts explicit:
   `OrderingKey` from `SourceMessage::ordering_key`.
 - A source whose deliveries can move to another consumer returns a revocation
   `CancellationToken` from `SourceMessage::revocation` and cancels it when the
-  delivery is no longer owned.
+  delivery is no longer owned. A source that lets started work finish first
+  also returns a handoff token from `SourceMessage::handoff` and cancels it
+  when the handoff begins.
+- A source that can stop receiving one ordering key implements `Source::pause`
+  and `Source::resume`, which the runtime calls for a subscription's
+  `max_in_flight_per_key`, and keeps a paused key paused when the key's scope
+  is revoked and assigned again.
 - A source that accepts input from clients, such as a server, stops accepting
   it in `Source::stop_receiving`, which the runtime calls when it stops
   receiving on shutdown or failure, before draining.
 
-`Delivery::with_ordering_key` and `Delivery::with_revocation` provide both for
-custom sources built on `Delivery<T>`, and `Delivery::with_raw` sets the raw
+`Delivery::with_ordering_key`, `Delivery::with_revocation`, and
+`Delivery::with_handoff` provide these for custom sources built on
+`Delivery<T>`, and `Delivery::with_raw` sets the raw
 form their dead letters carry.
 
 See [architecture](architecture.md) for ownership boundaries and the

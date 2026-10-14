@@ -7,6 +7,20 @@ project follows the versioning policy in
 
 ## [Unreleased]
 
+### Added
+
+- `Subscription::max_in_flight_per_key`, which pauses an ordering key that has
+  too many unfinished deliveries through the new `Source::pause` and
+  `Source::resume`, so one slow Kafka partition no longer stops the others.
+- `KafkaSource::graceful_handoff`, which lets started deliveries of a revoked
+  partition finish and commit before the partition moves, through the new
+  `SourceMessage::handoff` token and `Delivery::with_handoff`.
+
+### Changed
+
+- The Kafka source polls its consumer on a thread of its own, which also runs
+  its rebalance callbacks.
+
 ## [0.0.2] - 2026-10-14
 
 A preview for trying the API. `0.1.0` will be the first release intended for

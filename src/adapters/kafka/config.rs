@@ -1,5 +1,6 @@
 use crate::adapters::pending::PendingLimit;
 use crate::error::{Error, ensure};
+use rdkafka::ClientConfig;
 use std::{collections::HashMap, time::Duration};
 
 /// Settings of a [`KafkaSource`](super::KafkaSource).
@@ -9,6 +10,8 @@ pub(super) struct SourceConfig {
     pub(super) topics: Vec<String>,
     /// Consumer settings applied after the handle's properties.
     pub(super) properties: HashMap<String, String>,
+    /// How long a revoke waits for started deliveries; `None` revokes at once.
+    pub(super) handoff: Option<Duration>,
 }
 
 impl SourceConfig {
@@ -17,10 +20,13 @@ impl SourceConfig {
             group_id,
             topics,
             properties: HashMap::new(),
+            handoff: None,
         }
     }
 
-    pub(super) fn validate(&self) -> Result<(), Error> {
+    /// `handle` is the handle's client configuration, consulted for
+    /// `max.poll.interval.ms` when the source does not set it.
+    pub(super) fn validate(&self, handle: &ClientConfig) -> Result<(), Error> {
         ensure!(
             !self.group_id.trim().is_empty(),
             Error::config,
@@ -38,9 +44,30 @@ impl SourceConfig {
                 "Kafka topic names must not be empty"
             );
         }
-        validate_properties(&self.properties)
+        validate_properties(&self.properties)?;
+        if let Some(handoff) = self.handoff {
+            let poll_interval = self
+                .properties
+                .get(MAX_POLL_INTERVAL)
+                .map(String::as_str)
+                .or_else(|| handle.get(MAX_POLL_INTERVAL))
+                .map(str::parse::<u64>)
+                .transpose()
+                .map_err(|_| Error::config("Kafka max.poll.interval.ms must be an integer"))?
+                .map_or(DEFAULT_MAX_POLL_INTERVAL, Duration::from_millis);
+            ensure!(
+                !handoff.is_zero() && handoff < poll_interval,
+                Error::config,
+                "Kafka graceful handoff timeout must be positive and shorter than max.poll.interval.ms"
+            );
+        }
+        Ok(())
     }
 }
+
+const MAX_POLL_INTERVAL: &str = "max.poll.interval.ms";
+/// librdkafka's default `max.poll.interval.ms`.
+const DEFAULT_MAX_POLL_INTERVAL: Duration = Duration::from_secs(300);
 
 /// Settings of a [`KafkaSink`](super::KafkaSink).
 #[derive(Clone, Debug)]

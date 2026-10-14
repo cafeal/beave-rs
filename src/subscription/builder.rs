@@ -104,6 +104,21 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         self
     }
 
+    /// Maximum number of received but unfinished deliveries with one ordering
+    /// key, such as one Kafka partition. Unlimited by default.
+    ///
+    /// When a key reaches the limit, the subscription asks the source to
+    /// [pause](crate::Source::pause) that key and resumes it once its
+    /// unfinished deliveries drop to half the limit, so one slow key does not
+    /// fill [`max_in_flight`](Self::max_in_flight) and stop the other keys.
+    /// Sources that cannot pause single keys ignore it. Deliveries the source
+    /// had already fetched still arrive, so a key can exceed the limit by
+    /// what the source buffers.
+    pub fn max_in_flight_per_key(mut self, value: usize) -> Self {
+        self.config.max_in_flight_per_key = Some(value);
+        self
+    }
+
     /// How deliveries that share an ordering key are scheduled. Defaults to
     /// [`ProcessingOrder::PerKey`].
     pub fn ordering(mut self, order: ProcessingOrder) -> Self {

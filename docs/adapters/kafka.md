@@ -91,9 +91,21 @@ assigned, such as records fetched before a revoke, are skipped by `receive`.
 A publication that completed before the revoke is not undone, and the new owner
 reprocesses the record from the last committed offset.
 
-`StreamConsumer::recv` is cancellation-safe in rdkafka 0.39. Dropping a pending
-source receive does not consume a record. Dropping a received `KafkaMessage`
-does not acknowledge it.
+A source with a [graceful handoff](#graceful-handoff) lets deliveries that
+already started finish before the revoke completes instead.
+
+`Source::pause` pauses the partition an ordering key names, so a subscription's
+`max_in_flight_per_key` stops one busy partition without stopping the others,
+and `Source::resume` resumes it. A paused partition stays paused when it is
+revoked and assigned to the source again, until the runtime resumes it. A record
+the source handed to `receive` before the pause is still delivered.
+
+The consumer is polled on a thread of its own, which hands one record at a time
+to `receive` and runs the consumer's rebalance callbacks. It polls only as fast
+as the subscription receives, so a subscription that stops receiving for longer
+than `max.poll.interval.ms` makes the consumer leave its group. Dropping a
+pending source receive does not consume a record. Dropping a received
+`KafkaMessage` does not acknowledge it.
 
 ## Publication
 
@@ -183,8 +195,9 @@ With a `KafkaSink`, producer publication and source offset commits are separate
 operations, so a failure or rebalance between them can produce duplicates.
 Because publication is pipelined, a crash can leave records whose reports had
 not arrived; their inputs are uncommitted and are reprocessed. Use
-a [transactional subscription](#transactions) to make them atomic. The adapter
-does not delay a rebalance to let in-flight work finish.
+a [transactional subscription](#transactions) to make them atomic. Without a
+[graceful handoff](#graceful-handoff), a rebalance abandons in-flight work at
+once.
 
 ## Transactions
 
@@ -272,3 +285,38 @@ Used as a plain `Sink`, `KafkaTransactionalSink` commits each publication in a
 transaction of its own without consumer offsets. That makes each record visible
 to `read_committed` consumers atomically, but the subscription remains
 at-least-once.
+
+## Graceful handoff
+
+`KafkaSource::graceful_handoff(timeout)` makes a revoke wait for the revoked
+partitions' deliveries before the partitions go to their next owner. It is off
+by default.
+
+```rust
+use beavers::{Json, adapters::kafka::Kafka};
+use std::time::Duration;
+
+let kafka = Kafka::new("localhost:9092");
+let orders = kafka
+    .source::<Json<String>>("billing", ["orders"])
+    .graceful_handoff(Duration::from_secs(10));
+```
+
+When Kafka revokes partitions, the source cancels each delivery's handoff token
+and stops accepting records of those partitions. The runtime abandons
+deliveries that have not started, while started ones continue and are
+acknowledged as usual. The revoke waits until every delivery of the partitions
+was acknowledged or dropped, or until `timeout` passes, then commits the
+acknowledged offsets and cancels the revocation tokens, abandoning whatever is
+still running. The next owner starts after the acknowledged records instead of
+reprocessing them.
+
+The rebalance callback runs on the consumer's polling thread, so the consumer
+receives no records of any partition while it waits. Kafka also waits for the
+revoke before it completes the rebalance, for at most `max.poll.interval.ms`, so
+`validate` requires `timeout` to be shorter than that property (5 minutes by
+default). A lost assignment is not handed off, because its offsets can no
+longer be committed. In a [transactional subscription](#transactions), the
+revoke waits for the transactions that contain the started deliveries, and the
+source commits no offsets of its own.
+

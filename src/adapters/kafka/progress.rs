@@ -1,30 +1,95 @@
 use crate::error::{BoxError, Error, ensure};
 use crate::shutdown::CancellationToken;
 use rdkafka::{
-    ClientContext,
-    consumer::{BaseConsumer, ConsumerContext, Rebalance, StreamConsumer},
+    ClientContext, Offset, TopicPartitionList,
+    consumer::{BaseConsumer, CommitMode, Consumer, ConsumerContext, Rebalance},
 };
 use std::{
-    collections::{BTreeMap, HashMap},
-    sync::{Arc, Mutex},
+    collections::{BTreeMap, HashMap, HashSet},
+    sync::{Arc, Condvar, Mutex, MutexGuard},
+    time::{Duration, Instant},
 };
+use tracing::{debug, warn};
 
 pub(super) type Partition = (String, i32);
-pub(super) type KafkaConsumer = StreamConsumer<Context>;
+pub(super) type KafkaConsumer = BaseConsumer<Context>;
+
+/// Offset progress of every assigned partition, with a signal for a graceful
+/// handoff waiting for deliveries to settle.
+#[derive(Default)]
+pub(super) struct SharedProgress {
+    state: Mutex<Progress>,
+    changed: Condvar,
+}
+
+impl SharedProgress {
+    pub(super) fn lock(&self) -> MutexGuard<'_, Progress> {
+        self.state.lock().unwrap()
+    }
+
+    /// Changes progress and wakes a handoff waiting for deliveries to settle.
+    pub(super) fn update<T>(&self, change: impl FnOnce(&mut Progress) -> T) -> T {
+        let result = change(&mut self.lock());
+        self.changed.notify_all();
+        result
+    }
+
+    /// Waits until no delivery of `partitions` is pending, or `timeout` passes.
+    fn wait_settled(&self, partitions: &[Partition], timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut progress = self.lock();
+        loop {
+            if progress.settled(partitions) {
+                return true;
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            progress = self
+                .changed
+                .wait_timeout(progress, deadline - now)
+                .unwrap()
+                .0;
+        }
+    }
+}
 
 #[derive(Default)]
 pub(super) struct Progress {
     active: HashMap<Partition, PartitionProgress>,
     generations: HashMap<Partition, u64>,
+    /// Partitions the runtime paused, kept across revocations so a partition
+    /// assigned again stays paused until the runtime resumes it.
+    paused: HashSet<Partition>,
 }
 
 struct PartitionProgress {
     generation: u64,
     revoked: CancellationToken,
+    handoff: CancellationToken,
     next: Option<i64>,
-    /// Registered offsets at or after `next`, mapped to whether their delivery
-    /// completed. Offsets absent between registered ones were never delivered.
-    received: BTreeMap<i64, bool>,
+    /// Registered offsets at or after `next`, mapped to their delivery's state.
+    /// Offsets absent between registered ones were never delivered.
+    received: BTreeMap<i64, Status>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Status {
+    /// Delivered and neither acknowledged nor dropped.
+    Pending,
+    /// Acknowledged; the commit may advance past it.
+    Done,
+    /// Dropped without acknowledgement. The commit stops before it, but a
+    /// handoff need not wait for it.
+    Released,
+}
+
+/// What a delivery of an assigned partition carries from its registration.
+pub(super) struct Registered {
+    pub(super) generation: u64,
+    pub(super) revoked: CancellationToken,
+    pub(super) handoff: CancellationToken,
 }
 
 impl Progress {
@@ -35,6 +100,7 @@ impl Progress {
             PartitionProgress {
                 generation: *generation,
                 revoked: CancellationToken::new(),
+                handoff: CancellationToken::new(),
                 next: None,
                 received: BTreeMap::new(),
             }
@@ -43,6 +109,7 @@ impl Progress {
 
     fn revoke(&mut self, key: &Partition) {
         if let Some(partition) = self.active.remove(key) {
+            partition.handoff.cancel();
             partition.revoked.cancel();
         }
         let generation = self.generations.entry(key.clone()).or_default();
@@ -56,25 +123,39 @@ impl Progress {
         }
     }
 
-    /// Registers a received offset for the current assignment. Records from a
-    /// partition that is not assigned are stale and return `None`.
+    /// The current assignment generation of a partition, if it is assigned.
+    pub(super) fn generation(&self, key: &Partition) -> Option<u64> {
+        self.active.get(key).map(|partition| partition.generation)
+    }
+
+    /// Registers an offset received in assignment `generation`. Records of a
+    /// partition that is no longer in that assignment, or that is being
+    /// handed off, are stale and return `None`.
     pub(super) fn register(
         &mut self,
         key: &Partition,
+        generation: u64,
         offset: i64,
-    ) -> Option<(u64, CancellationToken)> {
+    ) -> Option<Registered> {
         let partition = self.active.get_mut(key)?;
+        if partition.generation != generation || partition.handoff.is_cancelled() {
+            return None;
+        }
         match partition.next {
             Some(next) if offset < next => {}
             Some(_) => {
-                partition.received.entry(offset).or_insert(false);
+                partition.received.entry(offset).or_insert(Status::Pending);
             }
             None => {
                 partition.next = Some(offset);
-                partition.received.entry(offset).or_insert(false);
+                partition.received.entry(offset).or_insert(Status::Pending);
             }
         }
-        Some((partition.generation, partition.revoked.clone()))
+        Some(Registered {
+            generation,
+            revoked: partition.revoked.clone(),
+            handoff: partition.handoff.clone(),
+        })
     }
 
     pub(super) fn complete(
@@ -98,28 +179,26 @@ impl Progress {
         if offset < next {
             return Ok(None);
         }
-        let done = partition
+        let status = partition
             .received
             .get_mut(&offset)
             .ok_or_else(|| Error::msg("Kafka offset was never registered"))?;
-        *done = true;
-        // Kafka delivers a partition's records in offset order, so an offset
-        // between two registered offsets was never delivered (for example, it
-        // was compacted away or is a transaction marker). The commit position
-        // is the first unfinished registered offset, or the offset after the
-        // last registered one when all are finished.
-        let candidate = partition
-            .received
-            .iter()
-            .find_map(|(offset, done)| (!done).then_some(*offset))
-            .or_else(|| {
-                partition
-                    .received
-                    .last_key_value()
-                    .map(|(offset, _)| offset + 1)
-            })
-            .unwrap_or(next);
-        Ok((candidate > next).then_some(candidate))
+        *status = Status::Done;
+        Ok(partition.commit_position())
+    }
+
+    /// Records that the delivery of `offset` was dropped without
+    /// acknowledgement. Its offset stays uncommitted.
+    pub(super) fn release(&mut self, generation: u64, key: &Partition, offset: i64) {
+        let Some(partition) = self.active.get_mut(key) else {
+            return;
+        };
+        if partition.generation != generation {
+            return;
+        }
+        if let Some(status @ Status::Pending) = partition.received.get_mut(&offset) {
+            *status = Status::Released;
+        }
     }
 
     /// Whether `generation` is the current assignment of the partition.
@@ -141,6 +220,72 @@ impl Progress {
         partition.received.retain(|offset, _| *offset >= next);
         partition.next = Some(next);
     }
+
+    /// Starts handing off the assigned partitions among `keys`, so their
+    /// unstarted deliveries are abandoned and new records are not registered.
+    /// Returns those partitions.
+    fn begin_handoff(&mut self, keys: &[Partition]) -> Vec<Partition> {
+        keys.iter()
+            .filter(|key| {
+                self.active.get(*key).is_some_and(|partition| {
+                    partition.handoff.cancel();
+                    true
+                })
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Whether no delivery of `keys` is still pending.
+    fn settled(&self, keys: &[Partition]) -> bool {
+        keys.iter().all(|key| {
+            self.active.get(key).is_none_or(|partition| {
+                !partition
+                    .received
+                    .values()
+                    .any(|status| *status == Status::Pending)
+            })
+        })
+    }
+
+    /// The assignment generation and the offset to commit for a partition
+    /// whose acknowledged deliveries advanced past its committed position.
+    fn commit_position(&self, key: &Partition) -> Option<(u64, i64)> {
+        let partition = self.active.get(key)?;
+        Some((partition.generation, partition.commit_position()?))
+    }
+
+    /// Marks a partition paused. Returns whether it is assigned, so the
+    /// consumer should pause it now; otherwise it pauses when assigned.
+    pub(super) fn pause(&mut self, key: &Partition) -> bool {
+        self.paused.insert(key.clone());
+        self.active.contains_key(key)
+    }
+
+    /// Clears a partition's pause. Returns whether it is assigned, so the
+    /// consumer should resume it.
+    pub(super) fn resume(&mut self, key: &Partition) -> bool {
+        self.paused.remove(key) && self.active.contains_key(key)
+    }
+}
+
+impl PartitionProgress {
+    /// The commit position when it is past `next`: the first registered offset
+    /// that is not acknowledged, or the offset after the last registered one
+    /// when all are.
+    fn commit_position(&self) -> Option<i64> {
+        let next = self.next?;
+        // Kafka delivers a partition's records in offset order, so an offset
+        // between two registered offsets was never delivered (for example, it
+        // was compacted away or is a transaction marker).
+        let candidate = self
+            .received
+            .iter()
+            .find_map(|(offset, status)| (*status != Status::Done).then_some(*offset))
+            .or_else(|| self.received.last_key_value().map(|(offset, _)| offset + 1))
+            .unwrap_or(next);
+        (candidate > next).then_some(candidate)
+    }
 }
 
 /// Held while a producer transaction checks the assignment and commits
@@ -148,29 +293,121 @@ impl Progress {
 /// revoked assignment.
 pub(super) type TransactionGate = Arc<Mutex<()>>;
 
+/// Serializes acknowledgement commits, while the progress mutex remains
+/// unlocked during librdkafka's blocking synchronous commit.
+pub(super) type CommitGate = Arc<tokio::sync::Mutex<()>>;
+
 pub(super) struct Context {
-    pub(super) progress: Arc<Mutex<Progress>>,
+    pub(super) progress: Arc<SharedProgress>,
     pub(super) transactions: TransactionGate,
+    pub(super) commits: CommitGate,
+    /// How long a revoke waits for started deliveries; `None` revokes at once.
+    pub(super) handoff: Option<Duration>,
+}
+
+impl Context {
+    /// Lets started deliveries of `partitions` finish for at most `timeout`,
+    /// then commits their acknowledged offsets. Returns the commit gate, held
+    /// until the revoke completes so no acknowledgement commits in between.
+    fn hand_off(
+        &self,
+        consumer: &BaseConsumer<Self>,
+        partitions: &[Partition],
+        timeout: Duration,
+    ) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+        // A lost assignment cannot commit, and a revoke run while the consumer
+        // is dropped on an async runtime thread must not block it.
+        if consumer.assignment_lost() || tokio::runtime::Handle::try_current().is_ok() {
+            return None;
+        }
+        let partitions = self
+            .progress
+            .update(|progress| progress.begin_handoff(partitions));
+        if partitions.is_empty() {
+            return None;
+        }
+        if !self.progress.wait_settled(&partitions, timeout) {
+            warn!(
+                ?timeout,
+                "Kafka handoff timed out; unfinished deliveries are abandoned"
+            );
+        }
+        let commits = self.commits.blocking_lock();
+        let positions = {
+            let progress = self.progress.lock();
+            partitions
+                .iter()
+                .filter_map(|key| Some((key, progress.commit_position(key)?)))
+                .collect::<Vec<_>>()
+        };
+        if positions.is_empty() {
+            return Some(commits);
+        }
+        let mut offsets = TopicPartitionList::new();
+        for ((topic, partition), (_, next)) in &positions {
+            if let Err(error) =
+                offsets.add_partition_offset(topic, *partition, Offset::Offset(*next))
+            {
+                warn!(%error, "Kafka handoff could not list an offset to commit");
+                return Some(commits);
+            }
+        }
+        match consumer.commit(&offsets, CommitMode::Sync) {
+            Ok(()) => {
+                debug!(partitions = positions.len(), "committed offsets on handoff");
+                self.progress.update(|progress| {
+                    for (key, (generation, next)) in &positions {
+                        progress.committed(*generation, key, *next);
+                    }
+                });
+            }
+            Err(error) => warn!(%error, "Kafka handoff commit failed"),
+        }
+        Some(commits)
+    }
+}
+
+fn partitions(list: &TopicPartitionList) -> Vec<Partition> {
+    list.elements()
+        .iter()
+        .map(|partition| (partition.topic().to_owned(), partition.partition()))
+        .collect()
 }
 
 impl ClientContext for Context {}
 
 impl ConsumerContext for Context {
-    fn pre_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
-        if let Rebalance::Revoke(partitions) = rebalance {
+    fn pre_rebalance(&self, consumer: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
+        if let Rebalance::Revoke(list) = rebalance {
+            let revoked = partitions(list);
+            let _commits = self
+                .handoff
+                .and_then(|timeout| self.hand_off(consumer, &revoked, timeout));
             let _transactions = self.transactions.lock().unwrap();
-            let mut progress = self.progress.lock().unwrap();
-            for partition in partitions.elements() {
-                progress.revoke(&(partition.topic().to_owned(), partition.partition()));
-            }
+            self.progress.update(|progress| {
+                for key in &revoked {
+                    progress.revoke(key);
+                }
+            });
         }
     }
 
-    fn post_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
-        if let Rebalance::Assign(partitions) = rebalance {
-            let mut progress = self.progress.lock().unwrap();
-            for partition in partitions.elements() {
-                progress.activate((partition.topic().to_owned(), partition.partition()));
+    fn post_rebalance(&self, consumer: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
+        if let Rebalance::Assign(list) = rebalance {
+            let mut paused = TopicPartitionList::new();
+            {
+                let mut progress = self.progress.lock();
+                for key in partitions(list) {
+                    if progress.paused.contains(&key) {
+                        paused.add_partition(&key.0, key.1);
+                    }
+                    progress.activate(key);
+                }
+            }
+            if paused.count() > 0
+                && let Err(error) = consumer.pause(&paused)
+            {
+                warn!(%error, "Kafka could not pause reassigned partitions");
             }
         }
     }
@@ -192,11 +429,16 @@ mod tests {
         progress
     }
 
+    /// Registers `offset` in the partition's current assignment.
+    fn registered(progress: &mut Progress, key: &Partition, offset: i64) -> Option<Registered> {
+        let generation = progress.generation(key)?;
+        progress.register(key, generation, offset)
+    }
+
     fn register(progress: &mut Progress, key: &Partition, offset: i64) -> u64 {
-        progress
-            .register(key, offset)
+        registered(progress, key, offset)
             .expect("assigned partition")
-            .0
+            .generation
     }
 
     #[test]
@@ -268,15 +510,15 @@ mod tests {
         let first = key();
         let second = ("orders".to_owned(), 1);
         let mut progress = assigned([first.clone(), second.clone()]);
-        let (_, first_token) = progress.register(&first, 0).unwrap();
-        let (_, second_token) = progress.register(&second, 0).unwrap();
+        let first_token = registered(&mut progress, &first, 0).unwrap().revoked;
+        let second_token = registered(&mut progress, &second, 0).unwrap().revoked;
 
         progress.revoke(&first);
         assert!(first_token.is_cancelled());
         assert!(!second_token.is_cancelled());
 
         progress.activate(first.clone());
-        let (_, reassigned_token) = progress.register(&first, 0).unwrap();
+        let reassigned_token = registered(&mut progress, &first, 0).unwrap().revoked;
         assert!(!reassigned_token.is_cancelled());
 
         progress.revoke_all();
@@ -304,12 +546,15 @@ mod tests {
     fn records_for_unassigned_partitions_are_not_registered() {
         let key = key();
         let mut progress = Progress::default();
-        assert!(progress.register(&key, 0).is_none());
+        assert!(registered(&mut progress, &key, 0).is_none());
 
         progress.activate(key.clone());
-        assert!(progress.register(&key, 0).is_some());
+        let generation = register(&mut progress, &key, 0);
         progress.revoke(&key);
-        assert!(progress.register(&key, 1).is_none());
+        assert!(progress.register(&key, generation, 1).is_none());
+        progress.activate(key.clone());
+        // A record polled in the earlier assignment is stale in the new one.
+        assert!(progress.register(&key, generation, 1).is_none());
     }
 
     #[test]
@@ -321,5 +566,81 @@ mod tests {
         progress.committed(generation, &key, 6);
         assert_eq!(progress.complete(generation, &key, 5).unwrap(), None);
         assert!(progress.complete(generation, &key, 6).is_err());
+    }
+
+    #[test]
+    fn released_deliveries_hold_back_the_commit_but_settle_a_handoff() {
+        let key = key();
+        let mut progress = assigned([key.clone()]);
+        let generation = register(&mut progress, &key, 0);
+        register(&mut progress, &key, 1);
+        register(&mut progress, &key, 2);
+        progress.release(generation, &key, 1);
+        assert!(!progress.settled(std::slice::from_ref(&key)));
+
+        assert_eq!(progress.complete(generation, &key, 0).unwrap(), Some(1));
+        assert_eq!(progress.complete(generation, &key, 2).unwrap(), Some(1));
+        assert!(progress.settled(std::slice::from_ref(&key)));
+        assert_eq!(progress.commit_position(&key), Some((generation, 1)));
+
+        // A release never undoes an acknowledgement.
+        progress.release(generation, &key, 2);
+        progress.committed(generation, &key, 1);
+        assert_eq!(progress.commit_position(&key), None);
+    }
+
+    #[test]
+    fn a_handoff_cancels_its_token_and_stops_registering_records() {
+        let key = key();
+        let other = ("orders".to_owned(), 1);
+        let mut progress = assigned([key.clone(), other.clone()]);
+        let delivery = registered(&mut progress, &key, 0).unwrap();
+        let unassigned = ("orders".to_owned(), 2);
+
+        let handing = progress.begin_handoff(&[key.clone(), unassigned]);
+        assert_eq!(handing, std::slice::from_ref(&key));
+        assert!(delivery.handoff.is_cancelled());
+        assert!(!delivery.revoked.is_cancelled());
+        assert!(registered(&mut progress, &key, 1).is_none());
+        assert!(registered(&mut progress, &other, 0).is_some());
+
+        // The delivery that started still acknowledges until the revoke.
+        assert_eq!(
+            progress.complete(delivery.generation, &key, 0).unwrap(),
+            Some(1)
+        );
+        progress.revoke(&key);
+        assert!(delivery.revoked.is_cancelled());
+    }
+
+    #[test]
+    fn pause_survives_reassignment_until_resumed() {
+        let key = key();
+        let mut progress = Progress::default();
+        assert!(!progress.pause(&key));
+        progress.activate(key.clone());
+        assert!(progress.paused.contains(&key));
+        assert!(progress.resume(&key));
+        assert!(!progress.resume(&key));
+    }
+
+    #[test]
+    fn waiting_for_settlement_wakes_on_release() {
+        let key = key();
+        let shared = Arc::new(SharedProgress::default());
+        let generation = {
+            let mut progress = shared.lock();
+            progress.activate(key.clone());
+            register(&mut progress, &key, 0)
+        };
+        assert!(!shared.wait_settled(std::slice::from_ref(&key), Duration::from_millis(10)));
+        let releasing = shared.clone();
+        let release_key = key.clone();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(20));
+            releasing.update(|progress| progress.release(generation, &release_key, 0));
+        });
+        assert!(shared.wait_settled(std::slice::from_ref(&key), Duration::from_secs(5)));
+        release.join().unwrap();
     }
 }

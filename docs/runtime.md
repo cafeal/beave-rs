@@ -28,6 +28,7 @@ App::new()
         Subscription::new("orders", source, sink, handler)
             .concurrency(16)
             .max_in_flight(64)
+            .max_in_flight_per_key(16)
             .ordering(ProcessingOrder::PerKey)
             .retry(handler_retry)
             .receive_retry(receive_retry)
@@ -54,6 +55,7 @@ Registration constructs the application. Processing starts in `run()`.
 |---|---|---|
 | `concurrency` | 1 | Maximum concurrent message jobs |
 | `max_in_flight` | 64 | Maximum received but unfinished deliveries, including queued ones |
+| `max_in_flight_per_key` | none | Unfinished deliveries of one ordering key at which the source pauses that key |
 | `ordering` | `PerKey` | Sequential processing within a source ordering key |
 | Retry attempts | 3 | Includes the first attempt |
 | Initial retry delay | 100 ms | Exponential backoff starting delay |
@@ -98,8 +100,19 @@ The runtime receives only while a job slot is free and fewer than
 `max_in_flight` deliveries are unfinished. Queued deliveries count toward
 `max_in_flight`, so consumption stays bounded when a handler or sink is slow.
 Deliveries without a key never queue: each one starts as soon as it is
-received. A busy key can fill `max_in_flight` and stop receiving for all keys;
-adapter pause and resume integration is [planned](plan.md#concurrency-and-ordering).
+received.
+
+Without a per-key limit, a busy key can fill `max_in_flight` and stop
+receiving for all keys. `max_in_flight_per_key` bounds the unfinished
+deliveries of each key, whatever the `ordering`. When a key reaches the limit,
+the runtime calls `Source::pause` for it, and calls `Source::resume` once the
+key's unfinished deliveries drop to half the limit, so a key near the limit
+does not pause and resume on every delivery. Other keys keep flowing while one
+is paused. Deliveries the source fetched before the pause still arrive, so a
+key can exceed the limit by what the source buffers. The Kafka source pauses
+the partition. Sources that cannot pause single keys, which is every other
+adapter, return `false` from `pause`; the runtime then stops counting and only
+`max_in_flight` applies.
 
 ## Revocation
 
@@ -115,6 +128,13 @@ Handlers do not observe revocation. Cancellation is cooperative, so work that
 never yields continues until it does. An output publication that was already
 accepted by the sink is not retracted; the new owner reprocesses the delivery
 and can produce a duplicate.
+
+A source can let started work finish before it gives a delivery up by also
+returning a handoff `CancellationToken` from `SourceMessage::handoff`. When the
+source cancels it, the runtime drops the delivery without ACK if it has not
+started and lets it continue otherwise; the source cancels the revocation token
+when the handoff ends. The Kafka source does this during a
+[graceful handoff](adapters/kafka.md#graceful-handoff).
 
 ## Adapters
 

@@ -73,6 +73,14 @@ pub trait SourceMessage: Send + 'static {
     fn revocation(&self) -> Option<CancellationToken> {
         None
     }
+    /// A token the source cancels when it is handing this delivery's scope to
+    /// another consumer but still lets work in progress finish, as in the Kafka
+    /// source's graceful handoff. The runtime then abandons the delivery
+    /// without ACK if it has not started, and lets it finish otherwise. The
+    /// source cancels [`revocation`](Self::revocation) when the handoff ends.
+    fn handoff(&self) -> Option<CancellationToken> {
+        None
+    }
     /// Text-map fields received with this delivery that can carry trace context,
     /// such as a W3C `traceparent` Kafka header or Pulsar property. With the
     /// `opentelemetry` feature, the runtime extracts the delivery span's remote
@@ -95,6 +103,7 @@ pub struct Delivery<T, R = ()> {
     ack: Acknowledge,
     ordering_key: Option<OrderingKey>,
     revocation: Option<CancellationToken>,
+    handoff: Option<CancellationToken>,
     propagation: Vec<(String, String)>,
     raw: R,
 }
@@ -110,6 +119,7 @@ impl<T> Delivery<T> {
             ack: Box::new(|| Box::pin(ack())),
             ordering_key: None,
             revocation: None,
+            handoff: None,
             propagation: Vec::new(),
             raw: (),
         }
@@ -127,6 +137,7 @@ impl<T, R> Delivery<T, R> {
             ack: self.ack,
             ordering_key: self.ordering_key,
             revocation: self.revocation,
+            handoff: self.handoff,
             propagation: self.propagation,
             raw,
         }
@@ -139,6 +150,11 @@ impl<T, R> Delivery<T, R> {
     /// Set the token reported by [`SourceMessage::revocation`].
     pub fn with_revocation(mut self, token: CancellationToken) -> Self {
         self.revocation = Some(token);
+        self
+    }
+    /// Set the token reported by [`SourceMessage::handoff`].
+    pub fn with_handoff(mut self, token: CancellationToken) -> Self {
+        self.handoff = Some(token);
         self
     }
     /// Text-map fields, such as a W3C `traceparent`, from which the runtime
@@ -176,6 +192,9 @@ where
     }
     fn revocation(&self) -> Option<CancellationToken> {
         self.revocation.clone()
+    }
+    fn handoff(&self) -> Option<CancellationToken> {
+        self.handoff.clone()
     }
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
         self.propagation

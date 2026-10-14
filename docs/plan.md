@@ -165,14 +165,17 @@ Remaining decisions:
 Dead-letter headers and properties have not been verified against live
 brokers.
 
-## Concurrency and ordering
+## Per-key backpressure
 
-Per-key scheduling bounds consumption with `max_in_flight`, but one busy
-partition can fill that bound and stop receiving for every partition. Coordinate
-runtime backpressure with adapter pause/resume capabilities, such as pausing a
-Kafka partition whose queue reaches a per-key limit, so other partitions keep
-flowing. The design must define the per-key limit, resume timing, and the pause
-state across rebalances.
+`max_in_flight_per_key` pauses and resumes keys through `Source::pause`, as
+described in the [runtime guide](runtime.md#ordering-and-backpressure). Only
+the Kafka source can pause a key. Remaining decisions:
+
+- pausing a Pulsar partition under Failover or Exclusive subscriptions, which
+  needs `magnetar-driver` to stop requesting messages for one partition's
+  consumer; Key_Shared keys are message keys, which cannot be paused;
+- whether a default per-key limit, such as a share of `max_in_flight`, should
+  apply when a source can pause.
 
 ## Chained subscriptions
 
@@ -230,14 +233,30 @@ documents describe what each handle shares. Remaining work:
 
 ## Kafka rebalance behavior
 
-Revoked partitions currently abandon in-flight work immediately. Evaluate an
-optional graceful handoff that delays revoke completion for a bounded time so
-work in flight can finish and commit, reducing duplicates for the next owner.
+The [graceful handoff](adapters/kafka.md#graceful-handoff) and partition pause
+are covered by unit, runtime, and ignored live tests. The live tests pause and
+resume a single-partition topic, and hand off a partition with an eager
+rebalance while its delivery is acknowledged, against a single-node Kafka 3.9
+broker. Verify with Kafka:
+
+- A synchronous commit from an acknowledgement task completes while the
+  polling thread waits in the revoke callback, under load and with several
+  partitions.
+- A handoff under `partition.assignment.strategy=cooperative-sticky` revokes
+  only the moved partitions, and the other partitions resume receiving once the
+  callback returns.
+- A handoff that reaches its timeout abandons the remaining deliveries, and the
+  next owner reprocesses them from the committed offset.
+- A transactional subscription with a graceful handoff commits the started
+  deliveries' batches before the revoke completes.
+- Pausing and resuming under sustained traffic neither skips nor duplicates
+  records, including records librdkafka had fetched ahead before the pause, and
+  a paused partition that is revoked and assigned again stays paused.
 
 Partition scheduling and revocation are covered by unit and runtime tests but
 have not been verified against a live broker. Verify with Kafka:
 
-- `receive` skips records of partitions the adapter does not consider assigned.
+- The source skips records of partitions the adapter does not consider assigned.
   This assumes rdkafka always runs `post_rebalance` with the assignment before
   it returns the first record of a newly assigned partition. If that does not
   hold, the source silently skips every record of that partition.
@@ -476,12 +495,11 @@ the first crates.io release:
 
 | Priority | Scope |
 |---|---|
-| 1 | Adapter pause/resume backpressure and graceful rebalance handoff |
-| 2 | Cross-platform metadata mapping policy |
-| 3 | Observability refinements |
-| 4 | Live verification of batched Kafka transactions and shared connections |
-| 5 | NATS JetStream adapter |
-| 6 | Schema Registry and additional codecs |
+| 1 | Cross-platform metadata mapping policy |
+| 2 | Observability refinements |
+| 3 | Live verification of batched Kafka transactions, shared connections, and Kafka rebalance handoff |
+| 4 | NATS JetStream adapter |
+| 5 | Schema Registry and additional codecs |
 
 The order may change when a concrete application requires a later capability.
 When work begins, update this document with any newly resolved decisions. When

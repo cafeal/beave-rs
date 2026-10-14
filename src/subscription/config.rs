@@ -71,6 +71,10 @@ pub struct SubscriptionConfig {
     /// Maximum number of received deliveries that are unfinished, including
     /// deliveries waiting behind an earlier delivery with the same ordering key.
     pub max_in_flight: usize,
+    /// Maximum number of received but unfinished deliveries with one ordering
+    /// key before the source is asked to pause that key; `None` never pauses.
+    /// See [`Subscription::max_in_flight_per_key`](crate::Subscription::max_in_flight_per_key).
+    pub max_in_flight_per_key: Option<usize>,
     /// How deliveries that share an ordering key are scheduled.
     pub ordering: ProcessingOrder,
     /// Retries of the handler after [`HandlerError::Retry`](crate::HandlerError::Retry).
@@ -96,6 +100,7 @@ impl Default for SubscriptionConfig {
         Self {
             concurrency: 1,
             max_in_flight: 64,
+            max_in_flight_per_key: None,
             ordering: ProcessingOrder::default(),
             handler_retry: RetryPolicy::default(),
             receive_retry: RetryPolicy::default(),
@@ -113,6 +118,11 @@ impl SubscriptionConfig {
             self.concurrency > 0 && self.max_in_flight > 0,
             Error::config,
             "concurrency and max_in_flight must be positive"
+        );
+        ensure!(
+            self.max_in_flight_per_key != Some(0),
+            Error::config,
+            "max_in_flight_per_key must be positive"
         );
         self.handler_retry.validate()?;
         self.receive_retry.validate()?;
