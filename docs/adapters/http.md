@@ -219,7 +219,7 @@ use beavers::{
 };
 
 async fn to_request(record: KafkaRecord<Order>) -> Result<HttpPublish<Order>> {
-    let metadata = record.metadata().clone();
+    let metadata = record.metadata.clone();
     let order = record.value.ok_or_else(|| anyhow::anyhow!("tombstone"))?;
     // A stable key lets the service recognize a redelivered event.
     let key = format!("{}-{}-{}", metadata.topic, metadata.partition, metadata.offset);

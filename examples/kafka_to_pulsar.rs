@@ -32,7 +32,7 @@ struct Order {
 }
 
 async fn republish(record: KafkaRecord<Order>) -> Result<PulsarPublish<Order>> {
-    let metadata = record.metadata();
+    let metadata = &record.metadata;
     println!(
         "bridging {}[{}]@{}",
         metadata.topic, metadata.partition, metadata.offset
@@ -58,7 +58,7 @@ fn map_metadata(
     }
     output
         .properties
-        .insert("kafka-topic".into(), input.metadata().topic.clone());
+        .insert("kafka-topic".into(), input.metadata.topic.clone());
     Ok(output)
 }
 

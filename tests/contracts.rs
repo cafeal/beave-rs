@@ -97,12 +97,12 @@ async fn custom_message_handler_and_prepared_output_work_through_public_contract
                 sink,
                 Double,
             )
-            .publish_retry(RetryPolicy {
-                max_attempts: 2,
-                initial_delay: Duration::ZERO,
-                max_delay: Duration::ZERO,
-                ..RetryPolicy::default()
-            }),
+            .publish_retry(
+                RetryPolicy::default()
+                    .max_attempts(2)
+                    .initial_delay(Duration::ZERO)
+                    .max_delay(Duration::ZERO),
+            ),
         )
         .run()
         .await

@@ -31,7 +31,7 @@ struct Order {
 }
 
 async fn to_request(record: KafkaRecord<Order>) -> Result<HttpPublish<Order>> {
-    let metadata = record.metadata().clone();
+    let metadata = record.metadata.clone();
     let order = record
         .value
         .ok_or_else(|| anyhow::anyhow!("tombstones are not forwarded"))?;

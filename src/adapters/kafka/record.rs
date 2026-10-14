@@ -3,6 +3,7 @@ use serde::Serialize;
 
 /// Read-only delivery location; never copied into producer routing implicitly.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub struct KafkaMetadata {
     /// Topic the record was read from.
     pub topic: String,
@@ -26,13 +27,6 @@ pub struct KafkaRecord<T> {
     pub headers: Vec<(String, Option<Vec<u8>>)>,
     /// Location the record was read from.
     pub metadata: KafkaMetadata,
-}
-
-impl<T> KafkaRecord<T> {
-    /// Location the record was read from.
-    pub fn metadata(&self) -> &KafkaMetadata {
-        &self.metadata
-    }
 }
 
 /// Headers with UTF-8 values, in record order; null and binary headers are skipped.

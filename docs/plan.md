@@ -37,7 +37,10 @@ currently application-written `MapMetadata` functions. Remaining decisions:
 - a clear policy when cross-platform value-only forwarding would discard
   metadata, including whether such a subscription should warn or fail at
   startup;
-- typed Kafka keys as a possible refinement of the byte-oriented key field.
+- typed Kafka keys as a possible refinement of the byte-oriented key field;
+- a consistent set of `with_*` builder methods on the `*Publish` types, which
+  now differ by adapter: `KafkaPublish` and `PulsarPublish` have none, while
+  `SqsPublish` has only `with_message_group_id`.
 
 ## Middleware
 
@@ -463,9 +466,6 @@ The crate is published as `beavers`; versioning and the compatibility contract
 are described in [versioning and releases](releasing.md). Remaining work before
 the first crates.io release:
 
-- Review the public API: internal types leaking through public signatures,
-  `#[non_exhaustive]` on configuration structs and enums that are expected to
-  grow, and names that should change before `0.1.0`.
 - After the first release, add `cargo-semver-checks` to CI and switch the
   release workflow from the API token to crates.io trusted publishing.
 - Create the project icon and character, and place them in the landing page

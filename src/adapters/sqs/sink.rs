@@ -47,8 +47,8 @@ pub struct SqsPrepared {
 
 impl SqsPrepared {
     /// The encoded message body.
-    pub fn body(&self) -> &str {
-        &self.body
+    pub fn payload(&self) -> &[u8] {
+        self.body.as_bytes()
     }
 }
 

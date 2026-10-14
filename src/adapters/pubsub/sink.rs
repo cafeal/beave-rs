@@ -34,7 +34,7 @@ pub struct PubSubPrepared {
 
 impl PubSubPrepared {
     /// The encoded message data.
-    pub fn data(&self) -> &[u8] {
+    pub fn payload(&self) -> &[u8] {
         &self.message.data
     }
 }

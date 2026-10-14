@@ -13,6 +13,7 @@ use std::{
 /// strings; a received symbol is read as `String`, and binary, decimal, and
 /// described values are skipped.
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[non_exhaustive]
 pub enum ServiceBusValue {
     /// A property without a value.
     Null,
@@ -121,6 +122,7 @@ pub struct ServiceBusProperties {
 
 /// Read-only facts about a received message.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub struct ServiceBusMetadata {
     /// The entity the source receives from.
     pub entity_path: String,
@@ -153,13 +155,6 @@ pub struct ServiceBusRecord<T> {
     pub properties: ServiceBusProperties,
     /// Read-only facts about the received message.
     pub metadata: ServiceBusMetadata,
-}
-
-impl<T> ServiceBusRecord<T> {
-    /// Read-only facts about the received message.
-    pub fn metadata(&self) -> &ServiceBusMetadata {
-        &self.metadata
-    }
 }
 
 /// User-controlled Service Bus output. The entity comes from the sink

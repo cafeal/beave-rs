@@ -13,6 +13,7 @@ use std::{
 /// then randomized by `jitter`. The default makes three attempts starting at 100 ms, capped
 /// at 5 s, without jitter.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct RetryPolicy {
     /// Includes the initial attempt; must be at least one.
     pub max_attempts: usize,
@@ -26,6 +27,7 @@ pub struct RetryPolicy {
 
 /// Randomization applied to the capped exponential delay before each retry.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Jitter {
     /// Wait exactly the capped exponential delay.
     #[default]
@@ -48,6 +50,30 @@ impl Default for RetryPolicy {
 }
 
 impl RetryPolicy {
+    /// Sets the number of attempts, including the initial attempt.
+    pub fn max_attempts(mut self, attempts: usize) -> Self {
+        self.max_attempts = attempts;
+        self
+    }
+
+    /// Sets the delay before the first retry.
+    pub fn initial_delay(mut self, delay: Duration) -> Self {
+        self.initial_delay = delay;
+        self
+    }
+
+    /// Sets the upper bound of the exponential delay.
+    pub fn max_delay(mut self, delay: Duration) -> Self {
+        self.max_delay = delay;
+        self
+    }
+
+    /// Sets the randomization applied to each delay.
+    pub fn jitter(mut self, jitter: Jitter) -> Self {
+        self.jitter = jitter;
+        self
+    }
+
     /// Delay before the next attempt after `failures` consecutive failed attempts.
     pub(crate) fn delay(&self, failures: usize) -> Duration {
         let delay = self

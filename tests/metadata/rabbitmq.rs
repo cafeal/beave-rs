@@ -1,12 +1,16 @@
 use beavers::{
     App, InMemorySink, IterSource, PropagationCarrier, Subscription,
     adapters::rabbitmq::{
-        RabbitMqHeaders, RabbitMqInherit, RabbitMqMetadata, RabbitMqProperties, RabbitMqPublish,
-        RabbitMqRecord, RabbitMqValue,
+        RabbitMqHeaders, RabbitMqInherit, RabbitMqProperties, RabbitMqPublish, RabbitMqRecord,
+        RabbitMqValue,
     },
+    testing::rabbitmq_record,
 };
 
 fn record() -> RabbitMqRecord<String> {
+    let mut metadata = rabbitmq_record("orders", 1, "").metadata;
+    metadata.exchange = "shop".into();
+    metadata.routing_key = "order.created".into();
     RabbitMqRecord {
         value: "order".to_owned(),
         headers: RabbitMqHeaders::from([
@@ -23,14 +27,7 @@ fn record() -> RabbitMqRecord<String> {
             reply_to: Some("replies".into()),
             ..RabbitMqProperties::default()
         },
-        metadata: RabbitMqMetadata {
-            queue: "orders".into(),
-            exchange: "shop".into(),
-            routing_key: "order.created".into(),
-            redelivered: false,
-            persistent: true,
-            delivery_tag: 1,
-        },
+        metadata,
     }
 }
 

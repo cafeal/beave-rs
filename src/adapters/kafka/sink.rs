@@ -27,12 +27,28 @@ use std::{
 /// An encoded Kafka record. Preparing a value performs all codec work once.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KafkaPrepared {
-    /// Record key bytes, or `None` for a keyless record.
-    pub key: Option<Vec<u8>>,
+    pub(super) key: Option<Vec<u8>>,
+    pub(super) value: Option<Vec<u8>>,
+    pub(super) headers: Vec<(String, Option<Vec<u8>>)>,
+}
+
+impl KafkaPrepared {
     /// Encoded value bytes, or `None` for a null payload.
-    pub value: Option<Vec<u8>>,
+    pub fn payload(&self) -> Option<&[u8]> {
+        self.value.as_deref()
+    }
+
+    /// Record key bytes, or `None` for a keyless record.
+    pub fn key(&self) -> Option<&[u8]> {
+        self.key.as_deref()
+    }
+
     /// Headers in publication order; a header value may be null.
-    pub headers: Vec<(String, Option<Vec<u8>>)>,
+    pub fn headers(&self) -> impl Iterator<Item = (&str, Option<&[u8]>)> {
+        self.headers
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_deref()))
+    }
 }
 
 struct State {

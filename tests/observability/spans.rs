@@ -50,11 +50,8 @@ async fn discarded_and_dead_lettered_deliveries_are_logged() {
                     Ok(n)
                 },
             )
-            .dlq(InMemorySink::default())
-            .error_policy(ErrorPolicy {
-                decode: FailureAction::Discard,
-                ..ErrorPolicy::default()
-            }),
+            .dead_letter(InMemorySink::default())
+            .error_policy(ErrorPolicy::default().decode(FailureAction::Discard)),
         )
         .run()
         .await

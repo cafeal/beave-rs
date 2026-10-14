@@ -45,7 +45,7 @@ impl App {
     pub fn new() -> Self {
         Self::default()
     }
-    /// Add a subscription with the default [`SubscriptionConfig`](crate::SubscriptionConfig).
+    /// Add a subscription with default settings.
     ///
     /// Use [`subscription`](Self::subscription) to register a configured [`Subscription`].
     ///

@@ -1,4 +1,4 @@
-//! Value-only handlers for sources and sinks that share a platform.
+//! Broker records as seen by value-only handlers and outputs of the same platform.
 use crate::{handler::Result, middleware::Middleware};
 
 /// A received record that exposes its payload to value-only handlers.

@@ -2,9 +2,9 @@ use super::record::{KafkaPublish, KafkaRecord};
 use crate::{
     dead_letter::DEAD_LETTER_HEADER_PREFIX,
     error::Error,
-    forward::{SamePlatform, ValueRecord},
     handler::{HandlerError, Result},
     middleware::Middleware,
+    record::{SamePlatform, ValueRecord},
 };
 
 /// Kafka-to-Kafka middleware that copies the received key and headers into

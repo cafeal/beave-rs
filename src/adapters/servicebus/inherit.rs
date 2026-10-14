@@ -1,9 +1,9 @@
 use super::record::{ServiceBusPublish, ServiceBusRecord};
 use crate::{
     dead_letter::DEAD_LETTER_HEADER_PREFIX,
-    forward::{SamePlatform, ValueRecord},
     handler::Result,
     middleware::Middleware,
+    record::{SamePlatform, ValueRecord},
 };
 
 /// Service Bus to Service Bus middleware that copies the received application

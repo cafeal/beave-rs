@@ -18,16 +18,28 @@ use tokio::sync::{OwnedRwLockReadGuard, RwLock};
 /// Encoded Pulsar output. Clones can be retried without rerunning the codec.
 #[derive(Clone, Debug, Default)]
 pub struct PulsarPrepared {
-    /// `None` publishes a null value.
-    pub value: Option<Vec<u8>>,
-    /// User properties of the message.
-    pub properties: HashMap<String, String>,
+    pub(super) value: Option<Vec<u8>>,
+    pub(super) properties: HashMap<String, String>,
+    pub(super) key: Option<Vec<u8>>,
+    pub(super) ordering_key: Option<Vec<u8>>,
+    pub(super) event_time: Option<u64>,
+}
+
+impl PulsarPrepared {
+    /// Encoded value bytes, or `None` for a null value.
+    pub fn payload(&self) -> Option<&[u8]> {
+        self.value.as_deref()
+    }
+
     /// Message key bytes, or `None` for a keyless message.
-    pub key: Option<Vec<u8>>,
-    /// Ordering key for `KeyShared` subscriptions, or `None`.
-    pub ordering_key: Option<Vec<u8>>,
-    /// Event time, conventionally milliseconds since the Unix epoch, or `None`.
-    pub event_time: Option<u64>,
+    pub fn key(&self) -> Option<&[u8]> {
+        self.key.as_deref()
+    }
+
+    /// User properties of the message.
+    pub fn properties(&self) -> &HashMap<String, String> {
+        &self.properties
+    }
 }
 
 /// The lazily connected producers and closure state of a sink.

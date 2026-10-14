@@ -9,12 +9,10 @@ use std::{
 };
 
 fn fast() -> RetryPolicy {
-    RetryPolicy {
-        max_attempts: 3,
-        initial_delay: Duration::ZERO,
-        max_delay: Duration::ZERO,
-        ..RetryPolicy::default()
-    }
+    RetryPolicy::default()
+        .max_attempts(3)
+        .initial_delay(Duration::ZERO)
+        .max_delay(Duration::ZERO)
 }
 
 #[tokio::test]
@@ -36,11 +34,8 @@ async fn failures_are_counted_by_kind_and_action() {
                     Ok(n)
                 },
             )
-            .dlq(dlq.clone())
-            .error_policy(ErrorPolicy {
-                decode: FailureAction::Discard,
-                ..ErrorPolicy::default()
-            }),
+            .dead_letter(dlq.clone())
+            .error_policy(ErrorPolicy::default().decode(FailureAction::Discard)),
         )
         .run()
         .await
@@ -142,7 +137,7 @@ async fn retries_and_stage_durations_are_recorded() {
                     }
                 },
             )
-            .retry(fast())
+            .handler_retry(fast())
             .publish_retry(fast()),
         )
         .run()
