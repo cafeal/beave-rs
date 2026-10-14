@@ -369,12 +369,14 @@ async fn submitted_records_complete_on_their_delivery_reports() {
     sink.close().await.unwrap();
 }
 
+/// Publishes `values` with one key, so they land in one partition in order
+/// whatever the topic's partition count.
 async fn publish_texts(kafka: &Kafka, topic: &str, values: &[&str]) {
     let sink = kafka.sink::<Utf8>(topic);
     for value in values {
-        let prepared = sink
-            .prepare(KafkaPublish::new((*value).to_owned()))
-            .unwrap();
+        let mut output = KafkaPublish::new((*value).to_owned());
+        output.key = Some(b"same-partition".to_vec());
+        let prepared = sink.prepare(output).unwrap();
         tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
             .await
             .expect("timed out publishing to Kafka")
@@ -417,23 +419,29 @@ async fn a_paused_partition_receives_nothing_until_resumed() {
     let first = receive_within(&mut source, Duration::from_secs(20))
         .await
         .expect("timed out waiting for the first record");
+    let first_record = first.decode().unwrap().metadata;
     let key = first.ordering_key().unwrap();
-    assert_eq!(key, OrderingKey::new(topic.as_str(), 0));
+    assert_eq!(
+        key,
+        OrderingKey::new(topic.as_str(), i64::from(first_record.partition))
+    );
     assert!(source.pause(&key));
     publish_texts(&kafka, &topic, &["second"]).await;
-    assert!(
-        receive_within(&mut source, Duration::from_secs(3))
-            .await
-            .is_none(),
-        "a paused partition delivered a record"
-    );
+    if let Some(message) = receive_within(&mut source, Duration::from_secs(3)).await {
+        panic!(
+            "a paused partition delivered {:?}",
+            message.decode().unwrap()
+        );
+    }
 
     source.resume(&key);
     let second = receive_within(&mut source, Duration::from_secs(20))
         .await
         .expect("timed out waiting for the record after resuming");
-    assert_eq!(second.decode().unwrap().value.as_deref(), Some("second"));
-    assert_eq!(second.decode().unwrap().metadata.offset, 1);
+    let second_record = second.decode().unwrap();
+    assert_eq!(second_record.value.as_deref(), Some("second"));
+    assert_eq!(second_record.metadata.partition, first_record.partition);
+    assert_eq!(second_record.metadata.offset, first_record.offset + 1);
     first.ack().await.unwrap();
     second.ack().await.unwrap();
     source.close().await.unwrap();
@@ -465,6 +473,7 @@ async fn graceful_handoff_commits_a_delivery_acknowledged_during_the_revoke() {
     let message = receive_within(&mut first, Duration::from_secs(20))
         .await
         .expect("timed out waiting for the first record");
+    let handed_off = message.decode().unwrap().metadata;
     let handoff = message.handoff().unwrap();
     let revoked = message.revocation().unwrap();
 
@@ -473,12 +482,13 @@ async fn graceful_handoff_commits_a_delivery_acknowledged_during_the_revoke() {
     let joining = tokio::spawn(async move {
         let mut second = source();
         let received = receive_within(&mut second, Duration::from_secs(40)).await;
-        let offset = received
-            .as_ref()
-            .map(|message| message.decode().unwrap().metadata.offset);
+        let position = received.as_ref().map(|message| {
+            let metadata = message.decode().unwrap().metadata;
+            (metadata.partition, metadata.offset)
+        });
         drop(received);
         second.close().await.unwrap();
-        offset
+        position
     });
     tokio::time::timeout(Duration::from_secs(30), handoff.cancelled())
         .await
@@ -495,17 +505,18 @@ async fn graceful_handoff_commits_a_delivery_acknowledged_during_the_revoke() {
         .create()
         .unwrap();
     let mut partitions = TopicPartitionList::new();
-    partitions.add_partition(&topic, 0);
+    partitions.add_partition(&topic, handed_off.partition);
     let committed = consumer
         .committed_offsets(partitions, Duration::from_secs(10))
         .unwrap();
     let offset = committed.elements()[0].offset();
     assert!(
-        offset == Offset::Offset(1) || offset == Offset::Offset(2),
+        offset == Offset::Offset(handed_off.offset + 1)
+            || offset == Offset::Offset(handed_off.offset + 2),
         "the acknowledged record was not committed: {offset:?}"
     );
     // Whichever consumer owns the partition next starts after the record.
     let next = joining.await.unwrap();
-    assert_ne!(next, Some(0));
+    assert_ne!(next, Some((handed_off.partition, handed_off.offset)));
     first.close().await.unwrap();
 }
