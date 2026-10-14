@@ -12,6 +12,7 @@ use std::{
 /// Lifecycle stage of one subscription.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum SubscriptionStatus {
     /// Registered, but the application has not started running it.
     Pending,
@@ -37,6 +38,7 @@ impl SubscriptionStatus {
 
 /// Health of one subscription at the time of the report.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub struct SubscriptionReport {
     /// Subscription name.
     pub name: String,
@@ -65,6 +67,7 @@ pub struct SubscriptionReport {
 
 /// Application health at the time of the report.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub struct HealthReport {
     /// `false` once a subscription has failed, which stops the application, or
     /// while a subscription is stalled.

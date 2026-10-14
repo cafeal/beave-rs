@@ -53,12 +53,10 @@ impl Sink<i32> for Switch {
 }
 
 fn patient(delay: Duration) -> RetryPolicy {
-    RetryPolicy {
-        max_attempts: 1000,
-        initial_delay: delay,
-        max_delay: delay,
-        ..RetryPolicy::default()
-    }
+    RetryPolicy::default()
+        .max_attempts(1000)
+        .initial_delay(delay)
+        .max_delay(delay)
 }
 
 async fn eventually(health: &Health, condition: impl Fn(&Health) -> bool) {
@@ -172,10 +170,8 @@ async fn ended_source_keeps_the_application_ready() {
 #[tokio::test]
 async fn failed_subscription_is_not_live() {
     let (subscription, input) = scripted("orders", Switch::default());
-    let app = App::new().subscription(subscription.receive_retry(RetryPolicy {
-        max_attempts: 1,
-        ..RetryPolicy::default()
-    }));
+    let app =
+        App::new().subscription(subscription.receive_retry(RetryPolicy::default().max_attempts(1)));
     let health = app.health();
     let running = run(app, &CancellationToken::new());
 

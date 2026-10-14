@@ -27,9 +27,22 @@ impl<T> IterSource<T> {
             acknowledgements: Arc::default(),
         }
     }
-    /// Shared counter of acknowledged deliveries, incremented on each ACK.
-    pub fn acknowledgements(&self) -> Arc<AtomicUsize> {
-        self.acknowledgements.clone()
+    /// A handle that counts the acknowledged deliveries of this source. It
+    /// stays usable after the source moves into an [`App`](crate::App).
+    pub fn acknowledgements(&self) -> Acknowledgements {
+        Acknowledgements(self.acknowledgements.clone())
+    }
+}
+
+/// Number of deliveries an [`IterSource`] has acknowledged, returned by
+/// [`IterSource::acknowledgements`].
+#[derive(Clone, Debug, Default)]
+pub struct Acknowledgements(Arc<AtomicUsize>);
+
+impl Acknowledgements {
+    /// The number of acknowledged deliveries so far.
+    pub fn count(&self) -> usize {
+        self.0.load(Ordering::SeqCst)
     }
 }
 impl<T: Clone + Send + Sync + 'static> Source for IterSource<T> {

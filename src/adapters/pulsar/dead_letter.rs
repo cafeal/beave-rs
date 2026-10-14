@@ -57,11 +57,11 @@ impl PulsarPublish<Vec<u8>> {
     /// properties, and event time, plus failure-detail properties named with
     /// [`DEAD_LETTER_HEADER_PREFIX`].
     ///
-    /// Pass it to [`Subscription::dlq_with`](crate::Subscription::dlq_with) with a sink that
-    /// publishes raw bytes. When the original message already carries dead-letter
-    /// properties, because it was received from a dead-letter topic, its origin is kept and
-    /// its count is incremented. Malformed dead-letter properties are replaced as if the
-    /// message had never been dead-lettered. A null value stays null.
+    /// Pass it to [`Subscription::dead_letter_with`](crate::Subscription::dead_letter_with) with a
+    /// sink that publishes raw bytes. When the original message already carries dead-letter
+    /// properties, because it was received from a dead-letter topic, its origin is kept and its
+    /// count is incremented. Malformed dead-letter properties are replaced as if the message had
+    /// never been dead-lettered. A null value stays null.
     pub fn from_dead_letter<I>(dead_letter: DeadLetter<I, PulsarRecord<Vec<u8>>>) -> Self {
         let previous = PulsarDeadLetter::from_record(&dead_letter.raw)
             .ok()

@@ -2,8 +2,8 @@ use beavers::{
     App, BoxError, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json, Result,
     Subscription,
     adapters::rabbitmq::{
-        RabbitMqDeadLetter, RabbitMqHeaders, RabbitMqInherit, RabbitMqMetadata, RabbitMqOrigin,
-        RabbitMqPublish, RabbitMqRecord, RabbitMqValue,
+        RabbitMqDeadLetter, RabbitMqHeaders, RabbitMqInherit, RabbitMqOrigin, RabbitMqPublish,
+        RabbitMqRecord, RabbitMqValue,
     },
     testing::{RabbitMqTestSource, rabbitmq_record},
 };
@@ -28,14 +28,7 @@ fn received(publish: RabbitMqPublish<Vec<u8>>, delivery_tag: u64) -> RabbitMqRec
         value: publish.value,
         headers: publish.headers,
         properties: publish.properties,
-        metadata: RabbitMqMetadata {
-            queue: "orders-dlq".into(),
-            exchange: String::new(),
-            routing_key: "orders-dlq".into(),
-            redelivered: false,
-            persistent: true,
-            delivery_tag,
-        },
+        metadata: rabbitmq_record("orders-dlq", delivery_tag, "").metadata,
     }
 }
 
@@ -61,7 +54,7 @@ async fn dead_letter(
                 InMemorySink::<u32>::default(),
                 reject_odd,
             )
-            .dlq_with(dlq.clone(), |dead| {
+            .dead_letter_with(dlq.clone(), |dead| {
                 Ok(RabbitMqPublish::from_dead_letter(dead))
             })
             .error_policy(ErrorPolicy::dead_letter_all()),

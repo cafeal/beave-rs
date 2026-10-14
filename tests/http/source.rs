@@ -171,7 +171,7 @@ async fn dead_letter_keeps_the_raw_request() {
                     Err::<String, _>(HandlerError::Reject(BoxError::from("refused")))
                 },
             )
-            .dlq(dlq.clone()),
+            .dead_letter(dlq.clone()),
         ),
         &shutdown,
     );
@@ -230,7 +230,7 @@ async fn received_request_exposes_raw_form_and_trace_headers() {
             .contains(&("traceparent", traceparent))
     );
     assert_eq!(message.raw().body, b"hi");
-    assert_eq!(message.raw().metadata().remote_addr.ip(), addr.ip());
+    assert_eq!(message.raw().metadata.remote_addr.ip(), addr.ip());
     drop(message);
     assert_eq!(client.await.unwrap(), 503);
     source.close().await.unwrap();

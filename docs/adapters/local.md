@@ -15,8 +15,8 @@ No serialization codec is needed. Each item becomes a `Delivery<T>`; decoding
 clones its typed value. Iterator exhaustion produces `Receive::End` and the
 subscription drains before completing.
 
-The ACK callback increments a shared counter available through
-`acknowledgements()`. This is a completion counter, not durable storage or a
+The ACK callback increments a shared counter whose `Acknowledgements` handle,
+returned by `acknowledgements()`, reads it with `count()`. This is a completion counter, not durable storage or a
 redelivery mechanism.
 
 ## InMemorySink
@@ -30,7 +30,6 @@ Use it with IterSource to exercise a complete subscription:
 
 ```rust
 use beavers::{App, InMemorySink, IterSource, Result};
-use std::sync::atomic::Ordering;
 
 async fn double(value: u64) -> Result<u64> {
     Ok(value * 2)
@@ -48,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     assert_eq!(sink.values(), vec![2, 4, 6]);
-    assert_eq!(acknowledgements.load(Ordering::SeqCst), 3);
+    assert_eq!(acknowledgements.count(), 3);
     Ok(())
 }
 ```

@@ -8,7 +8,7 @@ mod memory;
 mod stdin;
 mod stdout;
 
-pub use iter::IterSource;
+pub use iter::{Acknowledgements, IterSource};
 pub use memory::InMemorySink;
 pub use stdin::{StdinMessage, StdinSource};
 pub use stdout::StdoutSink;

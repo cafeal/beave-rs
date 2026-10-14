@@ -63,12 +63,12 @@ impl PubSubPublish<Vec<u8>> {
     /// attributes, and ordering key, plus failure-detail attributes named with
     /// [`DEAD_LETTER_HEADER_PREFIX`].
     ///
-    /// Pass it to [`Subscription::dlq_with`](crate::Subscription::dlq_with) with a sink that
-    /// publishes raw bytes. When the original message already carries dead-letter
-    /// attributes, because it was received from a dead-letter topic, its origin is kept and
-    /// its count is incremented; malformed ones are replaced as if the message had never
-    /// been dead-lettered. Pub/Sub limits attribute values to 1024 bytes, so a longer error
-    /// message is cut at a character boundary.
+    /// Pass it to [`Subscription::dead_letter_with`](crate::Subscription::dead_letter_with) with a
+    /// sink that publishes raw bytes. When the original message already carries dead-letter
+    /// attributes, because it was received from a dead-letter topic, its origin is kept and its
+    /// count is incremented; malformed ones are replaced as if the message had never been
+    /// dead-lettered. Pub/Sub limits attribute values to 1024 bytes, so a longer error message is
+    /// cut at a character boundary.
     pub fn from_dead_letter<I>(dead_letter: DeadLetter<I, PubSubRecord<Vec<u8>>>) -> Self {
         let previous = PubSubDeadLetter::from_record(&dead_letter.raw)
             .ok()

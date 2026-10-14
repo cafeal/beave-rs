@@ -107,7 +107,7 @@ first delivery before processing it. See the
 
 ### Configuration ownership
 
-`SubscriptionConfig` holds processing policy. Source and Sink connection settings
+A `Subscription` holds processing policy. Source and Sink connection settings
 belong to their adapters. Each broker adapter keeps its address and credentials
 on a connection handle, such as `Kafka` or `ServiceBus`, whose `source` and
 `sink` methods build sources and sinks with their own entity settings. They

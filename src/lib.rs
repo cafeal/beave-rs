@@ -59,7 +59,7 @@
 //!   [`Emit`]. Its errors are classified with [`HandlerError`] and [`Classify`].
 //! - A [`Sink`] prepares an output once and publishes it, with retries.
 //! - A [`Subscription`] connects one source, handler, and sink with [`Middleware`], a
-//!   dead-letter sink, an [`ErrorPolicy`], and a [`SubscriptionConfig`].
+//!   dead-letter sink, an [`ErrorPolicy`], and settings such as concurrency and retries.
 //! - An [`App`] runs subscriptions together and shuts them down on SIGINT or SIGTERM.
 //! - [`Decoder`] and [`Encoder`] implementations such as [`Json`] convert payloads.
 //!
@@ -108,12 +108,12 @@ pub mod codec;
 pub mod dead_letter;
 pub mod error;
 pub mod error_policy;
-pub mod forward;
 pub mod handler;
 pub mod health;
 pub mod message;
 pub mod middleware;
 pub mod propagation;
+pub mod record;
 pub mod retry;
 pub mod shutdown;
 pub mod sink;
@@ -150,19 +150,18 @@ pub use codec::{Codec, Decoder, Encoder, Json, RawBytes, Utf8};
 pub use dead_letter::{DEAD_LETTER_HEADER_PREFIX, DeadLetter, DeadLetterDetails};
 pub use error::{BoxError, Error};
 pub use error_policy::{ErrorPolicy, FailureAction, FailureKind};
-pub use forward::{SamePlatform, ValueRecord};
 pub use handler::{Classify, Emit, Handler, HandlerError, Result};
 pub use health::Health;
 pub use message::{Delivery, MessagingAttributes, OrderingKey, SourceMessage};
 pub use middleware::{Flow, MapMetadata, Middleware};
 pub use propagation::PropagationCarrier;
+pub use record::{SamePlatform, ValueRecord};
 pub use retry::{Jitter, RetryPolicy};
 pub use shutdown::CancellationToken;
 pub use sink::{Completion, PublishRejected, Sink};
 pub use source::{Receive, ReceiveError, Source, SourceItem, SourceProbe, SourceRaw};
 pub use subscription::{
-    ByRecord, ByValue, IntoHandler, ProcessingOrder, Subscription, SubscriptionConfig,
-    TransactionBatch,
+    ByRecord, ByValue, IntoHandler, ProcessingOrder, Subscription, TransactionBatch,
 };
 #[cfg(feature = "opentelemetry")]
 pub use telemetry::TraceContext;

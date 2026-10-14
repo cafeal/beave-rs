@@ -129,7 +129,7 @@ impl<C> PulsarSource<C> {
             let consumer = client
                 .consumer(topic)
                 .subscription(&self.config.subscription)
-                .subscription_type(self.config.subscription_type.into())
+                .subscription_type(self.config.subscription_type.sub_type())
                 .receiver_queue_size(self.config.buffer_size)
                 .subscribe()
                 .await?;
@@ -288,7 +288,7 @@ impl Delivery {
             metadata: PulsarMetadata {
                 topic,
                 message_id: message_id(&message.message_id),
-                publish_time: entry.publish_time,
+                publish_time: i64::try_from(entry.publish_time).unwrap_or(i64::MAX),
             },
         })
     }

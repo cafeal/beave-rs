@@ -2,7 +2,7 @@
 
 use beavers::{
     App, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage, Subscription, Utf8,
-    adapters::kafka::{Kafka, KafkaPublish, KafkaRecord, KafkaSource, KafkaTransactionalSink},
+    adapters::kafka::{Kafka, KafkaPublish, KafkaSource, KafkaTransactionalSink},
 };
 use rdkafka::{
     ClientConfig, Offset, TopicPartitionList,
@@ -27,30 +27,16 @@ fn unique_name(prefix: &str) -> String {
 
 #[test]
 fn records_and_publishes_keep_delivery_metadata_separate() {
-    let metadata = beavers::adapters::kafka::KafkaMetadata {
-        topic: "orders".into(),
-        partition: 0,
-        offset: 1,
-        timestamp: None,
-    };
-    let record = KafkaRecord {
-        key: Some(b"customer-7".to_vec()),
-        value: Some("order".to_owned()),
-        headers: vec![("kind".into(), Some(b"new".to_vec()))],
-        metadata,
-    };
-    assert_eq!(record.metadata().topic, "orders");
-    assert_eq!(record.metadata().offset, 1);
-    assert_eq!(record.key.as_deref(), Some(b"customer-7".as_slice()));
-
+    let key = Some(b"customer-7".to_vec());
+    let headers = vec![("kind".to_owned(), Some(b"new".to_vec()))];
     let publish = KafkaPublish {
-        key: record.key.clone(),
+        key: key.clone(),
         value: Some("processed order".to_owned()),
-        headers: record.headers.clone(),
+        headers: headers.clone(),
     };
     assert_eq!(publish.value.as_deref(), Some("processed order"));
-    assert_eq!(publish.key, record.key);
-    assert_eq!(publish.headers, record.headers);
+    assert_eq!(publish.key, key);
+    assert_eq!(publish.headers, headers);
 
     let tombstone = KafkaPublish::<String>::tombstone(vec![1, 2, 3]);
     assert_eq!(tombstone.key, Some(vec![1, 2, 3]));

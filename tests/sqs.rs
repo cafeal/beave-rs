@@ -28,8 +28,8 @@ fn prepared_messages_need_text_bodies_and_fifo_groups() {
     assert_eq!(
         sink.prepare(SqsPublish::new(b"order".to_vec()))
             .unwrap()
-            .body(),
-        "order"
+            .payload(),
+        b"order"
     );
 
     let fifo = sqs.sink::<Utf8>("https://sqs.eu-west-1.amazonaws.com/1/orders.fifo");

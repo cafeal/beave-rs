@@ -150,7 +150,7 @@ async fn downstream_dead_letters_keep_the_first_upstream_delivery() {
                     Ok(n)
                 },
             )
-            .dlq(dead_letters.clone())
+            .dead_letter(dead_letters.clone())
             .error_policy(ErrorPolicy::dead_letter_all()),
         )
         .run_until(CancellationToken::new())
@@ -208,11 +208,11 @@ async fn upstream_ack_waits_for_downstream_completion() {
     let run = tokio::spawn(app.run_until(CancellationToken::new()));
     started.notified().await;
     tokio::time::sleep(Duration::from_millis(20)).await;
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
     gate.add_permits(2);
     run.await.unwrap().unwrap();
     assert_eq!(output.values(), [11, 21]);
-    assert_eq!(acks.load(Ordering::SeqCst), 2);
+    assert_eq!(acks.count(), 2);
 }
 
 #[tokio::test]
@@ -332,7 +332,7 @@ async fn downstream_failure_leaves_upstream_unacknowledged() {
         .run_until(CancellationToken::new())
         .await;
     assert!(result.is_err());
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
 }
 
 #[tokio::test]
@@ -446,8 +446,8 @@ async fn cloned_sinks_fan_in_and_end_after_every_clone_closes() {
     let mut values = output.values();
     values.sort();
     assert_eq!(values, [2, 3, 11]);
-    assert_eq!(first_acks.load(Ordering::SeqCst), 2);
-    assert_eq!(second_acks.load(Ordering::SeqCst), 1);
+    assert_eq!(first_acks.count(), 2);
+    assert_eq!(second_acks.count(), 1);
 }
 
 #[tokio::test]
@@ -540,11 +540,11 @@ async fn upstream_ack_waits_for_application_recv() {
             .run_until(CancellationToken::new()),
     );
     tokio::time::sleep(Duration::from_millis(20)).await;
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
     assert_eq!(results.recv().await, Some(1));
     assert_eq!(results.recv().await, Some(2));
     run.await.unwrap().unwrap();
-    assert_eq!(acks.load(Ordering::SeqCst), 2);
+    assert_eq!(acks.count(), 2);
     assert_eq!(results.recv().await, None);
 }
 
@@ -586,12 +586,12 @@ async fn run_ahead(capacity: usize, max_in_flight: usize) -> (usize, usize) {
     );
     tokio::time::sleep(Duration::from_millis(20)).await;
     let ahead = calls.load(Ordering::SeqCst);
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
     for expected in 0..10 {
         assert_eq!(results.recv().await, Some(expected));
     }
     run.await.unwrap().unwrap();
-    assert_eq!(acks.load(Ordering::SeqCst), 10);
+    assert_eq!(acks.count(), 10);
     (ahead, calls.load(Ordering::SeqCst))
 }
 
@@ -639,5 +639,5 @@ async fn failed_completion_stops_without_ack() {
         .await;
     let error = format!("{:#}", result.unwrap_err());
     assert!(error.contains("output completion failed"), "{error}");
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
 }

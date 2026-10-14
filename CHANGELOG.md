@@ -9,6 +9,12 @@ project follows the versioning policy in
 
 ### Added
 
+- Setter methods on `RetryPolicy` and `ErrorPolicy`, such as
+  `RetryPolicy::default().max_attempts(5)`.
+- `Acknowledgements`, returned by `IterSource::acknowledgements`, with
+  `count()`.
+- `payload()` on every adapter's prepared output, and `key()`, `headers()`, or
+  `properties()` on the Kafka and Pulsar ones.
 - OpenTelemetry messaging semantic-convention attributes on each delivery's
   `message` span, reported by the broker sources through
   `SourceMessage::messaging_attributes`.
@@ -17,6 +23,35 @@ project follows the versioning policy in
   Pulsar. A disconnected source makes its subscription unready.
 - `Subscription::stall_timeout`, which makes liveness fail while deliveries are
   in flight without progress.
+
+### Changed
+
+- `FailureKind`, `FailureAction`, `ProcessingOrder`, `Jitter`,
+  `SubscriptionStatus`, `HttpMethod`, `RabbitMqValue`, `ServiceBusValue`, and
+  `SqsAttributeValue` are `#[non_exhaustive]`, as are `RetryPolicy`,
+  `ErrorPolicy`, `TransactionBatch`, `HealthReport`, `SubscriptionReport`, and
+  every adapter's `*Metadata` struct. Build the structs from `Default` or their
+  constructors; the `testing` record functions build adapter metadata.
+- `Subscription::retry` is renamed to `handler_retry`, and `dlq`, `dlq_with`,
+  and `dlq_retry` to `dead_letter`, `dead_letter_with`, and
+  `dead_letter_retry`.
+- The `forward` module is renamed to `record`.
+- The fields of `KafkaPrepared` and `PulsarPrepared` are private, and the
+  `body()` and `data()` accessors of the other prepared outputs are renamed to
+  `payload()`.
+- `PulsarMetadata::publish_time`, `SqsMetadata::sent_timestamp`, and
+  `SqsMetadata::first_receive_timestamp` are `i64` milliseconds, like the other
+  adapters' timestamps.
+
+### Removed
+
+- `SubscriptionConfig` and `Subscription::config`; the `Subscription` builder
+  methods set every setting.
+- The `metadata()` methods of the adapter records, which duplicated their
+  public `metadata` field.
+- The implementations of the Pulsar client's `AuthProvider` for
+  `PulsarAuthentication` and of `From<PulsarSubscriptionType>` for its
+  subscription type, so that client is no longer part of the public API.
 
 ## [0.0.2] - 2026-10-14
 

@@ -33,7 +33,7 @@ pub struct ServiceBusPrepared {
 
 impl ServiceBusPrepared {
     /// The encoded message body.
-    pub fn body(&self) -> &[u8] {
+    pub fn payload(&self) -> &[u8] {
         &self.sendable.message.body.0
     }
 }

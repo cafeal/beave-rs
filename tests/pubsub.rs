@@ -33,7 +33,7 @@ fn prepared_messages_respect_attribute_limits() {
     let prepared = sink
         .prepare(PubSubPublish::new(b"order".to_vec()).with_ordering_key("customer-7"))
         .unwrap();
-    assert_eq!(prepared.data(), b"order");
+    assert_eq!(prepared.payload(), b"order");
 }
 
 const PROJECT: &str = "beavers";

@@ -280,7 +280,7 @@ impl<C> SqsMessage<C> {
     fn record<V, E>(&self, value: impl FnOnce(&[u8]) -> Result<V, E>) -> Result<SqsRecord<V>, E> {
         let number = |name| {
             self.system_attribute(name)
-                .and_then(|value| value.parse::<u64>().ok())
+                .and_then(|value| value.parse::<i64>().ok())
         };
         let text = |name| self.system_attribute(name).map(str::to_owned);
         Ok(SqsRecord {

@@ -47,7 +47,7 @@ async fn publish_retry_does_not_repeat_handler_or_mapping() {
     assert_eq!(calls.load(Ordering::SeqCst), 3);
     assert_eq!(handlers.load(Ordering::SeqCst), 1);
     assert_eq!(mappings.load(Ordering::SeqCst), 1);
-    assert_eq!(acks.load(Ordering::SeqCst), 1);
+    assert_eq!(acks.count(), 1);
 }
 
 #[tokio::test]
@@ -74,7 +74,7 @@ async fn exhausted_publish_never_acks() {
             .await
             .is_err()
     );
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
 }
 
 #[tokio::test]
@@ -152,12 +152,12 @@ async fn receive_backoff_can_be_interrupted() {
             InMemorySink::default(),
             |n| async move { Ok(n) },
         )
-        .receive_retry(RetryPolicy {
-            max_attempts: 3,
-            initial_delay: Duration::from_secs(60),
-            max_delay: Duration::from_secs(60),
-            ..RetryPolicy::default()
-        }),
+        .receive_retry(
+            RetryPolicy::default()
+                .max_attempts(3)
+                .initial_delay(Duration::from_secs(60))
+                .max_delay(Duration::from_secs(60)),
+        ),
     );
     let run = tokio::spawn(app.run_until(token));
     while calls.load(Ordering::SeqCst) == 0 {
@@ -195,11 +195,11 @@ async fn handler_retry_is_explicit() {
                     }
                 },
             )
-            .retry(fast()),
+            .handler_retry(fast()),
         )
         .run()
         .await
         .unwrap();
     assert_eq!(attempts.load(Ordering::SeqCst), 3);
-    assert_eq!(acks.load(Ordering::SeqCst), 1);
+    assert_eq!(acks.count(), 1);
 }

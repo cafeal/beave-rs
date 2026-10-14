@@ -2,8 +2,8 @@ use beavers::{
     App, BoxError, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json, Result,
     Subscription,
     adapters::sqs::{
-        SqsAttributeValue, SqsAttributes, SqsDeadLetter, SqsInherit, SqsMetadata, SqsOrigin,
-        SqsPublish, SqsRecord,
+        SqsAttributeValue, SqsAttributes, SqsDeadLetter, SqsInherit, SqsOrigin, SqsPublish,
+        SqsRecord,
     },
     testing::{SqsTestSource, sqs_record},
 };
@@ -25,13 +25,12 @@ fn order(message_id: &str, value: &str) -> SqsRecord<Vec<u8>> {
 
 /// The message a consumer of the dead-letter queue receives for `publish`.
 fn received(publish: SqsPublish<Vec<u8>>, message_id: &str) -> SqsRecord<Vec<u8>> {
+    let mut metadata = sqs_record("https://sqs/123/orders-dlq.fifo", message_id, "").metadata;
+    metadata.message_group_id = publish.message_group_id;
     SqsRecord {
         value: publish.value,
         attributes: publish.attributes,
-        metadata: SqsMetadata {
-            message_group_id: publish.message_group_id,
-            ..sqs_record("https://sqs/123/orders-dlq.fifo", message_id, "").metadata
-        },
+        metadata,
     }
 }
 
@@ -54,7 +53,7 @@ async fn dead_letter(name: &str, records: Vec<SqsRecord<Vec<u8>>>) -> Vec<SqsPub
                 InMemorySink::<u32>::default(),
                 reject_odd,
             )
-            .dlq_with(dlq.clone(), |dead| Ok(SqsPublish::from_dead_letter(dead)))
+            .dead_letter_with(dlq.clone(), |dead| Ok(SqsPublish::from_dead_letter(dead)))
             .error_policy(ErrorPolicy::dead_letter_all()),
         )
         .run()

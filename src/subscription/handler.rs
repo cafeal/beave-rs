@@ -1,8 +1,8 @@
 //! Handler shapes accepted by subscription constructors.
 use super::builder::Subscription;
 use crate::{
-    forward::{SamePlatform, ValueRecord},
     handler::{Emit, Handler},
+    record::{SamePlatform, ValueRecord},
     sink::Sink,
     source::{Source, SourceItem},
 };

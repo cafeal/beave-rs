@@ -9,6 +9,7 @@ pub type PubSubAttributes = BTreeMap<String, String>;
 
 /// Read-only facts about a received message.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub struct PubSubMetadata {
     /// The subscription the source consumes.
     pub subscription: String,
@@ -34,13 +35,6 @@ pub struct PubSubRecord<T> {
     pub ordering_key: Option<String>,
     /// Read-only facts about the received message.
     pub metadata: PubSubMetadata,
-}
-
-impl<T> PubSubRecord<T> {
-    /// Read-only facts about the received message.
-    pub fn metadata(&self) -> &PubSubMetadata {
-        &self.metadata
-    }
 }
 
 /// User-controlled Pub/Sub output. The topic comes from the sink configuration.

@@ -67,11 +67,11 @@ impl RabbitMqPublish<Vec<u8>> {
     /// headers, and properties, plus failure-detail string headers named with
     /// [`DEAD_LETTER_HEADER_PREFIX`].
     ///
-    /// Pass it to [`Subscription::dlq_with`](crate::Subscription::dlq_with) with a sink that
-    /// publishes raw bytes; the sink's routing key applies. When the original message
-    /// already carries dead-letter headers, because it was received from a dead-letter
-    /// queue, its origin is kept and its count is incremented. Malformed dead-letter headers
-    /// are replaced as if the message had never been dead-lettered.
+    /// Pass it to [`Subscription::dead_letter_with`](crate::Subscription::dead_letter_with) with a
+    /// sink that publishes raw bytes; the sink's routing key applies. When the original message
+    /// already carries dead-letter headers, because it was received from a dead-letter queue, its
+    /// origin is kept and its count is incremented. Malformed dead-letter headers are replaced as
+    /// if the message had never been dead-lettered.
     pub fn from_dead_letter<I>(dead_letter: DeadLetter<I, RabbitMqRecord<Vec<u8>>>) -> Self {
         let previous = RabbitMqDeadLetter::from_record(&dead_letter.raw)
             .ok()

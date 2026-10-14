@@ -25,20 +25,6 @@ according to the actual source and sink capabilities.
 The project does not aim to provide stateful stream processing, windows, joins,
 watermarks, state stores, distributed scheduling, SQL, or general DAG execution.
 
-## Cross-platform metadata mapping
-
-Typed output middleware and same-platform inheritance are described in the
-[runtime guide](runtime/middleware.md). Cross-platform mappings are
-currently application-written `MapMetadata` functions. Remaining decisions:
-
-- whether adapters should provide reusable conversions between platforms, such
-  as Kafka headers to Pulsar properties or SQS message attributes, without a
-  universal metadata structure;
-- a clear policy when cross-platform value-only forwarding would discard
-  metadata, including whether such a subscription should warn or fail at
-  startup;
-- typed Kafka keys as a possible refinement of the byte-oriented key field.
-
 ## Middleware
 
 The asynchronous `pre_handler` and `post_handler` hooks are described in the
@@ -458,9 +444,9 @@ The crate is published as `beavers`; versioning and the compatibility contract
 are described in [versioning and releases](releasing.md). Remaining work before
 the first crates.io release:
 
-- Review the public API: internal types leaking through public signatures,
-  `#[non_exhaustive]` on configuration structs and enums that are expected to
-  grow, and names that should change before `0.1.0`.
+- Decide a consistent set of `with_*` builder methods on the `*Publish` types,
+  which differ by adapter: `KafkaPublish` and `PulsarPublish` have none, while
+  `SqsPublish` has only `with_message_group_id`.
 - After the first release, add `cargo-semver-checks` to CI and switch the
   release workflow from the API token to crates.io trusted publishing.
 - Create the project icon and character, and place them in the landing page
@@ -472,11 +458,10 @@ the first crates.io release:
 | Priority | Scope |
 |---|---|
 | 1 | Adapter pause/resume backpressure and graceful rebalance handoff |
-| 2 | Cross-platform metadata mapping policy |
-| 3 | Observability refinements |
-| 4 | Live verification of batched Kafka transactions and shared connections |
-| 5 | NATS JetStream adapter |
-| 6 | Schema Registry and additional codecs |
+| 2 | Observability refinements |
+| 3 | Live verification of batched Kafka transactions and shared connections |
+| 4 | NATS JetStream adapter |
+| 5 | Schema Registry and additional codecs |
 
 The order may change when a concrete application requires a later capability.
 When work begins, update this document with any newly resolved decisions. When

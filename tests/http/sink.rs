@@ -6,7 +6,7 @@ use beavers::{
 };
 use metrics_util::debugging::DebugValue;
 use serde::Serialize;
-use std::{net::TcpListener, sync::atomic::Ordering, time::Duration};
+use std::{net::TcpListener, time::Duration};
 
 #[derive(Clone, Debug, Serialize)]
 struct Order {
@@ -14,12 +14,10 @@ struct Order {
 }
 
 fn fast() -> RetryPolicy {
-    RetryPolicy {
-        max_attempts: 3,
-        initial_delay: Duration::ZERO,
-        max_delay: Duration::ZERO,
-        ..RetryPolicy::default()
-    }
+    RetryPolicy::default()
+        .max_attempts(3)
+        .initial_delay(Duration::ZERO)
+        .max_delay(Duration::ZERO)
 }
 
 fn sink(url: String) -> HttpSink<Utf8> {
@@ -70,7 +68,7 @@ fn prepare_merges_handle_sink_and_output_headers() {
         )
         .unwrap();
 
-    assert_eq!(prepared.body(), b"hello");
+    assert_eq!(prepared.payload(), b"hello");
     let mut headers: Vec<_> = prepared.headers().collect();
     headers.sort();
     assert_eq!(
@@ -134,7 +132,7 @@ async fn outputs_are_sent_with_configured_method_url_and_headers() {
         assert_eq!(request.header("idempotency-key"), vec![id.to_string()]);
         assert_eq!(request.body, format!(r#"{{"id":{id}}}"#).into_bytes());
     }
-    assert_eq!(acks.load(Ordering::SeqCst), 2);
+    assert_eq!(acks.count(), 2);
 }
 
 #[tokio::test]
@@ -158,7 +156,7 @@ async fn transient_failures_are_retried_until_accepted() {
         .unwrap();
 
     assert_eq!(destination.received().len(), 3);
-    assert_eq!(acks.load(Ordering::SeqCst), 1);
+    assert_eq!(acks.count(), 1);
 }
 
 #[tokio::test]
@@ -185,7 +183,7 @@ async fn timed_out_attempt_is_retried() {
         .unwrap();
 
     assert_eq!(destination.received().len(), 2);
-    assert_eq!(acks.load(Ordering::SeqCst), 1);
+    assert_eq!(acks.count(), 1);
 }
 
 #[tokio::test]
@@ -213,7 +211,7 @@ async fn unreachable_destination_stops_without_ack() {
         .unwrap_err();
 
     assert!(format!("{error:#}").contains("publish retry exhausted"));
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
 }
 
 #[tokio::test]
@@ -232,7 +230,7 @@ async fn rejected_output_is_dead_lettered_without_retry() {
                 |body: String| async move { Ok(HttpPublish::new(body)) },
             )
             .publish_retry(fast())
-            .dlq(dlq.clone()),
+            .dead_letter(dlq.clone()),
         )
         .run()
         .await
@@ -248,7 +246,7 @@ async fn rejected_output_is_dead_lettered_without_retry() {
         destination.addr
     );
     assert!(letter.error.contains(&expected), "{}", letter.error);
-    assert_eq!(acks.load(Ordering::SeqCst), 2);
+    assert_eq!(acks.count(), 2);
 }
 
 #[tokio::test]
@@ -270,7 +268,7 @@ async fn rejected_output_without_dead_letter_sink_stops_without_ack() {
 
     assert!(format!("{error:#}").contains("404 Not Found"));
     assert_eq!(destination.received().len(), 1);
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
 }
 
 #[tokio::test]
