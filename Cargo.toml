@@ -1,6 +1,6 @@
 [package]
 name = "beavers"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 rust-version = "1.94.1"
 description = "Typed message processing for Kafka, Pulsar, RabbitMQ, SQS, Azure Service Bus, and HTTP with explicit delivery semantics"

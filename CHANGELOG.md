@@ -7,6 +7,58 @@ project follows the versioning policy in
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-10-14
+
+A preview for trying the API. `0.1.0` will be the first release intended for
+use.
+
+### Added
+
+- A Google Cloud Pub/Sub source and sink behind the `pubsub` feature.
+- An Azure Service Bus source and sink behind the `servicebus` feature, with
+  peek-lock receipt and lock renewal.
+- MessagePack and CBOR codecs behind the `msgpack` and `cbor` features, and
+  Base64, gzip, and zstd wrappers behind the `base64`, `gzip`, and `zstd`
+  features.
+- `Avro<T>::default()` for types that implement `AvroSchema`, taking the
+  schema from the type.
+- Guides published on the project website, including monitoring and alerting
+  for Kubernetes and cloud providers, dead-letter handling, and a reference
+  page for each adapter and codec.
+
+### Changed
+
+- **Breaking:** Each adapter has a connection handle, such as `Kafka::new`,
+  `Pulsar`, `RabbitMq`, `Sqs`, `PubSub`, `ServiceBus`, and `HttpClient`, that
+  builds its sources and sinks and shares one connection among them. Required
+  values are arguments and optional settings are builder methods. Build sources
+  and sinks from a handle instead of from configuration structs.
+- **Breaking:** Sources and sinks take one type parameter, the codec, which
+  names the payload type: write `KafkaSink<Json<Invoice>>` instead of
+  `KafkaSink<Json, Invoice>`. `Json`, `Avro`, `Protobuf`, `MessagePack`, and
+  `Cbor` are generic over their value type, and the new `Codec` trait, which
+  `Decoder` and `Encoder` extend, names it as `Value`.
+- **Breaking:** `App::subscribe` and the `Subscription` constructors accept a
+  handler whose input is either the received record or its value, and whose
+  output is either a publish record or a plain value. A plain output value is
+  wrapped in the source platform's publish record with default metadata
+  inheritance.
+- **Breaking:** The crate reports errors as `beavers::Error`, and
+  application-implemented traits such as codecs, sources, and sinks return
+  `BoxError`. `anyhow` is no longer part of the public API or a dependency.
+- The README starts with a Kafka quick start.
+
+### Removed
+
+- **Breaking:** Adapter configuration structs and the constructors that took
+  them; use the connection handles.
+- **Breaking:** `Subscription::forward` and `Subscription::forward_emitting`;
+  pass a value handler to `App::subscribe` or `Subscription::new` instead.
+
+## [0.0.1] - 2026-10-02
+
+Published to reserve the crate name on crates.io; not intended for use.
+
 ### Added
 
 - Typed `Source → Handler → Sink` subscriptions with at-least-once
@@ -14,19 +66,12 @@ project follows the versioning policy in
   handler, publish, and dead-letter retry policies, and graceful shutdown.
 - Error classification with `HandlerError` and `Classify`, routing through
   `ErrorPolicy`, and dead-letter sinks.
-- `beavers::Error` for errors the crate reports, such as from `App::run` and
-  configuration validation, and `BoxError` for errors returned by application
-  components such as codecs, sources, and sinks. The crate does not expose or
-  depend on `anyhow`.
 - Typed middleware, value-only forwarding between sources and sinks of one
   platform, tombstone handling, and synchronous handlers on a bounded pool.
 - Local adapters and an in-process channel that chains subscriptions with
   end-to-end acknowledgement.
-- Kafka, Apache Pulsar, RabbitMQ, and HTTP adapters behind Cargo features,
-  including Kafka-to-Kafka transactions.
-- Google Cloud Pub/Sub source and sink adapters behind the `pubsub` feature.
-- An Azure Service Bus source and sink behind the `servicebus` feature, with
-  peek-lock receipt and lock renewal.
+- Kafka, Apache Pulsar, RabbitMQ, Amazon SQS, and HTTP adapters behind Cargo
+  features, including Kafka-to-Kafka transactions.
 - JSON, raw byte, and UTF-8 codecs, with Avro and Protobuf behind features.
 - `tracing` spans and `metrics` instruments for every delivery stage,
   trace-context propagation with the `opentelemetry` feature, liveness and
