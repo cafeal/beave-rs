@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="style.css">
+  <link rel="alternate" type="text/markdown" href="index.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="./">beave-rs</a>
+      <nav>
+        <a href="docs/index.html">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+<main class="landing">
+<!--
+  Body of the website's top page. tools/pages/build.mjs wraps it in the shared
+  page layout and highlights the code blocks. Links are relative to the site
+  root.
+-->
+<section class="hero">
+  <div class="wrap">
+    <!-- Replace this figure with the project character artwork. -->
+    <figure class="character" aria-label="Character artwork placeholder"></figure>
+    <h1>beave-rs</h1>
+    <p class="lead">A lightweight Rust message processing framework built around typed handlers.</p>
+    <div class="install">
+      <pre><code><span class="prompt" aria-hidden="true">$ </span><span id="install-command">cargo add beavers --features kafka</span></code></pre>
+      <button type="button" class="copy" data-copy="install-command" aria-label="Copy command" title="Copy">
+        <svg class="icon-copy" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <svg class="icon-done" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+      </button>
+    </div>
+    <p class="actions">
+      <a class="button primary" href="docs/index.html">Read the guides</a>
+      <a class="button" href="https://docs.rs/beavers">docs.rs</a>
+    </p>
+    <p class="note">Pre-release. The API may change until 0.1.0.</p>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <h2>Example</h2>
+    <p>Summarize each article on a Kafka topic with an LLM and publish the summaries to another topic:</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{
+    App, Classify, <span class="hljs-type">Result</span>, Utf8,
+    adapters::kafka::Kafka,
+};
+
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">summarize</span>(article: <span class="hljs-type">String</span>) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;<span class="hljs-type">String</span>&gt; {
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">summary</span> = <span class="hljs-title function_ invoke__">call_llm</span>(&amp;<span class="hljs-built_in">format!</span>(<span class="hljs-string">&quot;Summarize: {article}&quot;</span>)).<span class="hljs-keyword">await</span>.<span class="hljs-title function_ invoke__">retry</span>()?;
+    <span class="hljs-title function_ invoke__">Ok</span>(summary)
+}
+
+<span class="hljs-meta">#[tokio::main]</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">main</span>() <span class="hljs-punctuation">-&gt;</span> anyhow::<span class="hljs-type">Result</span>&lt;()&gt; {
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>);
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">articles</span> = kafka.source::&lt;Utf8, _&gt;(<span class="hljs-string">&quot;summarizer&quot;</span>, [<span class="hljs-string">&quot;articles&quot;</span>]);
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">summaries</span> = kafka.sink::&lt;Utf8, _&gt;(<span class="hljs-string">&quot;summaries&quot;</span>);
+
+    App::<span class="hljs-title function_ invoke__">new</span>()
+        .<span class="hljs-title function_ invoke__">subscribe</span>(<span class="hljs-string">&quot;summarize&quot;</span>, articles, summaries, summarize)
+        .<span class="hljs-title function_ invoke__">run</span>()
+        .<span class="hljs-keyword">await</span>?;
+    <span class="hljs-title function_ invoke__">Ok</span>(())
+}</code></pre>
+    <p>The handler sees only the decoded value. A transient API failure is retried with backoff, and each offset is committed after its summary is published.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Subscriptions</h2>
+    <p>Each <code>Subscription</code> connects one source, one handler, and one sink. An <code>App</code> runs any number of subscriptions side by side and shuts them down together. The <a href="docs/architecture.html">architecture guide</a> describes the contracts each part implements.</p>
+    <div class="diagram-wrap">
+      <img class="diagram" src="docs/assets/overview.svg" width="760" height="330" alt="An App running three subscriptions: Kafka source to handler to Kafka sink, Pulsar source to handler to HTTP sink, and SQS source to handler to RabbitMQ sink">
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <h2>Features</h2>
+    <div class="grid">
+      <a class="card" href="docs/runtime.html#handler-shapes">
+        <h3>Typed handlers</h3>
+        <p>Write <code>async fn(T) -&gt; Result&lt;U&gt;</code>; decoding, publishing, and acknowledgement are handled for you.</p>
+      </a>
+      <a class="card" href="docs/runtime.html#per-message-lifecycle">
+        <h3>At-least-once delivery</h3>
+        <p>An input is acknowledged only after its output is published.</p>
+      </a>
+      <a class="card" href="docs/runtime.html#errors-and-retries">
+        <h3>Explicit failure handling</h3>
+        <p>Classify errors as retry, reject (dead-letter), or fatal; retries back off.</p>
+      </a>
+      <a class="card" href="docs/runtime.html#ordering-and-backpressure">
+        <h3>Concurrency with ordering</h3>
+        <p>Bounded concurrency, per-key ordering, and a worker pool for blocking handlers.</p>
+      </a>
+      <a class="card" href="docs/adapters/channel.html">
+        <h3>Pipelines</h3>
+        <p>Chain subscriptions through in-process channels with end-to-end acknowledgement.</p>
+      </a>
+      <a class="card" href="docs/runtime.html#observability">
+        <h3>Operations</h3>
+        <p>Graceful shutdown, <code>tracing</code> spans, <code>metrics</code>, OpenTelemetry trace propagation, and <code>/livez</code> and <code>/readyz</code> probes.</p>
+      </a>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Adapters and codecs</h2>
+    <p>No Cargo feature is enabled by default. Enable the adapters and codecs the application uses.</p>
+    <h3 class="group-title">Adapters</h3>
+    <div class="links">
+      <a href="docs/adapters/kafka.html"><strong>Kafka</strong><code>kafka</code></a>
+      <a href="docs/adapters/pulsar.html"><strong>Apache Pulsar</strong><code>pulsar</code></a>
+      <a href="docs/adapters/rabbitmq.html"><strong>RabbitMQ</strong><code>rabbitmq</code></a>
+      <a href="docs/adapters/sqs.html"><strong>Amazon SQS</strong><code>sqs</code></a>
+      <a href="docs/adapters/pubsub.html"><strong>Google Cloud Pub/Sub</strong><code>pubsub</code></a>
+      <a href="docs/adapters/servicebus.html"><strong>Azure Service Bus</strong><code>servicebus</code></a>
+      <a href="docs/adapters/http.html"><strong>HTTP</strong><code>http</code></a>
+      <a href="docs/adapters/channel.html"><strong>In-process channel</strong><span class="builtin">Built in</span></a>
+    </div>
+    <h3 class="group-title">Codecs</h3>
+    <div class="links">
+      <a href="docs/codecs.html#json"><strong>JSON</strong><span class="builtin">Built in</span></a>
+      <a href="docs/codecs/raw-utf8.html"><strong>Raw bytes and UTF-8</strong><span class="builtin">Built in</span></a>
+      <a href="docs/codecs/protobuf.html"><strong>Protobuf</strong><code>protobuf</code></a>
+      <a href="docs/codecs/avro.html"><strong>Avro</strong><code>avro</code></a>
+    </div>
+    <p><code>opentelemetry</code> propagates trace context through broker metadata, <code>health</code> serves <code>/livez</code> and <code>/readyz</code>, and <code>testing</code> provides <a href="docs/testing.html">fabricated broker records for handler tests</a>.</p>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <h2>Errors</h2>
+    <p>Errors propagated with <code>?</code> reject the input, which is dead-lettered by default. The handler asks for other outcomes at the call site:</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">async</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">handle</span>(order: Order) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Result</span>&lt;Output&gt; {
+    <span class="hljs-title function_ invoke__">validate</span>(&amp;order).<span class="hljs-title function_ invoke__">reject</span>()?; <span class="hljs-comment">// dead-letter now (same as `?`)</span>
+    <span class="hljs-keyword">let</span> <span class="hljs-variable">user</span> = db.<span class="hljs-title function_ invoke__">find_user</span>(order.user_id).<span class="hljs-keyword">await</span>.<span class="hljs-title function_ invoke__">retry</span>()?; <span class="hljs-comment">// retry, then dead-letter</span>
+    <span class="hljs-title function_ invoke__">Ok</span>(<span class="hljs-title function_ invoke__">build_output</span>(order, user))
+}</code></pre>
+    <p><code>.fatal()?</code> stops the subscription. <a href="docs/dead-letter-handling.html">Handling dead letters</a> covers what to do with rejected inputs.</p>
+  </div>
+</section>
+
+<section class="closing">
+  <div class="wrap">
+    <h2>Guides</h2>
+    <p>Configuration, delivery behavior for each broker, testing, monitoring, and local development brokers.</p>
+    <p class="actions">
+      <a class="button primary" href="docs/index.html">Read the guides</a>
+    </p>
+  </div>
+</section>
+
+<script>
+  for (const button of document.querySelectorAll("button.copy")) {
+    let timer;
+    button.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(document.getElementById(button.dataset.copy).textContent);
+      button.classList.add("done");
+      button.setAttribute("aria-label", "Copied");
+      button.title = "Copied";
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        button.classList.remove("done");
+        button.setAttribute("aria-label", "Copy command");
+        button.title = "Copy";
+      }, 1500);
+    });
+  }
+</script>
+</main>
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>
