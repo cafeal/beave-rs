@@ -1,7 +1,7 @@
 //! Receive lifecycle and source resource ownership.
 use crate::error::BoxError;
 use crate::message::SourceMessage;
-use std::future::Future;
+use std::{future::Future, sync::Arc};
 
 /// Decoded handler input associated with a source.
 pub type SourceItem<S> = <<S as Source>::Message as SourceMessage>::Item;
@@ -53,4 +53,23 @@ pub trait Source: Send + 'static {
     fn close(&mut self) -> impl Future<Output = Result<(), BoxError>> + Send {
         async { Ok(()) }
     }
+    /// A handle through which the runtime reads the source's connection state
+    /// for health reports and metrics. Called once, before the
+    /// first `receive`; a source that connects lazily returns a handle that
+    /// reports an unknown state until it connects. Sources that cannot observe
+    /// their connection return `None`.
+    fn probe(&self) -> Option<Arc<dyn SourceProbe>> {
+        None
+    }
+}
+
+/// Connection state observed by a source.
+///
+/// Health reports read the probe on every request, so it must answer
+/// immediately from state the source already holds, without network access.
+pub trait SourceProbe: Send + Sync + 'static {
+    /// Whether the source is connected to its broker, or `None` while unknown,
+    /// for example before the source connects. A source that reports
+    /// `Some(false)` makes its subscription unready.
+    fn connected(&self) -> Option<bool>;
 }

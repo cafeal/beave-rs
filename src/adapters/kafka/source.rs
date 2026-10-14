@@ -1,15 +1,16 @@
 use super::{
     client::Kafka,
     config::SourceConfig,
+    probe::{KafkaProbe, STATISTICS_INTERVAL_MS},
     progress::{Context, KafkaConsumer, Progress, TransactionGate},
     record::{KafkaMetadata, KafkaRecord, text_headers},
 };
 use crate::{
     codec::Decoder,
     error::{BoxError, Error},
-    message::{OrderingKey, SourceMessage},
+    message::{MessagingAttributes, OrderingKey, SourceMessage},
     shutdown::CancellationToken,
-    source::{Receive, ReceiveError, Source},
+    source::{Receive, ReceiveError, Source, SourceProbe},
 };
 use rdkafka::{
     Offset, TopicPartitionList,
@@ -35,6 +36,8 @@ pub struct KafkaSource<C> {
     /// unlocked during librdkafka's blocking synchronous commit.
     commit_gate: Arc<tokio::sync::Mutex<()>>,
     transactions: TransactionGate,
+    probe: Arc<KafkaProbe>,
+    group_id: Arc<str>,
     closed: bool,
 }
 
@@ -42,12 +45,14 @@ impl<C> KafkaSource<C> {
     pub(super) fn new(kafka: Kafka, config: SourceConfig, codec: C) -> Self {
         Self {
             kafka,
+            group_id: config.group_id.as_str().into(),
             config,
             codec: Arc::new(codec),
             consumer: None,
             progress: Arc::default(),
             commit_gate: Arc::default(),
             transactions: Arc::default(),
+            probe: Arc::default(),
             closed: false,
         }
     }
@@ -77,6 +82,10 @@ impl<C> KafkaSource<C> {
         for (key, value) in &self.config.properties {
             config.set(key, value);
         }
+        // The health probe reads the connection state from statistics.
+        if config.get("statistics.interval.ms").is_none() {
+            config.set("statistics.interval.ms", STATISTICS_INTERVAL_MS);
+        }
         // The adapter owns offset progress, regardless of user properties.
         config
             .set("group.id", &self.config.group_id)
@@ -85,6 +94,7 @@ impl<C> KafkaSource<C> {
         let consumer: KafkaConsumer = config.create_with_context(Context {
             progress: self.progress.clone(),
             transactions: self.transactions.clone(),
+            probe: self.probe.clone(),
         })?;
         consumer.subscribe(
             &self
@@ -132,6 +142,7 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for KafkaSource<C>
                 progress: self.progress.clone(),
                 commit_gate: self.commit_gate.clone(),
                 transactions: self.transactions.clone(),
+                group_id: self.group_id.clone(),
                 generation,
                 revoked,
             }));
@@ -147,7 +158,12 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for KafkaSource<C>
         if let Some(consumer) = self.consumer.take() {
             consumer.unsubscribe();
         }
+        self.probe.clear();
         Ok(())
+    }
+
+    fn probe(&self) -> Option<Arc<dyn SourceProbe>> {
+        Some(self.probe.clone())
     }
 }
 
@@ -160,6 +176,7 @@ pub struct KafkaMessage<C> {
     commit_gate: Arc<tokio::sync::Mutex<()>>,
     pub(super) transactions: TransactionGate,
     pub(super) generation: u64,
+    group_id: Arc<str>,
     revoked: CancellationToken,
 }
 
@@ -256,5 +273,15 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for KafkaMe
             .headers()
             .map(|headers| text_headers(headers.iter().map(|header| (header.key, header.value))))
             .unwrap_or_default()
+    }
+
+    fn messaging_attributes(&self) -> Option<MessagingAttributes<'_>> {
+        Some(
+            MessagingAttributes::new("kafka")
+                .destination(self.raw.topic())
+                .partition(i64::from(self.raw.partition()))
+                .kafka_offset(self.raw.offset())
+                .consumer_group(&self.group_id),
+        )
     }
 }

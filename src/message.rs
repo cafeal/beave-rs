@@ -2,7 +2,7 @@
 use crate::error::BoxError;
 use crate::shutdown::CancellationToken;
 use serde::Serialize;
-use std::{fmt::Debug, future::Future, pin::Pin, sync::Arc};
+use std::{borrow::Cow, fmt::Debug, future::Future, pin::Pin, sync::Arc};
 
 /// Identifies a source-defined ordering scope, such as a Kafka topic partition
 /// or a message key within a Pulsar topic partition.
@@ -79,6 +79,77 @@ pub trait SourceMessage: Send + 'static {
     /// parent from them. Sources without such metadata return nothing.
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
         Vec::new()
+    }
+    /// What this delivery is in OpenTelemetry messaging terms, such as its
+    /// broker, topic, partition, and offset. The runtime records the attributes
+    /// on the delivery's `message` span. Sources that are not message brokers
+    /// return `None`.
+    fn messaging_attributes(&self) -> Option<MessagingAttributes<'_>> {
+        None
+    }
+}
+
+/// OpenTelemetry messaging semantic-convention attributes of one delivery.
+///
+/// Built by a [`SourceMessage`] from its own metadata and recorded by the
+/// runtime on the delivery's `message` span, together with
+/// `messaging.operation.type` and `messaging.operation.name` set to `process`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessagingAttributes<'a> {
+    pub(crate) system: &'static str,
+    pub(crate) destination: Option<&'a str>,
+    pub(crate) partition: Option<i64>,
+    pub(crate) kafka_offset: Option<i64>,
+    pub(crate) message_id: Option<Cow<'a, str>>,
+    pub(crate) consumer_group: Option<&'a str>,
+    pub(crate) subscription: Option<&'a str>,
+}
+
+impl<'a> MessagingAttributes<'a> {
+    /// Attributes of a delivery from `system`, the `messaging.system` value
+    /// such as `kafka`, `pulsar`, `rabbitmq`, `aws_sqs`, `gcp_pubsub`, or
+    /// `servicebus`.
+    pub fn new(system: &'static str) -> Self {
+        Self {
+            system,
+            destination: None,
+            partition: None,
+            kafka_offset: None,
+            message_id: None,
+            consumer_group: None,
+            subscription: None,
+        }
+    }
+    /// `messaging.destination.name`: the topic or queue the delivery came from.
+    pub fn destination(mut self, name: &'a str) -> Self {
+        self.destination = Some(name);
+        self
+    }
+    /// `messaging.destination.partition.id`.
+    pub fn partition(mut self, id: i64) -> Self {
+        self.partition = Some(id);
+        self
+    }
+    /// `messaging.kafka.offset`.
+    pub fn kafka_offset(mut self, offset: i64) -> Self {
+        self.kafka_offset = Some(offset);
+        self
+    }
+    /// `messaging.message.id`.
+    pub fn message_id(mut self, id: impl Into<Cow<'a, str>>) -> Self {
+        self.message_id = Some(id.into());
+        self
+    }
+    /// `messaging.consumer.group.name`, such as a Kafka consumer group.
+    pub fn consumer_group(mut self, name: &'a str) -> Self {
+        self.consumer_group = Some(name);
+        self
+    }
+    /// `messaging.destination.subscription.name`, such as a Pulsar, Pub/Sub,
+    /// or Service Bus subscription.
+    pub fn subscription(mut self, name: &'a str) -> Self {
+        self.subscription = Some(name);
+        self
     }
 }
 

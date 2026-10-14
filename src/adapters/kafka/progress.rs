@@ -1,8 +1,10 @@
+use super::probe::KafkaProbe;
 use crate::error::{BoxError, Error, ensure};
 use crate::shutdown::CancellationToken;
 use rdkafka::{
     ClientContext,
     consumer::{BaseConsumer, ConsumerContext, Rebalance, StreamConsumer},
+    statistics::Statistics,
 };
 use std::{
     collections::{BTreeMap, HashMap},
@@ -151,9 +153,14 @@ pub(super) type TransactionGate = Arc<Mutex<()>>;
 pub(super) struct Context {
     pub(super) progress: Arc<Mutex<Progress>>,
     pub(super) transactions: TransactionGate,
+    pub(super) probe: Arc<KafkaProbe>,
 }
 
-impl ClientContext for Context {}
+impl ClientContext for Context {
+    fn stats(&self, statistics: Statistics) {
+        self.probe.update(&statistics);
+    }
+}
 
 impl ConsumerContext for Context {
     fn pre_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {

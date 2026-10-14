@@ -1,10 +1,10 @@
 use beavers::{
     App, BoxError, CancellationToken, Delivery, Error, Health, Receive, ReceiveError, RetryPolicy,
-    Sink, Source, Subscription, health::SubscriptionStatus,
+    Sink, Source, SourceProbe, Subscription, health::SubscriptionStatus,
 };
 use std::{
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -217,6 +217,115 @@ async fn draining_subscription_is_unready_but_live() {
 
     release.notify_one();
     running.await.unwrap().unwrap();
+}
+
+/// Connection state the test sets.
+#[derive(Default)]
+struct Reading(Mutex<Option<bool>>);
+
+impl SourceProbe for Reading {
+    fn connected(&self) -> Option<bool> {
+        *self.0.lock().unwrap()
+    }
+}
+
+/// A scripted source that reports a probe.
+struct Probed(Scripted, Arc<Reading>);
+
+impl Source for Probed {
+    type Message = Delivery<i32>;
+
+    async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
+        self.0.receive().await
+    }
+
+    fn probe(&self) -> Option<Arc<dyn SourceProbe>> {
+        Some(self.1.clone())
+    }
+}
+
+#[tokio::test]
+async fn disconnected_source_makes_the_application_unready() {
+    let reading = Arc::new(Reading::default());
+    let (_input, receiver) = mpsc::unbounded_channel();
+    let source = Probed(Scripted(receiver), reading.clone());
+    let app = App::new().subscription(Subscription::new(
+        "orders",
+        source,
+        Switch::default(),
+        |value: i32| async move { Ok(value) },
+    ));
+    let health = app.health();
+    let shutdown = CancellationToken::new();
+    let running = run(app, &shutdown);
+    eventually(&health, Health::is_ready).await;
+    assert_eq!(health.report().subscriptions[0].connected, None);
+
+    *reading.0.lock().unwrap() = Some(true);
+    let report = health.report();
+    assert!(report.ready);
+    assert_eq!(report.subscriptions[0].connected, Some(true));
+
+    *reading.0.lock().unwrap() = Some(false);
+    let report = health.report();
+    assert!(!report.ready && report.live);
+
+    *reading.0.lock().unwrap() = Some(true);
+    assert!(health.is_ready());
+
+    shutdown.cancel();
+    running.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn stuck_handler_is_not_live_after_the_stall_timeout() {
+    let release = Arc::new(Notify::new());
+    let (sender, receiver) = mpsc::unbounded_channel();
+    let subscription = Subscription::new("orders", Scripted(receiver), Switch::default(), {
+        let release = release.clone();
+        move |value: i32| {
+            let release = release.clone();
+            async move {
+                if value == 1 {
+                    release.notified().await;
+                }
+                Ok(value)
+            }
+        }
+    })
+    .stall_timeout(Duration::from_millis(100));
+    let app = App::new().subscription(subscription);
+    let health = app.health();
+    let shutdown = CancellationToken::new();
+    let running = run(app, &shutdown);
+    eventually(&health, Health::is_ready).await;
+
+    // An idle subscription is never stalled.
+    sleep(Duration::from_millis(200)).await;
+    assert!(health.is_live());
+
+    sender.send(Some(1)).unwrap();
+    eventually(&health, |health| !health.is_live()).await;
+    let report = health.report();
+    assert!(report.subscriptions[0].stalled);
+    assert_eq!(report.subscriptions[0].status, SubscriptionStatus::Running);
+
+    release.notify_one();
+    eventually(&health, Health::is_live).await;
+    assert!(!health.report().subscriptions[0].stalled);
+
+    shutdown.cancel();
+    running.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn zero_stall_timeout_is_rejected() {
+    let (subscription, _input) = scripted("orders", Switch::default());
+    let result = App::new()
+        .subscription(subscription.stall_timeout(Duration::ZERO))
+        .run()
+        .await;
+    assert!(matches!(result, Err(Error::Config(_))), "{result:?}");
 }
 
 #[cfg(feature = "health")]

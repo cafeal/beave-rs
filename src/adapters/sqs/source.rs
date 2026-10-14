@@ -8,7 +8,7 @@ use super::{
 use crate::{
     codec::Decoder,
     error::{BoxError, Error},
-    message::{OrderingKey, SourceMessage},
+    message::{MessagingAttributes, OrderingKey, SourceMessage},
     retry::RetryPolicy,
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
@@ -377,6 +377,16 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for SqsMess
             .filter(|(_, value)| value.data_type().starts_with("String"))
             .filter_map(|(name, value)| Some((name.as_str(), value.string_value()?)))
             .collect()
+    }
+
+    fn messaging_attributes(&self) -> Option<MessagingAttributes<'_>> {
+        // The queue name is the last segment of the queue URL.
+        let queue = self.queue_url.rsplit('/').next().unwrap_or(&self.queue_url);
+        let mut attributes = MessagingAttributes::new("aws_sqs").destination(queue);
+        if let Some(id) = self.message.message_id() {
+            attributes = attributes.message_id(id);
+        }
+        Some(attributes)
     }
 }
 

@@ -365,6 +365,7 @@ where
                 dead_letter,
                 pipeline.dead_letter_retry.clone(),
                 instruments.dead_letter_publish_failures.clone(),
+                instruments.health.clone(),
             )
             .instrument(info_span!("dead_letter"))
             .await
@@ -381,13 +382,15 @@ where
     }
 }
 
-/// Publishes with retries. With `health`, the delivery counts as retrying its
-/// publication from the first failure until it succeeds or gives up. A rejection
-/// is returned without retrying.
+/// Publishes with retries. With `health`, each failed attempt counts as
+/// progress for stall detection, and with `unready_while_retrying` the delivery
+/// also counts as retrying its publication from the first failure until it
+/// succeeds or gives up. A rejection is returned without retrying.
 pub(super) async fn retry_publish<T, F, Fut>(
     policy: &RetryPolicy,
     failures: &Counter,
     health: Option<&Tracker>,
+    unready_while_retrying: bool,
     mut publish: F,
 ) -> Result<T, BoxError>
 where
@@ -400,6 +403,9 @@ where
         let result = publish().await;
         if result.is_err() {
             failures.increment(1);
+            if let Some(health) = health {
+                health.progressed();
+            }
         }
         match result {
             Ok(value) => return Ok(value),
@@ -409,7 +415,7 @@ where
             }
             Err(error) => {
                 debug!(attempt, error = chain(error.as_ref()), "retrying publish");
-                if retrying.is_none() {
+                if retrying.is_none() && unready_while_retrying {
                     retrying = health.map(Tracker::publish_retry);
                 }
                 tokio::time::sleep(policy.delay(attempt)).await;

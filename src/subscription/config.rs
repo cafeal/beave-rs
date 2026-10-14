@@ -92,6 +92,11 @@ pub(crate) struct SubscriptionConfig {
     /// Batching of a [transactional](crate::Subscription::transactional)
     /// subscription's commits; ignored by other subscriptions.
     pub(crate) transaction_batch: TransactionBatch,
+    /// How long deliveries may be in flight without any processing step
+    /// finishing before the subscription counts as
+    /// [stalled](crate::health::SubscriptionReport::stalled) and the
+    /// application as not live. `None`, the default, disables stall detection.
+    pub(crate) stall_timeout: Option<Duration>,
 }
 impl Default for SubscriptionConfig {
     fn default() -> Self {
@@ -106,6 +111,7 @@ impl Default for SubscriptionConfig {
             error_policy: ErrorPolicy::default(),
             drain_timeout: Duration::from_secs(30),
             transaction_batch: TransactionBatch::default(),
+            stall_timeout: None,
         }
     }
 }
@@ -115,6 +121,11 @@ impl SubscriptionConfig {
             self.concurrency > 0 && self.max_in_flight > 0,
             Error::config,
             "concurrency and max_in_flight must be positive"
+        );
+        ensure!(
+            self.stall_timeout != Some(Duration::ZERO),
+            Error::config,
+            "stall_timeout must be positive"
         );
         self.handler_retry.validate()?;
         self.receive_retry.validate()?;
