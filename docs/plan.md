@@ -470,8 +470,7 @@ the first crates.io release:
   release workflow from the API token to crates.io trusted publishing.
 - Create the project icon and character, and place them in the landing page
   (`site/index.html`) and the README.
-- Publish `0.0.1` to reserve the crate name, then `0.1.0` as the first release
-  intended for use.
+- Publish `0.1.0` as the first release intended for use.
 
 ## Implementation order
 

@@ -7,6 +7,11 @@ project follows the versioning policy in
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-10-14
+
+An early preview for trying the API. `0.1.0` will be the first release
+intended for use.
+
 ### Added
 
 - Typed `Source → Handler → Sink` subscriptions with at-least-once
@@ -22,12 +27,16 @@ project follows the versioning policy in
   platform, tombstone handling, and synchronous handlers on a bounded pool.
 - Local adapters and an in-process channel that chains subscriptions with
   end-to-end acknowledgement.
-- Kafka, Apache Pulsar, RabbitMQ, and HTTP adapters behind Cargo features,
-  including Kafka-to-Kafka transactions.
+- Kafka, Apache Pulsar, RabbitMQ, Amazon SQS, and HTTP adapters behind Cargo
+  features, including Kafka-to-Kafka transactions.
 - Google Cloud Pub/Sub source and sink adapters behind the `pubsub` feature.
 - An Azure Service Bus source and sink behind the `servicebus` feature, with
   peek-lock receipt and lock renewal.
-- JSON, raw byte, and UTF-8 codecs, with Avro and Protobuf behind features.
+- Connection handles, such as `Kafka::new`, from which an adapter's sources and
+  sinks are built and share one connection.
+- JSON, raw byte, and UTF-8 codecs, with Avro, Protobuf, MessagePack, and CBOR
+  behind features, and Base64, gzip, and zstd wrappers. A source or sink names
+  its payload type through its codec, as in `KafkaSink<Json<Invoice>>`.
 - `tracing` spans and `metrics` instruments for every delivery stage,
   trace-context propagation with the `opentelemetry` feature, liveness and
   readiness endpoints with the `health` feature, and test utilities with the
