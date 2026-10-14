@@ -7,6 +7,7 @@ mod client;
 mod config;
 mod dead_letter;
 mod inherit;
+mod poller;
 mod probe;
 mod progress;
 mod record;

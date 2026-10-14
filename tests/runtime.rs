@@ -8,6 +8,8 @@ mod dead_letter;
 mod failure;
 #[path = "runtime/fixtures.rs"]
 mod fixtures;
+#[path = "runtime/flow.rs"]
+mod flow;
 #[path = "runtime/lifecycle.rs"]
 mod lifecycle;
 #[path = "runtime/ordering.rs"]

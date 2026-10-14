@@ -1,8 +1,9 @@
 #![cfg(feature = "kafka")]
 
 use beavers::{
-    App, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage, Subscription, Utf8,
-    adapters::kafka::{Kafka, KafkaPublish, KafkaSource, KafkaTransactionalSink},
+    App, CancellationToken, OrderingKey, Receive, ReceiveError, Sink, Source, SourceMessage,
+    Subscription, Utf8,
+    adapters::kafka::{Kafka, KafkaMessage, KafkaPublish, KafkaSource, KafkaTransactionalSink},
 };
 use rdkafka::{
     ClientConfig, Offset, TopicPartitionList,
@@ -69,6 +70,45 @@ fn handle_rejects_a_transactional_id_property() {
             .producer_property("transactional.id", "orders-1")
             .validate()
             .is_err()
+    );
+}
+
+#[test]
+fn graceful_handoff_must_end_before_the_poll_interval() {
+    let kafka = Kafka::new("broker");
+    let source = || kafka.source::<Utf8>("group", ["topic"]);
+    assert!(
+        source()
+            .graceful_handoff(Duration::from_secs(10))
+            .validate()
+            .is_ok()
+    );
+    assert!(
+        source()
+            .graceful_handoff(Duration::ZERO)
+            .validate()
+            .is_err()
+    );
+    assert!(
+        source()
+            .graceful_handoff(Duration::from_secs(300))
+            .validate()
+            .is_err()
+    );
+    assert!(
+        source()
+            .property("max.poll.interval.ms", "5000")
+            .graceful_handoff(Duration::from_secs(10))
+            .validate()
+            .is_err()
+    );
+    assert!(
+        Kafka::new("broker")
+            .property("max.poll.interval.ms", "20000")
+            .source::<Utf8>("group", ["topic"])
+            .graceful_handoff(Duration::from_secs(10))
+            .validate()
+            .is_ok()
     );
 }
 
@@ -327,6 +367,158 @@ async fn submitted_records_complete_on_their_delivery_reports() {
         .expect("timed out publishing after the completions freed their slots")
         .unwrap();
     sink.close().await.unwrap();
+}
+
+/// Publishes `values` with one key, so they land in one partition in order
+/// whatever the topic's partition count.
+async fn publish_texts(kafka: &Kafka, topic: &str, values: &[&str]) {
+    let sink = kafka.sink::<Utf8>(topic);
+    for value in values {
+        let mut output = KafkaPublish::new((*value).to_owned());
+        output.key = Some(b"same-partition".to_vec());
+        let prepared = sink.prepare(output).unwrap();
+        tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
+            .await
+            .expect("timed out publishing to Kafka")
+            .unwrap();
+    }
+    sink.close().await.unwrap();
+}
+
+/// The next record within `wait`, retrying transient receive errors.
+async fn receive_within(
+    source: &mut KafkaSource<Utf8>,
+    wait: Duration,
+) -> Option<KafkaMessage<Utf8>> {
+    let deadline = tokio::time::Instant::now() + wait;
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        match tokio::time::timeout(remaining, source.receive()).await {
+            Err(_) => return None,
+            Ok(Ok(Receive::Message(message))) => return Some(message),
+            Ok(Ok(Receive::End)) => panic!("Kafka source ended"),
+            Ok(Err(ReceiveError::Retry(_))) => tokio::time::sleep(Duration::from_millis(100)).await,
+            Ok(Err(ReceiveError::Fatal(error))) => panic!("Kafka source failed: {error:#}"),
+        }
+    }
+}
+
+/// Requires a reachable development broker. It uses `KAFKA_BROKERS` when set,
+/// otherwise `localhost:9092`.
+#[tokio::test]
+#[ignore = "requires a Kafka broker; run with cargo test --features kafka -- --ignored"]
+async fn a_paused_partition_receives_nothing_until_resumed() {
+    let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
+    let topic = unique_name("beavers-kafka-pause");
+    let kafka = Kafka::new(&brokers);
+    publish_texts(&kafka, &topic, &["first"]).await;
+
+    let mut source = kafka
+        .source::<Utf8>(unique_name("beavers-kafka-pause-group"), [&topic])
+        .property("auto.offset.reset", "earliest");
+    let first = receive_within(&mut source, Duration::from_secs(20))
+        .await
+        .expect("timed out waiting for the first record");
+    let first_record = first.decode().unwrap().metadata;
+    let key = first.ordering_key().unwrap();
+    assert_eq!(
+        key,
+        OrderingKey::new(topic.as_str(), i64::from(first_record.partition))
+    );
+    assert!(source.pause(&key));
+    publish_texts(&kafka, &topic, &["second"]).await;
+    if let Some(message) = receive_within(&mut source, Duration::from_secs(3)).await {
+        panic!(
+            "a paused partition delivered {:?}",
+            message.decode().unwrap()
+        );
+    }
+
+    source.resume(&key);
+    let second = receive_within(&mut source, Duration::from_secs(20))
+        .await
+        .expect("timed out waiting for the record after resuming");
+    let second_record = second.decode().unwrap();
+    assert_eq!(second_record.value.as_deref(), Some("second"));
+    assert_eq!(second_record.metadata.partition, first_record.partition);
+    assert_eq!(second_record.metadata.offset, first_record.offset + 1);
+    first.ack().await.unwrap();
+    second.ack().await.unwrap();
+    source.close().await.unwrap();
+}
+
+/// Requires a reachable development broker. It uses `KAFKA_BROKERS` when set,
+/// otherwise `localhost:9092`. A second consumer joining the group revokes the
+/// first consumer's partition while one of its records is unacknowledged; the
+/// graceful handoff lets that acknowledgement commit before the revoke.
+#[tokio::test]
+#[ignore = "requires a Kafka broker; run with cargo test --features kafka -- --ignored"]
+async fn graceful_handoff_commits_a_delivery_acknowledged_during_the_revoke() {
+    let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
+    let topic = unique_name("beavers-kafka-handoff");
+    let group = unique_name("beavers-kafka-handoff-group");
+    let kafka = Kafka::new(&brokers);
+    publish_texts(&kafka, &topic, &["first", "second"]).await;
+
+    let source = {
+        let (kafka, group, topic) = (kafka.clone(), group.clone(), topic.clone());
+        move || {
+            kafka
+                .source::<Utf8>(group.clone(), [&topic])
+                .property("auto.offset.reset", "earliest")
+                .graceful_handoff(Duration::from_secs(20))
+        }
+    };
+    let mut first = source();
+    let message = receive_within(&mut first, Duration::from_secs(20))
+        .await
+        .expect("timed out waiting for the first record");
+    let handed_off = message.decode().unwrap().metadata;
+    let handoff = message.handoff().unwrap();
+    let revoked = message.revocation().unwrap();
+
+    // Joining the group starts a rebalance that revokes the first consumer's
+    // partition; receiving drives the second consumer's join.
+    let joining = tokio::spawn(async move {
+        let mut second = source();
+        let received = receive_within(&mut second, Duration::from_secs(40)).await;
+        let position = received.as_ref().map(|message| {
+            let metadata = message.decode().unwrap().metadata;
+            (metadata.partition, metadata.offset)
+        });
+        drop(received);
+        second.close().await.unwrap();
+        position
+    });
+    tokio::time::timeout(Duration::from_secs(30), handoff.cancelled())
+        .await
+        .expect("the partition was not handed off");
+    assert!(!revoked.is_cancelled());
+    message.ack().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(20), revoked.cancelled())
+        .await
+        .expect("the handoff did not end after the acknowledgement");
+
+    let consumer: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", &brokers)
+        .set("group.id", &group)
+        .create()
+        .unwrap();
+    let mut partitions = TopicPartitionList::new();
+    partitions.add_partition(&topic, handed_off.partition);
+    let committed = consumer
+        .committed_offsets(partitions, Duration::from_secs(10))
+        .unwrap();
+    let offset = committed.elements()[0].offset();
+    assert!(
+        offset == Offset::Offset(handed_off.offset + 1)
+            || offset == Offset::Offset(handed_off.offset + 2),
+        "the acknowledged record was not committed: {offset:?}"
+    );
+    // Whichever consumer owns the partition next starts after the record.
+    let next = joining.await.unwrap();
+    assert_ne!(next, Some((handed_off.partition, handed_off.offset)));
+    first.close().await.unwrap();
 }
 
 /// Requires a reachable development broker. It uses `KAFKA_BROKERS` when set,

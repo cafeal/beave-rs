@@ -1,6 +1,6 @@
 //! Receive lifecycle and source resource ownership.
 use crate::error::BoxError;
-use crate::message::SourceMessage;
+use crate::message::{OrderingKey, SourceMessage};
 use std::{future::Future, sync::Arc};
 
 /// Decoded handler input associated with a source.
@@ -49,6 +49,26 @@ pub trait Source: Send + 'static {
     /// instead of waiting for a `receive` that will not come. Deliveries already
     /// received still complete, and `close` follows after draining.
     fn stop_receiving(&mut self) {}
+    /// Stop receiving deliveries with ordering key `key` until
+    /// [`resume`](Self::resume), so other keys keep flowing while this one
+    /// has too much unfinished work. The runtime calls it when a
+    /// subscription's
+    /// [`max_in_flight_per_key`](crate::Subscription::max_in_flight_per_key)
+    /// is reached.
+    ///
+    /// Returns `false` when the source cannot pause single keys, which is the
+    /// default; the runtime then stops asking. Deliveries already received
+    /// or buffered may still arrive after a pause, and a source keeps a key
+    /// paused when it loses and regains the key's scope.
+    fn pause(&mut self, key: &OrderingKey) -> bool {
+        let _ = key;
+        false
+    }
+    /// Resume receiving deliveries with ordering key `key` after
+    /// [`pause`](Self::pause).
+    fn resume(&mut self, key: &OrderingKey) {
+        let _ = key;
+    }
     /// Release the source's resources after every received delivery has finished.
     fn close(&mut self) -> impl Future<Output = Result<(), BoxError>> + Send {
         async { Ok(()) }

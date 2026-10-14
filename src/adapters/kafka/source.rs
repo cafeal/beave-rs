@@ -1,8 +1,9 @@
 use super::{
     client::Kafka,
     config::SourceConfig,
+    poller::Poller,
     probe::{KafkaProbe, STATISTICS_INTERVAL_MS},
-    progress::{Context, KafkaConsumer, Progress, TransactionGate},
+    progress::{CommitGate, Context, KafkaConsumer, Partition, SharedProgress, TransactionGate},
     record::{KafkaMetadata, KafkaRecord, text_headers},
 };
 use crate::{
@@ -17,24 +18,22 @@ use rdkafka::{
     consumer::{CommitMode, Consumer},
     message::{Headers, Message, OwnedMessage},
 };
-use std::{
-    convert::Infallible,
-    sync::{Arc, Mutex},
-};
+use std::{convert::Infallible, sync::Arc, time::Duration};
+use tracing::debug;
 
 /// A Kafka source with a consumer of its own.
 ///
 /// Built with [`Kafka::source`]. It creates its consumer and subscribes on the
-/// first receive, which also validates the settings.
+/// first receive, which also validates the settings. The consumer is polled
+/// on a thread of its own, which also runs its rebalance callbacks.
 pub struct KafkaSource<C> {
     kafka: Kafka,
     config: SourceConfig,
     codec: Arc<C>,
     consumer: Option<Arc<KafkaConsumer>>,
-    progress: Arc<Mutex<Progress>>,
-    /// Serializes acknowledgement commits, while the progress mutex remains
-    /// unlocked during librdkafka's blocking synchronous commit.
-    commit_gate: Arc<tokio::sync::Mutex<()>>,
+    poller: Option<Poller>,
+    progress: Arc<SharedProgress>,
+    commit_gate: CommitGate,
     transactions: TransactionGate,
     probe: Arc<KafkaProbe>,
     group_id: Arc<str>,
@@ -49,6 +48,7 @@ impl<C> KafkaSource<C> {
             config,
             codec: Arc::new(codec),
             consumer: None,
+            poller: None,
             progress: Arc::default(),
             commit_gate: Arc::default(),
             transactions: Arc::default(),
@@ -66,14 +66,29 @@ impl<C> KafkaSource<C> {
         self
     }
 
+    /// Lets deliveries of a revoked partition that already started finish
+    /// for at most `timeout` before the partition goes to its next owner, and
+    /// commits their offsets, so the next owner reprocesses fewer records.
+    /// Off by default: a revoked partition's deliveries are abandoned at once.
+    ///
+    /// Deliveries that have not started are abandoned at once. The consumer
+    /// receives nothing while it waits, and `timeout` must be shorter than
+    /// `max.poll.interval.ms`, which also bounds how long Kafka waits for the
+    /// revoke during a rebalance.
+    pub fn graceful_handoff(mut self, timeout: Duration) -> Self {
+        self.config.handoff = Some(timeout);
+        self
+    }
+
     /// Checks the handle and source settings without network access.
     ///
     /// Fails when the handle is invalid, the group ID or topic list is empty, a
-    /// topic name is blank, or a property has an empty name or a value
-    /// containing a NUL byte.
+    /// topic name is blank, a property has an empty name or a value
+    /// containing a NUL byte, or the graceful handoff timeout is zero or not
+    /// shorter than `max.poll.interval.ms`.
     pub fn validate(&self) -> Result<(), Error> {
         self.kafka.validate()?;
-        self.config.validate()
+        self.config.validate(&self.kafka.client_config())
     }
 
     fn connect(&mut self) -> Result<(), BoxError> {
@@ -94,6 +109,8 @@ impl<C> KafkaSource<C> {
         let consumer: KafkaConsumer = config.create_with_context(Context {
             progress: self.progress.clone(),
             transactions: self.transactions.clone(),
+            commits: self.commit_gate.clone(),
+            handoff: self.config.handoff,
             probe: self.probe.clone(),
         })?;
         consumer.subscribe(
@@ -104,9 +121,22 @@ impl<C> KafkaSource<C> {
                 .map(String::as_str)
                 .collect::<Vec<_>>(),
         )?;
-        self.consumer = Some(Arc::new(consumer));
+        let consumer = Arc::new(consumer);
+        self.poller = Some(Poller::spawn(consumer.clone(), self.progress.clone())?);
+        self.consumer = Some(consumer);
         Ok(())
     }
+
+    fn partition_list(key: &Partition) -> TopicPartitionList {
+        let mut list = TopicPartitionList::new();
+        list.add_partition(&key.0, key.1);
+        list
+    }
+}
+
+/// The topic partition an ordering key of this source names.
+fn partition(key: &OrderingKey) -> Option<Partition> {
+    Some((key.scope().to_owned(), i32::try_from(key.index()).ok()?))
 }
 
 impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for KafkaSource<C> {
@@ -120,18 +150,20 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for KafkaSource<C>
             self.connect().map_err(ReceiveError::Fatal)?;
         }
         let consumer = self.consumer.as_ref().expect("connected consumer");
+        let poller = self.poller.as_mut().expect("connected consumer");
         loop {
-            // rdkafka 0.39 documents StreamConsumer::recv as cancellation-safe.
-            let raw = consumer
+            let (raw, generation) = poller
                 .recv()
                 .await
-                .map_err(|error| ReceiveError::Retry(error.into()))?
-                .detach();
+                .ok_or_else(|| ReceiveError::Fatal("Kafka poll thread stopped".into()))?
+                .map_err(|error| ReceiveError::Retry(error.into()))?;
             let key = (raw.topic().to_owned(), raw.partition());
-            // A record fetched before its partition was revoked belongs to the
-            // next owner; skip it without processing or committing.
-            let Some((generation, revoked)) =
-                self.progress.lock().unwrap().register(&key, raw.offset())
+            // A record fetched before its partition was revoked or handed off
+            // belongs to the next owner; skip it without processing or committing.
+            let Some(registered) = self
+                .progress
+                .lock()
+                .register(&key, generation, raw.offset())
             else {
                 continue;
             };
@@ -143,9 +175,36 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for KafkaSource<C>
                 commit_gate: self.commit_gate.clone(),
                 transactions: self.transactions.clone(),
                 group_id: self.group_id.clone(),
-                generation,
-                revoked,
+                generation: registered.generation,
+                revoked: registered.revoked,
+                handoff: registered.handoff,
             }));
+        }
+    }
+
+    /// Pauses the partition the key names. It stays paused across a revoke
+    /// and a later assignment until it is resumed.
+    fn pause(&mut self, key: &OrderingKey) -> bool {
+        let (Some(consumer), Some(key)) = (&self.consumer, partition(key)) else {
+            return false;
+        };
+        if self.progress.lock().pause(&key)
+            && let Err(error) = consumer.pause(&Self::partition_list(&key))
+        {
+            // The partition was revoked meanwhile; an assignment pauses it again.
+            debug!(%error, "Kafka could not pause a partition");
+        }
+        true
+    }
+
+    fn resume(&mut self, key: &OrderingKey) {
+        let (Some(consumer), Some(key)) = (&self.consumer, partition(key)) else {
+            return;
+        };
+        if self.progress.lock().resume(&key)
+            && let Err(error) = consumer.resume(&Self::partition_list(&key))
+        {
+            debug!(%error, "Kafka could not resume a partition");
         }
     }
 
@@ -153,7 +212,10 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for KafkaSource<C>
         self.closed = true;
         {
             let _transactions = self.transactions.lock().unwrap();
-            self.progress.lock().unwrap().revoke_all();
+            self.progress.update(|progress| progress.revoke_all());
+        }
+        if let Some(poller) = self.poller.take() {
+            poller.stop().await;
         }
         if let Some(consumer) = self.consumer.take() {
             consumer.unsubscribe();
@@ -172,12 +234,23 @@ pub struct KafkaMessage<C> {
     pub(super) raw: OwnedMessage,
     codec: Arc<C>,
     pub(super) consumer: Arc<KafkaConsumer>,
-    pub(super) progress: Arc<Mutex<Progress>>,
-    commit_gate: Arc<tokio::sync::Mutex<()>>,
+    pub(super) progress: Arc<SharedProgress>,
+    commit_gate: CommitGate,
     pub(super) transactions: TransactionGate,
     pub(super) generation: u64,
     group_id: Arc<str>,
     revoked: CancellationToken,
+    handoff: CancellationToken,
+}
+
+/// A delivery dropped without acknowledgement no longer holds up a handoff;
+/// its offset stays uncommitted.
+impl<C> Drop for KafkaMessage<C> {
+    fn drop(&mut self) {
+        let key = (self.raw.topic().to_owned(), self.raw.partition());
+        self.progress
+            .update(|progress| progress.release(self.generation, &key, self.raw.offset()));
+    }
 }
 
 impl<C> KafkaMessage<C> {
@@ -226,14 +299,12 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for KafkaMe
         let _commit = self.commit_gate.lock().await;
         let key = (self.raw.topic().to_owned(), self.raw.partition());
         if self.consumer.assignment_lost() {
-            self.progress.lock().unwrap().revoke_all();
+            self.progress.update(|progress| progress.revoke_all());
             return Err(Error::msg("Kafka assignment was lost").into());
         }
-        let next =
-            self.progress
-                .lock()
-                .unwrap()
-                .complete(self.generation, &key, self.raw.offset())?;
+        let next = self
+            .progress
+            .update(|progress| progress.complete(self.generation, &key, self.raw.offset()))?;
         let Some(next) = next else {
             return Ok(());
         };
@@ -251,9 +322,7 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for KafkaMe
         // A revoke can occur while commit is in flight. Never let a result for
         // an old assignment alter progress in a newer assignment.
         self.progress
-            .lock()
-            .unwrap()
-            .committed(self.generation, &key, next);
+            .update(|progress| progress.committed(self.generation, &key, next));
         Ok(())
     }
 
@@ -266,6 +335,10 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for KafkaMe
 
     fn revocation(&self) -> Option<CancellationToken> {
         Some(self.revoked.clone())
+    }
+
+    fn handoff(&self) -> Option<CancellationToken> {
+        Some(self.handoff.clone())
     }
 
     fn propagation_fields(&self) -> Vec<(&str, &str)> {

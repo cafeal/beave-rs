@@ -3,12 +3,12 @@ use super::{
     builder::Subscription,
     instruments::{Instruments, report_probe},
     processing::{PendingAck, Pipeline, process},
-    scheduler::Scheduler,
+    scheduler::{FlowChange, Scheduler, Ticket},
 };
 use crate::{
     error::{BoxContext, BoxError, Error, chain},
     health::{SubscriptionStatus, Tracker},
-    message::{OrderingKey, SourceMessage},
+    message::SourceMessage,
     shutdown::CancellationToken,
     sink::Sink,
     source::{Receive, ReceiveError, Source},
@@ -20,8 +20,8 @@ use tokio::{
 };
 use tracing::{Instrument, Span, debug, error, field::Empty, info, info_span, warn};
 
-/// A finished job's ordering key and the acknowledgement still waiting for its outputs.
-type Jobs = JoinSet<Result<(Option<OrderingKey>, Option<PendingAck>), BoxError>>;
+/// A finished job's scheduler ticket and the acknowledgement still waiting for its outputs.
+type Jobs = JoinSet<Result<(Ticket, Option<PendingAck>), BoxError>>;
 /// Acknowledgements waiting for submitted outputs to complete, outside job slots and
 /// `max_in_flight`; sinks bound them by applying backpressure in `submit`.
 type Acks = JoinSet<Result<(), BoxError>>;
@@ -77,7 +77,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         output.start(&self.config, &worker.pipeline.instruments);
         let concurrency = self.config.concurrency;
         let max_in_flight = self.config.max_in_flight;
-        let mut scheduler = Scheduler::new(self.config.ordering);
+        let mut scheduler = Scheduler::new(self.config.ordering, self.config.max_in_flight_per_key);
         let mut jobs = JoinSet::new();
         let mut acks: Acks = JoinSet::new();
         let mut failure = None;
@@ -95,13 +95,37 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         loop {
             instruments.set_in_flight(scheduler.outstanding() + acks.len());
             worker.start_ready(&mut jobs, &mut scheduler, concurrency);
+            for change in scheduler.take_flow_changes() {
+                match change {
+                    FlowChange::Pause(key) => {
+                        if !self.source.pause(&key) {
+                            debug!("source cannot pause single ordering keys");
+                            scheduler.disable_flow_control();
+                            break;
+                        }
+                        debug!(
+                            scope = key.scope(),
+                            index = key.index(),
+                            "paused ordering key"
+                        );
+                    }
+                    FlowChange::Resume(key) => {
+                        self.source.resume(&key);
+                        debug!(
+                            scope = key.scope(),
+                            index = key.index(),
+                            "resumed ordering key"
+                        );
+                    }
+                }
+            }
             tokio::select! {
                 biased;
                 _ = stop.cancelled() => break,
                 result = jobs.join_next(), if !jobs.is_empty() => {
                     match flatten(result.unwrap()) {
-                        Ok((key, pending)) => {
-                            scheduler.complete(key);
+                        Ok((ticket, pending)) => {
+                            scheduler.complete(ticket);
                             if let Some(pending) = pending { acks.spawn(pending); }
                         }
                         Err(error) => { failure = Some(error); shutdown.cancel(); break; }
@@ -167,8 +191,8 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                 instruments.set_in_flight(scheduler.outstanding() + acks.len());
                 worker.start_ready(&mut jobs, &mut scheduler, concurrency);
                 let result = tokio::select! {
-                    Some(result) = jobs.join_next() => flatten(result).map(|(key, pending)| {
-                        scheduler.complete(key);
+                    Some(result) = jobs.join_next() => flatten(result).map(|(ticket, pending)| {
+                        scheduler.complete(ticket);
                         if let Some(pending) = pending {
                             acks.spawn(pending);
                         }
@@ -243,9 +267,20 @@ struct Worker<M: SourceMessage, O> {
 impl<M: SourceMessage, O: Send + Sync + 'static> Worker<M, O> {
     fn start_ready(&self, jobs: &mut Jobs, scheduler: &mut Scheduler<M>, concurrency: usize) {
         while jobs.len() < concurrency {
-            let Some((key, delivery)) = scheduler.next_ready() else {
+            let Some((ticket, delivery)) = scheduler.next_ready() else {
                 return;
             };
+            // A delivery the source is handing off is abandoned unless it has started.
+            if delivery
+                .handoff()
+                .is_some_and(|handoff| handoff.is_cancelled())
+            {
+                drop(delivery);
+                scheduler.complete(ticket);
+                self.pipeline.instruments.revoked.increment(1);
+                debug!("abandoned delivery handed off before it started");
+                continue;
+            }
             let revocation = delivery.revocation();
             let span = message_span(&delivery);
             #[cfg(feature = "opentelemetry")]
@@ -268,7 +303,7 @@ impl<M: SourceMessage, O: Send + Sync + 'static> Worker<M, O> {
                         .instrument(span_for_ack),
                     )
                 });
-                Ok((key, pending))
+                Ok((ticket, pending))
             };
             jobs.spawn(job.instrument(span));
         }

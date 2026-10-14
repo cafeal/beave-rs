@@ -1,7 +1,7 @@
 use super::{
     client::Kafka,
     config::{TRANSACTIONAL_ID, TransactionalConfig},
-    progress::{KafkaConsumer, Partition, Progress, TransactionGate},
+    progress::{KafkaConsumer, Partition, SharedProgress, TransactionGate},
     record::KafkaPublish,
     sink::{KafkaPrepared, prepare, send},
     source::KafkaMessage,
@@ -23,7 +23,7 @@ use rdkafka::{
 use std::{
     collections::BTreeMap,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -235,7 +235,7 @@ where
 /// The consumer positions a transaction commits for a batch of deliveries.
 struct SourceOffsets {
     consumer: Arc<KafkaConsumer>,
-    progress: Arc<Mutex<Progress>>,
+    progress: Arc<SharedProgress>,
     transactions: TransactionGate,
     /// The assignment generation of every delivery in the batch.
     deliveries: Vec<(u64, Partition)>,
@@ -279,10 +279,10 @@ impl SourceOffsets {
     /// Fails when the partition assignment of any delivery has ended.
     fn ensure_assigned(&self) -> Result<(), BoxError> {
         if self.consumer.assignment_lost() {
-            self.progress.lock().unwrap().revoke_all();
+            self.progress.update(|progress| progress.revoke_all());
             return Err(Error::msg("Kafka assignment was lost").into());
         }
-        let progress = self.progress.lock().unwrap();
+        let progress = self.progress.lock();
         for (generation, partition) in &self.deliveries {
             ensure!(
                 progress.is_current(*generation, partition),
@@ -310,10 +310,11 @@ impl SourceOffsets {
         }
         producer.send_offsets_to_transaction(&offsets, &metadata, timeout)?;
         commit(producer, timeout)?;
-        let mut progress = self.progress.lock().unwrap();
-        for (partition, (generation, next)) in &self.next {
-            progress.committed(*generation, partition, *next);
-        }
+        self.progress.update(|progress| {
+            for (partition, (generation, next)) in &self.next {
+                progress.committed(*generation, partition, *next);
+            }
+        });
         Ok(())
     }
 }

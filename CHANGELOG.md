@@ -23,6 +23,12 @@ project follows the versioning policy in
   Pulsar. A disconnected source makes its subscription unready.
 - `Subscription::stall_timeout`, which makes liveness fail while deliveries are
   in flight without progress.
+- `Subscription::max_in_flight_per_key`, which pauses an ordering key that has
+  too many unfinished deliveries through the new `Source::pause` and
+  `Source::resume`, so one slow Kafka partition no longer stops the others.
+- `KafkaSource::graceful_handoff`, which lets started deliveries of a revoked
+  partition finish and commit before the partition moves, through the new
+  `SourceMessage::handoff` token and `Delivery::with_handoff`.
 
 ### Changed
 
@@ -42,6 +48,8 @@ project follows the versioning policy in
 - `PulsarMetadata::publish_time`, `SqsMetadata::sent_timestamp`, and
   `SqsMetadata::first_receive_timestamp` are `i64` milliseconds, like the other
   adapters' timestamps.
+- The Kafka source polls its consumer on a thread of its own, which also runs
+  its rebalance callbacks.
 
 ### Removed
 
