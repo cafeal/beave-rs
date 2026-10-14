@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Monitoring and alerting - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../../style.css">
+  <link rel="alternate" type="text/markdown" href="index.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../../">beave-rs</a>
+      <nav>
+        <a href="../index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="../runtime/handlers.html">Handlers</a></li><li><a href="../runtime/middleware.html">Middleware</a></li><li><a href="../runtime/errors.html">Errors and retries</a></li><li><a href="../runtime/tombstones.html">Tombstones</a></li><li><a href="../runtime/transactions.html">Transactions</a></li><li><a href="../runtime/observability.html">Observability</a></li><li><a href="../runtime/health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/local.html">Local adapters</a></li><li><a href="../adapters/channel.html">Channel</a></li><li><a href="../adapters/kafka.html">Kafka</a></li><li><a href="../adapters/pulsar.html">Pulsar</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="../adapters/sqs.html">SQS</a></li><li><a href="../adapters/pubsub.html">Pub/Sub</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus</a></li><li><a href="../adapters/http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-bytes.html">Raw bytes</a></li><li><a href="../codecs/utf8.html">UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li><li><a href="../codecs/msgpack.html">MessagePack</a></li><li><a href="../codecs/cbor.html">CBOR</a></li><li><a href="../codecs/wrappers.html">Codec wrappers</a><ul><li><a href="../codecs/wrappers/base64.html">Base64</a></li><li><a href="../codecs/wrappers/gzip.html">Gzip</a></li><li><a href="../codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="index.html" aria-current="page">Monitoring and alerting</a><ul><li><a href="kubernetes.html">Kubernetes</a></li><li><a href="aws.html">AWS</a></li><li><a href="gcp.html">Google Cloud</a></li><li><a href="azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="monitoring-and-alerting">Monitoring and alerting</h1>
+<p>beavers sends no notifications itself. It reports metrics through the
+<a href="https://docs.rs/metrics"><code>metrics</code></a> facade, structured events through
+<a href="https://docs.rs/tracing"><code>tracing</code></a>, and health through the <code>/livez</code> and
+<code>/readyz</code> endpoints of the <a href="../runtime/health.html">health server</a>. This
+guide explains which of those signals deserve an alert and how to wire them to
+a platform that pages people, for teams that do not already run Prometheus and
+Alertmanager.</p>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>Guide</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Kubernetes with a self-managed Prometheus Operator</td>
+<td><a href="kubernetes.html">Kubernetes</a></td>
+</tr>
+<tr>
+<td>Amazon EKS, ECS, or EC2</td>
+<td><a href="aws.html">AWS</a>: Amazon Managed Service for Prometheus or CloudWatch</td>
+</tr>
+<tr>
+<td>GKE or Cloud Run</td>
+<td><a href="gcp.html">Google Cloud</a>: Managed Service for Prometheus and Cloud Monitoring</td>
+</tr>
+<tr>
+<td>AKS or Azure Container Apps</td>
+<td><a href="azure.html">Azure</a>: Azure Monitor managed service for Prometheus and Azure Monitor alerts</td>
+</tr>
+</tbody></table>
+<p>The managed Prometheus services of all three clouds evaluate the
+<a href="#alert-rules">alert rules</a> below unchanged, so most of each platform guide is
+about collecting the metrics and routing the alerts.</p>
+<h2 id="what-to-expose">What to expose</h2>
+<p>Every deployment needs the same three outputs from the application.</p>
+<p><strong>Metrics.</strong> Install a Prometheus exporter before <code>App::run</code>, as described in
+<a href="../runtime/observability.html#exporting-metrics-to-opentelemetry">Exporting metrics</a>, and
+configure histogram buckets for <code>beavers_stage_duration_seconds</code>. The examples
+in this guide assume the exporter listens on port <code>9000</code> and serves <code>/metrics</code>.</p>
+<p><strong>Health.</strong> Enable the <code>health</code> feature and register a <code>HealthServer</code>. The
+examples assume port <code>8080</code>. Readiness turns <code>503</code> during shutdown, receive
+backoff, and output publish retries; liveness turns <code>503</code> after a subscription
+fails.</p>
+<p><strong>JSON logs.</strong> Emit events as JSON so that cloud log services can match the
+<code>subscription failed</code> event. With <code>tracing-subscriber</code> and its <code>json</code>
+feature:</p>
+<pre><code class="hljs language-rust,ignore">tracing_subscriber::<span class="hljs-title function_ invoke__">fmt</span>().<span class="hljs-title function_ invoke__">json</span>().<span class="hljs-title function_ invoke__">init</span>();
+</code></pre><p>Each event becomes one line on standard output. The message is in
+<code>fields.message</code>, so a failed subscription appears as:</p>
+<pre><code class="hljs language-json"><span class="hljs-punctuation">{</span><span class="hljs-attr">&quot;timestamp&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;…&quot;</span><span class="hljs-punctuation">,</span><span class="hljs-attr">&quot;level&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;ERROR&quot;</span><span class="hljs-punctuation">,</span><span class="hljs-attr">&quot;fields&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-punctuation">{</span><span class="hljs-attr">&quot;message&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;subscription failed&quot;</span><span class="hljs-punctuation">,</span><span class="hljs-attr">&quot;error&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;…&quot;</span><span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span><span class="hljs-attr">&quot;target&quot;</span><span class="hljs-punctuation">:</span><span class="hljs-string">&quot;beavers::subscription::runtime&quot;</span><span class="hljs-punctuation">}</span>
+</code></pre><h2 id="what-to-alert-on">What to alert on</h2>
+<p>A failed subscription stops the whole application: <code>App::run</code> returns the
+error after the other subscriptions drain, and the process usually exits. The
+last increment of <code>beavers_delivery_failures_total{action=&quot;stop&quot;}</code> may
+therefore never be scraped. Cover that case with at least one signal that
+outlives the process: a restart alert from the orchestrator or a log-based
+alert on <code>subscription failed</code>. Each platform guide shows both.</p>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>Signal</th>
+<th>Severity</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A subscription stopped on an unroutable failure</td>
+<td><code>beavers_delivery_failures_total{action=&quot;stop&quot;}</code>, container restarts, the <code>subscription failed</code> log event</td>
+<td>critical</td>
+<td>Consumption stopped; the instance restarts and may fail again on the same record</td>
+</tr>
+<tr>
+<td>Dead letters cannot be published</td>
+<td><code>beavers_publish_failures_total{sink=&quot;dead_letter&quot;}</code></td>
+<td>critical</td>
+<td>Failed deliveries cannot leave the subscription, so it stops making progress</td>
+</tr>
+<tr>
+<td>Outputs cannot be published</td>
+<td><code>beavers_publish_failures_total{sink=&quot;output&quot;}</code> for several minutes</td>
+<td>critical</td>
+<td>Deliveries wait for publish retries; readiness is <code>503</code> meanwhile</td>
+</tr>
+<tr>
+<td>The source keeps failing</td>
+<td><code>beavers_receive_errors_total</code> for several minutes</td>
+<td>critical</td>
+<td>The broker is unreachable or rejects the client; readiness is <code>503</code> during backoff</td>
+</tr>
+<tr>
+<td>Work is stuck</td>
+<td><code>beavers_deliveries_in_flight</code> above zero with no acknowledgement</td>
+<td>critical</td>
+<td>A handler or acknowledgement never completes; liveness does not detect this</td>
+</tr>
+<tr>
+<td>Metrics disappeared</td>
+<td>The scrape target is down</td>
+<td>critical</td>
+<td>Nothing else on this list can fire</td>
+</tr>
+<tr>
+<td>Deliveries were dead-lettered</td>
+<td><code>beavers_delivery_failures_total{action=&quot;dead_letter&quot;}</code></td>
+<td>warning</td>
+<td>Someone needs to inspect and redrive them; see the <a href="../dead-letter-handling.html">dead-letter handling guide</a></td>
+</tr>
+<tr>
+<td>Producers send undecodable records</td>
+<td>Ratio of <code>failure=&quot;decode&quot;</code> to received deliveries</td>
+<td>warning</td>
+<td>Usually a schema or producer change</td>
+</tr>
+<tr>
+<td>Handlers are slow</td>
+<td>The 99th percentile of <code>beavers_stage_duration_seconds{stage=&quot;handler&quot;}</code></td>
+<td>warning</td>
+<td>The backlog grows when processing falls behind the input rate</td>
+</tr>
+<tr>
+<td>The backlog grows</td>
+<td>Consumer lag or queue depth from the broker</td>
+<td>warning</td>
+<td>beavers does not report lag; see <a href="#backlog">Backlog</a></td>
+</tr>
+</tbody></table>
+<p>Send <code>warning</code> alerts to the owning team&#39;s channel and <code>critical</code> alerts to
+on-call paging. A dead letter needs investigation during working hours, while a
+stopped subscription or a failing dead-letter sink stops consumption until
+someone acts.</p>
+<p>Alert on counts over a window, never on individual failures. A burst of bad
+records produces one alert per subscription instead of one notification per
+record.</p>
+<h2 id="alert-rules">Alert rules</h2>
+<p>These rules use PromQL. Prometheus, Amazon Managed Service for Prometheus,
+Google Cloud Managed Service for Prometheus, and Azure Monitor managed service
+for Prometheus evaluate them as written; the platform guides show where each
+expects them. Thresholds and windows are starting points; tune them to the
+input rate and latency of each subscription.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">groups:</span>
+  <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">beavers</span>
+    <span class="hljs-attr">rules:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">alert:</span> <span class="hljs-string">BeaversStoppedOnFailure</span>
+        <span class="hljs-attr">expr:</span> <span class="hljs-string">sum</span> <span class="hljs-string">by</span> <span class="hljs-string">(subscription)</span> <span class="hljs-string">(increase(beavers_delivery_failures_total{action=&quot;stop&quot;}[15m]))</span> <span class="hljs-string">&gt;</span> <span class="hljs-number">0</span>
+        <span class="hljs-attr">labels:</span>
+          <span class="hljs-attr">severity:</span> <span class="hljs-string">critical</span>
+        <span class="hljs-attr">annotations:</span>
+          <span class="hljs-attr">summary:</span> <span class="hljs-string">&quot;<span class="hljs-template-variable">{{ $labels.subscription }}</span> stopped on an unroutable failure&quot;</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">alert:</span> <span class="hljs-string">BeaversDeadLetterPublishFailing</span>
+        <span class="hljs-attr">expr:</span> <span class="hljs-string">sum</span> <span class="hljs-string">by</span> <span class="hljs-string">(subscription)</span> <span class="hljs-string">(increase(beavers_publish_failures_total{sink=&quot;dead_letter&quot;}[5m]))</span> <span class="hljs-string">&gt;</span> <span class="hljs-number">0</span>
+        <span class="hljs-attr">for:</span> <span class="hljs-string">5m</span>
+        <span class="hljs-attr">labels:</span>
+          <span class="hljs-attr">severity:</span> <span class="hljs-string">critical</span>
+        <span class="hljs-attr">annotations:</span>
+          <span class="hljs-attr">summary:</span> <span class="hljs-string">&quot;<span class="hljs-template-variable">{{ $labels.subscription }}</span> cannot publish dead letters&quot;</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">alert:</span> <span class="hljs-string">BeaversOutputPublishFailing</span>
+        <span class="hljs-attr">expr:</span> <span class="hljs-string">sum</span> <span class="hljs-string">by</span> <span class="hljs-string">(subscription)</span> <span class="hljs-string">(rate(beavers_publish_failures_total{sink=&quot;output&quot;}[5m]))</span> <span class="hljs-string">&gt;</span> <span class="hljs-number">0</span>
+        <span class="hljs-attr">for:</span> <span class="hljs-string">10m</span>
+        <span class="hljs-attr">labels:</span>
+          <span class="hljs-attr">severity:</span> <span class="hljs-string">critical</span>
+        <span class="hljs-attr">annotations:</span>
+          <span class="hljs-attr">summary:</span> <span class="hljs-string">&quot;<span class="hljs-template-variable">{{ $labels.subscription }}</span> has failed to publish outputs for 10 minutes&quot;</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">alert:</span> <span class="hljs-string">BeaversReceiveFailing</span>
+        <span class="hljs-attr">expr:</span> <span class="hljs-string">sum</span> <span class="hljs-string">by</span> <span class="hljs-string">(subscription)</span> <span class="hljs-string">(rate(beavers_receive_errors_total[5m]))</span> <span class="hljs-string">&gt;</span> <span class="hljs-number">0</span>
+        <span class="hljs-attr">for:</span> <span class="hljs-string">10m</span>
+        <span class="hljs-attr">labels:</span>
+          <span class="hljs-attr">severity:</span> <span class="hljs-string">critical</span>
+        <span class="hljs-attr">annotations:</span>
+          <span class="hljs-attr">summary:</span> <span class="hljs-string">&quot;<span class="hljs-template-variable">{{ $labels.subscription }}</span> has failed to receive from its source for 10 minutes&quot;</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">alert:</span> <span class="hljs-string">BeaversStalled</span>
+        <span class="hljs-attr">expr:</span> <span class="hljs-string">|
+          max by (subscription) (beavers_deliveries_in_flight) &gt; 0
+            and sum by (subscription) (increase(beavers_deliveries_acknowledged_total[15m])) == 0
+</span>        <span class="hljs-attr">for:</span> <span class="hljs-string">5m</span>
+        <span class="hljs-attr">labels:</span>
+          <span class="hljs-attr">severity:</span> <span class="hljs-string">critical</span>
+        <span class="hljs-attr">annotations:</span>
+          <span class="hljs-attr">summary:</span> <span class="hljs-string">&quot;<span class="hljs-template-variable">{{ $labels.subscription }}</span> has unfinished deliveries and acknowledged none in 15 minutes&quot;</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">alert:</span> <span class="hljs-string">BeaversMetricsDown</span>
+        <span class="hljs-attr">expr:</span> <span class="hljs-string">up{job=&quot;beavers&quot;}</span> <span class="hljs-string">==</span> <span class="hljs-number">0</span>
+        <span class="hljs-attr">for:</span> <span class="hljs-string">5m</span>
+        <span class="hljs-attr">labels:</span>
+          <span class="hljs-attr">severity:</span> <span class="hljs-string">critical</span>
+        <span class="hljs-attr">annotations:</span>
+          <span class="hljs-attr">summary:</span> <span class="hljs-string">&quot;<span class="hljs-template-variable">{{ $labels.instance }}</span> does not serve metrics&quot;</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">alert:</span> <span class="hljs-string">BeaversDeadLetters</span>
+        <span class="hljs-attr">expr:</span> <span class="hljs-string">sum</span> <span class="hljs-string">by</span> <span class="hljs-string">(subscription)</span> <span class="hljs-string">(increase(beavers_delivery_failures_total{action=&quot;dead_letter&quot;}[10m]))</span> <span class="hljs-string">&gt;</span> <span class="hljs-number">0</span>
+        <span class="hljs-attr">labels:</span>
+          <span class="hljs-attr">severity:</span> <span class="hljs-string">warning</span>
+        <span class="hljs-attr">annotations:</span>
+          <span class="hljs-attr">summary:</span> <span class="hljs-string">&quot;<span class="hljs-template-variable">{{ $labels.subscription }}</span> dead-lettered <span class="hljs-template-variable">{{ $value }}</span> deliveries in 10 minutes&quot;</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">alert:</span> <span class="hljs-string">BeaversDecodeFailureRatio</span>
+        <span class="hljs-attr">expr:</span> <span class="hljs-string">|
+          sum by (subscription) (rate(beavers_delivery_failures_total{failure=&quot;decode&quot;}[5m]))
+            / sum by (subscription) (rate(beavers_deliveries_received_total[5m])) &gt; 0.01
+</span>        <span class="hljs-attr">for:</span> <span class="hljs-string">10m</span>
+        <span class="hljs-attr">labels:</span>
+          <span class="hljs-attr">severity:</span> <span class="hljs-string">warning</span>
+        <span class="hljs-attr">annotations:</span>
+          <span class="hljs-attr">summary:</span> <span class="hljs-string">&quot;<span class="hljs-template-variable">{{ $labels.subscription }}</span> cannot decode over 1% of its input; check producers and schemas&quot;</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">alert:</span> <span class="hljs-string">BeaversHandlerSlow</span>
+        <span class="hljs-attr">expr:</span> <span class="hljs-string">|
+          histogram_quantile(0.99,
+            sum by (subscription, le) (rate(beavers_stage_duration_seconds_bucket{stage=&quot;handler&quot;}[10m]))
+          ) &gt; 5
+</span>        <span class="hljs-attr">for:</span> <span class="hljs-string">15m</span>
+        <span class="hljs-attr">labels:</span>
+          <span class="hljs-attr">severity:</span> <span class="hljs-string">warning</span>
+        <span class="hljs-attr">annotations:</span>
+          <span class="hljs-attr">summary:</span> <span class="hljs-string">&quot;<span class="hljs-template-variable">{{ $labels.subscription }}</span> handler p99 is above 5 seconds&quot;</span>
+</code></pre><p><code>BeaversMetricsDown</code> matches the <code>job</code> label that the scrape configuration
+assigns; replace <code>beavers</code> with that value. It fires while an instance runs
+but does not answer scrapes; an instance that has gone away leaves no <code>up</code>
+series, which the restart and backlog alerts cover. <code>BeaversHandlerSlow</code> needs
+histogram buckets, and its threshold must lie within them. <code>BeaversStalled</code>
+also fires for a subscription whose handler legitimately runs longer than 15
+minutes; raise the window above the longest expected handler duration.</p>
+<h2 id="backlog">Backlog</h2>
+<p>beavers does not report consumer lag yet; see the
+<a href="../plan.html#observability">design plan</a>. Alert on the broker&#39;s own measurement
+of the backlog, which also covers an application that is not running at all:</p>
+<table>
+<thead>
+<tr>
+<th>Broker</th>
+<th>Metric</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Kafka with <a href="https://github.com/danielqsj/kafka_exporter">kafka-exporter</a></td>
+<td><code>kafka_consumergroup_lag</code> by <code>consumergroup</code> and <code>topic</code></td>
+</tr>
+<tr>
+<td>Amazon MSK</td>
+<td><code>MaxOffsetLag</code>, <code>SumOffsetLag</code>, or <code>EstimatedMaxTimeLag</code> by consumer group and topic</td>
+</tr>
+<tr>
+<td>Pulsar</td>
+<td><code>pulsar_subscription_back_log</code> from the broker&#39;s <code>/metrics</code></td>
+</tr>
+<tr>
+<td>RabbitMQ with the <code>rabbitmq_prometheus</code> plugin</td>
+<td><code>rabbitmq_queue_messages_ready</code> from the per-object endpoint</td>
+</tr>
+<tr>
+<td>Amazon SQS</td>
+<td><code>ApproximateAgeOfOldestMessage</code> and <code>ApproximateNumberOfMessagesVisible</code></td>
+</tr>
+</tbody></table>
+<p>Alert when the backlog keeps growing rather than when it is above zero, for
+example <code>deriv(sum by (consumergroup) (kafka_consumergroup_lag)[15m:]) &gt; 0</code>
+for 30 minutes, or when the age of the oldest message exceeds what the
+consumers of the output can tolerate. Apply the same alerts to a dead-letter
+topic consumed by a <a href="../runtime/errors.html#reprocessing-dead-letters">reprocessing subscription</a> to see
+how many dead letters remain unhandled.</p>
+
+      <p class="source"><a href="index.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/monitoring-and-alerting/README.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>
