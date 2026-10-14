@@ -9,43 +9,56 @@ beavers = { version = "0.1", features = ["pulsar"] }
 
 ## Configuration
 
-Configure a source with a service URL, topic, and subscription. `validate`
-checks the values and optional static authentication without contacting a
-broker. The source opens its client and consumer on the first `receive`. A
-partitioned topic is consumed through one consumer per partition, all in the
-same subscription; the partition list is read when the source connects.
+A `Pulsar` handle holds the service URL, using the `pulsar://` or
+`pulsar+ssl://` scheme, and optional static authentication.
+`handle.source::<C>(topic, subscription)` builds a source and
+`handle.sink::<C>(topic)` a sink; `source_with_codec` and `sink_with_codec`
+take a codec value as their first argument instead of using the codec's
+default. Optional settings are builder methods on the handle, the source, and
+the sink.
 
 ```rust
-use beavers::{Source, Utf8};
-use beavers::adapters::pulsar::{PulsarSource, PulsarSourceConfig};
+use beavers::Utf8;
+use beavers::adapters::pulsar::{Pulsar, PulsarSubscriptionType};
 
-let mut source = PulsarSource::<Utf8>::new(PulsarSourceConfig::new(
-    "pulsar://localhost:6650",
-    "persistent://public/default/orders",
-    "orders-workers",
-));
+let pulsar = Pulsar::new("pulsar://localhost:6650");
+let source = pulsar
+    .source::<Utf8>("persistent://public/default/orders", "orders-workers")
+    .subscription_type(PulsarSubscriptionType::Failover);
 ```
+
+All sources and sinks built from one handle share one client. The client
+connects on the first `receive` or publication of any of them, which also
+validates the settings, and reconnects their producers and consumers after the
+broker connection drops. It closes once the handle, every source and sink built
+from it, and every delivery that can still acknowledge through it have been
+dropped. Closing a source or sink closes only its own consumers or producers.
+Each builder method on the handle returns a handle with a client of its own, so
+configure the handle before building sources and sinks from it.
+
+The handle, the source, and the sink each have `validate`, which checks the
+values without contacting a broker. A partitioned topic is consumed through one
+consumer per partition, all in the same subscription; the partition list is
+read when the source connects.
 
 `subscription_type` selects a `PulsarSubscriptionType` and defaults to
 `Shared`. `buffer_size` is the number of messages each partition's consumer
-prefetches. A new subscription starts at the latest message.
+prefetches, 100 by default. A new subscription starts at the latest message.
 
-`PulsarAuthentication::token` supplies a JWT token, while the general
-`PulsarAuthentication` form accepts a Pulsar authentication method name and
-credential bytes. Leave `authentication` unset for an unauthenticated broker.
+`Pulsar::token` supplies a JWT, while `Pulsar::authentication` accepts a
+general `PulsarAuthentication` with a Pulsar authentication method name and
+credential bytes. Leave both unset for an unauthenticated broker.
 
-Configure a sink separately. `prepare` accepts a `PulsarPublish<T>`, encodes
-the typed value once, and returns a cloneable `PulsarPrepared` payload. Set the
-key, ordering key, event time, and user properties before preparation:
+Build a sink from the same handle. `prepare` accepts a `PulsarPublish<T>`,
+encodes the typed value once, and returns a cloneable `PulsarPrepared` payload.
+Set the key, ordering key, event time, and user properties before preparation:
 
 ```rust
 use beavers::{Sink, Utf8};
-use beavers::adapters::pulsar::{PulsarPublish, PulsarSink, PulsarSinkConfig};
+use beavers::adapters::pulsar::{Pulsar, PulsarPublish};
 
-let sink = PulsarSink::<Utf8>::new(PulsarSinkConfig::new(
-    "pulsar://localhost:6650",
-    "persistent://public/default/processed-orders",
-));
+let pulsar = Pulsar::new("pulsar://localhost:6650").token("eyJhbGciOi...");
+let sink = pulsar.sink::<Utf8>("persistent://public/default/processed-orders");
 let mut output = PulsarPublish::new("processed".to_owned());
 output.key = Some(b"customer-42".to_vec());
 output.properties.insert("kind".into(), "order".into());
@@ -53,6 +66,9 @@ let prepared = sink.prepare(output)?;
 sink.publish(&prepared).await?;
 # Ok::<(), beavers::BoxError>(())
 ```
+
+`producer_name` names each partition's producer; by default the broker assigns
+names.
 
 ## Records
 
@@ -88,7 +104,7 @@ A topic unload, as the broker's load balancer performs routinely, or a broker
 restart closes the consumers. An acknowledgement in flight at that moment
 fails, and one sent before the consumer has reattached times out after the
 client's 30-second operation timeout. `ack` therefore retries a failed
-acknowledgement under `PulsarSourceConfig::ack_retry`, five attempts with
+acknowledgement under the source's `ack_retry`, five attempts with
 backoff from 100 ms to 2 s by default, and an attempt on the reattached
 consumer succeeds. Only an exhausted retry fails the acknowledgement and stops
 the subscription. After reattaching, the broker redelivers every
@@ -97,8 +113,8 @@ prefetched and still returns, so deliveries received around an unload can be
 processed twice and out of their original order.
 
 Call `close` during shutdown to close the consumers. A delivery acknowledged
-after its source closed fails with an error, and the client closes once the
-last delivery of the source is dropped.
+after its source closed fails with an error. The client stays open for the
+handle's other sources and sinks.
 
 Each delivery's ordering key follows the order Pulsar guarantees for the
 configured subscription type:
@@ -136,9 +152,9 @@ receipt. A producer sends queued messages in order and replays unacknowledged
 ones in order after a reconnect, so outputs of one partition keep their
 submission order unless the broker rejects a send, as described below.
 
-`PulsarSinkConfig::max_pending` bounds the messages queued by `submit` whose
-receipt has not arrived; the default is 1000. `submit` waits while that many
-are outstanding. A completion dropped before its receipt, as when the input is
+`max_pending` bounds the messages queued by `submit` on one sink whose receipt
+has not arrived; the default is 1000. `submit` waits while that many are
+outstanding. A completion dropped before its receipt, as when the input is
 abandoned, frees its slot; the message stays queued and may still be written,
 but it is not sent again after a rejection. Publish retries apply to queueing
 only.
@@ -147,7 +163,7 @@ The client replays sends that lose their connection. A send the broker answers
 with an error is not replayed by the client, and a broker that is shutting down
 or unloading the topic, as during a restart or a routine load-balancer unload,
 rejects the sends in flight with a persistence error. The sink therefore sends
-a rejected message again under `PulsarSinkConfig::send_retry`, ten sends with
+a rejected message again under the sink's `send_retry`, ten sends with
 backoff from 100 ms to 5 s by default, measured from the previous send. A task
 per producer observes the receipts in submission order, so the messages of one
 rejected run are sent again in their original order and reach the topic's next
@@ -162,7 +178,8 @@ reorder the outputs of one partition. A message the broker wrote despite
 answering with an error is written twice.
 
 `close` stops new submissions, waits for every outstanding receipt, then closes
-the producers.
+the sink's producers. The client stays open for the handle's other sources and
+sinks.
 
 ## Metadata inheritance
 
@@ -197,7 +214,7 @@ processing span's context; see
 
 A null value is a tombstone. Pulsar topic compaction deletes a key when it sees
 a message with that key and an empty payload, and producers can also mark a
-value as null explicitly. `PulsarSourceConfig::empty_payload_is_tombstone`,
+value as null explicitly. The source's `empty_payload_is_tombstone`,
 enabled by default, follows the compaction rule: an empty payload or a
 null-marked message becomes `PulsarRecord { value: None, .. }` and is not passed
 to the codec. When disabled, only a null-marked message becomes `None`, and an

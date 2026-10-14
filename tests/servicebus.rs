@@ -4,8 +4,8 @@ use beavers::{
     App, BoxError, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage,
     Subscription, Utf8,
     adapters::servicebus::{
-        ServiceBusConnection, ServiceBusMessage, ServiceBusPublish, ServiceBusSink,
-        ServiceBusSinkConfig, ServiceBusSource, ServiceBusSourceConfig, ServiceBusValue,
+        ServiceBus, ServiceBusMessage, ServiceBusPublish, ServiceBusSink, ServiceBusSource,
+        ServiceBusValue,
     },
 };
 use std::{
@@ -20,11 +20,11 @@ use tokio::{
 
 #[test]
 fn prepared_messages_are_checked_against_service_bus_limits() {
-    let connection = ServiceBusConnection::from_connection_string(
+    let bus = ServiceBus::from_connection_string(
         "Endpoint=sb://contoso.servicebus.windows.net/;SharedAccessKeyName=send;SharedAccessKey=a2V5",
     )
     .unwrap();
-    let sink = ServiceBusSink::<Utf8>::new(ServiceBusSinkConfig::new(connection, "orders"));
+    let sink = bus.sink::<Utf8>("orders");
     let mut mismatched = ServiceBusPublish::new("order".to_owned()).with_session_id("a");
     mismatched.properties.partition_key = Some("b".into());
     assert!(sink.prepare(mismatched).is_err());
@@ -49,14 +49,41 @@ fn unique_name(prefix: &str) -> String {
     format!("{prefix}-{nanos}-{sequence}")
 }
 
+#[test]
+fn handles_sources_and_sinks_validate_locally() {
+    let bus = ServiceBus::new("contoso.servicebus.windows.net");
+    assert!(bus.validate().is_err());
+    let bus = bus.shared_access_key("send", "a2V5");
+    bus.validate().unwrap();
+    bus.source::<Utf8>("events/Subscriptions/billing")
+        .validate()
+        .unwrap();
+    assert!(bus.source::<Utf8>("orders").prefetch(0).validate().is_err());
+    assert!(bus.sink::<Utf8>("/orders").validate().is_err());
+    assert!(
+        bus.sink::<Utf8>("orders")
+            .max_pending(0)
+            .validate()
+            .is_err()
+    );
+    assert!(
+        ServiceBus::new("contoso.servicebus.windows.net")
+            .shared_access_signature("sig")
+            .validate()
+            .is_err()
+    );
+    let debug = format!("{bus:?}");
+    assert!(debug.contains("send") && !debug.contains("a2V5"));
+}
+
 /// The Service Bus emulator from `compose.yaml` by default.
-fn connection() -> ServiceBusConnection {
+fn connection() -> ServiceBus {
     let connection_string = env::var("SERVICEBUS_CONNECTION_STRING").unwrap_or_else(|_| {
         "Endpoint=sb://127.0.0.1:5673;SharedAccessKeyName=RootManageSharedAccessKey;\
          SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true"
             .into()
     });
-    ServiceBusConnection::from_connection_string(&connection_string)
+    ServiceBus::from_connection_string(&connection_string)
         .expect("valid SERVICEBUS_CONNECTION_STRING")
 }
 
@@ -125,11 +152,11 @@ impl Drop for Queue {
 }
 
 fn source(entity: &str) -> ServiceBusSource<Utf8> {
-    ServiceBusSource::new(ServiceBusSourceConfig::new(connection(), entity))
+    connection().source(entity)
 }
 
 fn sink(entity: &str) -> ServiceBusSink<Utf8> {
-    ServiceBusSink::new(ServiceBusSinkConfig::new(connection(), entity))
+    connection().sink(entity)
 }
 
 async fn send(
@@ -169,7 +196,10 @@ async fn next_message(
 #[ignore = "requires the Service Bus emulator; run with cargo test --features servicebus -- --ignored"]
 async fn send_receive_and_complete_against_service_bus() -> Result<(), BoxError> {
     let queue = Queue::default("beavers-sb-test").await?;
-    let sink = sink(&queue.0);
+    // One handle: the sink and both sources share its connection, and closing
+    // the sink and the first source leaves it usable.
+    let bus = connection();
+    let sink = bus.sink::<Utf8>(&queue.0);
     let mut output = ServiceBusPublish::new("hello service bus".to_owned()).with_message_id("m-1");
     output
         .application_properties
@@ -187,7 +217,7 @@ async fn send_receive_and_complete_against_service_bus() -> Result<(), BoxError>
     send(&sink, output).await?;
     sink.close().await?;
 
-    let mut source = source(&queue.0);
+    let mut source = bus.source::<Utf8>(&queue.0);
     let message = next_message(&mut source, Duration::from_secs(30))
         .await?
         .expect("no Service Bus message");
@@ -225,7 +255,7 @@ async fn send_receive_and_complete_against_service_bus() -> Result<(), BoxError>
     message.ack().await?;
     source.close().await?;
 
-    let mut again = self::source(&queue.0);
+    let mut again = bus.source::<Utf8>(&queue.0);
     assert!(
         next_message(&mut again, Duration::from_secs(3))
             .await?

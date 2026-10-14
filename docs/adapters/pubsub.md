@@ -10,32 +10,40 @@ beavers = { version = "0.1", features = ["pubsub"] }
 
 ## Configuration
 
-`PubSubSourceConfig` takes the full name of one subscription,
-`projects/{project}/subscriptions/{id}`, and `PubSubSinkConfig` the full name of
-one topic, `projects/{project}/topics/{id}`. `credentials` is
-`PubSubCredentials::Default` unless set: Application Default Credentials, which
-read the `GOOGLE_APPLICATION_CREDENTIALS` key file, the gcloud user
-credentials, or the metadata server of the Google Cloud environment the
-application runs in. `endpoint` replaces `https://pubsub.googleapis.com`, for
-example with a regional endpoint. `validate` checks the values without
-contacting Google Cloud, and both adapters create their client on first use.
+A `PubSub` handle holds the connection settings that its sources and sinks
+share. It resolves its credentials once and keeps one subscriber client for all
+of its sources. Each sink has a publisher client of its own, because a Pub/Sub
+publisher batches messages for one topic, and uses the handle's credentials.
+Credentials and clients are created on the first `receive` or publication that
+needs them, which also validates the settings.
+
+The handle uses Application Default Credentials unless `anonymous()` is set:
+the `GOOGLE_APPLICATION_CREDENTIALS` key file, the gcloud user credentials, or
+the metadata server of the Google Cloud environment the application runs in.
+`endpoint` replaces `https://pubsub.googleapis.com`, for example with a
+regional endpoint. Each handle builder method returns a handle with
+credentials and clients of its own, so configure the handle before building
+sources and sinks from it.
+
+`source` takes the full name of one subscription,
+`projects/{project}/subscriptions/{id}`, and `sink` the full name of one topic,
+`projects/{project}/topics/{id}`. `source_with_codec` and `sink_with_codec`
+take a codec value first. The handle, source, and sink each have `validate`,
+which checks the values without contacting Google Cloud.
 
 ```rust
-use beavers::{Utf8, adapters::pubsub::{PubSubPublish, PubSubSink, PubSubSinkConfig, PubSubSource, PubSubSourceConfig}};
+use beavers::{Utf8, adapters::pubsub::{PubSub, PubSubPublish}};
 
-let source = PubSubSource::<Utf8>::new(PubSubSourceConfig::new(
-    "projects/my-project/subscriptions/orders",
-));
-let sink = PubSubSink::<Utf8>::new(PubSubSinkConfig::new(
-    "projects/my-project/topics/processed-orders",
-));
+let pubsub = PubSub::new();
+let source = pubsub.source::<Utf8>("projects/my-project/subscriptions/orders");
+let sink = pubsub.sink::<Utf8>("projects/my-project/topics/processed-orders");
 
 let output = PubSubPublish::new("created".to_owned()).with_ordering_key("customer-7");
 ```
 
-For the [Pub/Sub emulator](../development.md#broker-configuration), set
-`endpoint` to its address, such as `http://localhost:8085`, and `credentials`
-to `PubSubCredentials::Anonymous`.
+For the [Pub/Sub emulator](../development.md#broker-configuration), set the
+endpoint to its address and send no credentials:
+`PubSub::new().endpoint("http://localhost:8085").anonymous()`.
 
 The adapters create no topics or subscriptions and set no subscription
 properties such as message ordering, exactly-once delivery, or a dead-letter
@@ -44,12 +52,26 @@ policy. Create them with infrastructure tooling before the subscription starts.
 The source receives through one streaming pull. Pub/Sub stops sending once
 `max_outstanding_messages` (1000 by default) messages or
 `max_outstanding_bytes` (100 MiB) of data are received and not yet
-acknowledged. The runtime's `max_in_flight` bounds the deliveries it holds; the
-rest of the outstanding messages wait in the client's buffer with their leases
-extended.
+acknowledged; zero or less sets no limit. The runtime's `max_in_flight` bounds
+the deliveries it holds; the rest of the outstanding messages wait in the
+client's buffer with their leases extended.
 
-`PubSubSinkConfig::batch_delay`, 10 milliseconds by default, is how long the
-client collects outputs into one `Publish` request.
+The sink's `batch_delay`, 10 milliseconds by default, is how long the client
+collects outputs into one `Publish` request.
+
+```rust
+use beavers::{Utf8, adapters::pubsub::PubSub};
+use std::time::Duration;
+
+let pubsub = PubSub::new();
+let source = pubsub
+    .source::<Utf8>("projects/my-project/subscriptions/orders")
+    .max_outstanding_messages(200)
+    .ack_deadline(Duration::from_secs(120));
+let sink = pubsub
+    .sink::<Utf8>("projects/my-project/topics/processed-orders")
+    .batch_delay(Duration::from_millis(50));
+```
 
 ## Records
 

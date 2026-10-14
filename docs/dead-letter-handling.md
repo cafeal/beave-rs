@@ -94,7 +94,7 @@ topic and print a summary of each dead letter as one JSON line:
 ```rust,ignore
 use beavers::{
     Json, RawBytes, StdoutSink, Subscription,
-    adapters::kafka::{KafkaDeadLetter, KafkaRecord, KafkaSource, KafkaSourceConfig},
+    adapters::kafka::{Kafka, KafkaDeadLetter, KafkaRecord},
 };
 
 #[derive(serde::Serialize)]
@@ -105,9 +105,10 @@ struct Summary {
     origin: Option<String>,
 }
 
-let mut config = KafkaSourceConfig::new(brokers, "orders-dlq-examine", ["orders-dlq"]);
-config.properties.insert("auto.offset.reset".into(), "earliest".into());
-let source = KafkaSource::<RawBytes>::new(config);
+let kafka = Kafka::new("localhost:9092");
+let source = kafka
+    .source::<RawBytes>("orders-dlq-examine", ["orders-dlq"])
+    .property("auto.offset.reset", "earliest");
 
 Subscription::new("orders-dlq-examine", source, StdoutSink::<Json<_>>::new(), |record: KafkaRecord<Vec<u8>>| async move {
     let dead = KafkaDeadLetter::from_record(&record).ok().flatten();
@@ -149,14 +150,11 @@ dead-lettered three times:
 ```rust,ignore
 use beavers::{
     Classify, ErrorPolicy, HandlerError, Json, RawBytes, Subscription,
-    adapters::kafka::{
-        KafkaDeadLetter, KafkaPublish, KafkaRecord, KafkaSink, KafkaSinkConfig, KafkaSource,
-        KafkaSourceConfig,
-    },
+    adapters::kafka::{KafkaDeadLetter, KafkaPublish, KafkaRecord},
 };
 
-let source = KafkaSource::<Json<Order>>::new(KafkaSourceConfig::new(brokers, "orders-redrive", ["orders-dlq"]));
-let parked = KafkaSink::<RawBytes>::new(KafkaSinkConfig::new(brokers, "orders-parked"));
+let source = kafka.source::<Json<Order>>("orders-redrive", ["orders-dlq"]);
+let parked = kafka.sink::<RawBytes>("orders-parked");
 
 Subscription::new("orders-redrive", source, invoices, |record: KafkaRecord<Order>| async move {
     if let Some(dead) = KafkaDeadLetter::from_record(&record).reject()?.filter(|dead| dead.details.count >= 3) {
@@ -224,13 +222,12 @@ SQS; the other platforms have the same shape with `RabbitMqDeadLetter`,
 ```rust,ignore
 use beavers::{
     Classify, Emit, ErrorPolicy, HandlerError, Json, RawBytes, Subscription,
-    adapters::sqs::{
-        SqsDeadLetter, SqsPublish, SqsRecord, SqsSink, SqsSinkConfig, SqsSource, SqsSourceConfig,
-    },
+    adapters::sqs::{Sqs, SqsDeadLetter, SqsPublish, SqsRecord},
 };
 
-let source = SqsSource::<Json<Order>>::new(SqsSourceConfig::new(orders_dlq_url));
-let parked = SqsSink::<RawBytes>::new(SqsSinkConfig::new(orders_parked_url));
+let sqs = Sqs::new();
+let source = sqs.source::<Json<Order>>(orders_dlq_url);
+let parked = sqs.sink::<RawBytes>(orders_parked_url);
 
 Subscription::new_emitting("orders-dlq-triage", source, invoices, |record: SqsRecord<Order>| async move {
     if let Some(dead) = SqsDeadLetter::from_record(&record).reject()?.filter(|dead| dead.details.count >= 3) {
@@ -283,7 +280,7 @@ redirected to a file:
 ```rust,ignore
 use beavers::{
     Json, RawBytes, StdoutSink, Subscription,
-    adapters::sqs::{SqsDeadLetter, SqsRecord, SqsSource, SqsSourceConfig},
+    adapters::sqs::{SqsDeadLetter, SqsRecord},
 };
 
 #[derive(serde::Serialize)]
@@ -295,7 +292,7 @@ struct Archived {
     body: String,
 }
 
-let source = SqsSource::<RawBytes>::new(SqsSourceConfig::new(orders_dlq_url));
+let source = sqs.source::<RawBytes>(orders_dlq_url);
 
 Subscription::new("orders-dlq-archive", source, StdoutSink::<Json<_>>::new(), |record: SqsRecord<Vec<u8>>| async move {
     let dead = SqsDeadLetter::from_record(&record).ok().flatten();

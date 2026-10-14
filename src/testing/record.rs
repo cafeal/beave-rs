@@ -144,7 +144,7 @@ impl TestRecord for PulsarRecord<Vec<u8>> {
 
 /// Decodes like a [`RabbitMqSource`](crate::adapters::rabbitmq::RabbitMqSource).
 /// Deliveries have no ordering scope, as for a source that is not
-/// [`ordered`](crate::adapters::rabbitmq::RabbitMqSourceConfig::ordered), and
+/// [`ordered`](crate::adapters::rabbitmq::RabbitMqSource::ordered), and
 /// string headers carry trace context.
 #[cfg(feature = "rabbitmq")]
 impl TestRecord for RabbitMqRecord<Vec<u8>> {

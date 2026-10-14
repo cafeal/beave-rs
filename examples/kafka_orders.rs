@@ -11,7 +11,7 @@
 //! broker other than `localhost:9092`.
 use beavers::{
     App, IterSource, Json, Result, Subscription,
-    adapters::kafka::{KafkaPublish, KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
+    adapters::kafka::{Kafka, KafkaPublish},
 };
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -57,7 +57,7 @@ async fn to_event(order: Order) -> Result<OrderEvent> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
+    let kafka = Kafka::new(env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into()));
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
         Some("produce") => {
@@ -75,7 +75,7 @@ async fn main() -> anyhow::Result<()> {
                 .subscribe(
                     "produce-orders",
                     IterSource::new(orders),
-                    KafkaSink::<Json<Order>>::new(KafkaSinkConfig::new(&brokers, ORDERS)),
+                    kafka.sink::<Json<Order>>(ORDERS),
                     keyed_by_customer,
                 )
                 .run()
@@ -84,17 +84,15 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some("process") | None => {
-            let mut source = KafkaSourceConfig::new(&brokers, "beavers-examples", [ORDERS]);
-            source
-                .properties
-                .insert("auto.offset.reset".into(), "earliest".into());
             println!("consuming {ORDERS} and publishing to {EVENTS}; press Ctrl-C to stop");
             App::new()
                 .subscription(
                     Subscription::new(
                         "process-orders",
-                        KafkaSource::<Json<Order>>::new(source),
-                        KafkaSink::<Json<OrderEvent>>::new(KafkaSinkConfig::new(&brokers, EVENTS)),
+                        kafka
+                            .source::<Json<Order>>("beavers-examples", [ORDERS])
+                            .property("auto.offset.reset", "earliest"),
+                        kafka.sink::<Json<OrderEvent>>(EVENTS),
                         to_event,
                     )
                     .concurrency(3),

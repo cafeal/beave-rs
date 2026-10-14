@@ -1,5 +1,6 @@
 use super::{
-    config::KafkaSinkConfig,
+    client::Kafka,
+    config::{TRANSACTIONAL_ID, TransactionalConfig},
     progress::{KafkaConsumer, Partition, Progress, TransactionGate},
     record::KafkaPublish,
     sink::{KafkaPrepared, prepare, send},
@@ -12,7 +13,7 @@ use crate::{
     transaction::{TransactionEntry, TransactionalSink},
 };
 use rdkafka::{
-    ClientConfig, Offset, TopicPartitionList,
+    Offset, TopicPartitionList,
     consumer::Consumer,
     error::{KafkaError, KafkaResult},
     message::Message,
@@ -41,6 +42,8 @@ struct State {
 /// Publishes Kafka records in producer transactions.
 ///
 /// Created with [`KafkaSink::transactional`](super::KafkaSink::transactional).
+/// It publishes through a producer of its own with the handle's settings,
+/// created on the first transaction, which also validates the settings.
 /// With [`Subscription::transactional`](crate::Subscription::transactional)
 /// and a [`KafkaSource`](super::KafkaSource), each transaction contains a
 /// delivery's outputs and its consumer offset. Used as a plain [`Sink`], each
@@ -52,10 +55,10 @@ pub struct KafkaTransactionalSink<C> {
     state: Arc<State>,
 }
 
-/// The sink configuration and the producer's `transactional.id`.
+/// The handle and the sink's settings.
 struct Config {
-    sink: KafkaSinkConfig,
-    transactional_id: String,
+    kafka: Kafka,
+    sink: TransactionalConfig,
 }
 
 impl<C> Clone for KafkaTransactionalSink<C> {
@@ -69,18 +72,47 @@ impl<C> Clone for KafkaTransactionalSink<C> {
 }
 
 impl<C> KafkaTransactionalSink<C> {
-    pub(super) fn new(sink: KafkaSinkConfig, transactional_id: String, codec: Arc<C>) -> Self {
+    pub(super) fn new(kafka: Kafka, sink: TransactionalConfig, codec: Arc<C>) -> Self {
         Self {
-            config: Arc::new(Config {
-                sink,
-                transactional_id,
-            }),
+            config: Arc::new(Config { kafka, sink }),
             codec,
             state: Arc::new(State {
                 producer: tokio::sync::Mutex::new(None),
                 closed: AtomicBool::new(false),
             }),
         }
+    }
+
+    /// Maximum time each blocking operation waits: initialization, sending
+    /// consumer offsets, commit, and abort. Defaults to 60 seconds.
+    pub fn transaction_timeout(self, transaction_timeout: Duration) -> Self {
+        self.configure(|config| config.transaction_timeout = transaction_timeout)
+    }
+
+    /// Maximum time `close` waits for the producer's queued records. Defaults
+    /// to the sink's `close_timeout`.
+    pub fn close_timeout(self, close_timeout: Duration) -> Self {
+        self.configure(|config| config.close_timeout = close_timeout)
+    }
+
+    /// Checks the handle and sink settings without network access.
+    ///
+    /// Fails when the handle is invalid or the topic or transactional ID is
+    /// empty.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.config.kafka.validate()?;
+        self.config.sink.validate()?;
+        Ok(())
+    }
+
+    fn configure(mut self, change: impl FnOnce(&mut TransactionalConfig)) -> Self {
+        let mut sink = self.config.sink.clone();
+        change(&mut sink);
+        self.config = Arc::new(Config {
+            kafka: self.config.kafka.clone(),
+            sink,
+        });
+        self
     }
 
     /// Runs one transaction in its own task, so dropping the caller neither
@@ -128,15 +160,10 @@ impl<C> KafkaTransactionalSink<C> {
     async fn verify_cluster(&self, consumer: Arc<KafkaConsumer>) -> Result<(), BoxError> {
         let config = self.config.clone();
         tokio::task::spawn_blocking(move || {
+            config.kafka.validate()?;
             config.sink.validate()?;
             let timeout = config.sink.transaction_timeout;
-            let mut client = ClientConfig::new();
-            for (key, value) in &config.sink.properties {
-                client.set(key, value);
-            }
-            let sink: BaseProducer = client
-                .set("bootstrap.servers", &config.sink.brokers)
-                .create()?;
+            let sink: BaseProducer = config.kafka.producer_config().create()?;
             let sink = sink
                 .client()
                 .fetch_cluster_id(timeout)
@@ -292,21 +319,14 @@ impl SourceOffsets {
 }
 
 async fn connect(config: Arc<Config>) -> Result<FutureProducer, BoxError> {
+    config.kafka.validate()?;
     config.sink.validate()?;
-    ensure!(
-        !config.transactional_id.trim().is_empty(),
-        Error::config,
-        "Kafka transactional ID is required"
-    );
     tokio::task::spawn_blocking(move || {
-        let mut client = ClientConfig::new();
-        for (key, value) in &config.sink.properties {
-            client.set(key, value);
-        }
-        client
-            .set("bootstrap.servers", &config.sink.brokers)
-            .set("transactional.id", &config.transactional_id);
-        let producer: FutureProducer = client.create()?;
+        let producer: FutureProducer = config
+            .kafka
+            .producer_config()
+            .set(TRANSACTIONAL_ID, &config.sink.transactional_id)
+            .create()?;
         producer.init_transactions(config.sink.transaction_timeout)?;
         Ok::<_, BoxError>(producer)
     })

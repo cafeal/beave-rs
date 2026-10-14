@@ -14,8 +14,8 @@
 use beavers::{
     App, Json, MapMetadata, Result, Subscription, Tombstones,
     adapters::{
-        kafka::{KafkaRecord, KafkaSource, KafkaSourceConfig},
-        pulsar::{PulsarPublish, PulsarSink, PulsarSinkConfig},
+        kafka::{Kafka, KafkaRecord},
+        pulsar::{Pulsar, PulsarPublish},
     },
 };
 use serde::{Deserialize, Serialize};
@@ -64,20 +64,19 @@ fn map_metadata(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
-    let service_url = env::var("PULSAR_URL").unwrap_or_else(|_| "pulsar://localhost:6650".into());
+    let kafka = Kafka::new(env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into()));
+    let pulsar =
+        Pulsar::new(env::var("PULSAR_URL").unwrap_or_else(|_| "pulsar://localhost:6650".into()));
 
-    let mut source = KafkaSourceConfig::new(&brokers, "beavers-bridge", [KAFKA_TOPIC]);
-    source
-        .properties
-        .insert("auto.offset.reset".into(), "earliest".into());
     println!("bridging Kafka {KAFKA_TOPIC} to Pulsar {PULSAR_TOPIC}; press Ctrl-C to stop");
     App::new()
         .subscription(
             Subscription::new(
                 "kafka-to-pulsar",
-                KafkaSource::<Json<Order>>::new(source),
-                PulsarSink::<Json<Order>>::new(PulsarSinkConfig::new(&service_url, PULSAR_TOPIC)),
+                kafka
+                    .source::<Json<Order>>("beavers-bridge", [KAFKA_TOPIC])
+                    .property("auto.offset.reset", "earliest"),
+                pulsar.sink::<Json<Order>>(PULSAR_TOPIC),
                 republish,
             )
             .middleware(Tombstones::skip())

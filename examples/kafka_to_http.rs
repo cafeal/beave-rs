@@ -14,8 +14,8 @@
 use beavers::{
     App, InMemorySink, Json, Result, Subscription,
     adapters::{
-        http::{HttpPublish, HttpRecord, HttpSink, HttpSinkConfig, HttpSource, HttpSourceConfig},
-        kafka::{KafkaRecord, KafkaSource, KafkaSourceConfig},
+        http::{HttpClient, HttpPublish, HttpRecord, HttpSource},
+        kafka::{Kafka, KafkaRecord},
     },
 };
 use serde::{Deserialize, Serialize};
@@ -55,8 +55,7 @@ async fn print(record: HttpRecord<Order>) -> Result<()> {
 async fn main() -> anyhow::Result<()> {
     match env::args().nth(1).as_deref() {
         Some("receive") => {
-            let source =
-                HttpSource::<Json<Order>>::new(HttpSourceConfig::new("127.0.0.1:8090".parse()?))?;
+            let source = HttpSource::<Json<Order>>::new("127.0.0.1:8090".parse()?)?;
             println!("listening on {}; press Ctrl-C to stop", source.local_addr());
             App::new()
                 .subscribe(
@@ -70,23 +69,21 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some("forward") | None => {
-            let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
+            let kafka =
+                Kafka::new(env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into()));
             let url =
                 env::var("HTTP_SINK_URL").unwrap_or_else(|_| "http://127.0.0.1:8090/orders".into());
-            let mut source = KafkaSourceConfig::new(&brokers, "beavers-examples-http", [ORDERS]);
-            source
-                .properties
-                .insert("auto.offset.reset".into(), "earliest".into());
-            let mut sink = HttpSinkConfig::new(&url);
-            sink.headers
-                .push(("content-type".into(), "application/json".into()));
             println!("consuming {ORDERS} and sending to {url}; press Ctrl-C to stop");
             App::new()
                 .subscription(
                     Subscription::new(
                         "forward-orders",
-                        KafkaSource::<Json<Order>>::new(source),
-                        HttpSink::<Json<Order>>::new(sink)?,
+                        kafka
+                            .source::<Json<Order>>("beavers-examples-http", [ORDERS])
+                            .property("auto.offset.reset", "earliest"),
+                        HttpClient::new()
+                            .sink::<Json<Order>>(&url)
+                            .header("content-type", "application/json"),
                         to_request,
                     )
                     .concurrency(3),

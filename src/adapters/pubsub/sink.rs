@@ -1,4 +1,4 @@
-use super::{client::publisher, config::PubSubSinkConfig, record::PubSubPublish};
+use super::{client::PubSub, config::SinkConfig, record::PubSubPublish};
 use crate::{
     codec::Encoder,
     error::{BoxError, Error, ensure},
@@ -12,6 +12,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::Duration,
 };
 use tokio::sync::OnceCell;
 
@@ -53,8 +54,13 @@ impl fmt::Debug for PubSubPrepared {
 
 /// Publishes each output to one topic. A publication succeeds once Pub/Sub
 /// has stored the message and returned its ID.
+///
+/// Built with [`PubSub::sink`]. It creates its publisher client with the
+/// handle's credentials on the first publication, which also validates the
+/// settings. Clones share the publisher and closure state.
 pub struct PubSubSink<C> {
-    config: PubSubSinkConfig,
+    pubsub: PubSub,
+    config: SinkConfig,
     codec: Arc<C>,
     publisher: Arc<OnceCell<Publisher>>,
     closed: Arc<AtomicBool>,
@@ -63,6 +69,7 @@ pub struct PubSubSink<C> {
 impl<C> Clone for PubSubSink<C> {
     fn clone(&self) -> Self {
         Self {
+            pubsub: self.pubsub.clone(),
             config: self.config.clone(),
             codec: self.codec.clone(),
             publisher: self.publisher.clone(),
@@ -71,22 +78,31 @@ impl<C> Clone for PubSubSink<C> {
     }
 }
 
-impl<C: Default> PubSubSink<C> {
-    /// A sink with a default-constructed codec.
-    pub fn new(config: PubSubSinkConfig) -> Self {
-        Self::with_codec(config, C::default())
-    }
-}
-
 impl<C> PubSubSink<C> {
-    /// A sink that uses an existing codec instance, such as a configured `Avro` codec.
-    pub fn with_codec(config: PubSubSinkConfig, codec: C) -> Self {
+    pub(super) fn new(pubsub: PubSub, config: SinkConfig, codec: C) -> Self {
         Self {
+            pubsub,
             config,
             codec: Arc::new(codec),
             publisher: Arc::default(),
             closed: Arc::default(),
         }
+    }
+
+    /// How long the client collects messages into one `Publish` request.
+    /// Defaults to 10 ms.
+    pub fn batch_delay(mut self, batch_delay: Duration) -> Self {
+        self.config.batch_delay = batch_delay;
+        self
+    }
+
+    /// Checks the handle and sink settings without contacting Pub/Sub.
+    ///
+    /// Fails when the handle is invalid or the topic is not named
+    /// `projects/{project}/topics/{id}`.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.pubsub.validate()?;
+        self.config.validate()
     }
 
     async fn publisher(&self) -> Result<&Publisher, BoxError> {
@@ -97,8 +113,10 @@ impl<C> PubSubSink<C> {
         );
         self.publisher
             .get_or_try_init(|| async {
-                self.config.validate()?;
-                publisher(&self.config).await
+                self.validate()?;
+                self.pubsub
+                    .publisher(&self.config.topic, self.config.batch_delay)
+                    .await
             })
             .await
     }

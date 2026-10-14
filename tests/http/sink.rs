@@ -2,7 +2,7 @@ use super::fixtures::{Destination, labels, reply, snapshotter};
 use beavers::{
     App, DeadLetter, FailureKind, InMemorySink, IterSource, Json, PropagationCarrier, RetryPolicy,
     Sink, Subscription, Utf8,
-    adapters::http::{HttpMethod, HttpPublish, HttpSink, HttpSinkConfig},
+    adapters::http::{HttpClient, HttpMethod, HttpPublish, HttpSink},
 };
 use metrics_util::debugging::DebugValue;
 use serde::Serialize;
@@ -23,45 +23,44 @@ fn fast() -> RetryPolicy {
 }
 
 fn sink(url: String) -> HttpSink<Utf8> {
-    HttpSink::new(HttpSinkConfig::new(url)).unwrap()
+    HttpClient::new().sink(url)
 }
 
 #[test]
-fn config_rejects_invalid_targets() {
+fn validation_rejects_invalid_targets() {
+    let http = HttpClient::new();
     let invalid = [
-        HttpSinkConfig::new("localhost:8080/orders"),
-        HttpSinkConfig::new("ftp://localhost/orders"),
-        HttpSinkConfig::new("http://user:secret@localhost/orders"),
-        HttpSinkConfig {
-            headers: vec![("bad name".to_owned(), "x".to_owned())],
-            ..HttpSinkConfig::new("http://localhost/orders")
-        },
-        HttpSinkConfig {
-            timeout: Duration::ZERO,
-            ..HttpSinkConfig::new("http://localhost/orders")
-        },
+        http.sink::<Utf8>("localhost:8080/orders"),
+        http.sink("ftp://localhost/orders"),
+        http.sink("http://user:secret@localhost/orders"),
+        http.sink("http://localhost/orders").header("bad name", "x"),
+        http.sink("http://localhost/orders").timeout(Duration::ZERO),
+        HttpClient::new()
+            .header("bad name", "x")
+            .sink("http://localhost/orders"),
+        HttpClient::new()
+            .timeout(Duration::ZERO)
+            .sink("http://localhost/orders"),
     ];
-    for config in invalid {
-        assert!(config.validate().is_err(), "{config:?}");
-        assert!(HttpSink::<Utf8>::new(config).is_err());
+    for sink in invalid {
+        assert!(sink.validate().is_err());
+        assert!(sink.prepare(HttpPublish::new("order".to_owned())).is_err());
     }
     assert!(
-        HttpSinkConfig::new("https://localhost:8443/orders?v=1")
+        http.sink::<Utf8>("https://localhost:8443/orders?v=1")
             .validate()
             .is_ok()
     );
 }
 
 #[test]
-fn prepare_merges_configured_and_output_headers() {
-    let config = HttpSinkConfig {
-        headers: vec![
-            ("content-type".to_owned(), "text/plain".to_owned()),
-            ("authorization".to_owned(), "Bearer token".to_owned()),
-        ],
-        ..HttpSinkConfig::new("http://localhost/orders")
-    };
-    let sink = HttpSink::<Utf8>::new(config).unwrap();
+fn prepare_merges_handle_sink_and_output_headers() {
+    let http = HttpClient::new()
+        .header("authorization", "Bearer token")
+        .header("content-type", "application/json");
+    let sink = http
+        .sink::<Utf8>("http://localhost/orders")
+        .header("content-type", "text/plain");
     let prepared = sink
         .prepare(
             HttpPublish::new("hello".to_owned())
@@ -83,6 +82,12 @@ fn prepare_merges_configured_and_output_headers() {
             ("x-tag", &b"b"[..]),
         ]
     );
+    let plain = sink.prepare(HttpPublish::new("hello".to_owned())).unwrap();
+    let content_types: Vec<_> = plain
+        .headers()
+        .filter(|(name, _)| *name == "content-type")
+        .collect();
+    assert_eq!(content_types, [("content-type", &b"text/plain"[..])]);
     let invalid = HttpPublish::new(String::new()).with_header("x-bad", b"line\nbreak".to_vec());
     assert!(sink.prepare(invalid).is_err());
 }
@@ -100,12 +105,10 @@ fn propagation_fields_replace_headers_of_the_same_name() {
 #[tokio::test]
 async fn outputs_are_sent_with_configured_method_url_and_headers() {
     let destination = Destination::start([]).await;
-    let config = HttpSinkConfig {
-        method: HttpMethod::Put,
-        headers: vec![("content-type".to_owned(), "application/json".to_owned())],
-        ..HttpSinkConfig::new(destination.url("/orders?source=kafka"))
-    };
-    let sink = HttpSink::<Json<Order>>::new(config).unwrap();
+    let sink = HttpClient::new()
+        .sink::<Json<Order>>(destination.url("/orders?source=kafka"))
+        .method(HttpMethod::Put)
+        .header("content-type", "application/json");
     let source = IterSource::new([1, 2]);
     let acks = source.acknowledgements();
 
@@ -161,10 +164,9 @@ async fn transient_failures_are_retried_until_accepted() {
 #[tokio::test]
 async fn timed_out_attempt_is_retried() {
     let destination = Destination::start([(200, "", Duration::from_secs(5))]).await;
-    let config = HttpSinkConfig {
-        timeout: Duration::from_millis(100),
-        ..HttpSinkConfig::new(destination.url("/"))
-    };
+    let sink = HttpClient::new()
+        .timeout(Duration::from_millis(100))
+        .sink::<Utf8>(destination.url("/"));
     let source = IterSource::new(["order".to_owned()]);
     let acks = source.acknowledgements();
 
@@ -173,7 +175,7 @@ async fn timed_out_attempt_is_retried() {
             Subscription::new(
                 "timed_out_attempt_is_retried",
                 source,
-                HttpSink::<Utf8>::new(config).unwrap(),
+                sink,
                 |body: String| async move { Ok(HttpPublish::new(body)) },
             )
             .publish_retry(fast()),

@@ -8,7 +8,7 @@ mod record;
 mod sink;
 mod source;
 
-pub use config::{PubSubCredentials, PubSubSinkConfig, PubSubSourceConfig};
+pub use client::PubSub;
 pub use dead_letter::{PubSubDeadLetter, PubSubOrigin};
 pub use inherit::PubSubInherit;
 pub use record::{PubSubAttributes, PubSubMetadata, PubSubPublish, PubSubRecord};

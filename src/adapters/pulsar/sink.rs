@@ -1,8 +1,9 @@
-use super::{config::PulsarSinkConfig, producer::Producers, record::PulsarPublish};
+use super::{client::Pulsar, config::SinkConfig, producer::Producers, record::PulsarPublish};
 use crate::{
     adapters::pending::PendingLimit,
     codec::Encoder,
     error::{BoxError, Error, ensure},
+    retry::RetryPolicy,
     sink::{Completion, Sink},
 };
 use std::{
@@ -31,14 +32,16 @@ pub struct PulsarPrepared {
 
 /// The lazily connected producers and closure state of a sink.
 pub(super) struct Connection {
-    config: PulsarSinkConfig,
+    pulsar: Pulsar,
+    config: SinkConfig,
     producers: Arc<RwLock<Option<Producers>>>,
     closed: AtomicBool,
 }
 
 impl Connection {
-    pub(super) fn new(config: PulsarSinkConfig) -> Self {
+    pub(super) fn new(pulsar: Pulsar, config: SinkConfig) -> Self {
         Self {
+            pulsar,
             config,
             producers: Arc::new(RwLock::new(None)),
             closed: AtomicBool::new(false),
@@ -67,7 +70,7 @@ impl Connection {
                 "Pulsar sink is closed"
             );
             if producers.is_none() {
-                *producers = Some(Producers::connect(&self.config).await?);
+                *producers = Some(Producers::connect(&self.pulsar, &self.config).await?);
             }
         }
     }
@@ -84,6 +87,11 @@ impl Connection {
 
 /// Queues prepared messages on the producers and completes each one on its
 /// Pulsar broker receipt.
+///
+/// Built with [`Pulsar::sink`]. The producers are created on the first
+/// publication, which also validates the settings. Closing the sink closes its
+/// producers; the client stays open for the other sources and sinks of the
+/// handle.
 pub struct PulsarSink<C> {
     connection: Connection,
     codec: Arc<C>,
@@ -91,27 +99,46 @@ pub struct PulsarSink<C> {
     pending: PendingLimit,
 }
 
-impl<C: Default> PulsarSink<C> {
-    /// Creates a sink that encodes with the codec's default value.
-    ///
-    /// The producers are created on the first publication, which also
-    /// validates the configuration.
-    pub fn new(config: PulsarSinkConfig) -> Self {
-        Self::with_codec(config, C::default())
-    }
-}
-
 impl<C> PulsarSink<C> {
-    /// Creates a sink that encodes with `codec`.
-    ///
-    /// The producers are created on the first publication, which also
-    /// validates the configuration.
-    pub fn with_codec(config: PulsarSinkConfig, codec: C) -> Self {
+    pub(super) fn new(pulsar: Pulsar, config: SinkConfig, codec: C) -> Self {
         Self {
             pending: PendingLimit::new(config.max_pending, "Pulsar"),
-            connection: Connection::new(config),
+            connection: Connection::new(pulsar, config),
             codec: Arc::new(codec),
         }
+    }
+
+    /// Names each partition's producer. By default the broker assigns names.
+    pub fn producer_name(mut self, name: impl Into<String>) -> Self {
+        self.connection.config.producer_name = Some(name.into());
+        self
+    }
+
+    /// Messages queued by `submit` whose broker receipt has not arrived.
+    /// `submit` waits while this many are outstanding. Defaults to 1000.
+    pub fn max_pending(mut self, max_pending: usize) -> Self {
+        self.connection.config.max_pending = max_pending;
+        self.pending = PendingLimit::new(max_pending, "Pulsar");
+        self
+    }
+
+    /// Sends of a message, including the first, when the broker rejects it.
+    /// A broker that is shutting down or unloading the topic rejects the sends
+    /// in flight, and a later send reaches the topic's next owner. Defaults to
+    /// 10 attempts with delays from 100 ms up to 5 s.
+    pub fn send_retry(mut self, send_retry: RetryPolicy) -> Self {
+        self.connection.config.send_retry = send_retry;
+        self
+    }
+
+    /// Checks the handle and sink settings without network access.
+    ///
+    /// Fails when the handle is invalid, when the topic or a set producer name
+    /// is empty, when `max_pending` is zero or too large, or when `send_retry`
+    /// is invalid.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.connection.pulsar.validate()?;
+        self.connection.config.validate()
     }
 }
 

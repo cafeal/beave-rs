@@ -3,6 +3,7 @@
 //! Enabled by the `kafka` Cargo feature. See `docs/adapters/kafka.md` for offset
 //! commits, transactions, and delivery guarantees.
 
+mod client;
 mod config;
 mod dead_letter;
 mod inherit;
@@ -13,7 +14,7 @@ mod source;
 mod tombstone;
 mod transaction;
 
-pub use config::{KafkaSinkConfig, KafkaSourceConfig};
+pub use client::Kafka;
 pub use dead_letter::KafkaDeadLetter;
 pub use inherit::KafkaInherit;
 #[cfg(feature = "testing")]

@@ -1,6 +1,6 @@
 use super::{
-    config::RabbitMqSourceConfig,
-    connection::{close, connect},
+    config::SourceConfig,
+    connection::{RabbitMq, Role, close},
     convert::{headers_from_amqp, is_persistent, properties_from_amqp, short_string},
     record::{RabbitMqMetadata, RabbitMqRecord},
 };
@@ -13,59 +13,50 @@ use crate::{
 };
 use futures_util::StreamExt;
 use lapin::{
-    Connection, Consumer,
+    Channel, Consumer,
     message::Delivery,
     options::{BasicAckOptions, BasicConsumeOptions, BasicQosOptions},
     types::{AMQPValue, FieldTable},
 };
 use std::{convert::Infallible, sync::Arc};
 
-/// Consumes one queue. It connects and starts its consumer on the first
-/// `receive`, and again after the connection or channel is lost.
+/// Consumes one queue on a channel of its own.
+///
+/// Built with [`RabbitMq::source`]. It opens its channel and starts its
+/// consumer on the first `receive`, which also validates the settings, and
+/// again after the channel or connection is lost.
 pub struct RabbitMqSource<C> {
-    config: RabbitMqSourceConfig,
+    rabbit: RabbitMq,
+    config: SourceConfig,
     codec: Arc<C>,
     session: Option<Session>,
     closed: bool,
 }
 
-/// One connection with its consuming channel. Its deliveries are revoked when
-/// the session ends, because the broker then requeues them and their delivery
-/// tags cannot be acknowledged on another channel.
+/// One consuming channel. Its deliveries are revoked when the session ends,
+/// because the broker then requeues them and their delivery tags cannot be
+/// acknowledged on another channel.
 struct Session {
-    connection: Connection,
+    channel: Channel,
     consumer: Consumer,
     revoked: CancellationToken,
 }
 
 impl Session {
-    /// Revokes the session's deliveries and closes its connection in the
+    /// Revokes the session's deliveries and closes its channel in the
     /// background, so the broker requeues what they leave unacknowledged.
     fn end(self) {
         self.revoked.cancel();
         tokio::spawn(async move {
-            let _ = close(&self.connection).await;
+            let _ = close(&self.channel).await;
         });
     }
 }
 
-impl<C: Default> RabbitMqSource<C> {
-    /// Creates a source that decodes with the codec's default value.
-    ///
-    /// The connection is opened on the first receive, which also validates the
-    /// configuration.
-    pub fn new(config: RabbitMqSourceConfig) -> Self {
-        Self::with_codec(config, C::default())
-    }
-}
-
 impl<C> RabbitMqSource<C> {
-    /// Creates a source that decodes with `codec`.
-    ///
-    /// The connection is opened on the first receive, which also validates the
-    /// configuration.
-    pub fn with_codec(config: RabbitMqSourceConfig, codec: C) -> Self {
+    pub(super) fn new(rabbit: RabbitMq, config: SourceConfig, codec: C) -> Self {
         Self {
+            rabbit,
             config,
             codec: Arc::new(codec),
             session: None,
@@ -73,14 +64,35 @@ impl<C> RabbitMqSource<C> {
         }
     }
 
+    /// Unacknowledged messages the broker sends ahead of acknowledgements
+    /// (`basic.qos` prefetch count). It bounds the source's buffered and
+    /// in-flight deliveries together. Defaults to 100.
+    pub fn prefetch(mut self, prefetch: u16) -> Self {
+        self.config.prefetch = prefetch;
+        self
+    }
+
+    /// Gives every delivery the queue as its ordering key, so the subscription
+    /// processes them one at a time in delivery order under
+    /// [`ProcessingOrder::PerKey`](crate::ProcessingOrder::PerKey). Use it with
+    /// a queue that has a single active consumer. Disabled by default.
+    pub fn ordered(mut self, ordered: bool) -> Self {
+        self.config.ordered = ordered;
+        self
+    }
+
+    /// Checks the handle and source settings without connecting.
+    ///
+    /// Fails when the handle is invalid, the queue name is empty or longer than
+    /// 255 bytes, or `prefetch` is zero.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.rabbit.validate()?;
+        self.config.validate()
+    }
+
     async fn connect(&self) -> Result<Session, BoxError> {
-        let connection = connect(
-            &self.config.uri,
-            format!("beavers source {}", self.config.queue),
-        )
-        .await?;
+        let channel = self.rabbit.channel(Role::Consume).await?;
         let consumer = async {
-            let channel = connection.create_channel().await?;
             channel
                 .basic_qos(self.config.prefetch, BasicQosOptions::default())
                 .await?;
@@ -98,12 +110,12 @@ impl<C> RabbitMqSource<C> {
         .await;
         match consumer {
             Ok(consumer) => Ok(Session {
-                connection,
+                channel,
                 consumer,
                 revoked: CancellationToken::new(),
             }),
             Err(error) => {
-                let _ = close(&connection).await;
+                let _ = close(&channel).await;
                 Err(error)
             }
         }
@@ -118,8 +130,7 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for RabbitMqSource
             return Ok(Receive::End);
         }
         if self.session.is_none() {
-            self.config
-                .validate()
+            self.validate()
                 .map_err(|error| ReceiveError::Fatal(error.into()))?;
             self.session = Some(self.connect().await.map_err(ReceiveError::Retry)?);
         }
@@ -152,7 +163,7 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for RabbitMqSource
         match self.session.take() {
             Some(session) => {
                 session.revoked.cancel();
-                Ok(close(&session.connection).await?)
+                Ok(close(&session.channel).await?)
             }
             None => Ok(()),
         }

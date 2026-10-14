@@ -4,6 +4,7 @@
 //! for message locks, settlement, and delivery guarantees.
 
 mod auth;
+mod client;
 mod config;
 mod connection;
 mod convert;
@@ -15,9 +16,7 @@ mod record;
 mod sink;
 mod source;
 
-pub use config::{
-    ServiceBusConnection, ServiceBusCredential, ServiceBusSinkConfig, ServiceBusSourceConfig,
-};
+pub use client::ServiceBus;
 pub use dead_letter::{ServiceBusDeadLetter, ServiceBusOrigin};
 pub use inherit::ServiceBusInherit;
 #[cfg(feature = "testing")]

@@ -1,5 +1,8 @@
 use super::{
-    client::client, config::SqsSinkConfig, convert::attributes_to_sqs, record::SqsPublish,
+    client::Sqs,
+    config::{is_fifo, validate_queue_url},
+    convert::attributes_to_sqs,
+    record::SqsPublish,
 };
 use crate::{
     codec::Encoder,
@@ -7,7 +10,6 @@ use crate::{
     sink::{PublishRejected, Sink},
 };
 use aws_sdk_sqs::{
-    Client,
     error::{DisplayErrorContext, ProvideErrorMetadata},
     types::MessageAttributeValue,
 };
@@ -20,7 +22,6 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::OnceCell;
 
 /// Longest per-message delay SQS accepts.
 const MAX_DELAY: Duration = Duration::from_secs(15 * 60);
@@ -65,54 +66,45 @@ impl fmt::Debug for SqsPrepared {
 
 /// Sends each output to one queue with `SendMessage`. A publication succeeds
 /// once SQS has stored the message.
+///
+/// Built with [`Sqs::sink`]. The handle's client is created on the first
+/// publication, which also validates the settings. Clones share their closure
+/// state.
 pub struct SqsSink<C> {
-    config: SqsSinkConfig,
+    sqs: Sqs,
+    queue_url: String,
     codec: Arc<C>,
-    client: Arc<OnceCell<Client>>,
     closed: Arc<AtomicBool>,
 }
 
 impl<C> Clone for SqsSink<C> {
     fn clone(&self) -> Self {
         Self {
-            config: self.config.clone(),
+            sqs: self.sqs.clone(),
+            queue_url: self.queue_url.clone(),
             codec: self.codec.clone(),
-            client: self.client.clone(),
             closed: self.closed.clone(),
         }
     }
 }
 
-impl<C: Default> SqsSink<C> {
-    /// A sink with a default-constructed codec.
-    pub fn new(config: SqsSinkConfig) -> Self {
-        Self::with_codec(config, C::default())
-    }
-}
-
 impl<C> SqsSink<C> {
-    /// A sink that uses an existing codec instance, such as a configured `Avro` codec.
-    pub fn with_codec(config: SqsSinkConfig, codec: C) -> Self {
+    pub(super) fn new(sqs: Sqs, queue_url: String, codec: C) -> Self {
         Self {
-            config,
+            sqs,
+            queue_url,
             codec: Arc::new(codec),
-            client: Arc::default(),
             closed: Arc::default(),
         }
     }
 
-    async fn client(&self) -> Result<&Client, BoxError> {
-        ensure!(
-            !self.closed.load(Ordering::Acquire),
-            Error::closed,
-            "SQS sink is closed"
-        );
-        self.client
-            .get_or_try_init(|| async {
-                self.config.validate()?;
-                Ok::<_, BoxError>(client(&self.config.endpoint()).await)
-            })
-            .await
+    /// Checks the handle and sink settings without contacting SQS.
+    ///
+    /// Fails when the handle is invalid or the queue URL is not an http or
+    /// https URL.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.sqs.validate()?;
+        validate_queue_url(&self.queue_url)
     }
 }
 
@@ -127,7 +119,7 @@ where
     fn prepare(&self, output: SqsPublish<C::Value>) -> Result<Self::Prepared, BoxError> {
         let body = String::from_utf8(self.codec.encode(&output.value)?)
             .context("SQS message bodies must be UTF-8 text")?;
-        let fifo = self.config.endpoint().is_fifo();
+        let fifo = is_fifo(&self.queue_url);
         if fifo {
             ensure!(
                 output.message_group_id.is_some(),
@@ -157,10 +149,18 @@ where
     }
 
     async fn publish(&self, output: &Self::Prepared) -> Result<(), BoxError> {
-        let client = self.client().await?;
-        let result = client
+        ensure!(
+            !self.closed.load(Ordering::Acquire),
+            Error::closed,
+            "SQS sink is closed"
+        );
+        self.validate()?;
+        let result = self
+            .sqs
+            .client()
+            .await?
             .send_message()
-            .queue_url(&self.config.queue_url)
+            .queue_url(&self.queue_url)
             .message_body(&output.body)
             .set_message_attributes(
                 (!output.attributes.is_empty()).then(|| output.attributes.clone()),

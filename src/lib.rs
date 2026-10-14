@@ -25,7 +25,7 @@
 //! # mod example {
 //! use beavers::{
 //!     App, Classify, Utf8,
-//!     adapters::kafka::{KafkaSink, KafkaSinkConfig, KafkaSource, KafkaSourceConfig},
+//!     adapters::kafka::Kafka,
 //! };
 //!
 //! async fn summarize(article: String) -> beavers::Result<String> {
@@ -35,12 +35,9 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), beavers::Error> {
-//!     let articles = KafkaSource::<Utf8>::new(KafkaSourceConfig::new(
-//!         "localhost:9092",
-//!         "summarizer",
-//!         ["articles"],
-//!     ));
-//!     let summaries = KafkaSink::<Utf8>::new(KafkaSinkConfig::new("localhost:9092", "summaries"));
+//!     let kafka = Kafka::new("localhost:9092");
+//!     let articles = kafka.source::<Utf8>("summarizer", ["articles"]);
+//!     let summaries = kafka.sink::<Utf8>("summaries");
 //!
 //!     App::new()
 //!         .subscribe("summarize", articles, summaries, summarize)

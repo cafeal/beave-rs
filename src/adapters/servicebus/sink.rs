@@ -1,5 +1,6 @@
 use super::{
-    config::ServiceBusSinkConfig,
+    client::ServiceBus,
+    config::SinkConfig,
     connection::{Connection, unique_name},
     convert::message_to_amqp,
     record::ServiceBusPublish,
@@ -54,16 +55,15 @@ impl fmt::Debug for ServiceBusPrepared {
     }
 }
 
-/// A connection and its send link.
+/// The send link on the handle's connection.
 struct Publisher {
-    connection: Connection,
+    _connection: Arc<Connection>,
     sender: Sender,
 }
 
 impl Publisher {
     async fn close(self) {
         let _ = self.sender.close().await;
-        self.connection.close().await;
     }
 }
 
@@ -75,8 +75,13 @@ struct State {
 
 /// Sends every output to one queue or topic and completes it when Service Bus
 /// accepts the message.
+///
+/// Built with [`ServiceBus::sink`]. It attaches its send link to the handle's
+/// connection on the first publication, which also validates the settings.
+/// Clones share the link and closure state.
 pub struct ServiceBusSink<C> {
-    config: ServiceBusSinkConfig,
+    bus: ServiceBus,
+    config: SinkConfig,
     codec: Arc<C>,
     state: Arc<State>,
 }
@@ -84,6 +89,7 @@ pub struct ServiceBusSink<C> {
 impl<C> Clone for ServiceBusSink<C> {
     fn clone(&self) -> Self {
         Self {
+            bus: self.bus.clone(),
             config: self.config.clone(),
             codec: self.codec.clone(),
             state: self.state.clone(),
@@ -91,23 +97,10 @@ impl<C> Clone for ServiceBusSink<C> {
     }
 }
 
-impl<C: Default> ServiceBusSink<C> {
-    /// A sink with a default-constructed codec.
-    ///
-    /// The connection is opened on the first publication, which also validates
-    /// the configuration.
-    pub fn new(config: ServiceBusSinkConfig) -> Self {
-        Self::with_codec(config, C::default())
-    }
-}
-
 impl<C> ServiceBusSink<C> {
-    /// A sink that uses an existing codec instance, such as a configured `Avro` codec.
-    ///
-    /// The connection is opened on the first publication, which also validates
-    /// the configuration.
-    pub fn with_codec(config: ServiceBusSinkConfig, codec: C) -> Self {
+    pub(super) fn new(bus: ServiceBus, config: SinkConfig, codec: C) -> Self {
         Self {
+            bus,
             codec: Arc::new(codec),
             state: Arc::new(State {
                 publisher: Mutex::new(None),
@@ -118,26 +111,43 @@ impl<C> ServiceBusSink<C> {
         }
     }
 
+    /// Messages sent and not yet accepted by Service Bus. `submit` waits while
+    /// this many are outstanding. Defaults to 1000.
+    pub fn max_pending(mut self, max_pending: usize) -> Self {
+        self.config.max_pending = max_pending;
+        self.state = Arc::new(State {
+            publisher: Mutex::new(None),
+            closed: AtomicBool::new(false),
+            pending: PendingLimit::new(max_pending, "Service Bus"),
+        });
+        self
+    }
+
+    /// Checks the handle and sink settings without contacting Service Bus.
+    ///
+    /// Fails when the handle is invalid, the entity path is empty or has
+    /// surrounding slashes or whitespace, or `max_pending` is zero.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.bus.validate()?;
+        self.config.validate()
+    }
+
     async fn connect(&self) -> Result<Publisher, BoxError> {
-        self.config.validate()?;
+        self.validate()?;
         let entity = &self.config.entity_path;
-        let mut connection =
-            Connection::open(&self.config.connection, std::slice::from_ref(entity)).await?;
+        let connection = self.bus.connection(std::slice::from_ref(entity)).await?;
         let name = unique_name("sender");
         let sender = Sender::builder()
             .name(name.as_str())
             .source(name.as_str())
             .target(entity.as_str())
-            .attach(&mut connection.session)
+            .attach(&mut *connection.session().await)
             .await
-            .with_context(|| format!("attaching a Service Bus sender to {entity}"));
-        match sender {
-            Ok(sender) => Ok(Publisher { connection, sender }),
-            Err(error) => {
-                connection.close().await;
-                Err(error.into())
-            }
-        }
+            .with_context(|| format!("attaching a Service Bus sender to {entity}"))?;
+        Ok(Publisher {
+            _connection: connection,
+            sender,
+        })
     }
 }
 
@@ -227,7 +237,8 @@ where
         }))
     }
 
-    /// Stops new submissions and closes the connection.
+    /// Stops new submissions and detaches the send link. The handle's
+    /// connection stays open.
     async fn close(&self) -> Result<(), BoxError> {
         self.state.closed.store(true, Ordering::Release);
         self.state.pending.close();
