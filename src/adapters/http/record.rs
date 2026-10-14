@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 
 /// Read-only connection details of a received request.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub struct HttpMetadata {
     /// Peer address of the TCP connection. Behind a reverse proxy this is the
     /// proxy; forwarding headers such as `X-Forwarded-For` stay in `headers`.
@@ -27,11 +28,6 @@ pub struct HttpRecord<T> {
 }
 
 impl<T> HttpRecord<T> {
-    /// Connection details of the request.
-    pub fn metadata(&self) -> &HttpMetadata {
-        &self.metadata
-    }
-
     /// The first value of a header, matched case-insensitively.
     pub fn header(&self, name: &str) -> Option<&[u8]> {
         self.headers

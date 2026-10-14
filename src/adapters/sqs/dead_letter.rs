@@ -74,13 +74,12 @@ impl SqsPublish<Vec<u8>> {
     /// attributes, plus a `beavers-dlq-details` attribute: a JSON object of the failure
     /// details and origin, keyed by the names other adapters use for headers.
     ///
-    /// Pass it to [`Subscription::dlq_with`](crate::Subscription::dlq_with) with a sink that
-    /// sends raw bytes. When the original message already carries the attribute, because
-    /// it was received from a dead-letter queue, its origin is kept and its count is
-    /// incremented; a malformed one is replaced as if the message had never been
-    /// dead-lettered. A message that already has 10 attributes cannot take another, and
-    /// SQS rejects it. The FIFO message group is kept, so a FIFO dead-letter queue
-    /// accepts it.
+    /// Pass it to [`Subscription::dead_letter_with`](crate::Subscription::dead_letter_with) with a
+    /// sink that sends raw bytes. When the original message already carries the attribute, because
+    /// it was received from a dead-letter queue, its origin is kept and its count is incremented; a
+    /// malformed one is replaced as if the message had never been dead-lettered. A message that
+    /// already has 10 attributes cannot take another, and SQS rejects it. The FIFO message group is
+    /// kept, so a FIFO dead-letter queue accepts it.
     pub fn from_dead_letter<I>(dead_letter: DeadLetter<I, SqsRecord<Vec<u8>>>) -> Self {
         let previous = SqsDeadLetter::from_record(&dead_letter.raw).ok().flatten();
         let details = DeadLetterDetails::of(&dead_letter, previous.as_ref().map(|p| &p.details));

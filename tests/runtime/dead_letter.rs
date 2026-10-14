@@ -1,7 +1,7 @@
 use super::fixtures::{Flaky, RefuseNegative, RejectNegative, TextSource, fast};
 use beavers::{
     App, BoxError, Classify, DeadLetter, Emit, ErrorPolicy, FailureAction, FailureKind,
-    HandlerError, InMemorySink, IterSource, RetryPolicy, Subscription,
+    HandlerError, InMemorySink, IterSource, Subscription,
 };
 use std::sync::{
     Arc,
@@ -30,11 +30,8 @@ async fn decode_failure_dead_letters_raw_delivery_and_continues() {
                 sink.clone(),
                 |n| async move { Ok(n) },
             )
-            .dlq(dlq.clone())
-            .error_policy(ErrorPolicy {
-                decode: FailureAction::DeadLetter,
-                ..ErrorPolicy::default()
-            }),
+            .dead_letter(dlq.clone())
+            .error_policy(ErrorPolicy::default().decode(FailureAction::DeadLetter)),
         )
         .run()
         .await
@@ -61,10 +58,7 @@ async fn discard_acknowledges_without_output() {
                 sink.clone(),
                 |n| async move { Ok(n) },
             )
-            .error_policy(ErrorPolicy {
-                decode: FailureAction::Discard,
-                ..ErrorPolicy::default()
-            }),
+            .error_policy(ErrorPolicy::default().decode(FailureAction::Discard)),
         )
         .run()
         .await
@@ -92,9 +86,9 @@ async fn propagated_errors_are_dead_lettered_without_retry_by_default() {
                 }
             },
         )
-        .retry(fast());
+        .handler_retry(fast());
         if with_dlq {
-            subscription = subscription.dlq(dlq.clone());
+            subscription = subscription.dead_letter(dlq.clone());
         }
         let result = App::new().subscription(subscription).run().await;
         assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -127,12 +121,9 @@ async fn retry_exhaustion_can_stop() {
                 InMemorySink::default(),
                 |_: i32| async { Err::<i32, _>(HandlerError::Retry(BoxError::from("busy"))) },
             )
-            .retry(fast())
-            .dlq(dlq.clone())
-            .error_policy(ErrorPolicy {
-                retry_exhausted: FailureAction::Stop,
-                ..ErrorPolicy::default()
-            }),
+            .handler_retry(fast())
+            .dead_letter(dlq.clone())
+            .error_policy(ErrorPolicy::default().retry_exhausted(FailureAction::Stop)),
         )
         .run()
         .await
@@ -156,7 +147,7 @@ async fn encode_failure_dead_letters_input_without_partial_publish() {
                 sink.clone(),
                 |n: i32| async move { Ok(Emit::Many(vec![n, -n])) },
             )
-            .dlq(dlq.clone())
+            .dead_letter(dlq.clone())
             .error_policy(ErrorPolicy::dead_letter_all()),
         )
         .run()
@@ -167,7 +158,7 @@ async fn encode_failure_dead_letters_input_without_partial_publish() {
     assert_eq!(letter.failure, FailureKind::Encode);
     assert_eq!(letter.input, Some(1));
     assert!(letter.error.contains("negative output"));
-    assert_eq!(acks.load(Ordering::SeqCst), 1);
+    assert_eq!(acks.count(), 1);
 }
 
 #[tokio::test]
@@ -210,18 +201,15 @@ async fn dead_letter_retry_is_independent_of_publish_retry() {
                 InMemorySink::<i32>::default(),
                 |_| async { Err(HandlerError::Reject(BoxError::from("reject"))) },
             )
-            .dlq_with(dlq, |letter| Ok(letter.input.unwrap()))
-            .publish_retry(RetryPolicy {
-                max_attempts: 1,
-                ..fast()
-            })
-            .dlq_retry(fast()),
+            .dead_letter_with(dlq, |letter| Ok(letter.input.unwrap()))
+            .publish_retry(fast().max_attempts(1))
+            .dead_letter_retry(fast()),
         )
         .run()
         .await
         .unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 3);
-    assert_eq!(acks.load(Ordering::SeqCst), 1);
+    assert_eq!(acks.count(), 1);
 }
 
 #[tokio::test]
@@ -237,7 +225,7 @@ async fn dead_letter_conversion_failure_does_not_ack() {
                 InMemorySink::<i32>::default(),
                 |_| async { Err(HandlerError::Reject(BoxError::from("reject"))) },
             )
-            .dlq_with(dlq.clone(), |_| Err("unsupported".into())),
+            .dead_letter_with(dlq.clone(), |_| Err("unsupported".into())),
         )
         .run()
         .await
@@ -246,7 +234,7 @@ async fn dead_letter_conversion_failure_does_not_ack() {
     assert!(error.contains("prepare dead letter failed"), "{error}");
     assert!(error.contains("handler rejected input: reject"), "{error}");
     assert!(dlq.values().is_empty());
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
 }
 
 #[tokio::test]
@@ -261,7 +249,7 @@ async fn dead_letter_serializes_failure_context() {
                 InMemorySink::default(),
                 |n: i32| async move { Ok(n) },
             )
-            .dlq(dlq.clone())
+            .dead_letter(dlq.clone())
             .error_policy(ErrorPolicy::dead_letter_all()),
         )
         .run()
@@ -295,8 +283,8 @@ async fn retry_classified_errors_are_retried_then_dead_lettered() {
                     }
                 },
             )
-            .retry(fast())
-            .dlq(dlq.clone()),
+            .handler_retry(fast())
+            .dead_letter(dlq.clone()),
         )
         .run()
         .await
@@ -328,8 +316,8 @@ async fn fatal_errors_stop_without_retry_or_dead_letter() {
                     }
                 },
             )
-            .retry(fast())
-            .dlq(dlq.clone()),
+            .handler_retry(fast())
+            .dead_letter(dlq.clone()),
         )
         .run()
         .await;
@@ -354,7 +342,7 @@ async fn reject_classified_errors_match_propagated_errors() {
                     Ok(value)
                 },
             )
-            .dlq(dlq.clone()),
+            .dead_letter(dlq.clone()),
         )
         .run()
         .await
@@ -382,7 +370,7 @@ async fn rejected_publication_is_dead_lettered_after_earlier_outputs_complete() 
                 |n: i32| async move { Ok(Emit::Many(vec![n, -n, n])) },
             )
             .publish_retry(fast())
-            .dlq(dlq.clone()),
+            .dead_letter(dlq.clone()),
         )
         .run()
         .await
@@ -394,7 +382,7 @@ async fn rejected_publication_is_dead_lettered_after_earlier_outputs_complete() 
     assert_eq!(letter.failure, FailureKind::PublishRejected);
     assert_eq!(letter.input, Some(1));
     assert!(letter.error.contains("negative output"), "{}", letter.error);
-    assert_eq!(sink.acks.load(Ordering::SeqCst), 1);
+    assert_eq!(sink.acks.count(), 1);
 }
 
 #[tokio::test]
@@ -414,5 +402,5 @@ async fn rejected_publication_without_dead_letter_sink_stops_without_ack() {
     let error = format!("{error:#}");
     assert!(error.contains("sink rejected output"), "{error}");
     assert!(error.contains("no dead-letter sink configured"), "{error}");
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
 }

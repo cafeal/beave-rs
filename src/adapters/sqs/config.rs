@@ -96,12 +96,10 @@ impl SourceConfig {
             max_messages: 10,
             wait_time: Duration::from_secs(20),
             visibility_timeout: Duration::from_secs(30),
-            ack_retry: RetryPolicy {
-                max_attempts: 5,
-                initial_delay: Duration::from_millis(100),
-                max_delay: Duration::from_secs(2),
-                ..RetryPolicy::default()
-            },
+            ack_retry: RetryPolicy::default()
+                .max_attempts(5)
+                .initial_delay(Duration::from_millis(100))
+                .max_delay(Duration::from_secs(2)),
         }
     }
 

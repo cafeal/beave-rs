@@ -1,11 +1,13 @@
 use beavers::{
     App, InMemorySink, IterSource, PropagationCarrier, Subscription,
-    adapters::pubsub::{
-        PubSubAttributes, PubSubInherit, PubSubMetadata, PubSubPublish, PubSubRecord,
-    },
+    adapters::pubsub::{PubSubAttributes, PubSubInherit, PubSubPublish, PubSubRecord},
+    testing::pubsub_record,
 };
 
 fn record() -> PubSubRecord<String> {
+    let mut metadata = pubsub_record("projects/p/subscriptions/orders", "m-1", "").metadata;
+    metadata.publish_time = Some(1);
+    metadata.delivery_attempt = Some(2);
     PubSubRecord {
         value: "order".to_owned(),
         attributes: PubSubAttributes::from([
@@ -13,12 +15,7 @@ fn record() -> PubSubRecord<String> {
             ("kind".to_owned(), "new".to_owned()),
         ]),
         ordering_key: Some("customer-7".into()),
-        metadata: PubSubMetadata {
-            subscription: "projects/p/subscriptions/orders".into(),
-            message_id: "m-1".into(),
-            publish_time: Some(1),
-            delivery_attempt: Some(2),
-        },
+        metadata,
     }
 }
 

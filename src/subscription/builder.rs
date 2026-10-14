@@ -30,7 +30,7 @@ pub(super) type DeadLetterRoute<I, R> = Arc<
 type CloseDeadLetter = Arc<dyn Fn() -> BoxFuture<Result<(), BoxError>> + Send + Sync>;
 
 /// One source, handler, and sink processed together, with its middleware, dead-letter sink,
-/// and [`SubscriptionConfig`].
+/// and processing settings such as concurrency, retries, and the [`ErrorPolicy`].
 ///
 /// Register it on an [`App`](crate::App) with [`App::subscription`](crate::App::subscription).
 pub struct Subscription<S: Source, K, O> {
@@ -112,7 +112,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     }
 
     /// Retry policy for handler attempts after [`HandlerError::Retry`](crate::HandlerError::Retry).
-    pub fn retry(mut self, policy: RetryPolicy) -> Self {
+    pub fn handler_retry(mut self, policy: RetryPolicy) -> Self {
         self.config.handler_retry = policy;
         self
     }
@@ -137,14 +137,14 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
 
     /// Dead-letter sink for failures the [`ErrorPolicy`] routes there. Each dead letter is
     /// published before the original delivery is acknowledged.
-    pub fn dlq<D: Sink<DeadLetter<SourceItem<S>, SourceRaw<S>>>>(self, sink: D) -> Self {
-        self.dlq_with(sink, Ok)
+    pub fn dead_letter<D: Sink<DeadLetter<SourceItem<S>, SourceRaw<S>>>>(self, sink: D) -> Self {
+        self.dead_letter_with(sink, Ok)
     }
 
-    /// Like [`dlq`](Self::dlq), converting each dead letter into the sink's output type first,
-    /// for example to forward the original payload with failure details as broker metadata.
-    /// Conversion and preparation run once, before dead-letter publish retries.
-    pub fn dlq_with<D, T, F>(mut self, sink: D, convert: F) -> Self
+    /// Like [`dead_letter`](Self::dead_letter), converting each dead letter into the sink's
+    /// output type first, for example to forward the original payload with failure details as
+    /// broker metadata. Conversion and preparation run once, before dead-letter publish retries.
+    pub fn dead_letter_with<D, T, F>(mut self, sink: D, convert: F) -> Self
     where
         D: Sink<T>,
         F: Fn(DeadLetter<SourceItem<S>, SourceRaw<S>>) -> Result<T, BoxError>
@@ -175,7 +175,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     }
 
     /// Retry policy for dead-letter publication, independent of the output publish policy.
-    pub fn dlq_retry(mut self, policy: RetryPolicy) -> Self {
+    pub fn dead_letter_retry(mut self, policy: RetryPolicy) -> Self {
         self.config.dead_letter_retry = policy;
         self
     }
@@ -196,12 +196,6 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     /// commits.
     pub fn transaction_batch(mut self, batch: TransactionBatch) -> Self {
         self.config.transaction_batch = batch;
-        self
-    }
-
-    /// Replace the whole configuration, including settings made by earlier builder calls.
-    pub fn config(mut self, config: SubscriptionConfig) -> Self {
-        self.config = config;
         self
     }
 

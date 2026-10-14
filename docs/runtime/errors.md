@@ -46,7 +46,9 @@ Rejections, exhausted handler retries, and rejected publications without a
 configured dead-letter sink stop without ACK: the input could not be processed
 and nothing can receive it. `DeadLetter` for decode or encode failures requires a dead-letter
 sink and fails validation otherwise. `ErrorPolicy::dead_letter_all()` routes
-every kind to the dead-letter sink.
+every kind to the dead-letter sink. Set single actions with the method of the
+same name, such as
+`ErrorPolicy::default().decode(FailureAction::DeadLetter)`.
 
 Encoding happens for all emitted outputs before any publication, so an `Encode`
 failure never follows a partial publish; dead-lettering the input after it does
@@ -64,9 +66,9 @@ retry stops the subscription. A failed completion is never routed. A
 
 ## Dead letters
 
-`Subscription::dlq(sink)` accepts a `Sink<DeadLetter<Input, Raw>>`, where `Raw`
+`Subscription::dead_letter(sink)` accepts a `Sink<DeadLetter<Input, Raw>>`, where `Raw`
 is the source message's undecoded form (`SourceRaw<S>`).
-`Subscription::dlq_with(sink, convert)` converts each envelope into the sink's
+`Subscription::dead_letter_with(sink, convert)` converts each envelope into the sink's
 own output type first, for example to forward the original payload to a broker
 topic with failure details as headers. Handlers never see dead letters.
 
@@ -98,7 +100,7 @@ native shape instead of passing through a universal structure:
 whenever its input does and a JSON sink can publish it directly.
 
 Conversion and preparation run once. Publication then retries under the
-`dlq_retry` policy. A conversion, preparation, or exhausted publication failure
+`dead_letter_retry` policy. A conversion, preparation, or exhausted publication failure
 stops without ACK; dead-letter failures are never routed again.
 
 ## Forwarding dead letters to a broker topic
@@ -138,7 +140,7 @@ The sink must publish raw bytes:
 let dead_letters = kafka.sink::<RawBytes>("orders-dlq");
 
 Subscription::new("orders", source, sink, handle)
-    .dlq_with(dead_letters, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)));
+    .dead_letter_with(dead_letters, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)));
 ```
 
 When the dead-lettered record was itself received from a dead-letter topic, the

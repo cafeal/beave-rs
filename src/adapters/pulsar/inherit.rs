@@ -2,9 +2,9 @@ use super::record::{PulsarPublish, PulsarRecord};
 use crate::{
     dead_letter::DEAD_LETTER_HEADER_PREFIX,
     error::Error,
-    forward::{SamePlatform, ValueRecord},
     handler::{HandlerError, Result},
     middleware::Middleware,
+    record::{SamePlatform, ValueRecord},
 };
 
 /// Pulsar-to-Pulsar middleware that copies the received key, properties, and

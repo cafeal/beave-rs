@@ -1,10 +1,7 @@
 use beavers::{
     App, BoxError, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json, Result,
     Subscription,
-    adapters::pulsar::{
-        PulsarDeadLetter, PulsarInherit, PulsarMessageId, PulsarMetadata, PulsarPublish,
-        PulsarRecord,
-    },
+    adapters::pulsar::{PulsarDeadLetter, PulsarInherit, PulsarPublish, PulsarRecord},
     testing::{PulsarTestSource, pulsar_record},
 };
 use std::collections::HashMap;
@@ -27,21 +24,16 @@ fn order(entry_id: u64, value: &str) -> PulsarRecord<Vec<u8>> {
 
 /// The message a consumer of the dead-letter topic receives for `publish`.
 fn received(publish: PulsarPublish<Vec<u8>>, entry_id: u64) -> PulsarRecord<Vec<u8>> {
+    let mut metadata =
+        pulsar_record("persistent://public/default/orders-dlq", entry_id, "").metadata;
+    metadata.message_id.ledger_id = 9;
+    metadata.publish_time = 5_000;
     PulsarRecord {
         value: publish.value,
         key: publish.key,
         properties: publish.properties,
         event_time: publish.event_time,
-        metadata: PulsarMetadata {
-            topic: "persistent://public/default/orders-dlq".into(),
-            message_id: PulsarMessageId {
-                ledger_id: 9,
-                entry_id,
-                partition: -1,
-                batch_index: -1,
-            },
-            publish_time: 5_000,
-        },
+        metadata,
     }
 }
 
@@ -66,7 +58,7 @@ async fn dead_letter(
                 InMemorySink::<u32>::default(),
                 reject_odd,
             )
-            .dlq_with(dlq.clone(), |dead| {
+            .dead_letter_with(dlq.clone(), |dead| {
                 Ok(PulsarPublish::from_dead_letter(dead))
             })
             .error_policy(ErrorPolicy::dead_letter_all()),

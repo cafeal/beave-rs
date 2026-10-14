@@ -1,7 +1,7 @@
 use super::fixtures::{TransactionalSource, Transactions, fast};
 use beavers::{
     App, BoxError, CancellationToken, Emit, ErrorPolicy, FailureAction, HandlerError, InMemorySink,
-    ProcessingOrder, RetryPolicy, Subscription, TransactionBatch,
+    ProcessingOrder, Subscription, TransactionBatch,
 };
 use std::{
     sync::{
@@ -49,12 +49,12 @@ async fn deliveries_without_output_commit_empty_transactions() {
                 }
             })
             .transactional()
-            .dlq(dlq.clone())
-            .error_policy(ErrorPolicy {
-                decode: FailureAction::Discard,
-                encode: FailureAction::Discard,
-                ..ErrorPolicy::default()
-            }),
+            .dead_letter(dlq.clone())
+            .error_policy(
+                ErrorPolicy::default()
+                    .decode(FailureAction::Discard)
+                    .encode(FailureAction::Discard),
+            ),
         )
         .run()
         .await
@@ -279,10 +279,7 @@ async fn a_revoked_delivery_leaves_the_batch_without_spending_a_retry() {
             })
             .transactional()
             .transaction_batch(TransactionBatch::new(3, Duration::from_secs(5)))
-            .publish_retry(RetryPolicy {
-                max_attempts: 1,
-                ..fast()
-            }),
+            .publish_retry(fast().max_attempts(1)),
         )
         .run()
         .await

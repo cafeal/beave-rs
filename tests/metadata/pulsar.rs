@@ -1,12 +1,13 @@
 use beavers::{
     App, InMemorySink, IterSource, PropagationCarrier, Subscription, Tombstones,
-    adapters::pulsar::{
-        PulsarInherit, PulsarMessageId, PulsarMetadata, PulsarPublish, PulsarRecord,
-    },
+    adapters::pulsar::{PulsarInherit, PulsarPublish, PulsarRecord},
+    testing::pulsar_record,
 };
-use std::sync::atomic::Ordering;
 
 fn record() -> PulsarRecord<String> {
+    let mut metadata = pulsar_record("persistent://public/default/orders", 3, "").metadata;
+    metadata.message_id.ledger_id = 7;
+    metadata.publish_time = 41;
     PulsarRecord {
         value: Some("order".to_owned()),
         key: Some(b"customer-7".to_vec()),
@@ -16,16 +17,7 @@ fn record() -> PulsarRecord<String> {
         ]
         .into(),
         event_time: Some(42),
-        metadata: PulsarMetadata {
-            topic: "persistent://public/default/orders".to_owned(),
-            message_id: PulsarMessageId {
-                ledger_id: 7,
-                entry_id: 3,
-                partition: -1,
-                batch_index: -1,
-            },
-            publish_time: 41,
-        },
+        metadata,
     }
 }
 
@@ -131,14 +123,14 @@ async fn tombstone_policies_apply_to_pulsar_null_values() {
                     |value: String| async move { Ok(value.len()) },
                 )
                 .middleware(policy)
-                .dlq_with(dlq.clone(), |dead_letter| Ok(dead_letter.input.unwrap())),
+                .dead_letter_with(dlq.clone(), |dead_letter| Ok(dead_letter.input.unwrap())),
             )
             .run()
             .await
             .unwrap();
         assert_eq!(sink.values().len(), 1);
         assert_eq!(dlq.values().len(), published_by_dlq);
-        assert_eq!(acks.load(Ordering::SeqCst), 2);
+        assert_eq!(acks.count(), 2);
     }
 }
 

@@ -163,7 +163,7 @@ Subscription::new("orders-redrive", source, invoices, |record: KafkaRecord<Order
     }
     handle(record).await
 })
-.dlq_with(parked, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)))
+.dead_letter_with(parked, |dead_letter| Ok(KafkaPublish::from_dead_letter(dead_letter)))
 .error_policy(ErrorPolicy::dead_letter_all())
 ```
 
@@ -240,7 +240,7 @@ Subscription::new_emitting("orders-dlq-triage", source, invoices, |record: SqsRe
     }
     handle(record).await.map(Emit::One)
 })
-.dlq_with(parked, |dead_letter| Ok(SqsPublish::from_dead_letter(dead_letter)))
+.dead_letter_with(parked, |dead_letter| Ok(SqsPublish::from_dead_letter(dead_letter)))
 .error_policy(ErrorPolicy::dead_letter_all())
 ```
 
@@ -256,7 +256,7 @@ the triage subscription receives them only after that:
 
 ```rust,ignore
 Subscription::new("orders", source, invoices, handle)
-    .dlq_with(dead_letters, |dead_letter| {
+    .dead_letter_with(dead_letters, |dead_letter| {
         let mut publish = SqsPublish::from_dead_letter(dead_letter);
         publish.delay = Some(Duration::from_secs(300));
         Ok(publish)

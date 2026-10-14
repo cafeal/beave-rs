@@ -1,5 +1,4 @@
 use beavers::{App, Emit, InMemorySink, IterSource, Subscription};
-use std::sync::atomic::Ordering;
 
 #[tokio::test]
 async fn finite_input_publishes_then_acks() {
@@ -17,7 +16,7 @@ async fn finite_input_publishes_then_acks() {
         .await
         .unwrap();
     assert_eq!(sink.values(), vec![2, 4, 6]);
-    assert_eq!(acks.load(Ordering::SeqCst), 3);
+    assert_eq!(acks.count(), 3);
 }
 
 #[tokio::test]
@@ -74,7 +73,7 @@ async fn invalid_config_fails_before_processing() {
             .await
             .is_err()
     );
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
 }
 
 #[tokio::test]
@@ -112,5 +111,5 @@ async fn subscription_names_must_be_unique_and_non_empty() {
         error.contains("subscription name must not be empty"),
         "{error}"
     );
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
 }

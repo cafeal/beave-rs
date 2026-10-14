@@ -7,6 +7,7 @@ use std::{collections::BTreeMap, time::Duration};
 /// A custom type label, such as `Number.float` or `String.json`, is read as its
 /// base type and not published again.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub enum SqsAttributeValue {
     /// A text value.
     String(String),
@@ -43,6 +44,7 @@ pub type SqsAttributes = BTreeMap<String, SqsAttributeValue>;
 
 /// Read-only facts about a received message.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub struct SqsMetadata {
     /// The queue the source consumes.
     pub queue_url: String,
@@ -52,9 +54,9 @@ pub struct SqsMetadata {
     /// this time. A queue's redrive policy compares it with `maxReceiveCount`.
     pub receive_count: u32,
     /// When the message was sent, in milliseconds since the Unix epoch.
-    pub sent_timestamp: Option<u64>,
+    pub sent_timestamp: Option<i64>,
     /// When the message was first received, in milliseconds since the Unix epoch.
-    pub first_receive_timestamp: Option<u64>,
+    pub first_receive_timestamp: Option<i64>,
     /// The message group of a FIFO queue message.
     pub message_group_id: Option<String>,
     /// The deduplication ID of a FIFO queue message.
@@ -72,13 +74,6 @@ pub struct SqsRecord<T> {
     pub attributes: SqsAttributes,
     /// Read-only facts about the received message.
     pub metadata: SqsMetadata,
-}
-
-impl<T> SqsRecord<T> {
-    /// Read-only facts about the received message.
-    pub fn metadata(&self) -> &SqsMetadata {
-        &self.metadata
-    }
 }
 
 /// User-controlled SQS output. The queue comes from the sink configuration.

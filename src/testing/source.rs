@@ -49,7 +49,7 @@ use crate::adapters::sqs::SqsRecord;
 /// App::new()
 ///     .subscription(
 ///         Subscription::new("halve", source, sink.clone(), halve)
-///             .dlq(dlq.clone())
+///             .dead_letter(dlq.clone())
 ///             .error_policy(ErrorPolicy::dead_letter_all()),
 ///     )
 ///     .run()

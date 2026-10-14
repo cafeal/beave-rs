@@ -1,20 +1,20 @@
-#[cfg(feature = "kafka")]
+#[cfg(all(feature = "kafka", feature = "testing"))]
 #[path = "metadata/kafka.rs"]
 mod kafka;
 #[path = "metadata/mapping.rs"]
 mod mapping;
-#[cfg(feature = "pubsub")]
+#[cfg(all(feature = "pubsub", feature = "testing"))]
 #[path = "metadata/pubsub.rs"]
 mod pubsub;
-#[cfg(feature = "pulsar")]
+#[cfg(all(feature = "pulsar", feature = "testing"))]
 #[path = "metadata/pulsar.rs"]
 mod pulsar;
-#[cfg(feature = "rabbitmq")]
+#[cfg(all(feature = "rabbitmq", feature = "testing"))]
 #[path = "metadata/rabbitmq.rs"]
 mod rabbitmq;
-#[cfg(feature = "servicebus")]
+#[cfg(all(feature = "servicebus", feature = "testing"))]
 #[path = "metadata/servicebus.rs"]
 mod servicebus;
-#[cfg(feature = "sqs")]
+#[cfg(all(feature = "sqs", feature = "testing"))]
 #[path = "metadata/sqs.rs"]
 mod sqs;

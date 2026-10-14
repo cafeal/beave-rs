@@ -1,6 +1,7 @@
 use beavers::{
     BoxError, CancellationToken, Completion, Delivery, OrderingKey, PublishRejected, Receive,
     ReceiveError, RetryPolicy, Sink, Source, SourceMessage, TransactionEntry, TransactionalSink,
+    adapters::Acknowledgements,
 };
 use std::{
     collections::VecDeque,
@@ -13,17 +14,15 @@ use std::{
 };
 
 pub(crate) fn fast() -> RetryPolicy {
-    RetryPolicy {
-        max_attempts: 3,
-        initial_delay: Duration::ZERO,
-        max_delay: Duration::ZERO,
-        ..RetryPolicy::default()
-    }
+    RetryPolicy::default()
+        .max_attempts(3)
+        .initial_delay(Duration::ZERO)
+        .max_delay(Duration::ZERO)
 }
 
 pub(crate) struct Flaky {
     pub(crate) calls: Arc<AtomicUsize>,
-    pub(crate) acks: Arc<AtomicUsize>,
+    pub(crate) acks: Acknowledgements,
     pub(crate) fail_always: bool,
 }
 
@@ -35,7 +34,7 @@ impl Sink<i32> for Flaky {
     }
 
     async fn publish(&self, _: &i32) -> Result<(), BoxError> {
-        assert_eq!(self.acks.load(Ordering::SeqCst), 0);
+        assert_eq!(self.acks.count(), 0);
         let calls = self.calls.fetch_add(1, Ordering::SeqCst);
         if !(!self.fail_always && calls >= 2) {
             return Err("offline".into());
@@ -169,7 +168,7 @@ impl Sink<i32> for RejectNegative {
 pub(crate) struct RefuseNegative {
     pub(crate) attempts: Arc<AtomicUsize>,
     pub(crate) completed: Arc<Mutex<Vec<i32>>>,
-    pub(crate) acks: Arc<AtomicUsize>,
+    pub(crate) acks: Acknowledgements,
 }
 
 impl Sink<i32> for RefuseNegative {
@@ -191,7 +190,7 @@ impl Sink<i32> for RefuseNegative {
         let (value, completed, acks) = (*value, self.completed.clone(), self.acks.clone());
         Ok(Completion::pending(async move {
             tokio::task::yield_now().await;
-            assert_eq!(acks.load(Ordering::SeqCst), 0);
+            assert_eq!(acks.count(), 0);
             completed.lock().unwrap().push(value);
             Ok(())
         }))

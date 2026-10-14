@@ -33,7 +33,7 @@ fn prepared_messages_are_checked_against_service_bus_limits() {
     assert_eq!(
         sink.prepare(ServiceBusPublish::new("order".to_owned()))
             .unwrap()
-            .body(),
+            .payload(),
         b"order"
     );
 }

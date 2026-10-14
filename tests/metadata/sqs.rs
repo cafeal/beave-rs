@@ -1,27 +1,23 @@
 use beavers::{
     App, InMemorySink, IterSource, PropagationCarrier, Subscription,
-    adapters::sqs::{
-        SqsAttributeValue, SqsAttributes, SqsInherit, SqsMetadata, SqsPublish, SqsRecord,
-    },
+    adapters::sqs::{SqsAttributeValue, SqsAttributes, SqsInherit, SqsPublish, SqsRecord},
+    testing::sqs_record,
 };
 
 fn record() -> SqsRecord<String> {
+    let mut metadata = sqs_record("https://sqs/123/orders.fifo", "m-1", "").metadata;
+    metadata.sent_timestamp = Some(1);
+    metadata.first_receive_timestamp = Some(2);
+    metadata.message_group_id = Some("customer-7".into());
+    metadata.deduplication_id = Some("d-1".into());
+    metadata.sequence_number = Some("10".into());
     SqsRecord {
         value: "order".to_owned(),
         attributes: SqsAttributes::from([
             ("trace".to_owned(), SqsAttributeValue::from("abc")),
             ("kind".to_owned(), SqsAttributeValue::from("new")),
         ]),
-        metadata: SqsMetadata {
-            queue_url: "https://sqs/123/orders.fifo".into(),
-            message_id: "m-1".into(),
-            receive_count: 1,
-            sent_timestamp: Some(1),
-            first_receive_timestamp: Some(2),
-            message_group_id: Some("customer-7".into()),
-            deduplication_id: Some("d-1".into()),
-            sequence_number: Some("10".into()),
-        },
+        metadata,
     }
 }
 

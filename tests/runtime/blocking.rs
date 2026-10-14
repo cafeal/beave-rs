@@ -33,7 +33,7 @@ async fn blocking_handlers_run_on_pool_threads() {
         .await
         .unwrap();
     assert_eq!(sink.values(), [10, 20, 30]);
-    assert_eq!(acks.load(Ordering::SeqCst), 3);
+    assert_eq!(acks.count(), 3);
     for name in threads.lock().unwrap().iter() {
         assert!(name.as_deref().unwrap().starts_with("beavers-blocking-"));
     }
@@ -109,7 +109,7 @@ async fn panicking_blocking_handler_stops_without_ack() {
         .await;
     let error = format!("{:#}", result.unwrap_err());
     assert!(error.contains("broken handler"), "{error}");
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
 }
 
 #[tokio::test]
@@ -139,6 +139,6 @@ async fn drain_timeout_abandons_running_blocking_work_without_ack() {
     // The synchronous call keeps running after the waiter is dropped; its result is discarded.
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(finished.load(Ordering::SeqCst), 1);
-    assert_eq!(acks.load(Ordering::SeqCst), 0);
+    assert_eq!(acks.count(), 0);
     assert!(sink.values().is_empty());
 }

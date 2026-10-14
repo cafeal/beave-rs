@@ -36,8 +36,7 @@ whichever comes first:
 | `max_deliveries` | 100 | Maximum deliveries committed in one transaction |
 | `max_linger` | 10 ms | Maximum wait of a batch's first delivery for more deliveries |
 
-Set it with `Subscription::transaction_batch` or
-`SubscriptionConfig::transaction_batch`; a zero `max_deliveries` fails
+Set it with `Subscription::transaction_batch`; a zero `max_deliveries` fails
 validation. `TransactionBatch::single()` commits every delivery in its own
 transaction without waiting. Other subscriptions ignore the setting.
 

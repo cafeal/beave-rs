@@ -38,7 +38,7 @@ pub struct HttpPrepared {
 
 impl HttpPrepared {
     /// Encoded request body.
-    pub fn body(&self) -> &[u8] {
+    pub fn payload(&self) -> &[u8] {
         &self.body
     }
 

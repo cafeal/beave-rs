@@ -9,6 +9,7 @@ use std::{fmt, str::FromStr};
 /// ACK failures are not routable: they always stop the subscription without ACK.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum FailureKind {
     /// `SourceMessage::decode` failed; no typed input exists.
     Decode,
@@ -70,6 +71,7 @@ impl fmt::Display for FailureKind {
 
 /// What the runtime does with a delivery after a routable failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FailureAction {
     /// Stop the subscription with an error and leave the delivery unacknowledged.
     Stop,
@@ -88,6 +90,7 @@ pub enum FailureAction {
 /// encode failures stop by default; choosing `DeadLetter` for them requires a dead-letter sink,
 /// and the subscription fails validation otherwise.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ErrorPolicy {
     /// Action after [`FailureKind::Decode`]. Defaults to [`FailureAction::Stop`].
     pub decode: FailureAction,
@@ -123,6 +126,36 @@ impl ErrorPolicy {
             encode: FailureAction::DeadLetter,
             publish_rejected: FailureAction::DeadLetter,
         }
+    }
+
+    /// Sets the action after [`FailureKind::Decode`].
+    pub fn decode(mut self, action: FailureAction) -> Self {
+        self.decode = action;
+        self
+    }
+
+    /// Sets the action after [`FailureKind::Rejected`].
+    pub fn rejected(mut self, action: FailureAction) -> Self {
+        self.rejected = action;
+        self
+    }
+
+    /// Sets the action after [`FailureKind::RetryExhausted`].
+    pub fn retry_exhausted(mut self, action: FailureAction) -> Self {
+        self.retry_exhausted = action;
+        self
+    }
+
+    /// Sets the action after [`FailureKind::Encode`].
+    pub fn encode(mut self, action: FailureAction) -> Self {
+        self.encode = action;
+        self
+    }
+
+    /// Sets the action after [`FailureKind::PublishRejected`].
+    pub fn publish_rejected(mut self, action: FailureAction) -> Self {
+        self.publish_rejected = action;
+        self
     }
 
     /// The configured action for `kind`.
