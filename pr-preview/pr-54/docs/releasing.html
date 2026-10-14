@@ -98,31 +98,25 @@ or <code>Security</code> section. Breaking changes are marked with <strong>Break
 what applications must change.</p>
 <h2 id="release-procedure">Release procedure</h2>
 <ol>
-<li><p>Choose the version from the changes under <code>Unreleased</code> and the table above.</p>
-</li>
-<li><p>Rename <code>Unreleased</code> in <code>CHANGELOG.md</code> to the version and release date, and
-start a new empty <code>Unreleased</code> section.</p>
-</li>
-<li><p>Set <code>version</code> in <code>Cargo.toml</code> and run <code>cargo check</code> to update <code>Cargo.lock</code>.</p>
-</li>
-<li><p>Merge these changes to <code>main</code> and wait for CI, including the package check.</p>
-</li>
-<li><p>Tag the merge commit on <code>main</code> as <code>vX.Y.Z</code> and push the tag:</p>
-<pre><code class="hljs language-sh">git switch main &amp;&amp; git pull
-git tag v0.1.0
-git push origin v0.1.0
-</code></pre><p>The tag push runs the <code>Release</code> workflow. It refuses a tag that does not
-match the version in <code>Cargo.toml</code>, a commit that is not on <code>main</code>, and a
-version that is already on crates.io. It then runs <code>cargo publish</code> and
-creates a GitHub release whose notes are the version&#39;s changelog section.</p>
-</li>
+<li>Choose the version from the changes under <code>Unreleased</code> and the table above.</li>
+<li>Rename <code>Unreleased</code> in <code>CHANGELOG.md</code> to the version and release date, and
+start a new empty <code>Unreleased</code> section.</li>
+<li>Set <code>version</code> in <code>Cargo.toml</code> and run <code>cargo check</code> to update <code>Cargo.lock</code>.</li>
+<li>Open a pull request with these changes, wait for CI, including the package
+check, and merge it to <code>main</code>.</li>
+<li>Approve the <code>crates-io</code> deployment of the <code>Release</code> workflow. The workflow
+runs on every push to <code>main</code> that changes <code>Cargo.toml</code> and releases only
+when the version has no <code>vX.Y.Z</code> tag and is not on crates.io, so other
+changes to <code>Cargo.toml</code> do not ask for approval. It runs <code>cargo publish</code>,
+tags the commit as <code>vX.Y.Z</code>, and creates a GitHub release whose notes are
+the version&#39;s changelog section. If publishing fails, re-run the failed job
+from the Actions tab.</li>
 </ol>
 <p>The workflow publishes with the <code>CARGO_REGISTRY_TOKEN</code> secret, a crates.io API
 token with the <code>publish-new</code> and <code>publish-update</code> scopes, limited to the
 <code>beavers</code> crate once it exists and given an expiry date. Store it as a secret of
-the <code>crates-io</code> environment, restrict that environment&#39;s deployment branches
-and tags to the tag pattern <code>v*</code>, and add required reviewers so that each
-release waits for approval.
+the <code>crates-io</code> environment, restrict that environment&#39;s deployment branches to
+<code>main</code>, and add required reviewers so that each release waits for approval.
 Pull requests from forks never receive the secret. The release job does not
 restore build caches, so a cache written by another workflow cannot affect the
 published crate.</p>
