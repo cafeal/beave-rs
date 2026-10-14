@@ -18,7 +18,6 @@ use hyper::{
 };
 use std::{
     collections::HashSet,
-    marker::PhantomData,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
@@ -88,34 +87,31 @@ impl State {
 /// subscription's `publish_retry` policy. Every other response, including
 /// redirects, is a [`PublishRejected`] error that the error policy routes as
 /// [`FailureKind::PublishRejected`](crate::FailureKind::PublishRejected).
-pub struct HttpSink<C, T> {
+pub struct HttpSink<C> {
     http: HttpClient,
     config: SinkConfig,
     codec: Arc<C>,
     state: Arc<State>,
-    marker: PhantomData<fn(T)>,
 }
 
-impl<C, T> Clone for HttpSink<C, T> {
+impl<C> Clone for HttpSink<C> {
     fn clone(&self) -> Self {
         Self {
             http: self.http.clone(),
             config: self.config.clone(),
             codec: self.codec.clone(),
             state: self.state.clone(),
-            marker: PhantomData,
         }
     }
 }
 
-impl<C, T> HttpSink<C, T> {
+impl<C> HttpSink<C> {
     pub(super) fn new(http: HttpClient, config: SinkConfig, codec: C) -> Self {
         Self {
             http,
             config,
             codec: Arc::new(codec),
             state: State::new(),
-            marker: PhantomData,
         }
     }
 
@@ -255,14 +251,13 @@ impl<C, T> HttpSink<C, T> {
     }
 }
 
-impl<C, T> Sink<HttpPublish<T>> for HttpSink<C, T>
+impl<C> Sink<HttpPublish<C::Value>> for HttpSink<C>
 where
-    C: Encoder<T>,
-    T: Send + Sync + 'static,
+    C: Encoder<Value: Send + Sync + 'static>,
 {
     type Prepared = HttpPrepared;
 
-    fn prepare(&self, record: HttpPublish<T>) -> Result<Self::Prepared, BoxError> {
+    fn prepare(&self, record: HttpPublish<C::Value>) -> Result<Self::Prepared, BoxError> {
         let body = Bytes::from(self.codec.encode(&record.body)?);
         let mut headers = self.target()?.headers.clone();
         let mut replaced = HashSet::new();

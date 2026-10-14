@@ -32,8 +32,8 @@ use tokio::sync::OnceCell;
 /// use beavers::{Json, adapters::pubsub::PubSub};
 ///
 /// let pubsub = PubSub::new();
-/// let orders = pubsub.source::<Json, String>("projects/my-project/subscriptions/billing");
-/// let invoices = pubsub.sink::<Json, String>("projects/my-project/topics/invoices");
+/// let orders = pubsub.source::<Json<String>>("projects/my-project/subscriptions/billing");
+/// let invoices = pubsub.sink::<Json<String>>("projects/my-project/topics/invoices");
 ///
 /// let emulator = PubSub::new().endpoint("http://localhost:8085").anonymous();
 /// ```
@@ -79,16 +79,16 @@ impl PubSub {
     /// Defaults: a `max_outstanding_messages` of 1000, a
     /// `max_outstanding_bytes` of 100 MiB, a 60 second `ack_deadline`, and a
     /// one hour `max_lease`.
-    pub fn source<C: Default, T>(&self, subscription: impl Into<String>) -> PubSubSource<C, T> {
+    pub fn source<C: Default>(&self, subscription: impl Into<String>) -> PubSubSource<C> {
         self.source_with_codec(C::default(), subscription)
     }
 
     /// A source like [`source`](Self::source) that decodes with `codec`.
-    pub fn source_with_codec<C, T>(
+    pub fn source_with_codec<C>(
         &self,
         codec: C,
         subscription: impl Into<String>,
-    ) -> PubSubSource<C, T> {
+    ) -> PubSubSource<C> {
         PubSubSource::new(self.clone(), SourceConfig::new(subscription.into()), codec)
     }
 
@@ -97,12 +97,12 @@ impl PubSub {
     /// default value.
     ///
     /// Defaults: a 10 ms `batch_delay`.
-    pub fn sink<C: Default, T>(&self, topic: impl Into<String>) -> PubSubSink<C, T> {
+    pub fn sink<C: Default>(&self, topic: impl Into<String>) -> PubSubSink<C> {
         self.sink_with_codec(C::default(), topic)
     }
 
     /// A sink like [`sink`](Self::sink) that encodes with `codec`.
-    pub fn sink_with_codec<C, T>(&self, codec: C, topic: impl Into<String>) -> PubSubSink<C, T> {
+    pub fn sink_with_codec<C>(&self, codec: C, topic: impl Into<String>) -> PubSubSink<C> {
         PubSubSink::new(self.clone(), SinkConfig::new(topic.into()), codec)
     }
 

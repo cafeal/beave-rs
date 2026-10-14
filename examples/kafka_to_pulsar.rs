@@ -74,9 +74,9 @@ async fn main() -> anyhow::Result<()> {
             Subscription::new(
                 "kafka-to-pulsar",
                 kafka
-                    .source::<Json, Order>("beavers-bridge", [KAFKA_TOPIC])
+                    .source::<Json<Order>>("beavers-bridge", [KAFKA_TOPIC])
                     .property("auto.offset.reset", "earliest"),
-                pulsar.sink::<Json, Order>(PULSAR_TOPIC),
+                pulsar.sink::<Json<Order>>(PULSAR_TOPIC),
                 republish,
             )
             .middleware(Tombstones::skip())

@@ -11,8 +11,8 @@ beavers = { version = "0.1", features = ["pulsar"] }
 
 A `Pulsar` handle holds the service URL, using the `pulsar://` or
 `pulsar+ssl://` scheme, and optional static authentication.
-`handle.source::<C, T>(topic, subscription)` builds a source and
-`handle.sink::<C, T>(topic)` a sink; `source_with_codec` and `sink_with_codec`
+`handle.source::<C>(topic, subscription)` builds a source and
+`handle.sink::<C>(topic)` a sink; `source_with_codec` and `sink_with_codec`
 take a codec value as their first argument instead of using the codec's
 default. Optional settings are builder methods on the handle, the source, and
 the sink.
@@ -23,7 +23,7 @@ use beavers::adapters::pulsar::{Pulsar, PulsarSubscriptionType};
 
 let pulsar = Pulsar::new("pulsar://localhost:6650");
 let source = pulsar
-    .source::<Utf8, String>("persistent://public/default/orders", "orders-workers")
+    .source::<Utf8>("persistent://public/default/orders", "orders-workers")
     .subscription_type(PulsarSubscriptionType::Failover);
 ```
 
@@ -58,7 +58,7 @@ use beavers::{Sink, Utf8};
 use beavers::adapters::pulsar::{Pulsar, PulsarPublish};
 
 let pulsar = Pulsar::new("pulsar://localhost:6650").token("eyJhbGciOi...");
-let sink = pulsar.sink::<Utf8, String>("persistent://public/default/processed-orders");
+let sink = pulsar.sink::<Utf8>("persistent://public/default/processed-orders");
 let mut output = PulsarPublish::new("processed".to_owned());
 output.key = Some(b"customer-42".to_vec());
 output.properties.insert("kind".into(), "order".into());

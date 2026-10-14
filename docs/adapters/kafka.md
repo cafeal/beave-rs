@@ -13,8 +13,8 @@ A `Kafka` handle holds the bootstrap brokers and the librdkafka settings that
 every client built from it uses. `property` sets a librdkafka property on every
 consumer and producer of the handle, `producer_property` on its producers only,
 and `sasl_plain` configures SASL/PLAIN authentication, over TLS unless
-`security.protocol` is set otherwise. `handle.source::<C, T>(group_id, topics)`
-builds a source and `handle.sink::<C, T>(topic)` a sink that publishes every
+`security.protocol` is set otherwise. `handle.source::<C>(group_id, topics)`
+builds a source and `handle.sink::<C>(topic)` a sink that publishes every
 output to `topic`; `source_with_codec` and `sink_with_codec` take a codec value
 as their first argument instead of using the codec's default. Optional settings
 are builder methods on the source and sink, such as `property` on a source for
@@ -25,9 +25,9 @@ use beavers::{Utf8, adapters::kafka::{Kafka, KafkaPublish}};
 
 let kafka = Kafka::new("localhost:9092").property("client.id", "orders-service");
 let source = kafka
-    .source::<Utf8, String>("orders-workers", ["orders"])
+    .source::<Utf8>("orders-workers", ["orders"])
     .property("auto.offset.reset", "earliest");
-let sink = kafka.sink::<Utf8, String>("processed-orders").max_pending(500);
+let sink = kafka.sink::<Utf8>("processed-orders").max_pending(500);
 
 let output = KafkaPublish::new("created".to_owned());
 ```
@@ -204,9 +204,9 @@ begin transaction → produce outputs → send consumer offsets → commit trans
 use beavers::{Subscription, Utf8, adapters::kafka::Kafka};
 
 let kafka = Kafka::new("localhost:9092");
-let source = kafka.source::<Utf8, String>("orders-workers", ["orders"]);
+let source = kafka.source::<Utf8>("orders-workers", ["orders"]);
 let sink = kafka
-    .sink::<Utf8, String>("processed-orders")
+    .sink::<Utf8>("processed-orders")
     .transactional("orders-workers-1");
 let subscription = Subscription::new("orders", source, sink, |order: String| async move {
     Ok(order.to_uppercase())

@@ -8,7 +8,6 @@ use crate::{
 };
 use std::{
     collections::HashMap,
-    marker::PhantomData,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -93,21 +92,19 @@ impl Connection {
 /// publication, which also validates the settings. Closing the sink closes its
 /// producers; the client stays open for the other sources and sinks of the
 /// handle.
-pub struct PulsarSink<C, T> {
+pub struct PulsarSink<C> {
     connection: Connection,
     codec: Arc<C>,
     /// One permit per message awaiting its broker receipt.
     pending: PendingLimit,
-    marker: PhantomData<fn(T)>,
 }
 
-impl<C, T> PulsarSink<C, T> {
+impl<C> PulsarSink<C> {
     pub(super) fn new(pulsar: Pulsar, config: SinkConfig, codec: C) -> Self {
         Self {
             pending: PendingLimit::new(config.max_pending, "Pulsar"),
             connection: Connection::new(pulsar, config),
             codec: Arc::new(codec),
-            marker: PhantomData,
         }
     }
 
@@ -145,10 +142,10 @@ impl<C, T> PulsarSink<C, T> {
     }
 }
 
-impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarSink<C, T> {
+impl<C: Encoder<Value: Send + Sync + 'static>> Sink<PulsarPublish<C::Value>> for PulsarSink<C> {
     type Prepared = PulsarPrepared;
 
-    fn prepare(&self, output: PulsarPublish<T>) -> Result<Self::Prepared, BoxError> {
+    fn prepare(&self, output: PulsarPublish<C::Value>) -> Result<Self::Prepared, BoxError> {
         prepare(&*self.codec, output)
     }
 
@@ -174,9 +171,9 @@ impl<C: Encoder<T>, T: Send + Sync + 'static> Sink<PulsarPublish<T>> for PulsarS
     }
 }
 
-pub(super) fn prepare<C: Encoder<T>, T>(
+pub(super) fn prepare<C: Encoder>(
     codec: &C,
-    output: PulsarPublish<T>,
+    output: PulsarPublish<C::Value>,
 ) -> Result<PulsarPrepared, BoxError> {
     Ok(PulsarPrepared {
         value: output

@@ -18,8 +18,8 @@ async fn main() -> anyhow::Result<()> {
         App::new()
             .subscribe(
                 "orders",
-                StdinSource::<Json, Order>::new(),
-                StdoutSink::<Json>::new(),
+                StdinSource::<Json<Order>>::new(),
+                StdoutSink::<Json<_>>::new(),
                 handler,
             )
             .run()
@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
             .subscribe(
                 "orders",
                 IterSource::new([Order { id: 1 }, Order { id: 2 }]),
-                StdoutSink::<Json>::new(),
+                StdoutSink::<Json<_>>::new(),
                 handler,
             )
             .run()

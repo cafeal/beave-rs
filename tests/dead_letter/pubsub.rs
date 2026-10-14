@@ -52,7 +52,7 @@ where
         .subscription(
             Subscription::new(
                 name,
-                PubSubTestSource::<Json, u32>::new(records),
+                PubSubTestSource::<Json<u32>>::new(records),
                 InMemorySink::<u32>::default(),
                 handler,
             )
@@ -149,7 +149,7 @@ async fn inheritance_skips_dead_letter_attributes() {
         .subscription(
             Subscription::new(
                 "orders-redrive",
-                PubSubTestSource::<Json, u32>::new([received(dead[0].clone(), "d-1")]),
+                PubSubTestSource::<Json<u32>>::new([received(dead[0].clone(), "d-1")]),
                 sink.clone(),
                 |record: PubSubRecord<u32>| async move { Ok(PubSubPublish::new(record.value + 1)) },
             )

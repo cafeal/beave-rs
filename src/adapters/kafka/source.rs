@@ -18,7 +18,6 @@ use rdkafka::{
 };
 use std::{
     convert::Infallible,
-    marker::PhantomData,
     sync::{Arc, Mutex},
 };
 
@@ -26,7 +25,7 @@ use std::{
 ///
 /// Built with [`Kafka::source`]. It creates its consumer and subscribes on the
 /// first receive, which also validates the settings.
-pub struct KafkaSource<C, T> {
+pub struct KafkaSource<C> {
     kafka: Kafka,
     config: SourceConfig,
     codec: Arc<C>,
@@ -37,10 +36,9 @@ pub struct KafkaSource<C, T> {
     commit_gate: Arc<tokio::sync::Mutex<()>>,
     transactions: TransactionGate,
     closed: bool,
-    marker: PhantomData<T>,
 }
 
-impl<C, T> KafkaSource<C, T> {
+impl<C> KafkaSource<C> {
     pub(super) fn new(kafka: Kafka, config: SourceConfig, codec: C) -> Self {
         Self {
             kafka,
@@ -51,7 +49,6 @@ impl<C, T> KafkaSource<C, T> {
             commit_gate: Arc::default(),
             transactions: Arc::default(),
             closed: false,
-            marker: PhantomData,
         }
     }
 
@@ -102,8 +99,8 @@ impl<C, T> KafkaSource<C, T> {
     }
 }
 
-impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for KafkaSource<C, T> {
-    type Message = KafkaMessage<C, T>;
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for KafkaSource<C> {
+    type Message = KafkaMessage<C>;
 
     async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
         if self.closed {
@@ -137,7 +134,6 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for KafkaSource<C, 
                 transactions: self.transactions.clone(),
                 generation,
                 revoked,
-                marker: PhantomData,
             }));
         }
     }
@@ -156,7 +152,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for KafkaSource<C, 
 }
 
 /// One Kafka delivery. Dropping it leaves its Kafka offset uncommitted.
-pub struct KafkaMessage<C, T> {
+pub struct KafkaMessage<C> {
     pub(super) raw: OwnedMessage,
     codec: Arc<C>,
     pub(super) consumer: Arc<KafkaConsumer>,
@@ -165,10 +161,9 @@ pub struct KafkaMessage<C, T> {
     pub(super) transactions: TransactionGate,
     pub(super) generation: u64,
     revoked: CancellationToken,
-    marker: PhantomData<T>,
 }
 
-impl<C, T> KafkaMessage<C, T> {
+impl<C> KafkaMessage<C> {
     fn record<V, E>(&self, value: impl FnOnce(&[u8]) -> Result<V, E>) -> Result<KafkaRecord<V>, E> {
         Ok(KafkaRecord {
             key: self.raw.key().map(<[u8]>::to_vec),
@@ -197,8 +192,8 @@ impl<C, T> KafkaMessage<C, T> {
     }
 }
 
-impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for KafkaMessage<C, T> {
-    type Item = KafkaRecord<T>;
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for KafkaMessage<C> {
+    type Item = KafkaRecord<C::Value>;
     type Raw = KafkaRecord<Vec<u8>>;
 
     fn decode(&self) -> Result<Self::Item, BoxError> {

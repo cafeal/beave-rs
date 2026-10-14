@@ -22,7 +22,7 @@ inner codec, so payloads from other Zstandard writers decode as well.
 ```rust
 use beavers::{Decoder, Encoder, Json, Zstd};
 
-let codec = Zstd::new(Json)
+let codec = Zstd::new(Json::new())
     .with_level(9)
     .with_max_decoded_len(1024 * 1024);
 let bytes = codec.encode(&vec!["beaver"; 100])?;

@@ -18,7 +18,6 @@ use magnetar::{
 };
 use std::{
     collections::HashMap,
-    marker::PhantomData,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -30,13 +29,12 @@ use std::{
 /// Built with [`Pulsar::source`]. A partitioned topic is consumed through one
 /// consumer per partition. Closing the source closes its consumers; the client
 /// stays open for the other sources and sinks of the handle.
-pub struct PulsarSource<C, T> {
+pub struct PulsarSource<C> {
     pulsar: Pulsar,
     config: SourceConfig,
     codec: Arc<C>,
     connection: Option<Connection>,
     closed: bool,
-    marker: PhantomData<T>,
 }
 
 struct Connection {
@@ -48,7 +46,7 @@ struct Connection {
     next: usize,
 }
 
-impl<C, T> PulsarSource<C, T> {
+impl<C> PulsarSource<C> {
     pub(super) fn new(pulsar: Pulsar, config: SourceConfig, codec: C) -> Self {
         Self {
             pulsar,
@@ -56,7 +54,6 @@ impl<C, T> PulsarSource<C, T> {
             codec: Arc::new(codec),
             connection: None,
             closed: false,
-            marker: PhantomData,
         }
     }
 
@@ -153,8 +150,8 @@ impl Connection {
     }
 }
 
-impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PulsarSource<C, T> {
-    type Message = PulsarMessage<C, T>;
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for PulsarSource<C> {
+    type Message = PulsarMessage<C>;
 
     async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
         if self.closed {
@@ -183,7 +180,6 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PulsarSource<C,
                 retry: connection.ack_retry.clone(),
                 _pulsar: self.pulsar.clone(),
             },
-            marker: PhantomData,
         }))
     }
 
@@ -321,7 +317,7 @@ impl Acknowledgement {
 }
 
 /// One delivery; dropping it leaves the broker message unacknowledged.
-pub struct PulsarMessage<C, T> {
+pub struct PulsarMessage<C> {
     ordering_key: Option<OrderingKey>,
     payload: Option<Vec<u8>>,
     key: Option<Vec<u8>>,
@@ -330,11 +326,10 @@ pub struct PulsarMessage<C, T> {
     metadata: PulsarMetadata,
     codec: Arc<C>,
     acknowledgement: Acknowledgement,
-    marker: PhantomData<T>,
 }
 
-impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PulsarMessage<C, T> {
-    type Item = PulsarRecord<T>;
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for PulsarMessage<C> {
+    type Item = PulsarRecord<C::Value>;
     type Raw = PulsarRecord<Vec<u8>>;
 
     fn decode(&self) -> Result<Self::Item, BoxError> {

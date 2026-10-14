@@ -1,8 +1,8 @@
 # CBOR codec
 
 `Cbor` converts between CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949))
-payloads and any type implementing Serde's traits, the same types `Json`
-accepts. It is a unit struct that implements `Default`. Enable the `cbor` Cargo
+payloads and a type `T` implementing Serde's traits, the same types `Json`
+accepts. `Cbor<T>` holds no state and implements `Default`. Enable the `cbor` Cargo
 feature to use it:
 
 ```toml
@@ -22,8 +22,8 @@ struct Reading {
     sensor: String,
 }
 
-let bytes = Cbor.encode(&Reading { sensor: "dam-1".into() })?;
-let reading: Reading = Cbor.decode(&bytes)?;
+let bytes = Cbor::new().encode(&Reading { sensor: "dam-1".into() })?;
+let reading: Reading = Cbor::new().decode(&bytes)?;
 assert_eq!(reading.sensor, "dam-1");
 # Ok::<(), beavers::BoxError>(())
 ```

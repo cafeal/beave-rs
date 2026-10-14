@@ -29,8 +29,8 @@ use tokio::sync::Mutex;
 ///
 /// let bus = ServiceBus::new("contoso.servicebus.windows.net")
 ///     .shared_access_key("RootManageSharedAccessKey", "key");
-/// let orders = bus.source::<Json, String>("orders").prefetch(20);
-/// let invoices = bus.sink::<Json, String>("invoices");
+/// let orders = bus.source::<Json<String>>("orders").prefetch(20);
+/// let invoices = bus.sink::<Json<String>>("invoices");
 /// ```
 #[derive(Clone)]
 pub struct ServiceBus {
@@ -98,16 +98,16 @@ impl ServiceBus {
     /// not supported.
     ///
     /// Defaults: a `prefetch` of 10.
-    pub fn source<C: Default, T>(&self, entity_path: impl Into<String>) -> ServiceBusSource<C, T> {
+    pub fn source<C: Default>(&self, entity_path: impl Into<String>) -> ServiceBusSource<C> {
         self.source_with_codec(C::default(), entity_path)
     }
 
     /// A source like [`source`](Self::source) that decodes with `codec`.
-    pub fn source_with_codec<C, T>(
+    pub fn source_with_codec<C>(
         &self,
         codec: C,
         entity_path: impl Into<String>,
-    ) -> ServiceBusSource<C, T> {
+    ) -> ServiceBusSource<C> {
         ServiceBusSource::new(self.clone(), SourceConfig::new(entity_path.into()), codec)
     }
 
@@ -115,16 +115,16 @@ impl ServiceBus {
     /// encodes with the codec's default value.
     ///
     /// Defaults: a `max_pending` of 1000.
-    pub fn sink<C: Default, T>(&self, entity_path: impl Into<String>) -> ServiceBusSink<C, T> {
+    pub fn sink<C: Default>(&self, entity_path: impl Into<String>) -> ServiceBusSink<C> {
         self.sink_with_codec(C::default(), entity_path)
     }
 
     /// A sink like [`sink`](Self::sink) that encodes with `codec`.
-    pub fn sink_with_codec<C, T>(
+    pub fn sink_with_codec<C>(
         &self,
         codec: C,
         entity_path: impl Into<String>,
-    ) -> ServiceBusSink<C, T> {
+    ) -> ServiceBusSink<C> {
         ServiceBusSink::new(self.clone(), SinkConfig::new(entity_path.into()), codec)
     }
 

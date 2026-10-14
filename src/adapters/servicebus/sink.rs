@@ -18,7 +18,6 @@ use fe2o3_amqp::{
 };
 use std::{
     fmt,
-    marker::PhantomData,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -80,27 +79,25 @@ struct State {
 /// Built with [`ServiceBus::sink`]. It attaches its send link to the handle's
 /// connection on the first publication, which also validates the settings.
 /// Clones share the link and closure state.
-pub struct ServiceBusSink<C, T> {
+pub struct ServiceBusSink<C> {
     bus: ServiceBus,
     config: SinkConfig,
     codec: Arc<C>,
     state: Arc<State>,
-    marker: PhantomData<fn(T)>,
 }
 
-impl<C, T> Clone for ServiceBusSink<C, T> {
+impl<C> Clone for ServiceBusSink<C> {
     fn clone(&self) -> Self {
         Self {
             bus: self.bus.clone(),
             config: self.config.clone(),
             codec: self.codec.clone(),
             state: self.state.clone(),
-            marker: PhantomData,
         }
     }
 }
 
-impl<C, T> ServiceBusSink<C, T> {
+impl<C> ServiceBusSink<C> {
     pub(super) fn new(bus: ServiceBus, config: SinkConfig, codec: C) -> Self {
         Self {
             bus,
@@ -111,7 +108,6 @@ impl<C, T> ServiceBusSink<C, T> {
                 pending: PendingLimit::new(config.max_pending, "Service Bus"),
             }),
             config,
-            marker: PhantomData,
         }
     }
 
@@ -155,14 +151,13 @@ impl<C, T> ServiceBusSink<C, T> {
     }
 }
 
-impl<C, T> Sink<ServiceBusPublish<T>> for ServiceBusSink<C, T>
+impl<C> Sink<ServiceBusPublish<C::Value>> for ServiceBusSink<C>
 where
-    C: Encoder<T>,
-    T: Send + Sync + 'static,
+    C: Encoder<Value: Send + Sync + 'static>,
 {
     type Prepared = ServiceBusPrepared;
 
-    fn prepare(&self, output: ServiceBusPublish<T>) -> Result<Self::Prepared, BoxError> {
+    fn prepare(&self, output: ServiceBusPublish<C::Value>) -> Result<Self::Prepared, BoxError> {
         let message = message_to_amqp(
             self.codec.encode(&output.value)?,
             &output.application_properties,

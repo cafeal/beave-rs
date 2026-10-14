@@ -17,7 +17,6 @@ use lapin::{
 };
 use std::{
     fmt,
-    marker::PhantomData,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -81,34 +80,31 @@ impl State {
 /// publication, which also validates the settings, and again after the channel
 /// or connection is lost. Clones share the channel, closure state, and
 /// `max_pending` limit.
-pub struct RabbitMqSink<C, T> {
+pub struct RabbitMqSink<C> {
     rabbit: RabbitMq,
     config: SinkConfig,
     codec: Arc<C>,
     state: Arc<State>,
-    marker: PhantomData<fn(T)>,
 }
 
-impl<C, T> Clone for RabbitMqSink<C, T> {
+impl<C> Clone for RabbitMqSink<C> {
     fn clone(&self) -> Self {
         Self {
             rabbit: self.rabbit.clone(),
             config: self.config.clone(),
             codec: self.codec.clone(),
             state: self.state.clone(),
-            marker: PhantomData,
         }
     }
 }
 
-impl<C, T> RabbitMqSink<C, T> {
+impl<C> RabbitMqSink<C> {
     pub(super) fn new(rabbit: RabbitMq, config: SinkConfig, codec: C) -> Self {
         Self {
             rabbit,
             state: State::new(config.max_pending),
             config,
             codec: Arc::new(codec),
-            marker: PhantomData,
         }
     }
 
@@ -175,14 +171,13 @@ impl<C, T> RabbitMqSink<C, T> {
     }
 }
 
-impl<C, T> Sink<RabbitMqPublish<T>> for RabbitMqSink<C, T>
+impl<C> Sink<RabbitMqPublish<C::Value>> for RabbitMqSink<C>
 where
-    C: Encoder<T>,
-    T: Send + Sync + 'static,
+    C: Encoder<Value: Send + Sync + 'static>,
 {
     type Prepared = RabbitMqPrepared;
 
-    fn prepare(&self, output: RabbitMqPublish<T>) -> Result<Self::Prepared, BoxError> {
+    fn prepare(&self, output: RabbitMqPublish<C::Value>) -> Result<Self::Prepared, BoxError> {
         let routing_key = output
             .routing_key
             .as_deref()

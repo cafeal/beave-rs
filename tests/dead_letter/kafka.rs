@@ -49,7 +49,7 @@ async fn dead_letter(name: &str, records: Vec<KafkaRecord<Vec<u8>>>) -> Vec<Kafk
         .subscription(
             Subscription::new(
                 name,
-                KafkaTestSource::<Json, u32>::new(records),
+                KafkaTestSource::<Json<u32>>::new(records),
                 InMemorySink::<u32>::default(),
                 reject_odd,
             )
@@ -147,7 +147,7 @@ async fn inheritance_skips_dead_letter_headers() {
         .subscription(
             Subscription::new(
                 "orders-redrive",
-                KafkaTestSource::<Json, u32>::new([received(dead[0].clone(), 0)]),
+                KafkaTestSource::<Json<u32>>::new([received(dead[0].clone(), 0)]),
                 sink.clone(),
                 |record: KafkaRecord<u32>| async move {
                     Ok(KafkaPublish::new(record.value.unwrap_or_default() + 1))
@@ -175,7 +175,7 @@ async fn chained_dead_letters_forward_the_first_upstream_record() {
     App::new()
         .subscribe(
             "fetch",
-            KafkaTestSource::<Json, u32>::new([order(7, "3")]),
+            KafkaTestSource::<Json<u32>>::new([order(7, "3")]),
             to_score,
             |record: KafkaRecord<u32>| async move { Ok(record.value.unwrap_or_default()) },
         )

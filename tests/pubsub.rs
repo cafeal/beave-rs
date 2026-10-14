@@ -17,7 +17,7 @@ use tokio::{
 
 #[test]
 fn prepared_messages_respect_attribute_limits() {
-    let sink = PubSub::new().sink::<RawBytes, Vec<u8>>("projects/p/topics/orders");
+    let sink = PubSub::new().sink::<RawBytes>("projects/p/topics/orders");
     assert!(sink.prepare(PubSubPublish::new(Vec::new())).is_err());
     let mut reserved = PubSubPublish::new(b"order".to_vec());
     reserved.attributes.insert("googclient".into(), "x".into());
@@ -127,20 +127,17 @@ fn pubsub() -> PubSub {
         .anonymous()
 }
 
-fn source(subscription: &str) -> PubSubSource<Utf8, String> {
+fn source(subscription: &str) -> PubSubSource<Utf8> {
     pubsub()
         .source(subscription)
         .ack_deadline(Duration::from_secs(10))
 }
 
-fn sink(topic: &str) -> PubSubSink<Utf8, String> {
+fn sink(topic: &str) -> PubSubSink<Utf8> {
     pubsub().sink(topic)
 }
 
-async fn send(
-    sink: &PubSubSink<Utf8, String>,
-    output: PubSubPublish<String>,
-) -> Result<(), BoxError> {
+async fn send(sink: &PubSubSink<Utf8>, output: PubSubPublish<String>) -> Result<(), BoxError> {
     let prepared = sink.prepare(output)?;
     tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
         .await
@@ -149,9 +146,9 @@ async fn send(
 
 /// Receives the next message, retrying receive errors, or `None` after `timeout`.
 async fn next_message(
-    source: &mut PubSubSource<Utf8, String>,
+    source: &mut PubSubSource<Utf8>,
     timeout: Duration,
-) -> Result<Option<PubSubMessage<Utf8, String>>, BoxError> {
+) -> Result<Option<PubSubMessage<Utf8>>, BoxError> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());

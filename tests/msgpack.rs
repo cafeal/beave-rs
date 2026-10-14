@@ -28,7 +28,7 @@ fn order() -> Order {
 
 #[test]
 fn roundtrips_serde_values() {
-    let codec = MessagePack;
+    let codec = MessagePack::new();
 
     let bytes = codec.encode(&order()).unwrap();
     let decoded: Order = codec.decode(&bytes).unwrap();
@@ -37,14 +37,14 @@ fn roundtrips_serde_values() {
 
 #[test]
 fn encodes_structs_as_maps_keyed_by_field_name() {
-    let bytes = MessagePack.encode(&order()).unwrap();
+    let bytes = MessagePack::new().encode(&order()).unwrap();
 
     let fields: BTreeMap<String, IgnoredAny> = rmp_serde::from_slice(&bytes).unwrap();
     assert_eq!(
         fields.keys().map(String::as_str).collect::<Vec<_>>(),
         ["id", "item", "note", "tags"]
     );
-    let partial: OrderId = MessagePack.decode(&bytes).unwrap();
+    let partial: OrderId = MessagePack::new().decode(&bytes).unwrap();
     assert_eq!(partial, OrderId { id: 42 });
 }
 
@@ -52,13 +52,13 @@ fn encodes_structs_as_maps_keyed_by_field_name() {
 fn decodes_the_positional_array_form() {
     let bytes = rmp_serde::to_vec(&order()).unwrap();
 
-    let decoded: Order = MessagePack.decode(&bytes).unwrap();
+    let decoded: Order = MessagePack::new().decode(&bytes).unwrap();
     assert_eq!(decoded, order());
 }
 
 #[test]
 fn rejects_malformed_and_trailing_input() {
-    let codec = MessagePack;
+    let codec = MessagePack::new();
     let mut bytes = codec.encode(&order()).unwrap();
 
     let truncated: Result<Order, BoxError> = codec.decode(&bytes[..bytes.len() - 1]);
@@ -72,5 +72,5 @@ fn rejects_malformed_and_trailing_input() {
 
 #[test]
 fn is_default_constructible() {
-    let _: MessagePack = Default::default();
+    let _: MessagePack<Order> = Default::default();
 }

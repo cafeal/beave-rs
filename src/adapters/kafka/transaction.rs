@@ -22,7 +22,6 @@ use rdkafka::{
 };
 use std::{
     collections::BTreeMap,
-    marker::PhantomData,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -50,11 +49,10 @@ struct State {
 /// delivery's outputs and its consumer offset. Used as a plain [`Sink`], each
 /// publication is a transaction of its own and becomes visible to
 /// `read_committed` consumers when it commits.
-pub struct KafkaTransactionalSink<C, T> {
+pub struct KafkaTransactionalSink<C> {
     config: Arc<Config>,
     codec: Arc<C>,
     state: Arc<State>,
-    marker: PhantomData<fn(T)>,
 }
 
 /// The handle and the sink's settings.
@@ -63,18 +61,17 @@ struct Config {
     sink: TransactionalConfig,
 }
 
-impl<C, T> Clone for KafkaTransactionalSink<C, T> {
+impl<C> Clone for KafkaTransactionalSink<C> {
     fn clone(&self) -> Self {
         Self {
             config: self.config.clone(),
             codec: self.codec.clone(),
             state: self.state.clone(),
-            marker: PhantomData,
         }
     }
 }
 
-impl<C, T> KafkaTransactionalSink<C, T> {
+impl<C> KafkaTransactionalSink<C> {
     pub(super) fn new(kafka: Kafka, sink: TransactionalConfig, codec: Arc<C>) -> Self {
         Self {
             config: Arc::new(Config { kafka, sink }),
@@ -83,7 +80,6 @@ impl<C, T> KafkaTransactionalSink<C, T> {
                 producer: tokio::sync::Mutex::new(None),
                 closed: AtomicBool::new(false),
             }),
-            marker: PhantomData,
         }
     }
 
@@ -188,14 +184,13 @@ impl<C, T> KafkaTransactionalSink<C, T> {
     }
 }
 
-impl<C, T> Sink<KafkaPublish<T>> for KafkaTransactionalSink<C, T>
+impl<C> Sink<KafkaPublish<C::Value>> for KafkaTransactionalSink<C>
 where
-    C: Encoder<T>,
-    T: Send + Sync + 'static,
+    C: Encoder<Value: Send + Sync + 'static>,
 {
     type Prepared = KafkaPrepared;
 
-    fn prepare(&self, record: KafkaPublish<T>) -> Result<Self::Prepared, BoxError> {
+    fn prepare(&self, record: KafkaPublish<C::Value>) -> Result<Self::Prepared, BoxError> {
         prepare(&*self.codec, record)
     }
 
@@ -215,21 +210,18 @@ where
     }
 }
 
-impl<C, T, D, U> TransactionalSink<KafkaMessage<D, U>, KafkaPublish<T>>
-    for KafkaTransactionalSink<C, T>
+impl<C, D> TransactionalSink<KafkaMessage<D>, KafkaPublish<C::Value>> for KafkaTransactionalSink<C>
 where
-    C: Encoder<T>,
-    T: Send + Sync + 'static,
-    D: Decoder<U> + Send + Sync + 'static,
-    U: Clone + Send + Sync + 'static,
+    C: Encoder<Value: Send + Sync + 'static>,
+    D: Decoder<Value: Clone + Send + Sync + 'static>,
 {
-    async fn verify_source(&self, delivery: &KafkaMessage<D, U>) -> Result<(), BoxError> {
+    async fn verify_source(&self, delivery: &KafkaMessage<D>) -> Result<(), BoxError> {
         self.verify_cluster(delivery.consumer.clone()).await
     }
 
     async fn commit(
         &self,
-        batch: &[TransactionEntry<'_, KafkaMessage<D, U>, Self::Prepared>],
+        batch: &[TransactionEntry<'_, KafkaMessage<D>, Self::Prepared>],
     ) -> Result<(), BoxError> {
         let outputs = batch
             .iter()
@@ -255,8 +247,8 @@ impl SourceOffsets {
     /// Returns `None` for an empty batch. Fails when the deliveries come from
     /// different consumers, because a transaction commits offsets with one
     /// consumer's group metadata here.
-    fn new<'a, D: 'a, U: 'a>(
-        deliveries: impl IntoIterator<Item = &'a KafkaMessage<D, U>>,
+    fn new<'a, D: 'a>(
+        deliveries: impl IntoIterator<Item = &'a KafkaMessage<D>>,
     ) -> Result<Option<Self>, BoxError> {
         let mut offsets: Option<Self> = None;
         for delivery in deliveries {

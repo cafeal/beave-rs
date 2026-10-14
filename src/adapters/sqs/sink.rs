@@ -16,7 +16,6 @@ use aws_sdk_sqs::{
 use std::{
     collections::HashMap,
     fmt,
-    marker::PhantomData,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -71,34 +70,31 @@ impl fmt::Debug for SqsPrepared {
 /// Built with [`Sqs::sink`]. The handle's client is created on the first
 /// publication, which also validates the settings. Clones share their closure
 /// state.
-pub struct SqsSink<C, T> {
+pub struct SqsSink<C> {
     sqs: Sqs,
     queue_url: String,
     codec: Arc<C>,
     closed: Arc<AtomicBool>,
-    marker: PhantomData<fn(T)>,
 }
 
-impl<C, T> Clone for SqsSink<C, T> {
+impl<C> Clone for SqsSink<C> {
     fn clone(&self) -> Self {
         Self {
             sqs: self.sqs.clone(),
             queue_url: self.queue_url.clone(),
             codec: self.codec.clone(),
             closed: self.closed.clone(),
-            marker: PhantomData,
         }
     }
 }
 
-impl<C, T> SqsSink<C, T> {
+impl<C> SqsSink<C> {
     pub(super) fn new(sqs: Sqs, queue_url: String, codec: C) -> Self {
         Self {
             sqs,
             queue_url,
             codec: Arc::new(codec),
             closed: Arc::default(),
-            marker: PhantomData,
         }
     }
 
@@ -112,16 +108,15 @@ impl<C, T> SqsSink<C, T> {
     }
 }
 
-impl<C, T> Sink<SqsPublish<T>> for SqsSink<C, T>
+impl<C> Sink<SqsPublish<C::Value>> for SqsSink<C>
 where
-    C: Encoder<T>,
-    T: Send + Sync + 'static,
+    C: Encoder<Value: Send + Sync + 'static>,
 {
     type Prepared = SqsPrepared;
 
     /// Encodes the value as the message body, which SQS requires to be text.
     /// A codec whose output is not UTF-8, such as Protobuf, fails here.
-    fn prepare(&self, output: SqsPublish<T>) -> Result<Self::Prepared, BoxError> {
+    fn prepare(&self, output: SqsPublish<C::Value>) -> Result<Self::Prepared, BoxError> {
         let body = String::from_utf8(self.codec.encode(&output.value)?)
             .context("SQS message bodies must be UTF-8 text")?;
         let fifo = is_fifo(&self.queue_url);

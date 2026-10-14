@@ -64,9 +64,9 @@ deliveries were acknowledged, use the `testing` feature described in the
 ## StdinSource
 
 StdinSource reads newline-delimited input. `new()` uses a default-constructed
-`Decoder<T>` and `with_codec(codec)` an existing one. JSON input normally uses
-`StdinSource::<Json, _>::new()`, with the input type inferred from the handler. With Json, input must also implement Serde's
-`DeserializeOwned`.
+`Decoder` and `with_codec(codec)` an existing one. JSON input normally uses
+`StdinSource::<Json<_>>::new()`, with the input type inferred from the handler.
+With `Json`, input must also implement Serde's `DeserializeOwned`.
 
 ```rust
 use beavers::{App, Json, Result, StdinSource, StdoutSink};
@@ -80,8 +80,8 @@ async fn main() -> anyhow::Result<()> {
     App::new()
         .subscribe(
             "double",
-            StdinSource::<Json, _>::new(),
-            StdoutSink::<Json>::new(),
+            StdinSource::<Json<_>>::new(),
+            StdoutSink::<Json<_>>::new(),
             double,
         )
         .run()
@@ -119,8 +119,8 @@ a no-op completion marker; consumed lines cannot be recovered automatically.
 
 ## StdoutSink
 
-`StdoutSink::new()` default-constructs an `Encoder<T>`, and `with_codec(codec)`
-accepts an existing one. `StdoutSink::<Json>::new()` requires
+`StdoutSink::new()` default-constructs an `Encoder`, and `with_codec(codec)`
+accepts an existing one. `StdoutSink::<Json<_>>::new()` requires
 Serde-serializable output and emits compact JSON followed by a newline.
 
 Preparation encodes the value once and appends the newline. Publication writes

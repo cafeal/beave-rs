@@ -9,8 +9,8 @@ beavers = { version = "0.1", features = ["rabbitmq"] }
 
 ## Configuration
 
-A `RabbitMq` handle holds the broker URI. `handle.source::<C, T>(queue)` builds
-a source that consumes `queue`, and `handle.sink::<C, T>(exchange, routing_key)`
+A `RabbitMq` handle holds the broker URI. `handle.source::<C>(queue)` builds
+a source that consumes `queue`, and `handle.sink::<C>(exchange, routing_key)`
 a sink that publishes to `exchange` with `routing_key` for outputs that do not
 set their own; `source_with_codec` and `sink_with_codec` take a codec value as
 their first argument instead of using the codec's default. The empty exchange
@@ -23,8 +23,8 @@ use beavers::{Utf8, adapters::rabbitmq::{RabbitMq, RabbitMqPublish}};
 
 let rabbit = RabbitMq::new("amqp://guest:guest@localhost:5672/%2f")
     .connection_name("orders-service");
-let source = rabbit.source::<Utf8, String>("orders").prefetch(32);
-let sink = rabbit.sink::<Utf8, String>("", "processed-orders");
+let source = rabbit.source::<Utf8>("orders").prefetch(32);
+let sink = rabbit.sink::<Utf8>("", "processed-orders");
 
 let output = RabbitMqPublish::new("created".to_owned()).with_routing_key("audit");
 ```

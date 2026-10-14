@@ -24,7 +24,7 @@ fn prepared_messages_are_checked_against_service_bus_limits() {
         "Endpoint=sb://contoso.servicebus.windows.net/;SharedAccessKeyName=send;SharedAccessKey=a2V5",
     )
     .unwrap();
-    let sink = bus.sink::<Utf8, String>("orders");
+    let sink = bus.sink::<Utf8>("orders");
     let mut mismatched = ServiceBusPublish::new("order".to_owned()).with_session_id("a");
     mismatched.properties.partition_key = Some("b".into());
     assert!(sink.prepare(mismatched).is_err());
@@ -55,18 +55,13 @@ fn handles_sources_and_sinks_validate_locally() {
     assert!(bus.validate().is_err());
     let bus = bus.shared_access_key("send", "a2V5");
     bus.validate().unwrap();
-    bus.source::<Utf8, String>("events/Subscriptions/billing")
+    bus.source::<Utf8>("events/Subscriptions/billing")
         .validate()
         .unwrap();
+    assert!(bus.source::<Utf8>("orders").prefetch(0).validate().is_err());
+    assert!(bus.sink::<Utf8>("/orders").validate().is_err());
     assert!(
-        bus.source::<Utf8, String>("orders")
-            .prefetch(0)
-            .validate()
-            .is_err()
-    );
-    assert!(bus.sink::<Utf8, String>("/orders").validate().is_err());
-    assert!(
-        bus.sink::<Utf8, String>("orders")
+        bus.sink::<Utf8>("orders")
             .max_pending(0)
             .validate()
             .is_err()
@@ -156,16 +151,16 @@ impl Drop for Queue {
     }
 }
 
-fn source(entity: &str) -> ServiceBusSource<Utf8, String> {
+fn source(entity: &str) -> ServiceBusSource<Utf8> {
     connection().source(entity)
 }
 
-fn sink(entity: &str) -> ServiceBusSink<Utf8, String> {
+fn sink(entity: &str) -> ServiceBusSink<Utf8> {
     connection().sink(entity)
 }
 
 async fn send(
-    sink: &ServiceBusSink<Utf8, String>,
+    sink: &ServiceBusSink<Utf8>,
     output: ServiceBusPublish<String>,
 ) -> Result<(), BoxError> {
     let prepared = sink.prepare(output)?;
@@ -176,9 +171,9 @@ async fn send(
 
 /// Receives the next message, retrying receive errors, or `None` after `timeout`.
 async fn next_message(
-    source: &mut ServiceBusSource<Utf8, String>,
+    source: &mut ServiceBusSource<Utf8>,
     timeout: Duration,
-) -> Result<Option<ServiceBusMessage<Utf8, String>>, BoxError> {
+) -> Result<Option<ServiceBusMessage<Utf8>>, BoxError> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -204,7 +199,7 @@ async fn send_receive_and_complete_against_service_bus() -> Result<(), BoxError>
     // One handle: the sink and both sources share its connection, and closing
     // the sink and the first source leaves it usable.
     let bus = connection();
-    let sink = bus.sink::<Utf8, String>(&queue.0);
+    let sink = bus.sink::<Utf8>(&queue.0);
     let mut output = ServiceBusPublish::new("hello service bus".to_owned()).with_message_id("m-1");
     output
         .application_properties
@@ -222,7 +217,7 @@ async fn send_receive_and_complete_against_service_bus() -> Result<(), BoxError>
     send(&sink, output).await?;
     sink.close().await?;
 
-    let mut source = bus.source::<Utf8, String>(&queue.0);
+    let mut source = bus.source::<Utf8>(&queue.0);
     let message = next_message(&mut source, Duration::from_secs(30))
         .await?
         .expect("no Service Bus message");
@@ -260,7 +255,7 @@ async fn send_receive_and_complete_against_service_bus() -> Result<(), BoxError>
     message.ack().await?;
     source.close().await?;
 
-    let mut again = bus.source::<Utf8, String>(&queue.0);
+    let mut again = bus.source::<Utf8>(&queue.0);
     assert!(
         next_message(&mut again, Duration::from_secs(3))
             .await?

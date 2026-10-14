@@ -3,7 +3,7 @@ use std::io::Write;
 use flate2::{Compression, read::MultiGzDecoder, write::GzEncoder};
 
 use super::bounded::{DEFAULT_MAX_DECODED_LEN, read_to_end};
-use super::{Decoder, Encoder};
+use super::{Codec, Decoder, Encoder};
 use crate::error::BoxError;
 
 /// A wrapper that gzip-compresses another codec's payload.
@@ -61,15 +61,19 @@ impl<C: Default> Default for Gzip<C> {
     }
 }
 
-impl<T, C: Decoder<T>> Decoder<T> for Gzip<C> {
-    fn decode(&self, bytes: &[u8]) -> Result<T, BoxError> {
+impl<C: Codec> Codec for Gzip<C> {
+    type Value = C::Value;
+}
+
+impl<C: Decoder> Decoder for Gzip<C> {
+    fn decode(&self, bytes: &[u8]) -> Result<C::Value, BoxError> {
         let payload = read_to_end(MultiGzDecoder::new(bytes), self.max_decoded_len, "gzip")?;
         self.inner.decode(&payload)
     }
 }
 
-impl<T, C: Encoder<T>> Encoder<T> for Gzip<C> {
-    fn encode(&self, value: &T) -> Result<Vec<u8>, BoxError> {
+impl<C: Encoder> Encoder for Gzip<C> {
+    fn encode(&self, value: &C::Value) -> Result<Vec<u8>, BoxError> {
         let payload = self.inner.encode(value)?;
         let mut encoder = GzEncoder::new(Vec::new(), Compression::new(self.level));
         encoder.write_all(&payload)?;

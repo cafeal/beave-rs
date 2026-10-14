@@ -37,10 +37,9 @@ pub trait TestRecord: Clone + Debug + Serialize + Send + Sync + 'static {
     type Decoded<T: Clone + Send + Sync + 'static>: Clone + Send + Sync + 'static;
 
     /// Decode the payload with the source's codec, keeping the metadata.
-    fn decode<C, T>(&self, codec: &C) -> Result<Self::Decoded<T>, BoxError>
+    fn decode<C>(&self, codec: &C) -> Result<Self::Decoded<C::Value>, BoxError>
     where
-        C: Decoder<T>,
-        T: Clone + Send + Sync + 'static;
+        C: Decoder<Value: Clone + Send + Sync + 'static>;
 
     /// The ordering scope the owning adapter assigns to this record.
     fn ordering_key(&self) -> Option<OrderingKey> {
@@ -57,10 +56,9 @@ pub trait TestRecord: Clone + Debug + Serialize + Send + Sync + 'static {
 impl TestRecord for Vec<u8> {
     type Decoded<T: Clone + Send + Sync + 'static> = T;
 
-    fn decode<C, T>(&self, codec: &C) -> Result<T, BoxError>
+    fn decode<C>(&self, codec: &C) -> Result<C::Value, BoxError>
     where
-        C: Decoder<T>,
-        T: Clone + Send + Sync + 'static,
+        C: Decoder<Value: Clone + Send + Sync + 'static>,
     {
         codec.decode(self)
     }
@@ -73,10 +71,9 @@ impl TestRecord for Vec<u8> {
 impl TestRecord for KafkaRecord<Vec<u8>> {
     type Decoded<T: Clone + Send + Sync + 'static> = KafkaRecord<T>;
 
-    fn decode<C, T>(&self, codec: &C) -> Result<KafkaRecord<T>, BoxError>
+    fn decode<C>(&self, codec: &C) -> Result<KafkaRecord<C::Value>, BoxError>
     where
-        C: Decoder<T>,
-        T: Clone + Send + Sync + 'static,
+        C: Decoder<Value: Clone + Send + Sync + 'static>,
     {
         Ok(KafkaRecord {
             key: self.key.clone(),
@@ -113,10 +110,9 @@ impl TestRecord for KafkaRecord<Vec<u8>> {
 impl TestRecord for PulsarRecord<Vec<u8>> {
     type Decoded<T: Clone + Send + Sync + 'static> = PulsarRecord<T>;
 
-    fn decode<C, T>(&self, codec: &C) -> Result<PulsarRecord<T>, BoxError>
+    fn decode<C>(&self, codec: &C) -> Result<PulsarRecord<C::Value>, BoxError>
     where
-        C: Decoder<T>,
-        T: Clone + Send + Sync + 'static,
+        C: Decoder<Value: Clone + Send + Sync + 'static>,
     {
         Ok(PulsarRecord {
             value: self
@@ -154,10 +150,9 @@ impl TestRecord for PulsarRecord<Vec<u8>> {
 impl TestRecord for RabbitMqRecord<Vec<u8>> {
     type Decoded<T: Clone + Send + Sync + 'static> = RabbitMqRecord<T>;
 
-    fn decode<C, T>(&self, codec: &C) -> Result<RabbitMqRecord<T>, BoxError>
+    fn decode<C>(&self, codec: &C) -> Result<RabbitMqRecord<C::Value>, BoxError>
     where
-        C: Decoder<T>,
-        T: Clone + Send + Sync + 'static,
+        C: Decoder<Value: Clone + Send + Sync + 'static>,
     {
         Ok(RabbitMqRecord {
             value: codec.decode(&self.value)?,
@@ -179,10 +174,9 @@ impl TestRecord for RabbitMqRecord<Vec<u8>> {
 impl TestRecord for PubSubRecord<Vec<u8>> {
     type Decoded<T: Clone + Send + Sync + 'static> = PubSubRecord<T>;
 
-    fn decode<C, T>(&self, codec: &C) -> Result<PubSubRecord<T>, BoxError>
+    fn decode<C>(&self, codec: &C) -> Result<PubSubRecord<C::Value>, BoxError>
     where
-        C: Decoder<T>,
-        T: Clone + Send + Sync + 'static,
+        C: Decoder<Value: Clone + Send + Sync + 'static>,
     {
         Ok(PubSubRecord {
             value: codec.decode(&self.value)?,
@@ -212,10 +206,9 @@ impl TestRecord for PubSubRecord<Vec<u8>> {
 impl TestRecord for SqsRecord<Vec<u8>> {
     type Decoded<T: Clone + Send + Sync + 'static> = SqsRecord<T>;
 
-    fn decode<C, T>(&self, codec: &C) -> Result<SqsRecord<T>, BoxError>
+    fn decode<C>(&self, codec: &C) -> Result<SqsRecord<C::Value>, BoxError>
     where
-        C: Decoder<T>,
-        T: Clone + Send + Sync + 'static,
+        C: Decoder<Value: Clone + Send + Sync + 'static>,
     {
         Ok(SqsRecord {
             value: codec.decode(&self.value)?,
@@ -243,10 +236,9 @@ impl TestRecord for SqsRecord<Vec<u8>> {
 impl TestRecord for ServiceBusRecord<Vec<u8>> {
     type Decoded<T: Clone + Send + Sync + 'static> = ServiceBusRecord<T>;
 
-    fn decode<C, T>(&self, codec: &C) -> Result<ServiceBusRecord<T>, BoxError>
+    fn decode<C>(&self, codec: &C) -> Result<ServiceBusRecord<C::Value>, BoxError>
     where
-        C: Decoder<T>,
-        T: Clone + Send + Sync + 'static,
+        C: Decoder<Value: Clone + Send + Sync + 'static>,
     {
         Ok(ServiceBusRecord {
             value: codec.decode(&self.value)?,

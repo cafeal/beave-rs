@@ -139,7 +139,7 @@ where
     T: Clone + Send + Sync + for<'de> Deserialize<'de> + 'static,
 {
     let mut source = kafka()
-        .source::<Json, T>(unique_name("beavers-reader"), [topic])
+        .source::<Json<T>>(unique_name("beavers-reader"), [topic])
         .property("auto.offset.reset", "earliest");
     let records = receive(&mut source, count, |message| message.decode().unwrap()).await;
     source.close().await.unwrap();
@@ -150,14 +150,14 @@ async fn read_pulsar<T>(topic: &str, subscription: &str, count: u64) -> Vec<Puls
 where
     T: Clone + Send + Sync + for<'de> Deserialize<'de> + 'static,
 {
-    let mut source = pulsar().source::<Json, T>(topic, subscription);
+    let mut source = pulsar().source::<Json<T>>(topic, subscription);
     let records = receive(&mut source, count, |message| message.decode().unwrap()).await;
     source.close().await.unwrap();
     records
 }
 
 async fn produce_kafka_orders(topic: &str) {
-    let sink = kafka().sink::<Json, Order>(topic);
+    let sink = kafka().sink::<Json<Order>>(topic);
     let app = App::new().subscribe(
         "produce-orders",
         IterSource::new(orders()),
@@ -178,7 +178,7 @@ async fn produce_kafka_orders(topic: &str) {
 }
 
 async fn produce_pulsar_orders(topic: &str) {
-    let sink = pulsar().sink::<Json, Order>(topic);
+    let sink = pulsar().sink::<Json<Order>>(topic);
     let app = App::new().subscribe(
         "produce-orders",
         IterSource::new(orders()),
@@ -309,9 +309,9 @@ async fn kafka_pipeline_forwards_keys_and_commits_offsets() {
             Subscription::new(
                 "ship-orders",
                 kafka
-                    .source::<Json, Order>(&group, [&input])
+                    .source::<Json<Order>>(&group, [&input])
                     .property("auto.offset.reset", "earliest"),
-                kafka.sink::<Json, Shipment>(&output),
+                kafka.sink::<Json<Shipment>>(&output),
                 ship,
             )
             .concurrency(3),
@@ -355,8 +355,8 @@ async fn pulsar_pipeline_forwards_keys_and_acknowledges() {
         App::new().subscription(
             Subscription::new(
                 "ship-orders",
-                pulsar.source::<Json, Order>(&input, &subscription),
-                pulsar.sink::<Json, Shipment>(&output),
+                pulsar.source::<Json<Order>>(&input, &subscription),
+                pulsar.sink::<Json<Shipment>>(&output),
                 ship,
             )
             .concurrency(3),
@@ -398,9 +398,9 @@ async fn kafka_to_pulsar_pipeline_maps_metadata_explicitly() {
             Subscription::new(
                 "bridge-orders",
                 kafka()
-                    .source::<Json, Order>(unique_name("beavers-bridge"), [&input])
+                    .source::<Json<Order>>(unique_name("beavers-bridge"), [&input])
                     .property("auto.offset.reset", "earliest"),
-                pulsar().sink::<Json, Order>(&output),
+                pulsar().sink::<Json<Order>>(&output),
                 |record: KafkaRecord<Order>| async move {
                     Ok(PulsarPublish::new(
                         record.value.expect("orders are not tombstones"),

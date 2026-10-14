@@ -32,7 +32,6 @@ use fe2o3_amqp::{
     },
 };
 use std::{
-    marker::PhantomData,
     sync::Arc,
     time::{Duration, SystemTime},
 };
@@ -48,13 +47,12 @@ use tracing::{debug, warn};
 /// Built with [`ServiceBus::source`]. It attaches its links to the handle's
 /// connection on the first `receive`, which also validates the settings, and
 /// again after the connection or a link is lost.
-pub struct ServiceBusSource<C, T> {
+pub struct ServiceBusSource<C> {
     bus: ServiceBus,
     config: SourceConfig,
     codec: Arc<C>,
     link: Option<Link>,
     closed: bool,
-    marker: PhantomData<T>,
 }
 
 type Received = Result<Delivery<Body<Value>>, RecvError>;
@@ -217,7 +215,7 @@ async fn abandon(receiver: &Receiver, info: DeliveryInfo) {
     }
 }
 
-impl<C, T> ServiceBusSource<C, T> {
+impl<C> ServiceBusSource<C> {
     pub(super) fn new(bus: ServiceBus, config: SourceConfig, codec: C) -> Self {
         Self {
             bus,
@@ -225,7 +223,6 @@ impl<C, T> ServiceBusSource<C, T> {
             codec: Arc::new(codec),
             link: None,
             closed: false,
-            marker: PhantomData,
         }
     }
 
@@ -316,8 +313,8 @@ fn lock_token(delivery: &Delivery<Body<Value>>) -> Option<Uuid> {
     Some(Uuid::from(bytes))
 }
 
-impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for ServiceBusSource<C, T> {
-    type Message = ServiceBusMessage<C, T>;
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for ServiceBusSource<C> {
+    type Message = ServiceBusMessage<C>;
 
     async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
         if self.closed {
@@ -364,7 +361,6 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for ServiceBusSourc
                         disposer: link.disposer.clone(),
                         abandoned: link.abandoned.clone(),
                         codec: self.codec.clone(),
-                        marker: PhantomData,
                     }));
                 }
                 Some(Err(RecvError::MessageSizeExceeded(error))) => {
@@ -393,7 +389,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for ServiceBusSourc
 /// One Service Bus message, locked to this receiver. Dropping it without
 /// acknowledging it ends its lock renewal and abandons it, so Service Bus
 /// delivers it again with an incremented delivery count.
-pub struct ServiceBusMessage<C, T> {
+pub struct ServiceBusMessage<C> {
     message: Message<Body<Value>>,
     info: Option<DeliveryInfo>,
     entity_path: String,
@@ -404,10 +400,9 @@ pub struct ServiceBusMessage<C, T> {
     disposer: ReceiverDisposer,
     abandoned: mpsc::UnboundedSender<DeliveryInfo>,
     codec: Arc<C>,
-    marker: PhantomData<T>,
 }
 
-impl<C, T> ServiceBusMessage<C, T> {
+impl<C> ServiceBusMessage<C> {
     fn record<V>(&self, value: V) -> ServiceBusRecord<V> {
         let message = &self.message;
         let text = |name| match annotation(message, name) {
@@ -440,8 +435,8 @@ impl<C, T> ServiceBusMessage<C, T> {
     }
 }
 
-impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for ServiceBusMessage<C, T> {
-    type Item = ServiceBusRecord<T>;
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for ServiceBusMessage<C> {
+    type Item = ServiceBusRecord<C::Value>;
     type Raw = ServiceBusRecord<Vec<u8>>;
 
     /// Decodes the binary data of the body. A body that is an AMQP value or
@@ -500,7 +495,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for ServiceB
     }
 }
 
-impl<C, T> Drop for ServiceBusMessage<C, T> {
+impl<C> Drop for ServiceBusMessage<C> {
     fn drop(&mut self) {
         if let Some(info) = self.info.take()
             && self.locks.remove(self.lock)

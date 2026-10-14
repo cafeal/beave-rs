@@ -1,8 +1,8 @@
 # MessagePack codec
 
-`MessagePack` converts between [MessagePack](https://msgpack.org/) payloads and
-any type implementing Serde's traits, the same types `Json` accepts. It is a
-unit struct that implements `Default`. Enable the `msgpack` Cargo feature to
+`MessagePack<T>` converts between [MessagePack](https://msgpack.org/) payloads
+and a type `T` implementing Serde's traits, the same types `Json` accepts. It
+holds no state and implements `Default`. Enable the `msgpack` Cargo feature to
 use it:
 
 ```toml
@@ -22,8 +22,8 @@ struct Order {
     id: u64,
 }
 
-let bytes = MessagePack.encode(&Order { id: 42 })?;
-let order: Order = MessagePack.decode(&bytes)?;
+let bytes = MessagePack::new().encode(&Order { id: 42 })?;
+let order: Order = MessagePack::new().decode(&bytes)?;
 assert_eq!(order, Order { id: 42 });
 # Ok::<(), beavers::BoxError>(())
 ```

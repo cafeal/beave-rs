@@ -1,7 +1,7 @@
 #![cfg(feature = "sqs")]
 
 use beavers::{
-    App, BoxError, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage,
+    App, BoxError, CancellationToken, RawBytes, Receive, ReceiveError, Sink, Source, SourceMessage,
     Subscription, Utf8,
     adapters::sqs::{
         Sqs, SqsAttributeValue, SqsCredentials, SqsMessage, SqsPublish, SqsSink, SqsSource,
@@ -20,8 +20,7 @@ use tokio::{
 #[test]
 fn prepared_messages_need_text_bodies_and_fifo_groups() {
     let sqs = Sqs::new();
-    let sink =
-        sqs.sink::<beavers::RawBytes, Vec<u8>>("https://sqs.eu-west-1.amazonaws.com/1/orders");
+    let sink = sqs.sink::<RawBytes>("https://sqs.eu-west-1.amazonaws.com/1/orders");
     assert!(sink.prepare(SqsPublish::new(vec![0xff])).is_err());
     let mut delayed = SqsPublish::new(b"order".to_vec());
     delayed.delay = Some(Duration::from_secs(901));
@@ -33,7 +32,7 @@ fn prepared_messages_need_text_bodies_and_fifo_groups() {
         "order"
     );
 
-    let fifo = sqs.sink::<Utf8, String>("https://sqs.eu-west-1.amazonaws.com/1/orders.fifo");
+    let fifo = sqs.sink::<Utf8>("https://sqs.eu-west-1.amazonaws.com/1/orders.fifo");
     assert!(fifo.prepare(SqsPublish::new("order".to_owned())).is_err());
     let mut delayed = SqsPublish::new("order".to_owned()).with_message_group_id("g");
     delayed.delay = Some(Duration::from_secs(1));
@@ -48,30 +47,30 @@ fn prepared_messages_need_text_bodies_and_fifo_groups() {
 fn settings_validate_without_contacting_sqs() {
     let queue = "https://sqs.eu-west-1.amazonaws.com/1/orders";
     let sqs = Sqs::new().region("eu-west-1");
-    assert!(sqs.source::<Utf8, String>(queue).validate().is_ok());
-    assert!(sqs.sink::<Utf8, String>(queue).validate().is_ok());
-    assert!(sqs.sink::<Utf8, String>("orders").validate().is_err());
+    assert!(sqs.source::<Utf8>(queue).validate().is_ok());
+    assert!(sqs.sink::<Utf8>(queue).validate().is_ok());
+    assert!(sqs.sink::<Utf8>("orders").validate().is_err());
     assert!(
-        sqs.source::<Utf8, String>(queue)
+        sqs.source::<Utf8>(queue)
             .max_messages(11)
             .validate()
             .is_err()
     );
     assert!(
-        sqs.source::<Utf8, String>(queue)
+        sqs.source::<Utf8>(queue)
             .wait_time(Duration::from_secs(21))
             .validate()
             .is_err()
     );
     assert!(
-        sqs.source::<Utf8, String>(queue)
+        sqs.source::<Utf8>(queue)
             .visibility_timeout(Duration::ZERO)
             .validate()
             .is_err()
     );
     let invalid = Sqs::new().endpoint_url("localhost:9324");
     assert!(invalid.validate().is_err());
-    assert!(invalid.sink::<Utf8, String>(queue).validate().is_err());
+    assert!(invalid.sink::<Utf8>(queue).validate().is_err());
     assert!(
         Sqs::new()
             .credentials(SqsCredentials::new("key", ""))
@@ -129,15 +128,15 @@ fn sqs() -> Sqs {
         .credentials(credentials())
 }
 
-fn source(queue_url: &str) -> SqsSource<Utf8, String> {
+fn source(queue_url: &str) -> SqsSource<Utf8> {
     sqs().source(queue_url).wait_time(Duration::from_secs(1))
 }
 
-fn sink(queue_url: &str) -> SqsSink<Utf8, String> {
+fn sink(queue_url: &str) -> SqsSink<Utf8> {
     sqs().sink(queue_url)
 }
 
-async fn send(sink: &SqsSink<Utf8, String>, output: SqsPublish<String>) -> Result<(), BoxError> {
+async fn send(sink: &SqsSink<Utf8>, output: SqsPublish<String>) -> Result<(), BoxError> {
     let prepared = sink.prepare(output)?;
     tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
         .await
@@ -146,9 +145,9 @@ async fn send(sink: &SqsSink<Utf8, String>, output: SqsPublish<String>) -> Resul
 
 /// Receives the next message, retrying receive errors, or `None` after `timeout`.
 async fn next_message(
-    source: &mut SqsSource<Utf8, String>,
+    source: &mut SqsSource<Utf8>,
     timeout: Duration,
-) -> Result<Option<SqsMessage<Utf8, String>>, BoxError> {
+) -> Result<Option<SqsMessage<Utf8>>, BoxError> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());

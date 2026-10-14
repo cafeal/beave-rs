@@ -55,7 +55,7 @@ async fn print(record: HttpRecord<Order>) -> Result<()> {
 async fn main() -> anyhow::Result<()> {
     match env::args().nth(1).as_deref() {
         Some("receive") => {
-            let source = HttpSource::<Json, Order>::new("127.0.0.1:8090".parse()?)?;
+            let source = HttpSource::<Json<Order>>::new("127.0.0.1:8090".parse()?)?;
             println!("listening on {}; press Ctrl-C to stop", source.local_addr());
             App::new()
                 .subscribe(
@@ -79,10 +79,10 @@ async fn main() -> anyhow::Result<()> {
                     Subscription::new(
                         "forward-orders",
                         kafka
-                            .source::<Json, Order>("beavers-examples-http", [ORDERS])
+                            .source::<Json<Order>>("beavers-examples-http", [ORDERS])
                             .property("auto.offset.reset", "earliest"),
                         HttpClient::new()
-                            .sink::<Json, Order>(&url)
+                            .sink::<Json<Order>>(&url)
                             .header("content-type", "application/json"),
                         to_request,
                     )

@@ -15,7 +15,7 @@ The [runtime guide](runtime.md) describes processing behavior, and the
 | `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure; declare whether application shutdown stops receiving |
 | `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, revocation, and propagation fields |
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
-| `Decoder<T>` / `Encoder<T>` | Convert serialization formats without broker operations |
+| `Codec` / `Decoder` / `Encoder` | Convert serialization formats without broker operations |
 | `Sink<T>` | Prepare an associated output representation, submit or publish it, report its completion, and close resources |
 
 ### Errors

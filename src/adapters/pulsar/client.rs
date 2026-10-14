@@ -24,8 +24,8 @@ use tokio::{runtime::Handle, sync::OnceCell};
 /// use beavers::{Json, adapters::pulsar::Pulsar};
 ///
 /// let pulsar = Pulsar::new("pulsar://localhost:6650").token("eyJhbGciOi...");
-/// let orders = pulsar.source::<Json, String>("orders", "billing");
-/// let invoices = pulsar.sink::<Json, String>("invoices");
+/// let orders = pulsar.source::<Json<String>>("orders", "billing");
+/// let invoices = pulsar.sink::<Json<String>>("invoices");
 /// ```
 #[derive(Clone)]
 pub struct Pulsar {
@@ -63,21 +63,21 @@ impl Pulsar {
     /// subscription, a `buffer_size` of 100, empty payloads treated as
     /// tombstones, and an `ack_retry` of 5 attempts with delays from 100 ms up
     /// to 2 s.
-    pub fn source<C: Default, T>(
+    pub fn source<C: Default>(
         &self,
         topic: impl Into<String>,
         subscription: impl Into<String>,
-    ) -> PulsarSource<C, T> {
+    ) -> PulsarSource<C> {
         self.source_with_codec(C::default(), topic, subscription)
     }
 
     /// A source like [`source`](Self::source) that decodes with `codec`.
-    pub fn source_with_codec<C, T>(
+    pub fn source_with_codec<C>(
         &self,
         codec: C,
         topic: impl Into<String>,
         subscription: impl Into<String>,
-    ) -> PulsarSource<C, T> {
+    ) -> PulsarSource<C> {
         PulsarSource::new(
             self.clone(),
             SourceConfig::new(topic.into(), subscription.into()),
@@ -90,12 +90,12 @@ impl Pulsar {
     ///
     /// Defaults: no producer name, a `max_pending` of 1000, and a `send_retry`
     /// of 10 attempts with delays from 100 ms up to 5 s.
-    pub fn sink<C: Default, T>(&self, topic: impl Into<String>) -> PulsarSink<C, T> {
+    pub fn sink<C: Default>(&self, topic: impl Into<String>) -> PulsarSink<C> {
         self.sink_with_codec(C::default(), topic)
     }
 
     /// A sink like [`sink`](Self::sink) that encodes with `codec`.
-    pub fn sink_with_codec<C, T>(&self, codec: C, topic: impl Into<String>) -> PulsarSink<C, T> {
+    pub fn sink_with_codec<C>(&self, codec: C, topic: impl Into<String>) -> PulsarSink<C> {
         PulsarSink::new(self.clone(), SinkConfig::new(topic.into()), codec)
     }
 

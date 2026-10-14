@@ -43,7 +43,7 @@ fn kafka_record_fills_the_delivery_location() {
 async fn deliveries_follow_the_kafka_adapter() {
     let mut tombstone = order(43, "");
     tombstone.value = None;
-    let mut source = KafkaTestSource::<Json, u32>::new([order(42, "7"), tombstone]);
+    let mut source = KafkaTestSource::<Json<u32>>::new([order(42, "7"), tombstone]);
 
     let Receive::Message(message) = source.receive().await.unwrap() else {
         panic!("expected a delivery");
@@ -64,7 +64,7 @@ async fn deliveries_follow_the_kafka_adapter() {
 
 #[tokio::test]
 async fn handlers_and_middleware_see_the_fabricated_metadata() {
-    let source = KafkaTestSource::<Json, u32>::new([order(42, "7"), order(43, "8")]);
+    let source = KafkaTestSource::<Json<u32>>::new([order(42, "7"), order(43, "8")]);
     let deliveries = source.deliveries();
     let sink = InMemorySink::default();
     App::new()
@@ -105,7 +105,7 @@ async fn handlers_and_middleware_see_the_fabricated_metadata() {
 #[tokio::test]
 async fn dead_letters_keep_the_raw_kafka_record() {
     let source =
-        KafkaTestSource::<Json, u32>::new([order(42, "not json"), order(43, "5"), order(44, "6")]);
+        KafkaTestSource::<Json<u32>>::new([order(42, "not json"), order(43, "5"), order(44, "6")]);
     let deliveries = source.deliveries();
     let sink = InMemorySink::<KafkaPublish<u32>>::default();
     let dlq = InMemorySink::<DeadLetter<KafkaRecord<u32>, KafkaRecord<Vec<u8>>>>::default();

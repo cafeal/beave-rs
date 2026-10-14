@@ -72,7 +72,7 @@ fn unique_name(prefix: &str) -> String {
 
 #[test]
 fn tombstones_are_prepared_as_null_values() {
-    let sink = Pulsar::new("pulsar://broker").sink::<Utf8, String>("topic");
+    let sink = Pulsar::new("pulsar://broker").sink::<Utf8>("topic");
     let tombstone = sink
         .prepare(PulsarPublish::tombstone(b"customer-7".to_vec()))
         .unwrap();
@@ -91,35 +91,30 @@ fn settings_validate_without_connecting() {
     let pulsar = Pulsar::new("pulsar://broker");
     assert!(
         pulsar
-            .source::<Utf8, String>("topic", "subscription")
+            .source::<Utf8>("topic", "subscription")
             .validate()
             .is_ok()
     );
-    assert!(pulsar.sink::<Utf8, String>("topic").validate().is_ok());
+    assert!(pulsar.sink::<Utf8>("topic").validate().is_ok());
 
     assert!(Pulsar::new("").validate().is_err());
     assert!(Pulsar::new("http://broker").validate().is_err());
     assert!(
         Pulsar::new("")
-            .source::<Utf8, String>("topic", "subscription")
+            .source::<Utf8>("topic", "subscription")
             .validate()
             .is_err()
     );
     assert!(
         pulsar
-            .source::<Utf8, String>("", "subscription")
+            .source::<Utf8>("", "subscription")
             .validate()
             .is_err()
     );
+    assert!(pulsar.source::<Utf8>("topic", "").validate().is_err());
     assert!(
         pulsar
-            .source::<Utf8, String>("topic", "")
-            .validate()
-            .is_err()
-    );
-    assert!(
-        pulsar
-            .source::<Utf8, String>("topic", "subscription")
+            .source::<Utf8>("topic", "subscription")
             .buffer_size(0)
             .validate()
             .is_err()
@@ -130,16 +125,11 @@ fn settings_validate_without_connecting() {
         data: vec![1],
     });
     assert!(authenticated.validate().is_err());
-    assert!(
-        authenticated
-            .sink::<Utf8, String>("topic")
-            .validate()
-            .is_err()
-    );
-    assert!(pulsar.sink::<Utf8, String>("").validate().is_err());
+    assert!(authenticated.sink::<Utf8>("topic").validate().is_err());
+    assert!(pulsar.sink::<Utf8>("").validate().is_err());
     assert!(
         pulsar
-            .sink::<Utf8, String>("topic")
+            .sink::<Utf8>("topic")
             .max_pending(0)
             .validate()
             .is_err()
@@ -150,7 +140,7 @@ fn settings_validate_without_connecting() {
     };
     assert!(
         pulsar
-            .sink::<Utf8, String>("topic")
+            .sink::<Utf8>("topic")
             .send_retry(unsent)
             .validate()
             .is_err()
@@ -202,9 +192,9 @@ async fn unload_topic(topic: &str) -> Result<(), BoxError> {
 }
 
 async fn next_message(
-    source: &mut PulsarSource<Utf8, String>,
+    source: &mut PulsarSource<Utf8>,
     timeout: Duration,
-) -> Result<Option<PulsarMessage<Utf8, String>>, BoxError> {
+) -> Result<Option<PulsarMessage<Utf8>>, BoxError> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -223,7 +213,7 @@ async fn next_message(
 }
 
 async fn publish_all(topic: &str, values: &[&str]) -> Result<(), BoxError> {
-    let sink = Pulsar::new(service_url()).sink::<Utf8, String>(topic);
+    let sink = Pulsar::new(service_url()).sink::<Utf8>(topic);
     for value in values {
         let mut output = PulsarPublish::new((*value).to_owned());
         output.key = Some(value.as_bytes().to_vec());
@@ -232,7 +222,7 @@ async fn publish_all(topic: &str, values: &[&str]) -> Result<(), BoxError> {
     sink.close().await
 }
 
-fn exclusive_source(topic: &str, subscription: &str) -> PulsarSource<Utf8, String> {
+fn exclusive_source(topic: &str, subscription: &str) -> PulsarSource<Utf8> {
     Pulsar::new(service_url())
         .source(topic, subscription)
         .subscription_type(PulsarSubscriptionType::Exclusive)
@@ -280,7 +270,7 @@ async fn submissions_complete_across_topic_unloads() -> Result<(), BoxError> {
     create_subscription(&topic, &subscription).await?;
     let mut source = exclusive_source(&topic, &subscription);
 
-    let sink = Pulsar::new(service_url()).sink::<Utf8, String>(&topic);
+    let sink = Pulsar::new(service_url()).sink::<Utf8>(&topic);
     let stop = Arc::new(AtomicBool::new(false));
     let publisher = tokio::spawn({
         let stop = stop.clone();
@@ -331,9 +321,9 @@ async fn tombstones_carry_the_null_value_marker() -> Result<(), BoxError> {
     create_subscription(&topic, &subscription).await?;
     let pulsar = Pulsar::new(service_url());
     let mut source = pulsar
-        .source::<Utf8, String>(&topic, subscription)
+        .source::<Utf8>(&topic, subscription)
         .empty_payload_is_tombstone(false);
-    let sink = pulsar.sink::<Utf8, String>(&topic);
+    let sink = pulsar.sink::<Utf8>(&topic);
     for output in [
         PulsarPublish::tombstone(b"customer-7".to_vec()),
         PulsarPublish::new(String::new()),
@@ -370,8 +360,8 @@ async fn publish_receive_and_ack_against_pulsar() -> Result<(), BoxError> {
     create_subscription(&topic, &subscription).await?;
 
     let pulsar = Pulsar::new(&service_url);
-    let sink = pulsar.sink::<Utf8, String>(&topic);
-    let mut source = pulsar.source::<Utf8, String>(&topic, &subscription);
+    let sink = pulsar.sink::<Utf8>(&topic);
+    let mut source = pulsar.source::<Utf8>(&topic, &subscription);
 
     let receive_task = tokio::spawn(async move {
         let message = loop {
@@ -426,7 +416,7 @@ async fn publish_receive_and_ack_against_pulsar() -> Result<(), BoxError> {
 async fn submitted_messages_complete_on_their_broker_receipts() -> Result<(), BoxError> {
     let topic = unique_topic("beavers-pulsar-submit");
     let sink = Pulsar::new(service_url())
-        .sink::<Utf8, String>(&topic)
+        .sink::<Utf8>(&topic)
         .max_pending(2);
     let prepared = sink.prepare(PulsarPublish::new("a".to_owned()))?;
 

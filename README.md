@@ -82,8 +82,8 @@ async fn summarize(article: String) -> Result<String> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let kafka = Kafka::new("localhost:9092");
-    let articles = kafka.source::<Utf8, _>("summarizer", ["articles"]);
-    let summaries = kafka.sink::<Utf8, _>("summaries");
+    let articles = kafka.source::<Utf8>("summarizer", ["articles"]);
+    let summaries = kafka.sink::<Utf8>("summaries");
 
     App::new()
         .subscribe("summarize", articles, summaries, summarize)

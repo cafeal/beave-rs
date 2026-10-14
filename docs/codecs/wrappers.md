@@ -3,8 +3,8 @@
 `Base64<C>`, `Gzip<C>`, and `Zstd<C>` wrap another codec `C` and transform its
 payload. Encoding runs the inner codec first and then the wrapper; decoding runs
 the wrapper first and passes its output to the inner codec. They accept any
-inner codec, including other wrappers, and implement `Decoder<T>` or
-`Encoder<T>` whenever the inner codec does.
+inner codec, including other wrappers, and implement `Decoder` or
+`Encoder` whenever the inner codec does, with the inner codec's value type.
 
 | Wrapper | Cargo feature | Payload |
 |---|---|---|
@@ -22,7 +22,7 @@ use beavers::adapters::sqs::Sqs;
 use beavers::{Base64, Gzip, Protobuf};
 
 // Protobuf bytes, gzip-compressed, carried as text in an SQS body.
-let sink = Sqs::new().sink::<Base64<Gzip<Protobuf>>, Event>(queue_url);
+let sink = Sqs::new().sink::<Base64<Gzip<Protobuf<Event>>>>(queue_url);
 ```
 
 The order of nested wrappers is the order of the encoding steps from the inside

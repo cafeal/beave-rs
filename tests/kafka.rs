@@ -57,29 +57,14 @@ fn records_and_publishes_keep_delivery_metadata_separate() {
     assert_eq!(tombstone.value, None);
 
     let kafka = Kafka::new("broker");
-    assert!(kafka.sink::<Utf8, String>("topic").validate().is_ok());
+    assert!(kafka.sink::<Utf8>("topic").validate().is_ok());
+    assert!(kafka.source::<Utf8>("group", ["topic"]).validate().is_ok());
+    assert!(Kafka::new("").sink::<Utf8>("topic").validate().is_err());
+    assert!(kafka.sink::<Utf8>("").validate().is_err());
+    assert!(kafka.source::<Utf8>("group", [""]).validate().is_err());
     assert!(
         kafka
-            .source::<Utf8, String>("group", ["topic"])
-            .validate()
-            .is_ok()
-    );
-    assert!(
-        Kafka::new("")
-            .sink::<Utf8, String>("topic")
-            .validate()
-            .is_err()
-    );
-    assert!(kafka.sink::<Utf8, String>("").validate().is_err());
-    assert!(
-        kafka
-            .source::<Utf8, String>("group", [""])
-            .validate()
-            .is_err()
-    );
-    assert!(
-        kafka
-            .source::<Utf8, String>("group", Vec::<String>::new())
+            .source::<Utf8>("group", Vec::<String>::new())
             .validate()
             .is_err()
     );
@@ -103,9 +88,7 @@ fn handle_rejects_a_transactional_id_property() {
 
 #[test]
 fn sink_requires_room_for_a_pending_record() {
-    let sink = Kafka::new("broker")
-        .sink::<Utf8, String>("topic")
-        .max_pending(0);
+    let sink = Kafka::new("broker").sink::<Utf8>("topic").max_pending(0);
     assert!(sink.validate().is_err());
 }
 
@@ -122,7 +105,7 @@ fn debug_output_hides_property_values() {
 #[tokio::test]
 async fn submit_returns_at_acceptance_and_waits_for_pending_capacity() {
     let sink = Kafka::new("127.0.0.1:1")
-        .sink::<Utf8, String>("topic")
+        .sink::<Utf8>("topic")
         .max_pending(1)
         .close_timeout(Duration::from_millis(100));
     let prepared = sink.prepare(KafkaPublish::new("a".to_owned())).unwrap();
@@ -152,7 +135,7 @@ async fn submit_returns_at_acceptance_and_waits_for_pending_capacity() {
 #[tokio::test]
 async fn transactional_sink_requires_a_transactional_id_before_connecting() {
     let sink = Kafka::new("broker")
-        .sink::<Utf8, String>("topic")
+        .sink::<Utf8>("topic")
         .transactional(" ");
     let prepared = sink.prepare(KafkaPublish::new("a".to_owned())).unwrap();
     let error = sink.publish(&prepared).await.unwrap_err();
@@ -160,13 +143,9 @@ async fn transactional_sink_requires_a_transactional_id_before_connecting() {
 }
 
 fn uppercase_pipeline(
-    source: KafkaSource<Utf8, String>,
-    sink: KafkaTransactionalSink<Utf8, String>,
-) -> Subscription<
-    KafkaSource<Utf8, String>,
-    KafkaTransactionalSink<Utf8, String>,
-    KafkaPublish<String>,
-> {
+    source: KafkaSource<Utf8>,
+    sink: KafkaTransactionalSink<Utf8>,
+) -> Subscription<KafkaSource<Utf8>, KafkaTransactionalSink<Utf8>, KafkaPublish<String>> {
     Subscription::new("uppercase", source, sink, |value: String| async move {
         Ok(value.to_uppercase())
     })
@@ -193,7 +172,7 @@ async fn transactional_pipeline_commits_outputs_with_offsets() {
     let group = unique_name("beavers-kafka-tx-group");
 
     let kafka = Kafka::new(&brokers);
-    let producer = kafka.sink::<Utf8, String>(&input);
+    let producer = kafka.sink::<Utf8>(&input);
     for value in ["a", "b", "c"] {
         let prepared = producer
             .prepare(KafkaPublish::new(value.to_owned()))
@@ -219,7 +198,7 @@ async fn transactional_pipeline_commits_outputs_with_offsets() {
     );
 
     let mut reader = kafka
-        .source::<Utf8, String>(unique_name("beavers-reader"), [&output])
+        .source::<Utf8>(unique_name("beavers-reader"), [&output])
         .property("auto.offset.reset", "earliest")
         .property("isolation.level", "read_committed");
     let mut values = Vec::new();
@@ -288,7 +267,7 @@ async fn publish_receive_and_ack_against_kafka() {
     let group = unique_name("beavers-kafka-group");
 
     let kafka = Kafka::new(&brokers);
-    let sink = kafka.sink::<Utf8, String>(&topic);
+    let sink = kafka.sink::<Utf8>(&topic);
     let mut output = KafkaPublish::new("hello kafka".to_owned());
     output.key = Some(b"test-key".to_vec());
     output.headers.push(("kind".into(), Some(b"test".to_vec())));
@@ -301,7 +280,7 @@ async fn publish_receive_and_ack_against_kafka() {
     .unwrap();
 
     let mut source = kafka
-        .source::<Utf8, String>(group, [&topic])
+        .source::<Utf8>(group, [&topic])
         .property("auto.offset.reset", "earliest");
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     let message = loop {
@@ -338,7 +317,7 @@ async fn publish_receive_and_ack_against_kafka() {
 async fn submitted_records_complete_on_their_delivery_reports() {
     let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
     let sink = Kafka::new(&brokers)
-        .sink::<Utf8, String>(unique_name("beavers-kafka-submit"))
+        .sink::<Utf8>(unique_name("beavers-kafka-submit"))
         .max_pending(2);
     let prepared = sink.prepare(KafkaPublish::new("a".to_owned())).unwrap();
 

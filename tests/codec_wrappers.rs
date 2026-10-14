@@ -32,7 +32,7 @@ mod base64 {
 
     #[test]
     fn roundtrips_through_the_inner_codec() {
-        let codec: Base64<Json> = Base64::default();
+        let codec: Base64<Json<_>> = Base64::default();
 
         let bytes = codec.encode(&event()).unwrap();
         assert!(bytes.iter().all(u8::is_ascii));
@@ -65,11 +65,11 @@ mod gzip {
 
     #[test]
     fn roundtrips_through_the_inner_codec_and_shrinks_repetitive_payloads() {
-        let codec: Gzip<Json> = Gzip::default();
+        let codec: Gzip<Json<_>> = Gzip::default();
 
         let bytes = codec.encode(&event()).unwrap();
         assert_eq!(&bytes[..2], [0x1f, 0x8b]);
-        assert!(bytes.len() < Json.encode(&event()).unwrap().len() / 4);
+        assert!(bytes.len() < Json::new().encode(&event()).unwrap().len() / 4);
         let decoded: Event = codec.decode(&bytes).unwrap();
         assert_eq!(decoded, event());
     }
@@ -124,11 +124,11 @@ mod zstd {
 
     #[test]
     fn roundtrips_through_the_inner_codec_and_shrinks_repetitive_payloads() {
-        let codec: Zstd<Json> = Zstd::default();
+        let codec: Zstd<Json<_>> = Zstd::default();
 
         let bytes = codec.encode(&event()).unwrap();
         assert_eq!(&bytes[..4], [0x28, 0xb5, 0x2f, 0xfd]);
-        assert!(bytes.len() < Json.encode(&event()).unwrap().len() / 4);
+        assert!(bytes.len() < Json::new().encode(&event()).unwrap().len() / 4);
         let decoded: Event = codec.decode(&bytes).unwrap();
         assert_eq!(decoded, event());
     }
@@ -181,7 +181,7 @@ mod zstd {
 fn wrappers_compose() {
     use beavers::{Base64, Gzip};
 
-    let codec: Base64<Gzip<Json>> = Base64::default();
+    let codec: Base64<Gzip<Json<_>>> = Base64::default();
 
     let bytes = codec.encode(&event()).unwrap();
     assert!(bytes.iter().all(u8::is_ascii));

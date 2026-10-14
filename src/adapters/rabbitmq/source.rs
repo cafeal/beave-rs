@@ -18,20 +18,19 @@ use lapin::{
     options::{BasicAckOptions, BasicConsumeOptions, BasicQosOptions},
     types::{AMQPValue, FieldTable},
 };
-use std::{convert::Infallible, marker::PhantomData, sync::Arc};
+use std::{convert::Infallible, sync::Arc};
 
 /// Consumes one queue on a channel of its own.
 ///
 /// Built with [`RabbitMq::source`]. It opens its channel and starts its
 /// consumer on the first `receive`, which also validates the settings, and
 /// again after the channel or connection is lost.
-pub struct RabbitMqSource<C, T> {
+pub struct RabbitMqSource<C> {
     rabbit: RabbitMq,
     config: SourceConfig,
     codec: Arc<C>,
     session: Option<Session>,
     closed: bool,
-    marker: PhantomData<T>,
 }
 
 /// One consuming channel. Its deliveries are revoked when the session ends,
@@ -54,7 +53,7 @@ impl Session {
     }
 }
 
-impl<C, T> RabbitMqSource<C, T> {
+impl<C> RabbitMqSource<C> {
     pub(super) fn new(rabbit: RabbitMq, config: SourceConfig, codec: C) -> Self {
         Self {
             rabbit,
@@ -62,7 +61,6 @@ impl<C, T> RabbitMqSource<C, T> {
             codec: Arc::new(codec),
             session: None,
             closed: false,
-            marker: PhantomData,
         }
     }
 
@@ -124,8 +122,8 @@ impl<C, T> RabbitMqSource<C, T> {
     }
 }
 
-impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for RabbitMqSource<C, T> {
-    type Message = RabbitMqMessage<C, T>;
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for RabbitMqSource<C> {
+    type Message = RabbitMqMessage<C>;
 
     async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
         if self.closed {
@@ -151,7 +149,6 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for RabbitMqSource<
                     codec: self.codec.clone(),
                     revoked: session.revoked.clone(),
                     ordering_key,
-                    marker: PhantomData,
                 }));
             }
             Some(Err(error)) => Error::wrap("RabbitMQ consumer failed", error),
@@ -175,16 +172,15 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for RabbitMqSource<
 
 /// One RabbitMQ delivery. Dropping it leaves the message unacknowledged until
 /// its channel closes, when the broker requeues it.
-pub struct RabbitMqMessage<C, T> {
+pub struct RabbitMqMessage<C> {
     delivery: Delivery,
     queue: String,
     codec: Arc<C>,
     revoked: CancellationToken,
     ordering_key: Option<OrderingKey>,
-    marker: PhantomData<T>,
 }
 
-impl<C, T> RabbitMqMessage<C, T> {
+impl<C> RabbitMqMessage<C> {
     fn record<V, E>(
         &self,
         value: impl FnOnce(&[u8]) -> Result<V, E>,
@@ -206,8 +202,8 @@ impl<C, T> RabbitMqMessage<C, T> {
     }
 }
 
-impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for RabbitMqMessage<C, T> {
-    type Item = RabbitMqRecord<T>;
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for RabbitMqMessage<C> {
+    type Item = RabbitMqRecord<C::Value>;
     type Raw = RabbitMqRecord<Vec<u8>>;
 
     fn decode(&self) -> Result<Self::Item, BoxError> {

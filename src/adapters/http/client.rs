@@ -38,9 +38,9 @@ pub(super) type Pool = Client<HttpsConnector<HttpConnector>, Full<Bytes>>;
 /// use beavers::{Json, adapters::http::{HttpClient, HttpMethod}};
 ///
 /// let http = HttpClient::new().header("authorization", "Bearer token");
-/// let orders = http.sink::<Json, String>("https://billing.example.com/orders");
+/// let orders = http.sink::<Json<String>>("https://billing.example.com/orders");
 /// let refunds = http
-///     .sink::<Json, String>("https://billing.example.com/refunds")
+///     .sink::<Json<String>>("https://billing.example.com/refunds")
 ///     .method(HttpMethod::Put);
 /// ```
 #[derive(Clone)]
@@ -88,12 +88,12 @@ impl HttpClient {
     ///
     /// Defaults: [`HttpMethod::Post`](super::HttpMethod::Post), the handle's
     /// headers, and the handle's timeout.
-    pub fn sink<C: Default, T>(&self, url: impl Into<String>) -> HttpSink<C, T> {
+    pub fn sink<C: Default>(&self, url: impl Into<String>) -> HttpSink<C> {
         self.sink_with_codec(C::default(), url)
     }
 
     /// A sink like [`sink`](Self::sink) that encodes with `codec`.
-    pub fn sink_with_codec<C, T>(&self, codec: C, url: impl Into<String>) -> HttpSink<C, T> {
+    pub fn sink_with_codec<C>(&self, codec: C, url: impl Into<String>) -> HttpSink<C> {
         HttpSink::new(self.clone(), SinkConfig::new(url.into()), codec)
     }
 

@@ -30,8 +30,8 @@ const REPLY_SUCCESS: u16 = 200;
 /// use beavers::{Json, adapters::rabbitmq::RabbitMq};
 ///
 /// let rabbit = RabbitMq::new("amqp://guest:guest@localhost:5672/%2f");
-/// let orders = rabbit.source::<Json, String>("orders").prefetch(32);
-/// let invoices = rabbit.sink::<Json, String>("billing", "invoice.created");
+/// let orders = rabbit.source::<Json<String>>("orders").prefetch(32);
+/// let invoices = rabbit.sink::<Json<String>>("billing", "invoice.created");
 /// ```
 #[derive(Clone)]
 pub struct RabbitMq {
@@ -69,16 +69,12 @@ impl RabbitMq {
     /// value. The queue must already exist; the adapter declares no topology.
     ///
     /// Defaults: a `prefetch` of 100 and `ordered` disabled.
-    pub fn source<C: Default, T>(&self, queue: impl Into<String>) -> RabbitMqSource<C, T> {
+    pub fn source<C: Default>(&self, queue: impl Into<String>) -> RabbitMqSource<C> {
         self.source_with_codec(C::default(), queue)
     }
 
     /// A source like [`source`](Self::source) that decodes with `codec`.
-    pub fn source_with_codec<C, T>(
-        &self,
-        codec: C,
-        queue: impl Into<String>,
-    ) -> RabbitMqSource<C, T> {
+    pub fn source_with_codec<C>(&self, codec: C, queue: impl Into<String>) -> RabbitMqSource<C> {
         RabbitMqSource::new(self.clone(), SourceConfig::new(queue.into()), codec)
     }
 
@@ -89,21 +85,21 @@ impl RabbitMq {
     ///
     /// Defaults: `persistent` and `mandatory` enabled and a `max_pending` of
     /// 1000.
-    pub fn sink<C: Default, T>(
+    pub fn sink<C: Default>(
         &self,
         exchange: impl Into<String>,
         routing_key: impl Into<String>,
-    ) -> RabbitMqSink<C, T> {
+    ) -> RabbitMqSink<C> {
         self.sink_with_codec(C::default(), exchange, routing_key)
     }
 
     /// A sink like [`sink`](Self::sink) that encodes with `codec`.
-    pub fn sink_with_codec<C, T>(
+    pub fn sink_with_codec<C>(
         &self,
         codec: C,
         exchange: impl Into<String>,
         routing_key: impl Into<String>,
-    ) -> RabbitMqSink<C, T> {
+    ) -> RabbitMqSink<C> {
         RabbitMqSink::new(
             self.clone(),
             SinkConfig::new(exchange.into(), routing_key.into()),

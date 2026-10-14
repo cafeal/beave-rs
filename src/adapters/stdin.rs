@@ -6,7 +6,6 @@ use crate::{
 };
 use std::{
     io::{self, BufRead},
-    marker::PhantomData,
     sync::Arc,
     thread,
 };
@@ -15,34 +14,32 @@ use tokio::sync::mpsc;
 /// Newline-delimited input. One detached, bounded reader starts on the first receive.
 /// An OS read may remain blocked after close, but never blocks Tokio runtime shutdown.
 /// Use only one stdin source per process.
-pub struct StdinSource<C, T> {
+pub struct StdinSource<C> {
     codec: Arc<C>,
     receiver: Option<mpsc::Receiver<io::Result<Vec<u8>>>>,
-    marker: PhantomData<T>,
 }
-impl<C: Default, T> Default for StdinSource<C, T> {
+impl<C: Default> Default for StdinSource<C> {
     fn default() -> Self {
         Self::new()
     }
 }
-impl<C: Default, T> StdinSource<C, T> {
+impl<C: Default> StdinSource<C> {
     /// Creates a source that decodes lines with the codec's default value.
     pub fn new() -> Self {
         Self::with_codec(C::default())
     }
 }
-impl<C, T> StdinSource<C, T> {
+impl<C> StdinSource<C> {
     /// Uses an existing codec instance, such as a configured `Avro` codec.
     pub fn with_codec(codec: C) -> Self {
         Self {
             codec: Arc::new(codec),
             receiver: None,
-            marker: PhantomData,
         }
     }
 }
-impl<T: Clone + Send + Sync + 'static, C: Decoder<T>> Source for StdinSource<C, T> {
-    type Message = StdinMessage<C, T>;
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for StdinSource<C> {
+    type Message = StdinMessage<C>;
     async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
         if self.receiver.is_none() {
             let (sender, receiver) = mpsc::channel(1);
@@ -75,7 +72,6 @@ impl<T: Clone + Send + Sync + 'static, C: Decoder<T>> Source for StdinSource<C, 
             Some(Ok(line)) => Ok(Receive::Message(StdinMessage {
                 bytes: line,
                 codec: self.codec.clone(),
-                marker: PhantomData,
             })),
             Some(Err(error)) => Err(ReceiveError::Fatal(error.into())),
             None => Ok(Receive::End),
@@ -100,16 +96,15 @@ fn trim_line_ending(line: &mut Vec<u8>) {
 }
 
 /// Owns one raw stdin line until decode and processing have completed.
-pub struct StdinMessage<C, T> {
+pub struct StdinMessage<C> {
     bytes: Vec<u8>,
     codec: Arc<C>,
-    marker: PhantomData<T>,
 }
-impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for StdinMessage<C, T> {
-    type Item = T;
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for StdinMessage<C> {
+    type Item = C::Value;
     /// The received line without its line ending.
     type Raw = Vec<u8>;
-    fn decode(&self) -> Result<T, BoxError> {
+    fn decode(&self) -> Result<C::Value, BoxError> {
         self.codec.decode(&self.bytes)
     }
     async fn ack(self) -> Result<(), BoxError> {

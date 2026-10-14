@@ -35,8 +35,8 @@ which checks the values without contacting Google Cloud.
 use beavers::{Utf8, adapters::pubsub::{PubSub, PubSubPublish}};
 
 let pubsub = PubSub::new();
-let source = pubsub.source::<Utf8, String>("projects/my-project/subscriptions/orders");
-let sink = pubsub.sink::<Utf8, String>("projects/my-project/topics/processed-orders");
+let source = pubsub.source::<Utf8>("projects/my-project/subscriptions/orders");
+let sink = pubsub.sink::<Utf8>("projects/my-project/topics/processed-orders");
 
 let output = PubSubPublish::new("created".to_owned()).with_ordering_key("customer-7");
 ```
@@ -65,11 +65,11 @@ use std::time::Duration;
 
 let pubsub = PubSub::new();
 let source = pubsub
-    .source::<Utf8, String>("projects/my-project/subscriptions/orders")
+    .source::<Utf8>("projects/my-project/subscriptions/orders")
     .max_outstanding_messages(200)
     .ack_deadline(Duration::from_secs(120));
 let sink = pubsub
-    .sink::<Utf8, String>("projects/my-project/topics/processed-orders")
+    .sink::<Utf8>("projects/my-project/topics/processed-orders")
     .batch_delay(Duration::from_millis(50));
 ```
 

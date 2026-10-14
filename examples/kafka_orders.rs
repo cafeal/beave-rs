@@ -75,7 +75,7 @@ async fn main() -> anyhow::Result<()> {
                 .subscribe(
                     "produce-orders",
                     IterSource::new(orders),
-                    kafka.sink::<Json, Order>(ORDERS),
+                    kafka.sink::<Json<Order>>(ORDERS),
                     keyed_by_customer,
                 )
                 .run()
@@ -90,9 +90,9 @@ async fn main() -> anyhow::Result<()> {
                     Subscription::new(
                         "process-orders",
                         kafka
-                            .source::<Json, Order>("beavers-examples", [ORDERS])
+                            .source::<Json<Order>>("beavers-examples", [ORDERS])
                             .property("auto.offset.reset", "earliest"),
-                        kafka.sink::<Json, OrderEvent>(EVENTS),
+                        kafka.sink::<Json<OrderEvent>>(EVENTS),
                         to_event,
                     )
                     .concurrency(3),

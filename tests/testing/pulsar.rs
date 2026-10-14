@@ -11,7 +11,7 @@ async fn deliveries_follow_the_pulsar_adapter() {
     record
         .properties
         .insert("traceparent".to_owned(), "00-trace".to_owned());
-    let mut source = PulsarTestSource::<Json, u32>::new([record.clone()]);
+    let mut source = PulsarTestSource::<Json<u32>>::new([record.clone()]);
 
     let Receive::Message(message) = source.receive().await.unwrap() else {
         panic!("expected a delivery");

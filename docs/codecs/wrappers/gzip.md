@@ -21,7 +21,7 @@ inner codec, so payloads from other gzip writers decode as well.
 ```rust
 use beavers::{Decoder, Encoder, Gzip, Json};
 
-let codec = Gzip::new(Json).with_level(9);
+let codec = Gzip::new(Json::new()).with_level(9);
 let bytes = codec.encode(&vec!["beaver"; 100])?;
 let value: Vec<String> = codec.decode(&bytes)?;
 assert_eq!(value.len(), 100);

@@ -26,9 +26,9 @@ use tokio::sync::OnceCell;
 ///
 /// let sqs = Sqs::new().region("eu-west-1");
 /// let orders =
-///     sqs.source::<Json, String>("https://sqs.eu-west-1.amazonaws.com/123456789012/orders");
+///     sqs.source::<Json<String>>("https://sqs.eu-west-1.amazonaws.com/123456789012/orders");
 /// let invoices =
-///     sqs.sink::<Json, String>("https://sqs.eu-west-1.amazonaws.com/123456789012/invoices");
+///     sqs.sink::<Json<String>>("https://sqs.eu-west-1.amazonaws.com/123456789012/invoices");
 /// ```
 #[derive(Clone, Debug)]
 pub struct Sqs {
@@ -70,27 +70,23 @@ impl Sqs {
     /// Defaults: a `max_messages` of 10, a 20 second `wait_time`, a 30 second
     /// `visibility_timeout`, and an `ack_retry` of 5 attempts with delays from
     /// 100 ms up to 2 s.
-    pub fn source<C: Default, T>(&self, queue_url: impl Into<String>) -> SqsSource<C, T> {
+    pub fn source<C: Default>(&self, queue_url: impl Into<String>) -> SqsSource<C> {
         self.source_with_codec(C::default(), queue_url)
     }
 
     /// A source like [`source`](Self::source) that decodes with `codec`.
-    pub fn source_with_codec<C, T>(
-        &self,
-        codec: C,
-        queue_url: impl Into<String>,
-    ) -> SqsSource<C, T> {
+    pub fn source_with_codec<C>(&self, codec: C, queue_url: impl Into<String>) -> SqsSource<C> {
         SqsSource::new(self.clone(), SourceConfig::new(queue_url.into()), codec)
     }
 
     /// A sink that sends every output to the queue at `queue_url` and encodes
     /// with the codec's default value.
-    pub fn sink<C: Default, T>(&self, queue_url: impl Into<String>) -> SqsSink<C, T> {
+    pub fn sink<C: Default>(&self, queue_url: impl Into<String>) -> SqsSink<C> {
         self.sink_with_codec(C::default(), queue_url)
     }
 
     /// A sink like [`sink`](Self::sink) that encodes with `codec`.
-    pub fn sink_with_codec<C, T>(&self, codec: C, queue_url: impl Into<String>) -> SqsSink<C, T> {
+    pub fn sink_with_codec<C>(&self, codec: C, queue_url: impl Into<String>) -> SqsSink<C> {
         SqsSink::new(self.clone(), queue_url.into(), codec)
     }
 

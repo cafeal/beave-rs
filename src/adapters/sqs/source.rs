@@ -18,9 +18,7 @@ use aws_sdk_sqs::{
     error::{DisplayErrorContext, ProvideErrorMetadata},
     types::{Message, MessageSystemAttributeName},
 };
-use std::{
-    collections::VecDeque, convert::Infallible, marker::PhantomData, sync::Arc, time::Duration,
-};
+use std::{collections::VecDeque, convert::Infallible, sync::Arc, time::Duration};
 use tokio::{sync::mpsc, task::JoinHandle, time::Instant};
 
 /// Error code of a receipt handle that no longer refers to a received message.
@@ -30,13 +28,12 @@ const INVALID_RECEIPT_HANDLE: &str = "ReceiptHandleIsInvalid";
 ///
 /// Built with [`Sqs::source`]. It starts polling on the first `receive`, which
 /// also validates the settings.
-pub struct SqsSource<C, T> {
+pub struct SqsSource<C> {
     sqs: Sqs,
     config: SourceConfig,
     codec: Arc<C>,
     connection: Option<Connection>,
     closed: bool,
-    marker: PhantomData<T>,
 }
 
 /// A received message waiting in the source's buffer with its lease.
@@ -79,7 +76,7 @@ impl Drop for Keeper {
     }
 }
 
-impl<C, T> SqsSource<C, T> {
+impl<C> SqsSource<C> {
     pub(super) fn new(sqs: Sqs, config: SourceConfig, codec: C) -> Self {
         Self {
             sqs,
@@ -87,7 +84,6 @@ impl<C, T> SqsSource<C, T> {
             codec: Arc::new(codec),
             connection: None,
             closed: false,
-            marker: PhantomData,
         }
     }
 
@@ -190,8 +186,8 @@ impl<C, T> SqsSource<C, T> {
     }
 }
 
-impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for SqsSource<C, T> {
-    type Message = SqsMessage<C, T>;
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for SqsSource<C> {
+    type Message = SqsMessage<C>;
 
     async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
         if self.closed {
@@ -245,7 +241,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for SqsSource<C, T>
 
 /// One SQS message. Dropping it without acknowledging it ends its visibility
 /// extension and makes the message visible again for another receive.
-pub struct SqsMessage<C, T> {
+pub struct SqsMessage<C> {
     message: Message,
     queue_url: String,
     fifo: bool,
@@ -257,11 +253,10 @@ pub struct SqsMessage<C, T> {
     ack_retry: RetryPolicy,
     codec: Arc<C>,
     acknowledged: bool,
-    marker: PhantomData<T>,
 }
 
-impl<C, T> SqsMessage<C, T> {
-    fn new(source: &SqsSource<C, T>, received: Received) -> Self {
+impl<C> SqsMessage<C> {
+    fn new(source: &SqsSource<C>, received: Received) -> Self {
         let connection = source.connection.as_ref().expect("connected source");
         Self {
             message: received.message,
@@ -275,7 +270,6 @@ impl<C, T> SqsMessage<C, T> {
             ack_retry: source.config.ack_retry.clone(),
             codec: source.codec.clone(),
             acknowledged: false,
-            marker: PhantomData,
         }
     }
 
@@ -310,8 +304,8 @@ impl<C, T> SqsMessage<C, T> {
     }
 }
 
-impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for SqsMessage<C, T> {
-    type Item = SqsRecord<T>;
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for SqsMessage<C> {
+    type Item = SqsRecord<C::Value>;
     type Raw = SqsRecord<Vec<u8>>;
 
     fn decode(&self) -> Result<Self::Item, BoxError> {
@@ -386,7 +380,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for SqsMessa
     }
 }
 
-impl<C, T> Drop for SqsMessage<C, T> {
+impl<C> Drop for SqsMessage<C> {
     fn drop(&mut self) {
         if self.acknowledged {
             return;

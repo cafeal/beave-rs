@@ -17,8 +17,8 @@ additionally need the `kafka`, `pulsar`, `rabbitmq`, `sqs`, `pubsub`, or
 
 | Need | Use |
 |---|---|
-| Feed Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, or Service Bus records with chosen metadata, key, headers, properties, or attributes | `KafkaTestSource<C, T>`, `PulsarTestSource<C, T>`, `RabbitMqTestSource<C, T>`, `SqsTestSource<C, T>`, `PubSubTestSource<C, T>`, `ServiceBusTestSource<C, T>`, with `kafka_record`, `pulsar_record`, `rabbitmq_record`, `sqs_record`, `pubsub_record`, and `servicebus_record` |
-| Feed bare payloads through a codec | `TestSource<C, T, Vec<u8>>` |
+| Feed Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, or Service Bus records with chosen metadata, key, headers, properties, or attributes | `KafkaTestSource<C>`, `PulsarTestSource<C>`, `RabbitMqTestSource<C>`, `SqsTestSource<C>`, `PubSubTestSource<C>`, `ServiceBusTestSource<C>`, with `kafka_record`, `pulsar_record`, `rabbitmq_record`, `sqs_record`, `pubsub_record`, and `servicebus_record` |
+| Feed bare payloads through a codec | `TestSource<C, Vec<u8>>` |
 | Check which records were acknowledged or left unacknowledged | `TestSource::deliveries()` |
 | Capture published outputs | `InMemorySink<T>` for the subscription's output type |
 | Capture dead letters | `InMemorySink<DeadLetter<I, R>>` as the dead-letter sink |
@@ -30,7 +30,7 @@ trace-context fields.
 
 ## TestSource
 
-A `TestSource<C, T, R>` holds a finite list of records of type `R` with their
+A `TestSource<C, R>` holds a finite list of records of type `R` with their
 payload left undecoded, such as `KafkaRecord<Vec<u8>>`. Each record becomes one
 delivery, and the source ends after the last one. The delivery matches the
 adapter the record type belongs to:
@@ -111,7 +111,7 @@ async fn prices_orders() {
     let free = kafka_record("orders", 3, 43, "0");
     let malformed = kafka_record("orders", 3, 44, "not json");
 
-    let source = KafkaTestSource::<Json, u32>::new([order, free, malformed]);
+    let source = KafkaTestSource::<Json<u32>>::new([order, free, malformed]);
     let deliveries = source.deliveries();
     let sink = InMemorySink::default();
     let dlq = InMemorySink::<DeadLetter<KafkaRecord<u32>, KafkaRecord<Vec<u8>>>>::default();

@@ -7,25 +7,42 @@ responsibilities belong to [adapters](adapters.md) and the
 
 ## Contracts
 
-The framework defines separate decoding and encoding traits:
+A codec names the typed value it converts, and implements decoding, encoding,
+or both:
 
 ```rust
-pub trait Decoder<T>: Send + Sync + 'static {
-    fn decode(&self, bytes: &[u8]) -> Result<T, BoxError>;
+pub trait Codec: Send + Sync + 'static {
+    type Value;
 }
 
-pub trait Encoder<T>: Send + Sync + 'static {
-    fn encode(&self, value: &T) -> Result<Vec<u8>, BoxError>;
+pub trait Decoder: Codec {
+    fn decode(&self, bytes: &[u8]) -> Result<Self::Value, BoxError>;
+}
+
+pub trait Encoder: Codec {
+    fn encode(&self, value: &Self::Value) -> Result<Vec<u8>, BoxError>;
 }
 ```
 
-A codec can implement either or both. These are synchronous transformations;
+Sources and sinks take their payload type from the codec, so the codec is their
+only type parameter. A format that serializes many types carries the type as
+its parameter, as in `Json<Order>`; a codec bound to one type, such as `Utf8`
+for `String`, has none:
+
+```rust,ignore
+let orders: KafkaSource<Json<Order>> = KafkaSource::new(source_config);
+let invoices: KafkaSink<Avro<Invoice>> = KafkaSink::new(sink_config);
+let lines: KafkaSink<Utf8> = KafkaSink::new(lines_config);
+```
+
+When a handler parameter fixes the type, the codec parameter can be left to
+inference, as in `StdinSource::<Json<_>>::new()`. These are synchronous transformations;
 implementations should not perform blocking network or filesystem operations.
 Expensive serialization still occupies the executing thread; there is currently
 no dedicated codec execution pool.
 
 The traits do not require Serde. Each codec chooses its own representation and
-payload bounds. `Decoder`, `Encoder`, `Json`, `RawBytes`, and `Utf8` are available
+payload bounds. `Codec`, `Decoder`, `Encoder`, `Json`, `RawBytes`, and `Utf8` are available
 through `beavers::codec` and re-exported at the crate root. `Protobuf`, `Avro`,
 `MessagePack`, `Cbor`, and the `Base64`, `Gzip`, and `Zstd` wrappers are
 available when their corresponding Cargo features are enabled.
@@ -59,27 +76,35 @@ decode failure, whereas a failed stdin read is a receive failure.
 
 ## Implementing a codec
 
-Implement the relevant trait for the payload type. For example, a UTF-8 string
-codec needs no Serde dependency:
+Implement `Codec` to name the value type, then the relevant direction. For
+example, a UTF-8 string codec needs no Serde dependency:
 
 ```rust
-use beavers::{BoxError, Decoder, Encoder};
+use beavers::{BoxError, Codec, Decoder, Encoder};
 
 #[derive(Default)]
 struct Utf8;
 
-impl Decoder<String> for Utf8 {
+impl Codec for Utf8 {
+    type Value = String;
+}
+
+impl Decoder for Utf8 {
     fn decode(&self, bytes: &[u8]) -> Result<String, BoxError> {
         Ok(std::str::from_utf8(bytes)?.to_owned())
     }
 }
 
-impl Encoder<String> for Utf8 {
+impl Encoder for Utf8 {
     fn encode(&self, value: &String) -> Result<Vec<u8>, BoxError> {
         Ok(value.as_bytes().to_vec())
     }
 }
 ```
+
+A codec for a format that serializes many types takes the type as a parameter
+and holds it in `PhantomData<fn() -> T>`, as `Json<T>` does, so the codec stays
+`Send`, `Sync`, and `Copy` whatever `T` is.
 
 `Utf8` is an exported built-in codec; see [Utf8](codecs/utf8.md)
 for its exact behavior and [`RawBytes`](codecs/raw-bytes.md) for arbitrary payloads. The local stdin and

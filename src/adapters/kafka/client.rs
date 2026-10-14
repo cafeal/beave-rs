@@ -27,8 +27,8 @@ use std::{
 /// use beavers::{Json, adapters::kafka::Kafka};
 ///
 /// let kafka = Kafka::new("localhost:9092").sasl_plain("user", "password");
-/// let orders = kafka.source::<Json, String>("billing", ["orders"]);
-/// let invoices = kafka.sink::<Json, String>("invoices").max_pending(500);
+/// let orders = kafka.source::<Json<String>>("billing", ["orders"]);
+/// let invoices = kafka.sink::<Json<String>>("invoices").max_pending(500);
 /// ```
 #[derive(Clone)]
 pub struct Kafka {
@@ -100,21 +100,21 @@ impl Kafka {
     ///
     /// The consumer is created on the first receive, which also validates the
     /// settings.
-    pub fn source<C: Default, T>(
+    pub fn source<C: Default>(
         &self,
         group_id: impl Into<String>,
         topics: impl IntoIterator<Item = impl Into<String>>,
-    ) -> KafkaSource<C, T> {
+    ) -> KafkaSource<C> {
         self.source_with_codec(C::default(), group_id, topics)
     }
 
     /// A source like [`source`](Self::source) that decodes with `codec`.
-    pub fn source_with_codec<C, T>(
+    pub fn source_with_codec<C>(
         &self,
         codec: C,
         group_id: impl Into<String>,
         topics: impl IntoIterator<Item = impl Into<String>>,
-    ) -> KafkaSource<C, T> {
+    ) -> KafkaSource<C> {
         let topics = topics.into_iter().map(Into::into).collect();
         KafkaSource::new(
             self.clone(),
@@ -127,12 +127,12 @@ impl Kafka {
     /// value.
     ///
     /// Defaults: a `max_pending` of 1000 and a 30 second `close_timeout`.
-    pub fn sink<C: Default, T>(&self, topic: impl Into<String>) -> KafkaSink<C, T> {
+    pub fn sink<C: Default>(&self, topic: impl Into<String>) -> KafkaSink<C> {
         self.sink_with_codec(C::default(), topic)
     }
 
     /// A sink like [`sink`](Self::sink) that encodes with `codec`.
-    pub fn sink_with_codec<C, T>(&self, codec: C, topic: impl Into<String>) -> KafkaSink<C, T> {
+    pub fn sink_with_codec<C>(&self, codec: C, topic: impl Into<String>) -> KafkaSink<C> {
         KafkaSink::new(self.clone(), SinkConfig::new(topic.into()), codec)
     }
 

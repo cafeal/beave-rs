@@ -17,7 +17,7 @@ configuration files, web identity, or container and instance metadata. Set
 LocalStack. `SqsCredentials::new` takes an access key ID and secret access key;
 the `Debug` output of `SqsCredentials` hides the secret key and session token.
 
-`handle.source::<C, T>(queue_url)` and `handle.sink::<C, T>(queue_url)` build a
+`handle.source::<C>(queue_url)` and `handle.sink::<C>(queue_url)` build a
 source and a sink for one queue; `source_with_codec` and `sink_with_codec` take
 a codec value as their first argument instead of using the codec's default. A
 URL ending in `.fifo` names a FIFO queue.
@@ -26,10 +26,10 @@ URL ending in `.fifo` names a FIFO queue.
 use beavers::{Utf8, adapters::sqs::{Sqs, SqsPublish}};
 
 let sqs = Sqs::new().region("eu-west-1");
-let source = sqs.source::<Utf8, String>(
+let source = sqs.source::<Utf8>(
     "https://sqs.eu-west-1.amazonaws.com/123456789012/orders",
 );
-let sink = sqs.sink::<Utf8, String>(
+let sink = sqs.sink::<Utf8>(
     "https://sqs.eu-west-1.amazonaws.com/123456789012/processed-orders.fifo",
 );
 

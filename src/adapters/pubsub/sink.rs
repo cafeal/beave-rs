@@ -8,7 +8,6 @@ use google_cloud_gax::error::rpc::Code;
 use google_cloud_pubsub::{client::Publisher, error::PublishError, model::Message};
 use std::{
     fmt,
-    marker::PhantomData,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -59,16 +58,15 @@ impl fmt::Debug for PubSubPrepared {
 /// Built with [`PubSub::sink`]. It creates its publisher client with the
 /// handle's credentials on the first publication, which also validates the
 /// settings. Clones share the publisher and closure state.
-pub struct PubSubSink<C, T> {
+pub struct PubSubSink<C> {
     pubsub: PubSub,
     config: SinkConfig,
     codec: Arc<C>,
     publisher: Arc<OnceCell<Publisher>>,
     closed: Arc<AtomicBool>,
-    marker: PhantomData<fn(T)>,
 }
 
-impl<C, T> Clone for PubSubSink<C, T> {
+impl<C> Clone for PubSubSink<C> {
     fn clone(&self) -> Self {
         Self {
             pubsub: self.pubsub.clone(),
@@ -76,12 +74,11 @@ impl<C, T> Clone for PubSubSink<C, T> {
             codec: self.codec.clone(),
             publisher: self.publisher.clone(),
             closed: self.closed.clone(),
-            marker: PhantomData,
         }
     }
 }
 
-impl<C, T> PubSubSink<C, T> {
+impl<C> PubSubSink<C> {
     pub(super) fn new(pubsub: PubSub, config: SinkConfig, codec: C) -> Self {
         Self {
             pubsub,
@@ -89,7 +86,6 @@ impl<C, T> PubSubSink<C, T> {
             codec: Arc::new(codec),
             publisher: Arc::default(),
             closed: Arc::default(),
-            marker: PhantomData,
         }
     }
 
@@ -126,16 +122,15 @@ impl<C, T> PubSubSink<C, T> {
     }
 }
 
-impl<C, T> Sink<PubSubPublish<T>> for PubSubSink<C, T>
+impl<C> Sink<PubSubPublish<C::Value>> for PubSubSink<C>
 where
-    C: Encoder<T>,
-    T: Send + Sync + 'static,
+    C: Encoder<Value: Send + Sync + 'static>,
 {
     type Prepared = PubSubPrepared;
 
     /// Encodes the value as the message data and checks the attribute and
     /// ordering key limits.
-    fn prepare(&self, output: PubSubPublish<T>) -> Result<Self::Prepared, BoxError> {
+    fn prepare(&self, output: PubSubPublish<C::Value>) -> Result<Self::Prepared, BoxError> {
         let data = self.codec.encode(&output.value)?;
         ensure!(
             output.attributes.len() <= MAX_ATTRIBUTES,

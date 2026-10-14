@@ -1,6 +1,6 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 
-use super::{Decoder, Encoder};
+use super::{Codec, Decoder, Encoder};
 use crate::error::BoxError;
 
 /// A wrapper that carries another codec's payload as Base64 text.
@@ -26,14 +26,18 @@ impl<C> Base64<C> {
     }
 }
 
-impl<T, C: Decoder<T>> Decoder<T> for Base64<C> {
-    fn decode(&self, bytes: &[u8]) -> Result<T, BoxError> {
+impl<C: Codec> Codec for Base64<C> {
+    type Value = C::Value;
+}
+
+impl<C: Decoder> Decoder for Base64<C> {
+    fn decode(&self, bytes: &[u8]) -> Result<C::Value, BoxError> {
         self.inner.decode(&STANDARD.decode(bytes)?)
     }
 }
 
-impl<T, C: Encoder<T>> Encoder<T> for Base64<C> {
-    fn encode(&self, value: &T) -> Result<Vec<u8>, BoxError> {
+impl<C: Encoder> Encoder for Base64<C> {
+    fn encode(&self, value: &C::Value) -> Result<Vec<u8>, BoxError> {
         Ok(STANDARD.encode(self.inner.encode(value)?).into_bytes())
     }
 }

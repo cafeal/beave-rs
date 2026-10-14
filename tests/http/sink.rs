@@ -22,7 +22,7 @@ fn fast() -> RetryPolicy {
     }
 }
 
-fn sink(url: String) -> HttpSink<Utf8, String> {
+fn sink(url: String) -> HttpSink<Utf8> {
     HttpClient::new().sink(url)
 }
 
@@ -30,7 +30,7 @@ fn sink(url: String) -> HttpSink<Utf8, String> {
 fn validation_rejects_invalid_targets() {
     let http = HttpClient::new();
     let invalid = [
-        http.sink::<Utf8, String>("localhost:8080/orders"),
+        http.sink::<Utf8>("localhost:8080/orders"),
         http.sink("ftp://localhost/orders"),
         http.sink("http://user:secret@localhost/orders"),
         http.sink("http://localhost/orders").header("bad name", "x"),
@@ -47,7 +47,7 @@ fn validation_rejects_invalid_targets() {
         assert!(sink.prepare(HttpPublish::new("order".to_owned())).is_err());
     }
     assert!(
-        http.sink::<Utf8, String>("https://localhost:8443/orders?v=1")
+        http.sink::<Utf8>("https://localhost:8443/orders?v=1")
             .validate()
             .is_ok()
     );
@@ -59,7 +59,7 @@ fn prepare_merges_handle_sink_and_output_headers() {
         .header("authorization", "Bearer token")
         .header("content-type", "application/json");
     let sink = http
-        .sink::<Utf8, String>("http://localhost/orders")
+        .sink::<Utf8>("http://localhost/orders")
         .header("content-type", "text/plain");
     let prepared = sink
         .prepare(
@@ -106,7 +106,7 @@ fn propagation_fields_replace_headers_of_the_same_name() {
 async fn outputs_are_sent_with_configured_method_url_and_headers() {
     let destination = Destination::start([]).await;
     let sink = HttpClient::new()
-        .sink::<Json, Order>(destination.url("/orders?source=kafka"))
+        .sink::<Json<Order>>(destination.url("/orders?source=kafka"))
         .method(HttpMethod::Put)
         .header("content-type", "application/json");
     let source = IterSource::new([1, 2]);
@@ -166,7 +166,7 @@ async fn timed_out_attempt_is_retried() {
     let destination = Destination::start([(200, "", Duration::from_secs(5))]).await;
     let sink = HttpClient::new()
         .timeout(Duration::from_millis(100))
-        .sink::<Utf8, String>(destination.url("/"));
+        .sink::<Utf8>(destination.url("/"));
     let source = IterSource::new(["order".to_owned()]);
     let acks = source.acknowledgements();
 

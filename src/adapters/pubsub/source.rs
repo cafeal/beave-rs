@@ -16,20 +16,19 @@ use google_cloud_pubsub::{
     model::Message,
     subscriber::{MessageStream, ShutdownToken, handler::Handler},
 };
-use std::{convert::Infallible, marker::PhantomData, sync::Arc, time::Duration};
+use std::{convert::Infallible, sync::Arc, time::Duration};
 
 /// Consumes one subscription with a streaming pull.
 ///
 /// Built with [`PubSub::source`]. It opens its stream on the handle's
 /// subscriber client on the first `receive`, which also validates the
 /// settings.
-pub struct PubSubSource<C, T> {
+pub struct PubSubSource<C> {
     pubsub: PubSub,
     config: SourceConfig,
     codec: Arc<C>,
     connection: Option<Connection>,
     closed: bool,
-    marker: PhantomData<T>,
 }
 
 struct Connection {
@@ -39,7 +38,7 @@ struct Connection {
     retired: Vec<ShutdownToken>,
 }
 
-impl<C, T> PubSubSource<C, T> {
+impl<C> PubSubSource<C> {
     pub(super) fn new(pubsub: PubSub, config: SourceConfig, codec: C) -> Self {
         Self {
             pubsub,
@@ -47,7 +46,6 @@ impl<C, T> PubSubSource<C, T> {
             codec: Arc::new(codec),
             connection: None,
             closed: false,
-            marker: PhantomData,
         }
     }
 
@@ -102,8 +100,8 @@ impl<C, T> PubSubSource<C, T> {
     }
 }
 
-impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PubSubSource<C, T> {
-    type Message = PubSubMessage<C, T>;
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for PubSubSource<C> {
+    type Message = PubSubMessage<C>;
 
     async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
         if self.closed {
@@ -167,7 +165,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> Source for PubSubSource<C,
 /// One Pub/Sub message. The source extends its lease until it is
 /// acknowledged or dropped. Dropping it without acknowledging it nacks it,
 /// so Pub/Sub redelivers it at once.
-pub struct PubSubMessage<C, T> {
+pub struct PubSubMessage<C> {
     message: Message,
     handler: Option<Handler>,
     subscription: String,
@@ -175,11 +173,10 @@ pub struct PubSubMessage<C, T> {
     /// Cancelled when the message is dropped, ending its lease watch.
     done: CancellationToken,
     codec: Arc<C>,
-    marker: PhantomData<T>,
 }
 
-impl<C, T> PubSubMessage<C, T> {
-    fn new(source: &PubSubSource<C, T>, message: Message, handler: Handler) -> Self {
+impl<C> PubSubMessage<C> {
+    fn new(source: &PubSubSource<C>, message: Message, handler: Handler) -> Self {
         let revoked = CancellationToken::new();
         let done = CancellationToken::new();
         tokio::spawn(watch_lease(
@@ -194,7 +191,6 @@ impl<C, T> PubSubMessage<C, T> {
             revoked,
             done,
             codec: source.codec.clone(),
-            marker: PhantomData,
         }
     }
 
@@ -240,8 +236,8 @@ async fn watch_lease(max_lease: Duration, revoked: CancellationToken, done: Canc
     }
 }
 
-impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PubSubMessage<C, T> {
-    type Item = PubSubRecord<T>;
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for PubSubMessage<C> {
+    type Item = PubSubRecord<C::Value>;
     type Raw = PubSubRecord<Vec<u8>>;
 
     fn decode(&self) -> Result<Self::Item, BoxError> {
@@ -299,7 +295,7 @@ impl<C: Decoder<T>, T: Clone + Send + Sync + 'static> SourceMessage for PubSubMe
     }
 }
 
-impl<C, T> Drop for PubSubMessage<C, T> {
+impl<C> Drop for PubSubMessage<C> {
     fn drop(&mut self) {
         self.done.cancel();
     }

@@ -82,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
                 .subscribe(
                     "produce-orders",
                     IterSource::new(orders),
-                    pulsar.sink::<Json, Order>(ORDERS),
+                    pulsar.sink::<Json<Order>>(ORDERS),
                     keyed_by_customer,
                 )
                 .run()
@@ -97,9 +97,9 @@ async fn main() -> anyhow::Result<()> {
                     Subscription::new(
                         "process-orders",
                         pulsar
-                            .source::<Json, Order>(ORDERS, "beavers-examples")
+                            .source::<Json<Order>>(ORDERS, "beavers-examples")
                             .subscription_type(PulsarSubscriptionType::KeyShared),
-                        pulsar.sink::<Json, OrderEvent>(EVENTS),
+                        pulsar.sink::<Json<OrderEvent>>(EVENTS),
                         to_event,
                     )
                     .concurrency(3),

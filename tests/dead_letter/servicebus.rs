@@ -56,7 +56,7 @@ async fn dead_letter(
         .subscription(
             Subscription::new(
                 name,
-                ServiceBusTestSource::<Json, u32>::new(records),
+                ServiceBusTestSource::<Json<u32>>::new(records),
                 InMemorySink::<u32>::default(),
                 reject_odd,
             )
@@ -147,7 +147,7 @@ async fn inheritance_skips_the_detail_properties() {
         .subscription(
             Subscription::new(
                 "orders-redrive",
-                ServiceBusTestSource::<Json, u32>::new([received(dead[0].clone(), 1)]),
+                ServiceBusTestSource::<Json<u32>>::new([received(dead[0].clone(), 1)]),
                 sink.clone(),
                 |record: ServiceBusRecord<u32>| async move {
                     Ok(ServiceBusPublish::new(record.value + 1))
