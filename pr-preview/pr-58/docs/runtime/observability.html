@@ -221,12 +221,6 @@ downstream.</p>
 <td><code>1</code> while the source is connected to its broker, <code>0</code> while it is not; Kafka and Pulsar sources only</td>
 </tr>
 <tr>
-<td><code>beavers_consumer_lag</code></td>
-<td>gauge</td>
-<td></td>
-<td>Messages the subscription has not acknowledged yet; Kafka sources only</td>
-</tr>
-<tr>
 <td><code>beavers_stage_duration_seconds</code></td>
 <td>histogram</td>
 <td><code>stage</code></td>
@@ -246,9 +240,9 @@ dead-letter sink is reported as <code>stop</code>, which is what it does. A fail
 counted when it is routed, before the action runs. <code>handler</code> durations are
 per attempt and exclude retry backoff; <code>publish</code> durations cover all outputs
 of a delivery, including backoff. <code>commit</code> durations are per successful
-transaction and cover the whole batch. The connection and lag gauges copy the
-source&#39;s <a href="health.html#connection-state-and-lag">health probe</a> every 5 seconds and
-are not reported until the source knows the value.</p>
+transaction and cover the whole batch. The connection gauge copies the source&#39;s
+<a href="health.html#connection-state">health probe</a> every 5 seconds and is not reported
+until the source knows its state.</p>
 <h2 id="alerting">Alerting</h2>
 <p>beavers sends no notifications itself. Alert on the metrics with a monitoring
 system and let it route alerts, since per-message notifications flood a channel

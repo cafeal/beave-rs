@@ -179,11 +179,11 @@ reads them back; see
 
 ## Health and tracing
 
-The source reports its connection state and lag to
-[health checks](../runtime/health.md#connection-state-and-lag) from librdkafka
+The source reports its connection state to
+[health checks](../runtime/health.md#connection-state) from librdkafka
 statistics, enabling `statistics.interval.ms` at 5000 ms unless the handle or
-source sets it. Lag counts, for each partition the consumer fetches, the records
-from the first offset the source has not committed to the end of the partition.
+source sets it. Consumer lag comes from the broker; see the
+[monitoring guide](../monitoring-and-alerting/README.md#backlog).
 Each delivery's `message` span carries the topic, partition, offset, and group
 ID as [messaging attributes](../runtime/observability.md#messaging-attributes).
 

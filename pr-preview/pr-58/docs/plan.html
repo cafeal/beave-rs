@@ -266,11 +266,10 @@ decisions:</p>
 <li>a producer span per published output instead of injecting the <code>message</code>
 span&#39;s context into every output.</li>
 </ul>
-<p>Health checks, source connection state and lag, and stall detection are
-described in the <a href="runtime/health.html">runtime guide</a>. Remaining decisions:</p>
+<p>Health checks, source connection state, and stall detection are described in
+the <a href="runtime/health.html">runtime guide</a>. Consumer lag is left to broker metrics.
+Remaining decision:</p>
 <ul>
-<li>lag for the Pulsar, RabbitMQ, SQS, Pub/Sub, and Service Bus sources, whose
-clients cannot read a backlog without an administration or management API;</li>
 <li>connection state for the RabbitMQ, SQS, Pub/Sub, and Service Bus sources.</li>
 </ul>
 <p>The Pulsar probe&#39;s <code>is_connected</code> has not been verified across a broker

@@ -152,8 +152,8 @@ receiving on shutdown or failure, before draining.</li>
 <li>A broker source describes each delivery with
 <code>SourceMessage::messaging_attributes</code> for its
 <a href="runtime/observability.html#messaging-attributes">trace span</a>, and can report
-connection state and lag through <code>Source::probe</code> for
-<a href="runtime/health.html#connection-state-and-lag">health checks</a>. A probe answers
+its connection state through <code>Source::probe</code> for
+<a href="runtime/health.html#connection-state">health checks</a>. A probe answers
 from state the source already holds, without network access.</li>
 </ul>
 <p><code>Delivery::with_ordering_key</code> and <code>Delivery::with_revocation</code> provide both for

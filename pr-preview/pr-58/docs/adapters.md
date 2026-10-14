@@ -71,8 +71,8 @@ Keep these contracts explicit:
 - A broker source describes each delivery with
   `SourceMessage::messaging_attributes` for its
   [trace span](runtime/observability.md#messaging-attributes), and can report
-  connection state and lag through `Source::probe` for
-  [health checks](runtime/health.md#connection-state-and-lag). A probe answers
+  its connection state through `Source::probe` for
+  [health checks](runtime/health.md#connection-state). A probe answers
   from state the source already holds, without network access.
 
 `Delivery::with_ordering_key` and `Delivery::with_revocation` provide both for

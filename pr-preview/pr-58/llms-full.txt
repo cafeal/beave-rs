@@ -232,7 +232,7 @@ The [runtime guide](runtime.md) describes processing behavior, and the
 
 | Contract | Responsibility |
 |---|---|
-| `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure; declare whether application shutdown stops receiving; optionally expose a `SourceProbe` with connection state and lag |
+| `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure; declare whether application shutdown stops receiving; optionally expose a `SourceProbe` with its connection state |
 | `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, revocation, propagation fields, and messaging attributes |
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
 | `Codec` / `Decoder` / `Encoder` | Convert serialization formats without broker operations |
@@ -633,8 +633,8 @@ Keep these contracts explicit:
 - A broker source describes each delivery with
   `SourceMessage::messaging_attributes` for its
   [trace span](runtime/observability.md#messaging-attributes), and can report
-  connection state and lag through `Source::probe` for
-  [health checks](runtime/health.md#connection-state-and-lag). A probe answers
+  its connection state through `Source::probe` for
+  [health checks](runtime/health.md#connection-state). A probe answers
   from state the source already holds, without network access.
 
 `Delivery::with_ordering_key` and `Delivery::with_revocation` provide both for
@@ -1398,7 +1398,7 @@ alert on `subscription failed`. Each platform guide shows both.
 | Deliveries were dead-lettered | `beavers_delivery_failures_total{action="dead_letter"}` | warning | Someone needs to inspect and redrive them; see the [dead-letter handling guide](../dead-letter-handling.md) |
 | Producers send undecodable records | Ratio of `failure="decode"` to received deliveries | warning | Usually a schema or producer change |
 | Handlers are slow | The 99th percentile of `beavers_stage_duration_seconds{stage="handler"}` | warning | The backlog grows when processing falls behind the input rate |
-| The backlog grows | Consumer lag or queue depth from the broker | warning | beavers reports lag for Kafka sources only; see [Backlog](#backlog) |
+| The backlog grows | Consumer lag or queue depth from the broker | warning | beavers does not report lag; see [Backlog](#backlog) |
 
 Send `warning` alerts to the owning team's channel and `critical` alerts to
 on-call paging. A dead letter needs investigation during working hours, while a
@@ -1501,11 +1501,8 @@ minutes; raise the window above the longest expected handler duration.
 
 ## Backlog
 
-A Kafka source reports its lag as `beavers_consumer_lag`, the distance from
-its committed offsets to the end of the partitions it consumes. The series
-exists only while an instance runs and covers only the partitions assigned to
-that instance; sum it across instances. Other sources do not report lag. Alert
-on the broker's own measurement of the backlog, which also covers an
+beavers does not report consumer lag. Alert on the broker's own measurement of
+the backlog, which covers every instance of a consumer group and also an
 application that is not running at all:
 
 | Broker | Metric |
@@ -2182,7 +2179,6 @@ Every metric carries a `subscription` label with the subscription name.
 | `beavers_deliveries_revoked_total` | counter | | Deliveries abandoned after revocation |
 | `beavers_deliveries_in_flight` | gauge | | Received deliveries that have not finished |
 | `beavers_source_connected` | gauge | | `1` while the source is connected to its broker, `0` while it is not; Kafka and Pulsar sources only |
-| `beavers_consumer_lag` | gauge | | Messages the subscription has not acknowledged yet; Kafka sources only |
 | `beavers_stage_duration_seconds` | histogram | `stage` | Duration of `decode`, `handler`, `encode`, `publish`, `complete`, `dead_letter`, `ack`, and `commit` |
 | `beavers_transaction_deliveries` | histogram | | Deliveries in each committed transaction |
 
@@ -2193,9 +2189,9 @@ dead-letter sink is reported as `stop`, which is what it does. A failure is
 counted when it is routed, before the action runs. `handler` durations are
 per attempt and exclude retry backoff; `publish` durations cover all outputs
 of a delivery, including backoff. `commit` durations are per successful
-transaction and cover the whole batch. The connection and lag gauges copy the
-source's [health probe](health.md#connection-state-and-lag) every 5 seconds and
-are not reported until the source knows the value.
+transaction and cover the whole batch. The connection gauge copies the source's
+[health probe](health.md#connection-state) every 5 seconds and is not reported
+until the source knows its state.
 
 ## Alerting
 
@@ -2333,8 +2329,8 @@ drains, and finally `Stopped` or `Failed`), `receive_failures`, the
 consecutive failed receives since the last successful one,
 `receive_backoff`, whether the runtime is waiting for a receive retry delay,
 `publish_retries`, the deliveries whose output publication or transaction
-commit failed and is waiting to be retried, `connected` and `lag` from the
-source, described below, and `stalled`. A subscription is ready while it is
+commit failed and is waiting to be retried, `connected`, the source's
+[connection state](#connection-state), and `stalled`. A subscription is ready while it is
 `Running` with no receive backoff, no publish retry, and a source that does not
 report itself disconnected. A subscription whose source ended and that stopped
 without an error stays ready, so a finite source next to a long-running one
@@ -2345,32 +2341,30 @@ runtime cannot tell an idle broker from an unreachable one while a receive is
 pending; the source's connection state covers that case where the source
 reports it. Dead-letter publish retries do not affect readiness.
 
-## Connection state and lag
+## Connection state
 
-A source can report its connection state and consumer lag through
+A source can report whether it is connected to its broker through
 `Source::probe`, which the health report reads on every request:
 
-| Adapter | `connected` | `lag` |
-|---|---|---|
-| Kafka | Any broker connection is up, from librdkafka statistics | Over the partitions the consumer fetches, the distance from the first offset the source has not committed to the end of the partition |
-| Pulsar | Every partition's consumer is connected | Not reported |
-| Other adapters | Not reported | Not reported |
+| Adapter | `connected` |
+|---|---|
+| Kafka | Any broker connection is up, from librdkafka statistics |
+| Pulsar | Every partition's consumer is connected |
+| Other adapters | Not reported |
 
-Both values are `null` until the source has connected, and for Kafka until the
-first statistics arrive. Kafka lag includes records that were received but not
-acknowledged yet. The Kafka source sets `statistics.interval.ms` to 5000 unless
-the handle or source sets it; `0` disables statistics and leaves both values
-unreported. librdkafka delivers statistics while the source polls its consumer,
-which the runtime does whenever it has room to receive, so while every
-delivery slot stays busy the Kafka values keep their last reading. A source reporting `connected: false` makes its
-subscription unready. The Kafka and Pulsar clients reconnect by themselves, and
-readiness returns when they do.
+The value is `null` until the source has connected, and for Kafka until the
+first statistics arrive. The Kafka source sets `statistics.interval.ms` to 5000
+unless the handle or source sets it; `0` disables statistics and leaves the
+state unreported. librdkafka delivers statistics while the source polls its
+consumer, which the runtime does whenever it has room to receive, so while
+every delivery slot stays busy the Kafka state keeps its last reading. A source
+reporting `connected: false` makes its subscription unready. The Kafka and
+Pulsar clients reconnect by themselves, and readiness returns when they do.
 
-Lag never affects readiness: taking every instance out of rotation does not
-reduce a backlog. Alert on it instead, with `beavers_consumer_lag` or the
-broker-side measurements in the
-[monitoring guide](../monitoring-and-alerting/README.md#backlog), which also
-cover the other adapters and an application that is not running.
+beavers does not report consumer lag. Alert on the broker's own measurement,
+listed in the [monitoring guide](../monitoring-and-alerting/README.md#backlog),
+which covers every instance of a consumer group and an application that is not
+running.
 
 ## Stall detection
 
@@ -2391,7 +2385,7 @@ expected handler attempt, because a restart abandons the deliveries in
 progress. It detects a subscription in which nothing progresses. One stuck
 delivery while others still complete, such as one ordering key blocked under
 `ProcessingOrder::PerKey`, keeps the subscription live; its partition's commit
-stops advancing, which shows as growing lag.
+stops advancing, which shows as growing consumer lag on the broker.
 
 With the `health` feature, `HealthServer` answers probes over HTTP/1.1 while
 the application runs:
@@ -2950,11 +2944,11 @@ reads them back; see
 
 ## Health and tracing
 
-The source reports its connection state and lag to
-[health checks](../runtime/health.md#connection-state-and-lag) from librdkafka
+The source reports its connection state to
+[health checks](../runtime/health.md#connection-state) from librdkafka
 statistics, enabling `statistics.interval.ms` at 5000 ms unless the handle or
-source sets it. Lag counts, for each partition the consumer fetches, the records
-from the first offset the source has not committed to the end of the partition.
+source sets it. Consumer lag comes from the broker; see the
+[monitoring guide](../monitoring-and-alerting/README.md#backlog).
 Each delivery's `message` span carries the topic, partition, offset, and group
 ID as [messaging attributes](../runtime/observability.md#messaging-attributes).
 
@@ -3297,10 +3291,10 @@ its original message and failure properties, and
 ## Health and tracing
 
 The source reports whether every partition's consumer is connected to
-[health checks](../runtime/health.md#connection-state-and-lag); a consumer
+[health checks](../runtime/health.md#connection-state); a consumer
 reconnecting after a topic unload or broker restart makes the subscription
-unready until it reconnects. It does not report lag, which needs the broker's
-subscription backlog. Each delivery's `message` span carries the configured
+unready until it reconnects. The subscription backlog comes from the broker's
+`pulsar_subscription_back_log` metric. Each delivery's `message` span carries the configured
 topic, partition, subscription, and message ID as
 [messaging attributes](../runtime/observability.md#messaging-attributes).
 
@@ -5487,11 +5481,10 @@ decisions:
 - a producer span per published output instead of injecting the `message`
   span's context into every output.
 
-Health checks, source connection state and lag, and stall detection are
-described in the [runtime guide](runtime/health.md). Remaining decisions:
+Health checks, source connection state, and stall detection are described in
+the [runtime guide](runtime/health.md). Consumer lag is left to broker metrics.
+Remaining decision:
 
-- lag for the Pulsar, RabbitMQ, SQS, Pub/Sub, and Service Bus sources, whose
-  clients cannot read a backlog without an administration or management API;
 - connection state for the RabbitMQ, SQS, Pub/Sub, and Service Bus sources.
 
 The Pulsar probe's `is_connected` has not been verified across a broker

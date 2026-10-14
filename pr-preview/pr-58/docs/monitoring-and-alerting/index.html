@@ -160,7 +160,7 @@ alert on <code>subscription failed</code>. Each platform guide shows both.</p>
 <td>The backlog grows</td>
 <td>Consumer lag or queue depth from the broker</td>
 <td>warning</td>
-<td>beavers reports lag for Kafka sources only; see <a href="#backlog">Backlog</a></td>
+<td>beavers does not report lag; see <a href="#backlog">Backlog</a></td>
 </tr>
 </tbody></table>
 <p>Send <code>warning</code> alerts to the owning team&#39;s channel and <code>critical</code> alerts to
@@ -255,11 +255,8 @@ histogram buckets, and its threshold must lie within them. <code>BeaversStalled<
 also fires for a subscription whose handler legitimately runs longer than 15
 minutes; raise the window above the longest expected handler duration.</p>
 <h2 id="backlog">Backlog</h2>
-<p>A Kafka source reports its lag as <code>beavers_consumer_lag</code>, the distance from
-its committed offsets to the end of the partitions it consumes. The series
-exists only while an instance runs and covers only the partitions assigned to
-that instance; sum it across instances. Other sources do not report lag. Alert
-on the broker&#39;s own measurement of the backlog, which also covers an
+<p>beavers does not report consumer lag. Alert on the broker&#39;s own measurement of
+the backlog, which covers every instance of a consumer group and also an
 application that is not running at all:</p>
 <table>
 <thead>

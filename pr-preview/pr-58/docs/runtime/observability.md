@@ -83,7 +83,6 @@ Every metric carries a `subscription` label with the subscription name.
 | `beavers_deliveries_revoked_total` | counter | | Deliveries abandoned after revocation |
 | `beavers_deliveries_in_flight` | gauge | | Received deliveries that have not finished |
 | `beavers_source_connected` | gauge | | `1` while the source is connected to its broker, `0` while it is not; Kafka and Pulsar sources only |
-| `beavers_consumer_lag` | gauge | | Messages the subscription has not acknowledged yet; Kafka sources only |
 | `beavers_stage_duration_seconds` | histogram | `stage` | Duration of `decode`, `handler`, `encode`, `publish`, `complete`, `dead_letter`, `ack`, and `commit` |
 | `beavers_transaction_deliveries` | histogram | | Deliveries in each committed transaction |
 
@@ -94,9 +93,9 @@ dead-letter sink is reported as `stop`, which is what it does. A failure is
 counted when it is routed, before the action runs. `handler` durations are
 per attempt and exclude retry backoff; `publish` durations cover all outputs
 of a delivery, including backoff. `commit` durations are per successful
-transaction and cover the whole batch. The connection and lag gauges copy the
-source's [health probe](health.md#connection-state-and-lag) every 5 seconds and
-are not reported until the source knows the value.
+transaction and cover the whole batch. The connection gauge copies the source's
+[health probe](health.md#connection-state) every 5 seconds and is not reported
+until the source knows its state.
 
 ## Alerting
 

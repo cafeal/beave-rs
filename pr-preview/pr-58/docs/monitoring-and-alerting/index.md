@@ -70,7 +70,7 @@ alert on `subscription failed`. Each platform guide shows both.
 | Deliveries were dead-lettered | `beavers_delivery_failures_total{action="dead_letter"}` | warning | Someone needs to inspect and redrive them; see the [dead-letter handling guide](../dead-letter-handling.md) |
 | Producers send undecodable records | Ratio of `failure="decode"` to received deliveries | warning | Usually a schema or producer change |
 | Handlers are slow | The 99th percentile of `beavers_stage_duration_seconds{stage="handler"}` | warning | The backlog grows when processing falls behind the input rate |
-| The backlog grows | Consumer lag or queue depth from the broker | warning | beavers reports lag for Kafka sources only; see [Backlog](#backlog) |
+| The backlog grows | Consumer lag or queue depth from the broker | warning | beavers does not report lag; see [Backlog](#backlog) |
 
 Send `warning` alerts to the owning team's channel and `critical` alerts to
 on-call paging. A dead letter needs investigation during working hours, while a
@@ -173,11 +173,8 @@ minutes; raise the window above the longest expected handler duration.
 
 ## Backlog
 
-A Kafka source reports its lag as `beavers_consumer_lag`, the distance from
-its committed offsets to the end of the partitions it consumes. The series
-exists only while an instance runs and covers only the partitions assigned to
-that instance; sum it across instances. Other sources do not report lag. Alert
-on the broker's own measurement of the backlog, which also covers an
+beavers does not report consumer lag. Alert on the broker's own measurement of
+the backlog, which covers every instance of a consumer group and also an
 application that is not running at all:
 
 | Broker | Metric |
