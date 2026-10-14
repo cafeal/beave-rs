@@ -77,6 +77,7 @@ retry policies have already been constructed:</p>
         Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, handler)
             .<span class="hljs-title function_ invoke__">concurrency</span>(<span class="hljs-number">16</span>)
             .<span class="hljs-title function_ invoke__">max_in_flight</span>(<span class="hljs-number">64</span>)
+            .<span class="hljs-title function_ invoke__">max_in_flight_per_key</span>(<span class="hljs-number">16</span>)
             .<span class="hljs-title function_ invoke__">ordering</span>(ProcessingOrder::PerKey)
             .<span class="hljs-title function_ invoke__">handler_retry</span>(handler_retry)
             .<span class="hljs-title function_ invoke__">receive_retry</span>(receive_retry)
@@ -111,6 +112,11 @@ or duplicate name fails validation before any subscription starts.</p>
 <td><code>max_in_flight</code></td>
 <td>64</td>
 <td>Maximum received but unfinished deliveries, including queued ones</td>
+</tr>
+<tr>
+<td><code>max_in_flight_per_key</code></td>
+<td>none</td>
+<td>Unfinished deliveries of one ordering key at which the source pauses that key</td>
 </tr>
 <tr>
 <td><code>ordering</code></td>
@@ -184,8 +190,18 @@ each partition.</p>
 <code>max_in_flight</code> deliveries are unfinished. Queued deliveries count toward
 <code>max_in_flight</code>, so consumption stays bounded when a handler or sink is slow.
 Deliveries without a key never queue: each one starts as soon as it is
-received. A busy key can fill <code>max_in_flight</code> and stop receiving for all keys;
-adapter pause and resume integration is <a href="plan.html#concurrency-and-ordering">planned</a>.</p>
+received.</p>
+<p>Without a per-key limit, a busy key can fill <code>max_in_flight</code> and stop
+receiving for all keys. <code>max_in_flight_per_key</code> bounds the unfinished
+deliveries of each key, whatever the <code>ordering</code>. When a key reaches the limit,
+the runtime calls <code>Source::pause</code> for it, and calls <code>Source::resume</code> once the
+key&#39;s unfinished deliveries drop to half the limit, so a key near the limit
+does not pause and resume on every delivery. Other keys keep flowing while one
+is paused. Deliveries the source fetched before the pause still arrive, so a
+key can exceed the limit by what the source buffers. The Kafka source pauses
+the partition. Sources that cannot pause single keys, which is every other
+adapter, return <code>false</code> from <code>pause</code>; the runtime then stops counting and only
+<code>max_in_flight</code> applies.</p>
 <h2 id="revocation">Revocation</h2>
 <p>A source can also give each delivery a revocation <code>CancellationToken</code>. The
 source cancels it when it stops owning the delivery, for example when Kafka
@@ -198,6 +214,12 @@ revocation. Queued deliveries of the same assignment are dropped the same way.</
 never yields continues until it does. An output publication that was already
 accepted by the sink is not retracted; the new owner reprocesses the delivery
 and can produce a duplicate.</p>
+<p>A source can let started work finish before it gives a delivery up by also
+returning a handoff <code>CancellationToken</code> from <code>SourceMessage::handoff</code>. When the
+source cancels it, the runtime drops the delivery without ACK if it has not
+started and lets it continue otherwise; the source cancels the revocation token
+when the handoff ends. The Kafka source does this during a
+<a href="adapters/kafka.html#graceful-handoff">graceful handoff</a>.</p>
 <h2 id="adapters">Adapters</h2>
 <p>See the <a href="adapters/local.html">local adapters</a> for IterSource, StdinSource,
 InMemorySink, and StdoutSink, and the <a href="adapters/channel.html">Channel adapter</a>

@@ -101,9 +101,19 @@ commit into a newer assignment. Records of a partition that is not currently
 assigned, such as records fetched before a revoke, are skipped by <code>receive</code>.
 A publication that completed before the revoke is not undone, and the new owner
 reprocesses the record from the last committed offset.</p>
-<p><code>StreamConsumer::recv</code> is cancellation-safe in rdkafka 0.39. Dropping a pending
-source receive does not consume a record. Dropping a received <code>KafkaMessage</code>
-does not acknowledge it.</p>
+<p>A source with a <a href="#graceful-handoff">graceful handoff</a> lets deliveries that
+already started finish before the revoke completes instead.</p>
+<p><code>Source::pause</code> pauses the partition an ordering key names, so a subscription&#39;s
+<code>max_in_flight_per_key</code> stops one busy partition without stopping the others,
+and <code>Source::resume</code> resumes it. A paused partition stays paused when it is
+revoked and assigned to the source again, until the runtime resumes it. A record
+the source handed to <code>receive</code> before the pause is still delivered.</p>
+<p>The consumer is polled on a thread of its own, which hands one record at a time
+to <code>receive</code> and runs the consumer&#39;s rebalance callbacks. It polls only as fast
+as the subscription receives, so a subscription that stops receiving for longer
+than <code>max.poll.interval.ms</code> makes the consumer leave its group. Dropping a
+pending source receive does not consume a record. Dropping a received
+<code>KafkaMessage</code> does not acknowledge it.</p>
 <h2 id="publication">Publication</h2>
 <p><code>prepare</code> encodes the nullable value once; publication retries reuse that
 prepared record.</p>
@@ -181,8 +191,9 @@ ID as <a href="../runtime/observability.html#messaging-attributes">messaging att
 operations, so a failure or rebalance between them can produce duplicates.
 Because publication is pipelined, a crash can leave records whose reports had
 not arrived; their inputs are uncommitted and are reprocessed. Use
-a <a href="#transactions">transactional subscription</a> to make them atomic. The adapter
-does not delay a rebalance to let in-flight work finish.</p>
+a <a href="#transactions">transactional subscription</a> to make them atomic. Without a
+<a href="#graceful-handoff">graceful handoff</a>, a rebalance abandons in-flight work at
+once.</p>
 <h2 id="transactions">Transactions</h2>
 <p><code>KafkaSink::transactional(transactional_id)</code> converts a sink into a
 <code>KafkaTransactionalSink</code>, which publishes records in Kafka producer
@@ -255,6 +266,33 @@ transactional subscription.</p>
 transaction of its own without consumer offsets. That makes each record visible
 to <code>read_committed</code> consumers atomically, but the subscription remains
 at-least-once.</p>
+<h2 id="graceful-handoff">Graceful handoff</h2>
+<p><code>KafkaSource::graceful_handoff(timeout)</code> makes a revoke wait for the revoked
+partitions&#39; deliveries before the partitions go to their next owner. It is off
+by default.</p>
+<pre><code class="hljs language-rust"><span class="hljs-keyword">use</span> beavers::{Json, adapters::kafka::Kafka};
+<span class="hljs-keyword">use</span> std::time::Duration;
+
+<span class="hljs-keyword">let</span> <span class="hljs-variable">kafka</span> = Kafka::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;localhost:9092&quot;</span>);
+<span class="hljs-keyword">let</span> <span class="hljs-variable">orders</span> = kafka
+    .source::&lt;Json&lt;<span class="hljs-type">String</span>&gt;&gt;(<span class="hljs-string">&quot;billing&quot;</span>, [<span class="hljs-string">&quot;orders&quot;</span>])
+    .<span class="hljs-title function_ invoke__">graceful_handoff</span>(Duration::<span class="hljs-title function_ invoke__">from_secs</span>(<span class="hljs-number">10</span>));
+</code></pre><p>When Kafka revokes partitions, the source cancels each delivery&#39;s handoff token
+and stops accepting records of those partitions. The runtime abandons
+deliveries that have not started, while started ones continue and are
+acknowledged as usual. The revoke waits until every delivery of the partitions
+was acknowledged or dropped, or until <code>timeout</code> passes, then commits the
+acknowledged offsets and cancels the revocation tokens, abandoning whatever is
+still running. The next owner starts after the acknowledged records instead of
+reprocessing them.</p>
+<p>The rebalance callback runs on the consumer&#39;s polling thread, so the consumer
+receives no records of any partition while it waits. Kafka also waits for the
+revoke before it completes the rebalance, for at most <code>max.poll.interval.ms</code>, so
+<code>validate</code> requires <code>timeout</code> to be shorter than that property (5 minutes by
+default). A lost assignment is not handed off, because its offsets can no
+longer be committed. In a <a href="#transactions">transactional subscription</a>, the
+revoke waits for the transactions that contain the started deliveries, and the
+source commits no offsets of its own.</p>
 
       <p class="source"><a href="kafka.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/adapters/kafka.md">Source on GitHub</a></p>
     </main>

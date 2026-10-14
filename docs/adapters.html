@@ -145,7 +145,13 @@ be published as they are and channels can keep it for the next stage.</li>
 <code>OrderingKey</code> from <code>SourceMessage::ordering_key</code>.</li>
 <li>A source whose deliveries can move to another consumer returns a revocation
 <code>CancellationToken</code> from <code>SourceMessage::revocation</code> and cancels it when the
-delivery is no longer owned.</li>
+delivery is no longer owned. A source that lets started work finish first
+also returns a handoff token from <code>SourceMessage::handoff</code> and cancels it
+when the handoff begins.</li>
+<li>A source that can stop receiving one ordering key implements <code>Source::pause</code>
+and <code>Source::resume</code>, which the runtime calls for a subscription&#39;s
+<code>max_in_flight_per_key</code>, and keeps a paused key paused when the key&#39;s scope
+is revoked and assigned again.</li>
 <li>A source that accepts input from clients, such as a server, stops accepting
 it in <code>Source::stop_receiving</code>, which the runtime calls when it stops
 receiving on shutdown or failure, before draining.</li>
@@ -156,8 +162,9 @@ its connection state through <code>Source::probe</code> for
 <a href="runtime/health.html#connection-state">health checks</a>. A probe answers
 from state the source already holds, without network access.</li>
 </ul>
-<p><code>Delivery::with_ordering_key</code> and <code>Delivery::with_revocation</code> provide both for
-custom sources built on <code>Delivery&lt;T&gt;</code>, and <code>Delivery::with_raw</code> sets the raw
+<p><code>Delivery::with_ordering_key</code>, <code>Delivery::with_revocation</code>, and
+<code>Delivery::with_handoff</code> provide these for custom sources built on
+<code>Delivery&lt;T&gt;</code>, and <code>Delivery::with_raw</code> sets the raw
 form their dead letters carry.</p>
 <p>See <a href="architecture.html">architecture</a> for ownership boundaries and the
 <a href="runtime.html">runtime guide</a> for retry, failure, and shutdown behavior.</p>

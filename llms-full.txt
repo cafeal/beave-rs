@@ -378,6 +378,7 @@ App::new()
         Subscription::new("orders", source, sink, handler)
             .concurrency(16)
             .max_in_flight(64)
+            .max_in_flight_per_key(16)
             .ordering(ProcessingOrder::PerKey)
             .handler_retry(handler_retry)
             .receive_retry(receive_retry)
@@ -403,6 +404,7 @@ Registration constructs the application. Processing starts in `run()`.
 |---|---|---|
 | `concurrency` | 1 | Maximum concurrent message jobs |
 | `max_in_flight` | 64 | Maximum received but unfinished deliveries, including queued ones |
+| `max_in_flight_per_key` | none | Unfinished deliveries of one ordering key at which the source pauses that key |
 | `ordering` | `PerKey` | Sequential processing within a source ordering key |
 | Retry attempts | 3 | Includes the first attempt |
 | Initial retry delay | 100 ms | Exponential backoff starting delay |
@@ -449,8 +451,19 @@ The runtime receives only while a job slot is free and fewer than
 `max_in_flight` deliveries are unfinished. Queued deliveries count toward
 `max_in_flight`, so consumption stays bounded when a handler or sink is slow.
 Deliveries without a key never queue: each one starts as soon as it is
-received. A busy key can fill `max_in_flight` and stop receiving for all keys;
-adapter pause and resume integration is [planned](plan.md#concurrency-and-ordering).
+received.
+
+Without a per-key limit, a busy key can fill `max_in_flight` and stop
+receiving for all keys. `max_in_flight_per_key` bounds the unfinished
+deliveries of each key, whatever the `ordering`. When a key reaches the limit,
+the runtime calls `Source::pause` for it, and calls `Source::resume` once the
+key's unfinished deliveries drop to half the limit, so a key near the limit
+does not pause and resume on every delivery. Other keys keep flowing while one
+is paused. Deliveries the source fetched before the pause still arrive, so a
+key can exceed the limit by what the source buffers. The Kafka source pauses
+the partition. Sources that cannot pause single keys, which is every other
+adapter, return `false` from `pause`; the runtime then stops counting and only
+`max_in_flight` applies.
 
 ## Revocation
 
@@ -466,6 +479,13 @@ Handlers do not observe revocation. Cancellation is cooperative, so work that
 never yields continues until it does. An output publication that was already
 accepted by the sink is not retracted; the new owner reprocesses the delivery
 and can produce a duplicate.
+
+A source can let started work finish before it gives a delivery up by also
+returning a handoff `CancellationToken` from `SourceMessage::handoff`. When the
+source cancels it, the runtime drops the delivery without ACK if it has not
+started and lets it continue otherwise; the source cancels the revocation token
+when the handoff ends. The Kafka source does this during a
+[graceful handoff](adapters/kafka.md#graceful-handoff).
 
 ## Adapters
 
@@ -626,7 +646,13 @@ Keep these contracts explicit:
   `OrderingKey` from `SourceMessage::ordering_key`.
 - A source whose deliveries can move to another consumer returns a revocation
   `CancellationToken` from `SourceMessage::revocation` and cancels it when the
-  delivery is no longer owned.
+  delivery is no longer owned. A source that lets started work finish first
+  also returns a handoff token from `SourceMessage::handoff` and cancels it
+  when the handoff begins.
+- A source that can stop receiving one ordering key implements `Source::pause`
+  and `Source::resume`, which the runtime calls for a subscription's
+  `max_in_flight_per_key`, and keeps a paused key paused when the key's scope
+  is revoked and assigned again.
 - A source that accepts input from clients, such as a server, stops accepting
   it in `Source::stop_receiving`, which the runtime calls when it stops
   receiving on shutdown or failure, before draining.
@@ -637,8 +663,9 @@ Keep these contracts explicit:
   [health checks](runtime/health.md#connection-state). A probe answers
   from state the source already holds, without network access.
 
-`Delivery::with_ordering_key` and `Delivery::with_revocation` provide both for
-custom sources built on `Delivery<T>`, and `Delivery::with_raw` sets the raw
+`Delivery::with_ordering_key`, `Delivery::with_revocation`, and
+`Delivery::with_handoff` provide these for custom sources built on
+`Delivery<T>`, and `Delivery::with_raw` sets the raw
 form their dead letters carry.
 
 See [architecture](architecture.md) for ownership boundaries and the
@@ -2857,9 +2884,21 @@ assigned, such as records fetched before a revoke, are skipped by `receive`.
 A publication that completed before the revoke is not undone, and the new owner
 reprocesses the record from the last committed offset.
 
-`StreamConsumer::recv` is cancellation-safe in rdkafka 0.39. Dropping a pending
-source receive does not consume a record. Dropping a received `KafkaMessage`
-does not acknowledge it.
+A source with a [graceful handoff](#graceful-handoff) lets deliveries that
+already started finish before the revoke completes instead.
+
+`Source::pause` pauses the partition an ordering key names, so a subscription's
+`max_in_flight_per_key` stops one busy partition without stopping the others,
+and `Source::resume` resumes it. A paused partition stays paused when it is
+revoked and assigned to the source again, until the runtime resumes it. A record
+the source handed to `receive` before the pause is still delivered.
+
+The consumer is polled on a thread of its own, which hands one record at a time
+to `receive` and runs the consumer's rebalance callbacks. It polls only as fast
+as the subscription receives, so a subscription that stops receiving for longer
+than `max.poll.interval.ms` makes the consumer leave its group. Dropping a
+pending source receive does not consume a record. Dropping a received
+`KafkaMessage` does not acknowledge it.
 
 ## Publication
 
@@ -2959,8 +2998,9 @@ With a `KafkaSink`, producer publication and source offset commits are separate
 operations, so a failure or rebalance between them can produce duplicates.
 Because publication is pipelined, a crash can leave records whose reports had
 not arrived; their inputs are uncommitted and are reprocessed. Use
-a [transactional subscription](#transactions) to make them atomic. The adapter
-does not delay a rebalance to let in-flight work finish.
+a [transactional subscription](#transactions) to make them atomic. Without a
+[graceful handoff](#graceful-handoff), a rebalance abandons in-flight work at
+once.
 
 ## Transactions
 
@@ -3048,6 +3088,40 @@ Used as a plain `Sink`, `KafkaTransactionalSink` commits each publication in a
 transaction of its own without consumer offsets. That makes each record visible
 to `read_committed` consumers atomically, but the subscription remains
 at-least-once.
+
+## Graceful handoff
+
+`KafkaSource::graceful_handoff(timeout)` makes a revoke wait for the revoked
+partitions' deliveries before the partitions go to their next owner. It is off
+by default.
+
+```rust
+use beavers::{Json, adapters::kafka::Kafka};
+use std::time::Duration;
+
+let kafka = Kafka::new("localhost:9092");
+let orders = kafka
+    .source::<Json<String>>("billing", ["orders"])
+    .graceful_handoff(Duration::from_secs(10));
+```
+
+When Kafka revokes partitions, the source cancels each delivery's handoff token
+and stops accepting records of those partitions. The runtime abandons
+deliveries that have not started, while started ones continue and are
+acknowledged as usual. The revoke waits until every delivery of the partitions
+was acknowledged or dropped, or until `timeout` passes, then commits the
+acknowledged offsets and cancels the revocation tokens, abandoning whatever is
+still running. The next owner starts after the acknowledged records instead of
+reprocessing them.
+
+The rebalance callback runs on the consumer's polling thread, so the consumer
+receives no records of any partition while it waits. Kafka also waits for the
+revoke before it completes the rebalance, for at most `max.poll.interval.ms`, so
+`validate` requires `timeout` to be shorter than that property (5 minutes by
+default). A lost assignment is not handed off, because its offsets can no
+longer be committed. In a [transactional subscription](#transactions), the
+revoke waits for the transactions that contain the started deliveries, and the
+source commits no offsets of its own.
 
 <!-- https://cafeal.github.io/beave-rs/docs/adapters/pulsar.md -->
 
@@ -5366,14 +5440,17 @@ Remaining decisions:
 Dead-letter headers and properties have not been verified against live
 brokers.
 
-## Concurrency and ordering
+## Per-key backpressure
 
-Per-key scheduling bounds consumption with `max_in_flight`, but one busy
-partition can fill that bound and stop receiving for every partition. Coordinate
-runtime backpressure with adapter pause/resume capabilities, such as pausing a
-Kafka partition whose queue reaches a per-key limit, so other partitions keep
-flowing. The design must define the per-key limit, resume timing, and the pause
-state across rebalances.
+`max_in_flight_per_key` pauses and resumes keys through `Source::pause`, as
+described in the [runtime guide](runtime.md#ordering-and-backpressure). Only
+the Kafka source can pause a key. Remaining decisions:
+
+- pausing a Pulsar partition under Failover or Exclusive subscriptions, which
+  needs `magnetar-driver` to stop requesting messages for one partition's
+  consumer; Key_Shared keys are message keys, which cannot be paused;
+- whether a default per-key limit, such as a share of `max_in_flight`, should
+  apply when a source can pause.
 
 ## Chained subscriptions
 
@@ -5431,14 +5508,30 @@ documents describe what each handle shares. Remaining work:
 
 ## Kafka rebalance behavior
 
-Revoked partitions currently abandon in-flight work immediately. Evaluate an
-optional graceful handoff that delays revoke completion for a bounded time so
-work in flight can finish and commit, reducing duplicates for the next owner.
+The [graceful handoff](adapters/kafka.md#graceful-handoff) and partition pause
+are covered by unit, runtime, and ignored live tests. The live tests pause and
+resume one partition, and hand off a partition with an eager rebalance while
+its delivery is acknowledged, against single-node Kafka 3.9 and 4.1 brokers.
+Verify with Kafka:
+
+- A synchronous commit from an acknowledgement task completes while the
+  polling thread waits in the revoke callback, under load and with several
+  partitions.
+- A handoff under `partition.assignment.strategy=cooperative-sticky` revokes
+  only the moved partitions, and the other partitions resume receiving once the
+  callback returns.
+- A handoff that reaches its timeout abandons the remaining deliveries, and the
+  next owner reprocesses them from the committed offset.
+- A transactional subscription with a graceful handoff commits the started
+  deliveries' batches before the revoke completes.
+- Pausing and resuming under sustained traffic neither skips nor duplicates
+  records, including records librdkafka had fetched ahead before the pause, and
+  a paused partition that is revoked and assigned again stays paused.
 
 Partition scheduling and revocation are covered by unit and runtime tests but
 have not been verified against a live broker. Verify with Kafka:
 
-- `receive` skips records of partitions the adapter does not consider assigned.
+- The source skips records of partitions the adapter does not consider assigned.
   This assumes rdkafka always runs `post_rebalance` with the assignment before
   it returns the first record of a newly assigned partition. If that does not
   hold, the source silently skips every record of that partition.
@@ -5672,11 +5765,10 @@ the first crates.io release:
 
 | Priority | Scope |
 |---|---|
-| 1 | Adapter pause/resume backpressure and graceful rebalance handoff |
-| 2 | Observability refinements |
-| 3 | Live verification of batched Kafka transactions and shared connections |
-| 4 | NATS JetStream adapter |
-| 5 | Schema Registry and additional codecs |
+| 1 | Observability refinements |
+| 2 | Live verification of batched Kafka transactions, shared connections, and Kafka rebalance handoff |
+| 3 | NATS JetStream adapter |
+| 4 | Schema Registry and additional codecs |
 
 The order may change when a concrete application requires a later capability.
 When work begins, update this document with any newly resolved decisions. When
