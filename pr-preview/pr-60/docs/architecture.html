@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Architecture - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="alternate" type="text/markdown" href="architecture.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../">beave-rs</a>
+      <nav>
+        <a href="index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html" aria-current="page">Architecture</a></li><li><a href="runtime.html">Runtime guide</a><ul><li><a href="runtime/handlers.html">Handlers</a></li><li><a href="runtime/middleware.html">Middleware</a></li><li><a href="runtime/errors.html">Errors and retries</a></li><li><a href="runtime/tombstones.html">Tombstones</a></li><li><a href="runtime/transactions.html">Transactions</a></li><li><a href="runtime/observability.html">Observability</a></li><li><a href="runtime/health.html">Health checks</a></li><li><a href="runtime/state.html">State</a></li></ul></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/local.html">Local adapters</a></li><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/json.html">JSON</a></li><li><a href="codecs/raw-bytes.html">Raw bytes</a></li><li><a href="codecs/utf8.html">UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li><li><a href="codecs/msgpack.html">MessagePack</a></li><li><a href="codecs/cbor.html">CBOR</a></li><li><a href="codecs/wrappers.html">Codec wrappers</a><ul><li><a href="codecs/wrappers/base64.html">Base64</a></li><li><a href="codecs/wrappers/gzip.html">Gzip</a></li><li><a href="codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html">Local development brokers</a></li><li><a href="plan.html">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="architecture">Architecture</h1>
+<p>An application registers subscriptions on an <code>App</code>. Each subscription connects
+one <code>Source</code>, one handler, and one <code>Sink</code>: the source receives broker messages,
+the handler turns each decoded input into outputs, and the sink publishes them.
+The source message is acknowledged only after its outputs are published. Codecs
+convert between bytes and typed values, and middleware runs around the handler.
+The <a href="runtime.html">runtime guide</a> describes processing behavior, and the
+<a href="adapters.html">adapter guide</a> the built-in sources and sinks.</p>
+<h2 id="trait-boundaries">Trait boundaries</h2>
+<table>
+<thead>
+<tr>
+<th>Contract</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Source</code></td>
+<td>Receive an associated <code>Message: SourceMessage</code>; report end of input or receive failure; declare whether application shutdown stops receiving; optionally expose a <code>SourceProbe</code> with its connection state</td>
+</tr>
+<tr>
+<td><code>SourceMessage</code></td>
+<td>Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, message key, position, revocation, propagation fields, and messaging attributes</td>
+</tr>
+<tr>
+<td><code>Handler&lt;Input&gt;</code></td>
+<td>Transform typed input asynchronously; also implemented for async functions and closures</td>
+</tr>
+<tr>
+<td><code>StatefulHandler&lt;Input, State&gt;</code></td>
+<td>Transform typed input with the state a <code>StateStore</code> keeps for it; also implemented for async functions and closures</td>
+</tr>
+<tr>
+<td><code>StateStore&lt;Input&gt;</code></td>
+<td>Begin a state change for each handler attempt and commit it after the outputs are published, before the acknowledgement</td>
+</tr>
+<tr>
+<td><code>Codec</code> / <code>Decoder</code> / <code>Encoder</code></td>
+<td>Convert serialization formats without broker operations</td>
+</tr>
+<tr>
+<td><code>Sink&lt;T&gt;</code></td>
+<td>Prepare an associated output representation, submit or publish it, report its completion, and close resources</td>
+</tr>
+</tbody></table>
+<h3 id="errors">Errors</h3>
+<p>Operations the crate performs return <code>beavers::Error</code>: <code>App::run</code> and
+<code>run_until</code>, configuration <code>validate</code> methods, adapter and codec constructors
+such as <code>HttpSource::new</code> and <code>Avro::new</code>, <code>ChannelSender::send</code>, and
+dead-letter parsing such as <code>KafkaDeadLetter::from_record</code>. Its variants
+distinguish invalid configuration (<code>Config</code>), malformed records
+(<code>InvalidRecord</code>), closed handles (<code>Closed</code>), drain and close deadlines
+(<code>Timeout</code>), other failed operations (<code>Failed</code>), and a stopped subscription
+(<code>Subscription</code>), which carries the subscription&#39;s name and the cause.
+<code>Display</code> describes one level; <code>{:#}</code> and <code>Debug</code> include every cause.</p>
+<p>Traits an application implements, <code>Decoder</code>, <code>Encoder</code>, <code>Source</code>,
+<code>SourceMessage</code>, <code>Sink</code>, and <code>TransactionalSink</code>, return <code>BoxError</code>, a boxed
+<code>std::error::Error + Send + Sync</code>. An implementation propagates any error type
+with <code>?</code>, including <code>beavers::Error</code>, <code>String</code>, and <code>&amp;str</code>, and the runtime adds
+context as the error moves up. Handlers return <code>HandlerError</code>, whose variants
+hold a <code>BoxError</code>; see <a href="runtime/errors.html">errors and retries</a>.</p>
+<h3 id="source-and-message-ownership">Source and message ownership</h3>
+<p><code>Source::Message</code> can be an adapter-specific type. Adapters are not required to
+use a shared byte buffer or boxed ACK callback. <code>Delivery&lt;T&gt;</code> is a convenience
+implementation for already typed local input; <code>Delivery::with_raw</code> gives it a
+raw form other than <code>()</code>.</p>
+<p>A message can retain raw bytes and broker-specific information until processing
+finishes. The runtime calls <code>decode</code> once and passes the decoded value to the
+handler. <code>decode</code> must not publish or acknowledge. Dropping a message must never
+acknowledge it. <code>raw</code> returns the undecoded delivery, including broker metadata,
+as the adapter&#39;s <code>Raw</code> type, which implements <code>Debug</code> and <code>Serialize</code>. The
+runtime calls it when a failure is routed to a dead-letter sink, and a sink
+that keeps it for a later stage, such as a channel, calls it while preparing
+output.</p>
+<p>ACK consumes the message. Its adapter owns safe broker completion behavior,
+including offset ordering and assignment validity where applicable. A message
+can expose an <code>OrderingKey</code> for its ordered delivery scope and a revocation
+<code>CancellationToken</code> that the adapter cancels when it loses ownership. The
+runtime uses these for <a href="runtime.html#ordering-and-backpressure">scheduling and revocation</a>
+without exposing broker rebalances to handlers. A custom
+<code>Source::receive</code> must be cancellation-safe: dropping its future must not silently
+lose a delivery.</p>
+<h3 id="handler">Handler</h3>
+<p><code>Handler&lt;Input&gt;</code> exposes an associated output and returns a future. The runtime
+normalizes results into <code>Emit</code> internally. Retry and middleware currently require
+inputs to implement <code>Clone + Send + Sync</code>.</p>
+<p><code>blocking(...)</code> wraps a synchronous function in a <code>Handler</code> that submits each
+call to a <code>BlockingPool</code> and asynchronously waits for its result, so Source and
+Sink stay asynchronous. See <a href="runtime/handlers.html#blocking-handlers">blocking handlers</a>.</p>
+<p>See the <a href="codecs.html">codec guide</a> for serialization implementations and payload bounds.</p>
+<h3 id="sink-preparation-and-publication">Sink preparation and publication</h3>
+<p><code>Sink&lt;T&gt;::prepare(T)</code> validates and encodes output without publishing it.
+<code>Sink&lt;T&gt;::Prepared</code> is not restricted to bytes: a broker implementation can retain
+keys, headers, and other publish fields in its own representation. The runtime
+prepares a delivery&#39;s outputs with <code>Sink&lt;T&gt;::prepare_from(T, &amp;delivery)</code>, which
+calls <code>prepare</code> by default. A sink overrides it when an output keeps facts of
+the delivery that the handler does not see, as a channel keeps the ordering key
+and raw form for the next subscription.</p>
+<p>The runtime maps and prepares all outputs before submitting any of them.
+<code>Sink&lt;T&gt;::submit</code> returns once the sink accepts an output, with a <code>Completion</code>
+that resolves at the acknowledgement boundary; the default publishes and is
+already complete. The runtime frees the job&#39;s concurrency slot after submission
+and acknowledges the input once every completion succeeds. Publish
+retries reuse the same prepared value, without rerunning the handler, middleware,
+or encoder. A successful <code>publish</code> means the sink&#39;s acknowledgement boundary has
+been reached. It must not report success while required output confirmation is
+still outstanding.</p>
+<p>A sink can also implement <code>TransactionalSink&lt;M, T&gt;</code> for a source message type
+<code>M</code> whose acknowledgement can join the sink&#39;s transactions. Its <code>commit</code>
+publishes a delivery&#39;s prepared outputs and acknowledges the delivery
+atomically, and must finish or abort the transaction even when its future is
+dropped. <code>Subscription::transactional()</code> requires this implementation, so an
+unsupported source and sink pair is rejected at compile time. Its
+<code>verify_source</code> checks what types cannot express, such as whether the source
+and the sink connect to the same cluster, and the runtime calls it with the
+first delivery before processing it. See the
+<a href="runtime/transactions.html">runtime guide</a>.</p>
+<h3 id="configuration-ownership">Configuration ownership</h3>
+<p>A <code>Subscription</code> holds processing policy. Source and Sink connection settings
+belong to their adapters. Each broker adapter keeps its address and credentials
+on a connection handle, such as <code>Kafka</code> or <code>ServiceBus</code>, whose <code>source</code> and
+<code>sink</code> methods build sources and sinks with their own entity settings. They
+share the handle&#39;s connection and authenticate once, so a lost connection
+affects every subscription that uses it, while each subscription still fails
+fast on its own failures. Codecs own serialization behavior. Broker-specific
+metadata must not become a universal configuration or message struct.</p>
+<p>Metadata mapping is typed subscription middleware rather than a shared
+structure: each adapter may provide same-platform inheritance for its own record
+and publish types, and other mappings are explicit application functions. See
+the <a href="runtime/middleware.html">runtime guide</a>.</p>
+<p>Future broker adapters implement these boundaries and can move into separate
+crates when SDK dependencies require it. Further transaction support and
+ordering capabilities still require the work described in the
+<a href="plan.html">design plan</a>.</p>
+
+      <p class="source"><a href="architecture.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/architecture.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>
