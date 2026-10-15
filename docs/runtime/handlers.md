@@ -55,6 +55,9 @@ need its item type spelled out when a value and a publish record would both
 fit it. Sources whose item is not a platform record, such as `IterSource<T>`
 or `ChannelSource<T>`, accept only record-shaped handlers taking `T`.
 
+A handler can also take per-key state as a second parameter; see
+[state](state.md).
+
 ## Blocking handlers
 
 Wrap a synchronous function with `blocking` to register it wherever an async

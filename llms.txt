@@ -21,6 +21,7 @@ All pages in one file: https://cafeal.github.io/beave-rs/llms-full.txt
 - [Transactions](https://cafeal.github.io/beave-rs/docs/runtime/transactions.md)
 - [Observability](https://cafeal.github.io/beave-rs/docs/runtime/observability.md)
 - [Health checks](https://cafeal.github.io/beave-rs/docs/runtime/health.md)
+- [State](https://cafeal.github.io/beave-rs/docs/runtime/state.md)
 - [Adapters](https://cafeal.github.io/beave-rs/docs/adapters.md): Local, channel, Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, Azure Service Bus, and HTTP adapters, usage, and extension contracts
 - [Local adapters](https://cafeal.github.io/beave-rs/docs/adapters/local.md)
 - [Channel adapter](https://cafeal.github.io/beave-rs/docs/adapters/channel.md)

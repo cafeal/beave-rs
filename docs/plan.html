@@ -24,7 +24,7 @@
 
   <div class="wrap layout">
     <nav class="toc" aria-label="Guides">
-<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html">Architecture</a></li><li><a href="runtime.html">Runtime guide</a><ul><li><a href="runtime/handlers.html">Handlers</a></li><li><a href="runtime/middleware.html">Middleware</a></li><li><a href="runtime/errors.html">Errors and retries</a></li><li><a href="runtime/tombstones.html">Tombstones</a></li><li><a href="runtime/transactions.html">Transactions</a></li><li><a href="runtime/observability.html">Observability</a></li><li><a href="runtime/health.html">Health checks</a></li></ul></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/local.html">Local adapters</a></li><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/json.html">JSON</a></li><li><a href="codecs/raw-bytes.html">Raw bytes</a></li><li><a href="codecs/utf8.html">UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li><li><a href="codecs/msgpack.html">MessagePack</a></li><li><a href="codecs/cbor.html">CBOR</a></li><li><a href="codecs/wrappers.html">Codec wrappers</a><ul><li><a href="codecs/wrappers/base64.html">Base64</a></li><li><a href="codecs/wrappers/gzip.html">Gzip</a></li><li><a href="codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html">Local development brokers</a></li><li><a href="plan.html" aria-current="page">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
+<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html">Architecture</a></li><li><a href="runtime.html">Runtime guide</a><ul><li><a href="runtime/handlers.html">Handlers</a></li><li><a href="runtime/middleware.html">Middleware</a></li><li><a href="runtime/errors.html">Errors and retries</a></li><li><a href="runtime/tombstones.html">Tombstones</a></li><li><a href="runtime/transactions.html">Transactions</a></li><li><a href="runtime/observability.html">Observability</a></li><li><a href="runtime/health.html">Health checks</a></li><li><a href="runtime/state.html">State</a></li></ul></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/local.html">Local adapters</a></li><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/json.html">JSON</a></li><li><a href="codecs/raw-bytes.html">Raw bytes</a></li><li><a href="codecs/utf8.html">UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li><li><a href="codecs/msgpack.html">MessagePack</a></li><li><a href="codecs/cbor.html">CBOR</a></li><li><a href="codecs/wrappers.html">Codec wrappers</a><ul><li><a href="codecs/wrappers/base64.html">Base64</a></li><li><a href="codecs/wrappers/gzip.html">Gzip</a></li><li><a href="codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html">Local development brokers</a></li><li><a href="plan.html" aria-current="page">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
     </nav>
     <main class="doc">
 <h1 id="beave-rs--design-plan">beave-rs — Design plan</h1>
@@ -42,8 +42,10 @@ NATS JetStream, SQS, Azure Service Bus, and other transports:</p>
 framework should own connectivity, serialization, acknowledgements, retries,
 concurrency, shutdown, and observability while describing delivery guarantees
 according to the actual source and sink capabilities.</p>
-<p>The project does not aim to provide stateful stream processing, windows, joins,
-watermarks, state stores, distributed scheduling, SQL, or general DAG execution.</p>
+<p>Handlers can keep simple per-key <a href="runtime/state.html">state</a> committed with
+each delivery. The project does not aim to provide stateful stream processing
+such as windows, joins, watermarks, changelog-backed local state stores,
+distributed scheduling, SQL, or general DAG execution.</p>
 <h2 id="middleware">Middleware</h2>
 <p>The asynchronous <code>pre_handler</code> and <code>post_handler</code> hooks are described in the
 <a href="runtime/middleware.html">runtime guide</a>. Remaining decisions:</p>
@@ -171,6 +173,36 @@ needs <code>magnetar-driver</code> to stop requesting messages for one partition
 consumer; Key_Shared keys are message keys, which cannot be paused;</li>
 <li>whether a default per-key limit, such as a share of <code>max_in_flight</code>, should
 apply when a source can pause.</li>
+</ul>
+<h2 id="state">State</h2>
+<p>Stateful handlers and <code>InMemoryState</code> are described in the
+<a href="runtime/state.html">state guide</a>. Planned stores, each in its own change:</p>
+<ul>
+<li>a Redis store, offering <code>State&lt;T&gt;</code> encoded with a codec and a handle that
+reads keys and queues writes for one <code>MULTI</code>/<code>EXEC</code> at commit, with <code>WATCH</code>
+on the keys read so that a concurrent writer is detected;</li>
+<li>a Postgres store, offering <code>State&lt;T&gt;</code> in a table it manages and a handle to a
+<code>sqlx</code> transaction the handler runs its own SQL in, with each partition&#39;s
+applied position written in the same transaction;</li>
+<li>a Kafka compacted-topic store offering <code>State&lt;T&gt;</code>, which reads a partition&#39;s
+state when the partition is assigned and needs the state key to be the record
+key, since a compacted topic cannot detect a concurrent writer.</li>
+</ul>
+<p>Remaining decisions:</p>
+<ul>
+<li>what the runtime does when a durable store detects a concurrent change at
+commit. The outputs were already published from the stale state, so rerunning
+the handler publishes a second set, and stopping the subscription restarts
+the process;</li>
+<li>how assignment and revocation reach a store that loads a whole partition,
+since the runtime sees revocation only through each delivery&#39;s token;</li>
+<li>positions for Pulsar, whose message IDs are ordered within a partition but
+can be redelivered out of order under Shared subscriptions and after
+negative acknowledgement;</li>
+<li>retrying a failed commit under a policy instead of stopping the
+subscription;</li>
+<li>removing idle keys and bounding the size of <code>InMemoryState</code>;</li>
+<li>stateful blocking handlers.</li>
 </ul>
 <h2 id="chained-subscriptions">Chained subscriptions</h2>
 <p><code>channel</code> chains subscriptions, as described in the

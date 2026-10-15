@@ -12,6 +12,7 @@ Topic guides cover the rest of the runtime:
 | [Middleware](runtime/middleware.md) | Hooks around the handler and metadata inheritance |
 | [Errors and retries](runtime/errors.md) | Retry policies, the error policy, and dead letters |
 | [Tombstones](runtime/tombstones.md) | Handling null-value records |
+| [State](runtime/state.md) | Per-key state kept across deliveries and committed before acknowledgement |
 | [Transactions](runtime/transactions.md) | Batched transactional publish and acknowledgement |
 | [Observability](runtime/observability.md) | Spans, events, metrics, and trace-context propagation |
 | [Health checks](runtime/health.md) | Liveness and readiness reports and endpoints |

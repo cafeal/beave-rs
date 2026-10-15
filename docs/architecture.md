@@ -13,8 +13,11 @@ The [runtime guide](runtime.md) describes processing behavior, and the
 | Contract | Responsibility |
 |---|---|
 | `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure; declare whether application shutdown stops receiving; optionally expose a `SourceProbe` with its connection state |
-| `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, revocation, propagation fields, and messaging attributes |
+| `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, message key, position, revocation, propagation fields, and messaging attributes |
+| `KeyedMessage` | Mark a `SourceMessage` whose source has message keys, so state can be kept per message key |
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
+| `StatefulHandler<Input, State>` | Transform typed input with the state a `StateStore` keeps for it; also implemented for async functions and closures |
+| `StateStore<Input, Message>` | Begin a state change for each handler attempt and commit it after the outputs are published, before the acknowledgement |
 | `Codec` / `Decoder` / `Encoder` | Convert serialization formats without broker operations |
 | `Sink<T>` | Prepare an associated output representation, submit or publish it, report its completion, and close resources |
 

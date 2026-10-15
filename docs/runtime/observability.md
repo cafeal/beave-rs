@@ -83,7 +83,7 @@ Every metric carries a `subscription` label with the subscription name.
 | `beavers_deliveries_revoked_total` | counter | | Deliveries abandoned after revocation |
 | `beavers_deliveries_in_flight` | gauge | | Received deliveries that have not finished |
 | `beavers_source_connected` | gauge | | `1` while the source is connected to its broker, `0` while it is not; Kafka and Pulsar sources only |
-| `beavers_stage_duration_seconds` | histogram | `stage` | Duration of `decode`, `handler`, `encode`, `publish`, `complete`, `dead_letter`, `ack`, and `commit` |
+| `beavers_stage_duration_seconds` | histogram | `stage` | Duration of `decode`, `handler`, `encode`, `publish`, `complete`, `dead_letter`, `ack`, `commit`, and `state_commit` |
 | `beavers_transaction_deliveries` | histogram | | Deliveries in each committed transaction |
 
 `failure` is `decode`, `rejected`, `retry_exhausted`, `encode`, or
