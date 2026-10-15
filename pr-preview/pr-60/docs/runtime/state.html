@@ -105,15 +105,45 @@ completes:</p>
 because the state change could not commit inside the sink&#39;s transaction;
 registration fails validation.</p>
 <h2 id="keys">Keys</h2>
-<p>State is kept per key. By default the key is the delivery&#39;s message key, such
-as the Kafka record key or the Pulsar message key, and a delivery without one
-is rejected and routed by the error policy. Choose another key from the
-handler&#39;s input with <code>key</code>:</p>
+<p>State is kept per key. By default the key is the delivery&#39;s message key:</p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Message key</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Kafka</td>
+<td>Record key</td>
+</tr>
+<tr>
+<td>Pulsar</td>
+<td>Message key</td>
+</tr>
+<tr>
+<td>SQS</td>
+<td>Message group ID</td>
+</tr>
+<tr>
+<td>Pub/Sub</td>
+<td>Ordering key</td>
+</tr>
+<tr>
+<td>Service Bus</td>
+<td>Session ID</td>
+</tr>
+</tbody></table>
+<p>A single delivery without one, such as a Kafka record with a null key or an
+SQS message sent without a group ID, is rejected and routed by the error
+policy. Choose another key from the handler&#39;s input with <code>key</code>:</p>
 <pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">let</span> <span class="hljs-variable">counts</span> = InMemoryState::&lt;Count&gt;::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">key</span>(|order: &amp;Order| order.customer_id.<span class="hljs-title function_ invoke__">to_string</span>());
 </code></pre><p>A key closure receives the handler&#39;s input, so it takes the value for a value
 handler and the record for a record handler. Sources without message keys,
-such as RabbitMQ, SQS, Pub/Sub, Service Bus, and the local adapters, need a
-key closure.</p>
+such as RabbitMQ, HTTP, stdin, channels, and <code>IterSource</code>, need a key
+closure: with the default key, the subscription fails to compile, with a note
+to choose a key with <code>.key(..)</code>. A source&#39;s messages have message keys when
+they implement <code>KeyedMessage</code>.</p>
 <p>In <code>InMemoryState</code>, deliveries with the same key take turns: a delivery waits
 to begin until the previous delivery with that key has committed or abandoned
 its change, so each sees the last committed state. With the Kafka source, deliveries with the
@@ -141,7 +171,8 @@ stored before this delivery. The handler changes the value through
 takes back the value. A handler that keeps the <code>State</code> after returning, for
 example by moving it into a spawned task, fails the commit.</p>
 <h2 id="stores">Stores</h2>
-<p>A store implements <code>StateStore&lt;I&gt;</code>, where <code>I</code> is the handler&#39;s input:</p>
+<p>A store implements <code>StateStore&lt;I, M&gt;</code>, where <code>I</code> is the handler&#39;s input and
+<code>M</code> the source&#39;s message type, so a store can require <code>M: KeyedMessage</code>:</p>
 <table>
 <thead>
 <tr>

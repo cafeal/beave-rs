@@ -52,6 +52,10 @@ The <a href="runtime.html">runtime guide</a> describes processing behavior, and 
 <td>Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, message key, position, revocation, propagation fields, and messaging attributes</td>
 </tr>
 <tr>
+<td><code>KeyedMessage</code></td>
+<td>Mark a <code>SourceMessage</code> whose source has message keys, so state can be kept per message key</td>
+</tr>
+<tr>
 <td><code>Handler&lt;Input&gt;</code></td>
 <td>Transform typed input asynchronously; also implemented for async functions and closures</td>
 </tr>
@@ -60,7 +64,7 @@ The <a href="runtime.html">runtime guide</a> describes processing behavior, and 
 <td>Transform typed input with the state a <code>StateStore</code> keeps for it; also implemented for async functions and closures</td>
 </tr>
 <tr>
-<td><code>StateStore&lt;Input&gt;</code></td>
+<td><code>StateStore&lt;Input, Message&gt;</code></td>
 <td>Begin a state change for each handler attempt and commit it after the outputs are published, before the acknowledgement</td>
 </tr>
 <tr>
