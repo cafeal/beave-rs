@@ -59,14 +59,14 @@ servicebus = [
 ]
 opentelemetry = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 testing = []
-lua = ["dep:mlua"]
+javascript = ["dep:rquickjs"]
 python = ["dep:pyo3"]
 http = ["dep:hyper", "dep:hyper-util", "dep:hyper-rustls", "dep:rustls", "dep:http-body-util", "dep:bytes", "tokio/net"]
 health = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "tokio/net"]
 
-[dependencies.mlua]
-version = "0.12"
-features = ["lua54", "vendored", "serialize", "send"]
+[dependencies.rquickjs]
+version = "0.14"
+features = ["parallel"]
 optional = true
 
 [dependencies.pyo3]

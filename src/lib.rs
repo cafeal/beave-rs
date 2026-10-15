@@ -86,7 +86,7 @@
 //! | `zstd` | The `Zstd` compression wrapper |
 //! | `opentelemetry` | Trace-context propagation with `TraceContext` |
 //! | `health` | `/livez` and `/readyz` endpoints in [`health`] |
-//! | `lua` | The Lua handler in `handlers` |
+//! | `javascript` | The JavaScript handler in `handlers`, embedding QuickJS |
 //! | `python` | The Python handler in `handlers`, embedding CPython |
 //! | `testing` | Fabricated broker records for handler tests in `testing` |
 //!
@@ -111,7 +111,7 @@ pub mod dead_letter;
 pub mod error;
 pub mod error_policy;
 pub mod handler;
-#[cfg(any(feature = "lua", feature = "python"))]
+#[cfg(any(feature = "javascript", feature = "python"))]
 pub mod handlers;
 pub mod health;
 pub mod message;

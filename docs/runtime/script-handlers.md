@@ -1,7 +1,7 @@
-# Lua and Python handlers
+# JavaScript and Python handlers
 
-The `lua` and `python` features add handlers in `beavers::handlers` that run
-code written in Lua or Python instead of Rust. Each takes the decoded input as
+The `javascript` and `python` features add handlers in `beavers::handlers` that
+run code written in JavaScript or Python instead of Rust. Each takes the decoded input as
 a JSON value and emits zero, one, or many JSON values, so it is registered with
 `Subscription::new_emitting` between a source and a sink that use the
 `Json<serde_json::Value>` codec:
@@ -33,27 +33,33 @@ The handler takes the record's value, so outputs inherit the input's key and
 headers as described in [handler shapes](handlers.md#handler-shapes). The code
 cannot read or set broker metadata.
 
-## Lua
+## JavaScript
 
-`Lua::new(code)` compiles a Lua 5.4 chunk and reports syntax errors as
-`Error::Config`. The chunk runs once per input:
+`JavaScript::new(code)` runs the code once in the embedded QuickJS engine and
+looks up its `handle(input)` function. Syntax errors, exceptions thrown while
+the code runs, and a missing `handle` are reported as `Error::Config`.
 
-```lua
-if input.status ~= "paid" then return nil end
-return { order_id = input.id, amount = input.total }
+```js
+function handle(input) {
+  if (input.status !== "paid") return;
+  return { order_id: input.id, amount: input.total };
+}
 ```
 
 | Topic | Behavior |
 |---|---|
-| Input | The local `input`, converted from JSON: objects and arrays become tables, JSON `null` is `beavers.null` |
-| Outputs | No value or `nil` emits nothing; each returned value other than `nil` is one output, so `return a, b` emits two |
-| Output conversion | Tables with consecutive integer keys from 1 become arrays, other tables, including empty ones, objects; a function or other value that JSON cannot represent rejects the input |
-| Errors | A Lua error rejects the input; `beavers.retry(message)` raises an error that retries it under the handler retry policy |
-| Libraries | `table`, `string`, `utf8`, `math`, and `coroutine`; `io`, `os`, `require`, and `debug` are not available |
-| Execution | One Lua state per handler on its own worker thread, one input at a time; globals persist between inputs and retries |
+| Input | The value passed through `JSON.parse` |
+| Outputs | `undefined` or `null` emits nothing; a generator function (`function*`) emits one output per yielded value; any other value, including an array, is one output |
+| Output conversion | `JSON.stringify`; a value it cannot encode, such as a function, rejects the input |
+| Errors | A thrown value rejects the input; `throw new beavers.Retry(message)` retries it under the handler retry policy |
+| `beavers` object | A predefined global holding `Retry` |
+| Language | The ECMAScript standard as implemented by QuickJS-ng; there is no `require`, `import`, `fetch`, `console`, or other file, network, or process access |
+| Execution | One engine per handler on its own worker thread, one input at a time; globals persist between inputs and retries |
 
-Lua 5.4 is compiled into the crate, so the `lua` feature needs a C compiler
-at build time and nothing at run time.
+`handle` must return its result directly: an `async` function or another value
+with a `then` method rejects the input. QuickJS is compiled into the crate, so
+the `javascript` feature needs a C compiler at build time and nothing at run
+time.
 
 ## Python
 
