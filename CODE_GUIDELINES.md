@@ -30,6 +30,13 @@ src/
 ├── propagation.rs         # Trace-context carrier contract for outputs
 ├── telemetry.rs           # OpenTelemetry propagation (`opentelemetry` feature)
 ├── shutdown.rs            # Cancellation and process signals
+├── state/
+│   ├── mod.rs             # Module declarations and public re-exports
+│   ├── store.rs           # StateStore, Begin, and StateContext
+│   ├── handler.rs         # StatefulHandler and stateful()
+│   ├── key.rs             # StateKey and MessageKey
+│   ├── value.rs           # State<T>, one stored value per key
+│   └── memory.rs          # InMemoryState
 ├── health/
 │   ├── mod.rs             # Module declarations and public re-exports
 │   ├── state.rs           # Health handle, reports, and per-subscription state
@@ -52,7 +59,7 @@ src/
 ├── subscription/
 │   ├── mod.rs             # Module declarations and public re-exports
 │   ├── builder.rs         # Subscription type and builder API
-│   ├── handler.rs         # Handler shapes: IntoHandler, ByRecord, and ByValue
+│   ├── handler.rs         # Handler shapes: IntoHandler, ByRecord, ByValue, and state markers
 │   ├── config.rs          # Runtime configuration and validation
 │   ├── runtime.rs         # Private receive loop, draining, and cleanup
 │   ├── scheduler.rs       # Private ordering-key queues

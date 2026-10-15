@@ -2,7 +2,7 @@ use super::{deliveries::Deliveries, record::TestRecord};
 use crate::{
     codec::Decoder,
     error::BoxError,
-    message::{OrderingKey, SourceMessage},
+    message::{OrderingKey, Position, SourceMessage},
     source::{Receive, ReceiveError, Source},
 };
 use std::{collections::VecDeque, sync::Arc};
@@ -178,5 +178,13 @@ where
 
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
         self.record.propagation_fields()
+    }
+
+    fn message_key(&self) -> Option<&[u8]> {
+        self.record.message_key()
+    }
+
+    fn position(&self) -> Option<Position> {
+        self.record.position()
     }
 }

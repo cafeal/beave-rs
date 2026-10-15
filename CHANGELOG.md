@@ -29,6 +29,15 @@ project follows the versioning policy in
 - `KafkaSource::graceful_handoff`, which lets started deliveries of a revoked
   partition finish and commit before the partition moves, through the new
   `SourceMessage::handoff` token and `Delivery::with_handoff`.
+- Stateful handlers in the new `state` module: `stateful(store, handler)`
+  passes each input with the state a `StateStore` keeps for its key, and
+  commits the change after the outputs are published and before the
+  acknowledgement. `InMemoryState` keeps `State<T>` values in memory, keyed by
+  message key or by a closure over the input, and skips Kafka redeliveries it
+  already holds.
+- `SourceMessage::message_key` and `SourceMessage::position`, reported by the
+  Kafka source and, for message keys, by the Pulsar source, and set on a
+  `Delivery` with `with_message_key` and `with_position`.
 
 ### Changed
 
@@ -50,6 +59,10 @@ project follows the versioning policy in
   adapters' timestamps.
 - The Kafka source polls its consumer on a thread of its own, which also runs
   its rebalance callbacks.
+
+- `IntoHandler` markers gained a fourth element, `Stateless` or `WithState`;
+  `Subscription::new`, `Subscription::new_emitting`, and `App::subscribe` infer
+  it.
 
 ### Removed
 

@@ -418,6 +418,10 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for PulsarM
         self.ordering_key.clone()
     }
 
+    fn message_key(&self) -> Option<&[u8]> {
+        self.key.as_deref()
+    }
+
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
         self.properties
             .iter()

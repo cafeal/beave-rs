@@ -9,7 +9,7 @@ use super::{
 use crate::{
     codec::Decoder,
     error::{BoxError, Error},
-    message::{MessagingAttributes, OrderingKey, SourceMessage},
+    message::{MessagingAttributes, OrderingKey, Position, SourceMessage},
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source, SourceProbe},
 };
@@ -330,6 +330,18 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for KafkaMe
         Some(OrderingKey::new(
             self.raw.topic(),
             i64::from(self.raw.partition()),
+        ))
+    }
+
+    fn message_key(&self) -> Option<&[u8]> {
+        self.raw.key()
+    }
+
+    fn position(&self) -> Option<Position> {
+        Some(Position::new(
+            self.raw.topic(),
+            i64::from(self.raw.partition()),
+            self.raw.offset(),
         ))
     }
 

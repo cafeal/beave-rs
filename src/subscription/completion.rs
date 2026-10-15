@@ -1,5 +1,6 @@
 //! The final stage of a delivery: prepare outputs, publish them, and acknowledge.
 use super::{
+    builder::Commit,
     config::SubscriptionConfig,
     instruments::{Instruments, Stage},
     processing::retry_publish,
@@ -27,8 +28,9 @@ pub(super) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub(super) enum Completion<M> {
     Done,
     /// Every output was submitted but some have not completed yet; the delivery is
-    /// returned unacknowledged, to be acknowledged once they succeed.
-    Pending(M, Vec<sink::Completion>),
+    /// returned unacknowledged with its state change, to be committed and
+    /// acknowledged once they succeed.
+    Pending(M, Vec<sink::Completion>, Option<Commit>),
     /// The delivery joined a transaction that has not committed yet; the
     /// completion resolves when that transaction acknowledges it.
     Committing(sink::Completion),
@@ -45,12 +47,15 @@ pub(super) trait Complete<M, O>: Send + Sync + 'static {
     /// Starts background work before the subscription receives its first
     /// delivery.
     fn start(&self, _config: &SubscriptionConfig, _instruments: &Instruments) {}
-    /// Prepares every output, then publishes them and acknowledges `delivery`.
-    /// With no outputs, only acknowledges `delivery`.
+    /// Prepares every output, then publishes them, commits the handler's
+    /// state change, and acknowledges `delivery`. With no outputs, only
+    /// commits and acknowledges. A delivery routed as a failure drops
+    /// `commit`, so its state change is not applied.
     fn complete<'a>(
         &'a self,
         delivery: M,
         outputs: Vec<O>,
+        commit: Option<Commit>,
         policy: &'a RetryPolicy,
         instruments: &'a Instruments,
     ) -> BoxFuture<'a, Result<Completion<M>, BoxError>>;
@@ -77,6 +82,7 @@ where
         &'a self,
         delivery: M,
         outputs: Vec<O>,
+        commit: Option<Commit>,
         policy: &'a RetryPolicy,
         instruments: &'a Instruments,
     ) -> BoxFuture<'a, Result<Completion<M>, BoxError>> {
@@ -126,8 +132,9 @@ where
                 }
             }
             if !completions.iter().all(sink::Completion::is_done) {
-                return Ok(Completion::Pending(delivery, completions));
+                return Ok(Completion::Pending(delivery, completions, commit));
             }
+            commit_state(commit, instruments).await?;
             acknowledge(delivery, instruments).await?;
             Ok(Completion::Done)
         })
@@ -177,10 +184,15 @@ where
         &'a self,
         delivery: M,
         outputs: Vec<O>,
+        commit: Option<Commit>,
         _: &'a RetryPolicy,
         instruments: &'a Instruments,
     ) -> BoxFuture<'a, Result<Completion<M>, BoxError>> {
         Box::pin(async move {
+            // Validation keeps stateful handlers out of transactional subscriptions.
+            if commit.is_some() {
+                return Err("a transactional subscription cannot commit state".into());
+            }
             let outputs = match prepare(&*self.sink, outputs, &delivery, instruments) {
                 Ok(outputs) => outputs,
                 Err(error) => return Ok(Completion::Encode(delivery, error)),
@@ -243,6 +255,24 @@ fn prepare<M: SourceMessage, O, K: Sink<O>>(
     });
     instruments.record(Stage::Encode, started);
     prepared
+}
+
+/// Applies a stateful handler's state change before its delivery is
+/// acknowledged.
+pub(super) async fn commit_state(
+    commit: Option<Commit>,
+    instruments: &Instruments,
+) -> Result<(), BoxError> {
+    let Some(commit) = commit else {
+        return Ok(());
+    };
+    let started = Instant::now();
+    commit()
+        .instrument(info_span!("state_commit"))
+        .await
+        .context("state commit failed")?;
+    instruments.record(Stage::State, started);
+    Ok(())
 }
 
 pub(super) async fn acknowledge<M: SourceMessage>(

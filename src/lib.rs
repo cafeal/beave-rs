@@ -57,6 +57,8 @@
 //!   acknowledgement and is acknowledged only after its outputs are published.
 //! - A [`Handler`] turns a decoded input into an output, or into zero or many outputs with
 //!   [`Emit`]. Its errors are classified with [`HandlerError`] and [`Classify`].
+//! - A [stateful](state::stateful) handler also takes per-key state from a
+//!   [`StateStore`](state::StateStore), committed after its outputs are published.
 //! - A [`Sink`] prepares an output once and publishes it, with retries.
 //! - A [`Subscription`] connects one source, handler, and sink with [`Middleware`], a
 //!   dead-letter sink, an [`ErrorPolicy`], and settings such as concurrency and retries.
@@ -118,6 +120,7 @@ pub mod retry;
 pub mod shutdown;
 pub mod sink;
 pub mod source;
+pub mod state;
 pub mod subscription;
 #[cfg(feature = "opentelemetry")]
 pub mod telemetry;
@@ -152,7 +155,7 @@ pub use error::{BoxError, Error};
 pub use error_policy::{ErrorPolicy, FailureAction, FailureKind};
 pub use handler::{Classify, Emit, Handler, HandlerError, Result};
 pub use health::Health;
-pub use message::{Delivery, MessagingAttributes, OrderingKey, SourceMessage};
+pub use message::{Delivery, MessagingAttributes, OrderingKey, Position, SourceMessage};
 pub use middleware::{Flow, MapMetadata, Middleware};
 pub use propagation::PropagationCarrier;
 pub use record::{SamePlatform, ValueRecord};

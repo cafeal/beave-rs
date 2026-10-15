@@ -44,6 +44,49 @@ impl OrderingKey {
     }
 }
 
+/// Where a delivery sits within its partition, such as a Kafka offset in a
+/// topic partition.
+///
+/// Positions of one partition increase in the order the broker stores the
+/// deliveries, so a [`StateStore`](crate::state::StateStore) can recognize a
+/// redelivery of a delivery whose state change it has already applied.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Position {
+    scope: Arc<str>,
+    index: i64,
+    offset: i64,
+}
+
+impl Position {
+    /// The position `offset` within partition `index` of `scope`, such as a
+    /// topic.
+    pub fn new(scope: impl Into<Arc<str>>, index: i64, offset: i64) -> Self {
+        Self {
+            scope: scope.into(),
+            index,
+            offset,
+        }
+    }
+    /// Name of the partition's scope, such as a topic.
+    pub fn scope(&self) -> &str {
+        &self.scope
+    }
+    /// Index of the partition within its scope.
+    pub fn index(&self) -> i64 {
+        self.index
+    }
+    /// Offset within the partition.
+    pub fn offset(&self) -> i64 {
+        self.offset
+    }
+    /// Whether this position is in the same partition as `other` and not
+    /// after it, that is, whether a change recorded at `other` already
+    /// covers this delivery.
+    pub fn is_covered_by(&self, other: &Position) -> bool {
+        self.scope == other.scope && self.index == other.index && self.offset <= other.offset
+    }
+}
+
 /// A delivery owns its ACK capability; handlers only receive decoded values.
 /// Decode must not acknowledge or publish. Dropping a message must never ACK it.
 /// Implementations may retain raw bytes and broker-specific metadata internally.
@@ -65,6 +108,19 @@ pub trait SourceMessage: Send + 'static {
     /// The scope within which the source delivers in order. `None` means the
     /// delivery has no ordering relationship with other deliveries.
     fn ordering_key(&self) -> Option<OrderingKey> {
+        None
+    }
+    /// The broker's message key, such as a Kafka record key. A
+    /// [stateful](crate::state) handler keeps its state per message key unless
+    /// its store chooses another key. Sources without message keys return
+    /// `None`.
+    fn message_key(&self) -> Option<&[u8]> {
+        None
+    }
+    /// Where this delivery sits within its partition, for sources that
+    /// redeliver a partition in the order its deliveries are stored, such as
+    /// Kafka. Other sources return `None`.
+    fn position(&self) -> Option<Position> {
         None
     }
     /// A token the source cancels when it no longer owns this delivery, for
@@ -176,6 +232,8 @@ pub struct Delivery<T, R = ()> {
     revocation: Option<CancellationToken>,
     handoff: Option<CancellationToken>,
     propagation: Vec<(String, String)>,
+    message_key: Option<Vec<u8>>,
+    position: Option<Position>,
     raw: R,
 }
 impl<T> Delivery<T> {
@@ -192,6 +250,8 @@ impl<T> Delivery<T> {
             revocation: None,
             handoff: None,
             propagation: Vec::new(),
+            message_key: None,
+            position: None,
             raw: (),
         }
     }
@@ -210,6 +270,8 @@ impl<T, R> Delivery<T, R> {
             revocation: self.revocation,
             handoff: self.handoff,
             propagation: self.propagation,
+            message_key: self.message_key,
+            position: self.position,
             raw,
         }
     }
@@ -232,6 +294,16 @@ impl<T, R> Delivery<T, R> {
     /// continues the trace of the code that produced this value.
     pub fn with_propagation_fields(mut self, fields: Vec<(String, String)>) -> Self {
         self.propagation = fields;
+        self
+    }
+    /// Set the key reported by [`SourceMessage::message_key`].
+    pub fn with_message_key(mut self, key: impl Into<Vec<u8>>) -> Self {
+        self.message_key = Some(key.into());
+        self
+    }
+    /// Set the position reported by [`SourceMessage::position`].
+    pub fn with_position(mut self, position: Position) -> Self {
+        self.position = Some(position);
         self
     }
     /// Run the acknowledgement.
@@ -266,6 +338,12 @@ where
     }
     fn handoff(&self) -> Option<CancellationToken> {
         self.handoff.clone()
+    }
+    fn message_key(&self) -> Option<&[u8]> {
+        self.message_key.as_deref()
+    }
+    fn position(&self) -> Option<Position> {
+        self.position.clone()
     }
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
         self.propagation

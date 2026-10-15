@@ -22,8 +22,10 @@ framework should own connectivity, serialization, acknowledgements, retries,
 concurrency, shutdown, and observability while describing delivery guarantees
 according to the actual source and sink capabilities.
 
-The project does not aim to provide stateful stream processing, windows, joins,
-watermarks, state stores, distributed scheduling, SQL, or general DAG execution.
+Handlers can keep simple per-key [state](runtime/state.md) committed with
+each delivery. The project does not aim to provide stateful stream processing
+such as windows, joins, watermarks, changelog-backed local state stores,
+distributed scheduling, SQL, or general DAG execution.
 
 ## Middleware
 
@@ -162,6 +164,37 @@ the Kafka source can pause a key. Remaining decisions:
   consumer; Key_Shared keys are message keys, which cannot be paused;
 - whether a default per-key limit, such as a share of `max_in_flight`, should
   apply when a source can pause.
+
+## State
+
+Stateful handlers and `InMemoryState` are described in the
+[state guide](runtime/state.md). Planned stores, each in its own change:
+
+- a Redis store, offering `State<T>` encoded with a codec and a handle that
+  reads keys and queues writes for one `MULTI`/`EXEC` at commit, with `WATCH`
+  on the keys read so that a concurrent writer is detected;
+- a Postgres store, offering `State<T>` in a table it manages and a handle to a
+  `sqlx` transaction the handler runs its own SQL in, with each partition's
+  applied position written in the same transaction;
+- a Kafka compacted-topic store offering `State<T>`, which reads a partition's
+  state when the partition is assigned and needs the state key to be the record
+  key, since a compacted topic cannot detect a concurrent writer.
+
+Remaining decisions:
+
+- what the runtime does when a durable store detects a concurrent change at
+  commit. The outputs were already published from the stale state, so rerunning
+  the handler publishes a second set, and stopping the subscription restarts
+  the process;
+- how assignment and revocation reach a store that loads a whole partition,
+  since the runtime sees revocation only through each delivery's token;
+- positions for Pulsar, whose message IDs are ordered within a partition but
+  can be redelivered out of order under Shared subscriptions and after
+  negative acknowledgement;
+- retrying a failed commit under a policy instead of stopping the
+  subscription;
+- removing idle keys and bounding the size of `InMemoryState`;
+- stateful blocking handlers.
 
 ## Chained subscriptions
 

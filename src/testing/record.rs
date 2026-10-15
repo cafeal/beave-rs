@@ -1,5 +1,8 @@
 use crate::error::BoxError;
-use crate::{codec::Decoder, message::OrderingKey};
+use crate::{
+    codec::Decoder,
+    message::{OrderingKey, Position},
+};
 use serde::Serialize;
 use std::fmt::Debug;
 
@@ -50,6 +53,16 @@ pub trait TestRecord: Clone + Debug + Serialize + Send + Sync + 'static {
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
         Vec::new()
     }
+
+    /// The message key the owning adapter reports for this record.
+    fn message_key(&self) -> Option<&[u8]> {
+        None
+    }
+
+    /// The position the owning adapter reports for this record.
+    fn position(&self) -> Option<Position> {
+        None
+    }
 }
 
 /// A bare payload without record metadata. Deliveries have no ordering scope.
@@ -94,6 +107,18 @@ impl TestRecord for KafkaRecord<Vec<u8>> {
         ))
     }
 
+    fn message_key(&self) -> Option<&[u8]> {
+        self.key.as_deref()
+    }
+
+    fn position(&self) -> Option<Position> {
+        Some(Position::new(
+            self.metadata.topic.as_str(),
+            i64::from(self.metadata.partition),
+            self.metadata.offset,
+        ))
+    }
+
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
         text_headers(
             self.headers
@@ -132,6 +157,10 @@ impl TestRecord for PulsarRecord<Vec<u8>> {
             self.metadata.topic.as_str(),
             i64::from(self.metadata.message_id.partition),
         ))
+    }
+
+    fn message_key(&self) -> Option<&[u8]> {
+        self.key.as_deref()
     }
 
     fn propagation_fields(&self) -> Vec<(&str, &str)> {

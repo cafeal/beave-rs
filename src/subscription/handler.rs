@@ -1,12 +1,14 @@
 //! Handler shapes accepted by subscription constructors.
-use super::builder::Subscription;
+use super::builder::{Commit, Outcome, Subscription};
 use crate::{
-    handler::{Emit, Handler},
+    handler::{Emit, Handler, HandlerError, Result},
     record::{SamePlatform, ValueRecord},
     sink::Sink,
     source::{Source, SourceItem},
+    state::{Begin, StateContext, StateStore, Stateful, StatefulHandler},
 };
 use std::sync::Arc;
+use tracing::debug;
 
 /// Handler shape marker for the received record, or for an output that is
 /// already the sink's type.
@@ -38,6 +40,15 @@ pub struct One;
 #[derive(Debug)]
 pub struct Many;
 
+/// State marker for a [`Handler`] taking only its input.
+#[derive(Debug)]
+pub struct Stateless;
+
+/// State marker for a [`Stateful`] handler, which takes its input and the
+/// state its store keeps for it.
+#[derive(Debug)]
+pub struct WithState;
+
 /// Turns a handler result into the outputs of one delivery.
 pub trait Cardinality<R>: 'static {
     /// One output value.
@@ -62,11 +73,12 @@ impl<T: Send + Sync + 'static> Cardinality<Emit<T>> for Many {
 
 /// A handler that a subscription between source `S` and sink `K` can run.
 ///
-/// Implemented for every [`Handler`] whose input and output fit one of the
-/// shapes selected by the marker `M = (In, Out, C)`. `In` and `Out` are
-/// [`ByRecord`] or [`ByValue`] and are inferred from the handler's signature;
-/// `C` is [`One`] or [`Many`] and is fixed by the constructor. For a Kafka
-/// source and sink:
+/// Implemented for every [`Handler`], and every [`Stateful`] handler, whose
+/// input and output fit one of the shapes selected by the marker
+/// `M = (In, Out, C, St)`. `In` and `Out` are [`ByRecord`] or [`ByValue`] and
+/// are inferred from the handler's signature; `C` is [`One`] or [`Many`] and
+/// is fixed by the constructor; `St` is [`Stateless`] or [`WithState`]. For a
+/// Kafka source and sink:
 ///
 /// | Handler | `In` | `Out` |
 /// | --- | --- | --- |
@@ -74,6 +86,10 @@ impl<T: Send + Sync + 'static> Cardinality<Emit<T>> for Many {
 /// | `async fn(KafkaRecord<String>) -> Result<String>` | `ByRecord` | `ByValue` |
 /// | `async fn(String) -> Result<KafkaPublish<String>>` | `ByValue` | `ByRecord` |
 /// | `async fn(KafkaRecord<String>) -> Result<KafkaPublish<String>>` | `ByRecord` | `ByRecord` |
+///
+/// A stateful handler takes its state as a second parameter, as in
+/// `async fn(String, State<u64>) -> Result<String>`, and the input and output
+/// shapes are chosen the same way.
 ///
 /// A handler whose shape the source or sink does not support fails to
 /// compile. Closures need their parameter type annotated, because the shape is
@@ -91,7 +107,7 @@ pub trait IntoHandler<S: Source, K, M>: Send + Sync + 'static {
     ) -> Subscription<S, K, Self::Output>;
 }
 
-impl<S, K, H, C> IntoHandler<S, K, (ByRecord, ByRecord, C)> for H
+impl<S, K, H, C> IntoHandler<S, K, (ByRecord, ByRecord, C, Stateless)> for H
 where
     S: Source,
     H: Handler<SourceItem<S>>,
@@ -102,14 +118,23 @@ where
 
     fn into_subscription(self, name: String, source: S, sink: K) -> Subscription<S, K, C::Item> {
         let handler = Arc::new(self);
-        Subscription::with_handler(name, source, sink, move |input| {
-            let handler = handler.clone();
-            async move { handler.handle(input).await.map(C::emit) }
-        })
+        Subscription::with_handler(
+            name,
+            source,
+            sink,
+            false,
+            Arc::new(move |input, _| {
+                let handler = handler.clone();
+                Box::pin(async move {
+                    let result = handler.handle(input).await?;
+                    Ok(Outcome::stateless(C::emit(result)))
+                })
+            }),
+        )
     }
 }
 
-impl<S, K, H, C> IntoHandler<S, K, (ByValue, ByRecord, C)> for H
+impl<S, K, H, C> IntoHandler<S, K, (ByValue, ByRecord, C, Stateless)> for H
 where
     S: Source,
     SourceItem<S>: ValueRecord,
@@ -121,14 +146,23 @@ where
 
     fn into_subscription(self, name: String, source: S, sink: K) -> Subscription<S, K, C::Item> {
         let handler = Arc::new(self);
-        Subscription::with_handler(name, source, sink, move |record: SourceItem<S>| {
-            let handler = handler.clone();
-            async move { handler.handle(record.value()?).await.map(C::emit) }
-        })
+        Subscription::with_handler(
+            name,
+            source,
+            sink,
+            false,
+            Arc::new(move |record: SourceItem<S>, _| {
+                let handler = handler.clone();
+                Box::pin(async move {
+                    let result = handler.handle(record.value()?).await?;
+                    Ok(Outcome::stateless(C::emit(result)))
+                })
+            }),
+        )
     }
 }
 
-impl<S, K, H, C> IntoHandler<S, K, (ByRecord, ByValue, C)> for H
+impl<S, K, H, C> IntoHandler<S, K, (ByRecord, ByValue, C, Stateless)> for H
 where
     S: Source,
     H: Handler<SourceItem<S>>,
@@ -145,18 +179,24 @@ where
         sink: K,
     ) -> Subscription<S, K, Self::Output> {
         let handler = Arc::new(self);
-        Subscription::with_handler(name, source, sink, move |input| {
-            let handler = handler.clone();
-            async move {
-                let result = handler.handle(input).await?;
-                Ok(C::emit(result).map(<SourceItem<S> as SamePlatform<C::Item>>::publish))
-            }
-        })
+        Subscription::with_handler(
+            name,
+            source,
+            sink,
+            false,
+            Arc::new(move |input, _| {
+                let handler = handler.clone();
+                Box::pin(async move {
+                    let result = handler.handle(input).await?;
+                    Ok(Outcome::stateless(publish::<S, _>(C::emit(result))))
+                })
+            }),
+        )
         .middleware(<SourceItem<S> as SamePlatform<C::Item>>::Inherit::default())
     }
 }
 
-impl<S, K, H, C> IntoHandler<S, K, (ByValue, ByValue, C)> for H
+impl<S, K, H, C> IntoHandler<S, K, (ByValue, ByValue, C, Stateless)> for H
 where
     S: Source,
     H: Handler<<SourceItem<S> as ValueRecord>::Value>,
@@ -173,13 +213,183 @@ where
         sink: K,
     ) -> Subscription<S, K, Self::Output> {
         let handler = Arc::new(self);
-        Subscription::with_handler(name, source, sink, move |record: SourceItem<S>| {
-            let handler = handler.clone();
-            async move {
-                let result = handler.handle(record.value()?).await?;
-                Ok(C::emit(result).map(<SourceItem<S> as SamePlatform<C::Item>>::publish))
-            }
-        })
+        Subscription::with_handler(
+            name,
+            source,
+            sink,
+            false,
+            Arc::new(move |record: SourceItem<S>, _| {
+                let handler = handler.clone();
+                Box::pin(async move {
+                    let result = handler.handle(record.value()?).await?;
+                    Ok(Outcome::stateless(publish::<S, _>(C::emit(result))))
+                })
+            }),
+        )
         .middleware(<SourceItem<S> as SamePlatform<C::Item>>::Inherit::default())
     }
+}
+
+impl<S, K, St, H, C> IntoHandler<S, K, (ByRecord, ByRecord, C, WithState)> for Stateful<St, H>
+where
+    S: Source,
+    St: StateStore<SourceItem<S>>,
+    H: StatefulHandler<SourceItem<S>, St::State>,
+    C: Cardinality<H::Output>,
+    K: Sink<C::Item>,
+{
+    type Output = C::Item;
+
+    fn into_subscription(self, name: String, source: S, sink: K) -> Subscription<S, K, C::Item> {
+        let stateful = Arc::new(self);
+        Subscription::with_handler(
+            name,
+            source,
+            sink,
+            true,
+            Arc::new(move |input, context| {
+                Box::pin(run_stateful(stateful.clone(), input, context, C::emit))
+            }),
+        )
+    }
+}
+
+impl<S, K, St, H, C> IntoHandler<S, K, (ByValue, ByRecord, C, WithState)> for Stateful<St, H>
+where
+    S: Source,
+    SourceItem<S>: ValueRecord,
+    <SourceItem<S> as ValueRecord>::Value: Sync,
+    St: StateStore<<SourceItem<S> as ValueRecord>::Value>,
+    H: StatefulHandler<<SourceItem<S> as ValueRecord>::Value, St::State>,
+    C: Cardinality<H::Output>,
+    K: Sink<C::Item>,
+{
+    type Output = C::Item;
+
+    fn into_subscription(self, name: String, source: S, sink: K) -> Subscription<S, K, C::Item> {
+        let stateful = Arc::new(self);
+        Subscription::with_handler(
+            name,
+            source,
+            sink,
+            true,
+            Arc::new(move |record: SourceItem<S>, context| {
+                let stateful = stateful.clone();
+                Box::pin(
+                    async move { run_stateful(stateful, record.value()?, context, C::emit).await },
+                )
+            }),
+        )
+    }
+}
+
+impl<S, K, St, H, C> IntoHandler<S, K, (ByRecord, ByValue, C, WithState)> for Stateful<St, H>
+where
+    S: Source,
+    St: StateStore<SourceItem<S>>,
+    H: StatefulHandler<SourceItem<S>, St::State>,
+    C: Cardinality<H::Output>,
+    SourceItem<S>: SamePlatform<C::Item>,
+    K: Sink<<SourceItem<S> as SamePlatform<C::Item>>::Publish>,
+{
+    type Output = <SourceItem<S> as SamePlatform<C::Item>>::Publish;
+
+    fn into_subscription(
+        self,
+        name: String,
+        source: S,
+        sink: K,
+    ) -> Subscription<S, K, Self::Output> {
+        let stateful = Arc::new(self);
+        Subscription::with_handler(
+            name,
+            source,
+            sink,
+            true,
+            Arc::new(move |input, context| {
+                Box::pin(run_stateful(stateful.clone(), input, context, |result| {
+                    publish::<S, _>(C::emit(result))
+                }))
+            }),
+        )
+        .middleware(<SourceItem<S> as SamePlatform<C::Item>>::Inherit::default())
+    }
+}
+
+impl<S, K, St, H, C> IntoHandler<S, K, (ByValue, ByValue, C, WithState)> for Stateful<St, H>
+where
+    S: Source,
+    <SourceItem<S> as ValueRecord>::Value: Sync,
+    St: StateStore<<SourceItem<S> as ValueRecord>::Value>,
+    H: StatefulHandler<<SourceItem<S> as ValueRecord>::Value, St::State>,
+    C: Cardinality<H::Output>,
+    SourceItem<S>: SamePlatform<C::Item>,
+    K: Sink<<SourceItem<S> as SamePlatform<C::Item>>::Publish>,
+{
+    type Output = <SourceItem<S> as SamePlatform<C::Item>>::Publish;
+
+    fn into_subscription(
+        self,
+        name: String,
+        source: S,
+        sink: K,
+    ) -> Subscription<S, K, Self::Output> {
+        let stateful = Arc::new(self);
+        Subscription::with_handler(
+            name,
+            source,
+            sink,
+            true,
+            Arc::new(move |record: SourceItem<S>, context| {
+                let stateful = stateful.clone();
+                Box::pin(async move {
+                    run_stateful(stateful, record.value()?, context, |result| {
+                        publish::<S, _>(C::emit(result))
+                    })
+                    .await
+                })
+            }),
+        )
+        .middleware(<SourceItem<S> as SamePlatform<C::Item>>::Inherit::default())
+    }
+}
+
+/// Wraps each value output in the source platform's publish record.
+fn publish<S, U>(outputs: Emit<U>) -> Emit<<SourceItem<S> as SamePlatform<U>>::Publish>
+where
+    S: Source,
+    SourceItem<S>: SamePlatform<U>,
+{
+    outputs.map(<SourceItem<S> as SamePlatform<U>>::publish)
+}
+
+/// Runs one attempt of a stateful handler: begins the state change, runs the
+/// handler with the state, and returns the outputs with the change to commit.
+async fn run_stateful<I, St, H, O>(
+    stateful: Arc<Stateful<St, H>>,
+    input: I,
+    context: Option<Arc<StateContext>>,
+    emit: impl FnOnce(H::Output) -> Emit<O>,
+) -> Result<Outcome<O>>
+where
+    I: Sync,
+    St: StateStore<I>,
+    H: StatefulHandler<I, St::State>,
+{
+    let context = context
+        .ok_or_else(|| HandlerError::Fatal("a stateful handler ran without its context".into()))?;
+    let (state, txn) = match stateful.store.begin(&input, &context).await? {
+        Begin::Ready(state, txn) => (state, txn),
+        Begin::Applied => {
+            debug!("state already holds this delivery; skipping the handler");
+            return Ok(Outcome::stateless(Emit::None));
+        }
+    };
+    let result = stateful.handler.handle(input, state).await?;
+    let commit: Commit =
+        Box::new(move || Box::pin(async move { stateful.store.commit(txn).await }));
+    Ok(Outcome {
+        outputs: emit(result),
+        commit: Some(commit),
+    })
 }
