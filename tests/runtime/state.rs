@@ -1,10 +1,12 @@
-use super::fixtures::{DeliverySource, Flaky, TransactionalSource, Transactions, fast};
+use super::fixtures::{Flaky, TransactionalSource, Transactions, fast};
 use beavers::{
     App, BoxError, CancellationToken, Completion, DeadLetter, Delivery, Emit, ErrorPolicy,
-    FailureKind, HandlerError, InMemorySink, IterSource, Position, Sink, Subscription,
+    FailureKind, HandlerError, InMemorySink, IterSource, KeyedMessage, OrderingKey, Position,
+    Receive, ReceiveError, Sink, Source, SourceMessage, Subscription,
     state::{InMemoryState, State, stateful},
 };
 use std::{
+    collections::VecDeque,
     sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -12,8 +14,76 @@ use std::{
     time::Duration,
 };
 
-fn keyed(value: i32, key: &str) -> Delivery<i32> {
-    Delivery::untracked(value).with_message_key(key)
+/// A delivery of a source with message keys.
+struct Keyed {
+    delivery: Delivery<i32>,
+    key: Option<Vec<u8>>,
+}
+
+impl SourceMessage for Keyed {
+    type Item = i32;
+    type Raw = <Delivery<i32> as SourceMessage>::Raw;
+
+    fn decode(&self) -> Result<i32, BoxError> {
+        self.delivery.decode()
+    }
+
+    async fn ack(self) -> Result<(), BoxError> {
+        self.delivery.ack().await
+    }
+
+    fn raw(&self) -> Self::Raw {
+        self.delivery.raw()
+    }
+
+    fn ordering_key(&self) -> Option<OrderingKey> {
+        self.delivery.ordering_key()
+    }
+
+    fn message_key(&self) -> Option<&[u8]> {
+        self.key.as_deref()
+    }
+
+    fn position(&self) -> Option<Position> {
+        self.delivery.position()
+    }
+
+    fn revocation(&self) -> Option<CancellationToken> {
+        self.delivery.revocation()
+    }
+}
+
+impl KeyedMessage for Keyed {}
+
+fn keyed(value: i32, key: &str) -> Keyed {
+    with_key(Delivery::untracked(value), key)
+}
+
+fn with_key(delivery: Delivery<i32>, key: &str) -> Keyed {
+    Keyed {
+        delivery,
+        key: Some(key.into()),
+    }
+}
+
+/// Delivers keyed deliveries in order.
+struct KeyedSource(VecDeque<Keyed>);
+
+impl KeyedSource {
+    fn new(deliveries: impl IntoIterator<Item = Keyed>) -> Self {
+        Self(deliveries.into_iter().collect())
+    }
+}
+
+impl Source for KeyedSource {
+    type Message = Keyed;
+
+    async fn receive(&mut self) -> Result<Receive<Keyed>, ReceiveError> {
+        Ok(match self.0.pop_front() {
+            Some(delivery) => Receive::Message(delivery),
+            None => Receive::End,
+        })
+    }
 }
 
 async fn running_total(value: i32, mut total: State<i32>) -> beavers::Result<i32> {
@@ -25,8 +95,7 @@ async fn running_total(value: i32, mut total: State<i32>) -> beavers::Result<i32
 async fn state_is_kept_per_message_key() {
     let totals = InMemoryState::<i32>::new();
     let sink = InMemorySink::default();
-    let source =
-        DeliverySource::new([keyed(1, "a"), keyed(10, "b"), keyed(2, "a"), keyed(20, "b")]);
+    let source = KeyedSource::new([keyed(1, "a"), keyed(10, "b"), keyed(2, "a"), keyed(20, "b")]);
     App::new()
         .subscribe(
             "totals",
@@ -64,13 +133,20 @@ async fn a_key_chosen_from_the_input_replaces_the_message_key() {
 #[tokio::test]
 async fn a_delivery_without_a_message_key_is_rejected() {
     let dlq = InMemorySink::default();
-    let source = IterSource::new([5]);
-    let acks = source.acknowledgements();
+    let acks = Arc::new(AtomicUsize::new(0));
+    let counted = acks.clone();
+    let keyless = Keyed {
+        delivery: Delivery::new(5, move || async move {
+            counted.fetch_add(1, Ordering::SeqCst);
+            Ok::<_, BoxError>(())
+        }),
+        key: None,
+    };
     App::new()
         .subscription(
             Subscription::new(
                 "keyless",
-                source,
+                KeyedSource::new([keyless]),
                 InMemorySink::<i32>::default(),
                 stateful(InMemoryState::<i32>::new(), running_total),
             )
@@ -81,7 +157,7 @@ async fn a_delivery_without_a_message_key_is_rejected() {
         .unwrap();
     let [dead_letter]: [DeadLetter<i32, ()>; 1] = dlq.values().try_into().unwrap();
     assert_eq!(dead_letter.failure, FailureKind::Rejected);
-    assert_eq!(acks.count(), 1);
+    assert_eq!(acks.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
@@ -182,18 +258,18 @@ async fn a_redelivery_the_state_already_covers_skips_the_handler() {
     let acks = Arc::new(AtomicUsize::new(0));
     let delivery = |value: i32, offset: i64| {
         let acks = acks.clone();
-        Delivery::new(value, move || async move {
+        let delivery = Delivery::new(value, move || async move {
             acks.fetch_add(1, Ordering::SeqCst);
             Ok::<_, BoxError>(())
         })
-        .with_message_key("a")
-        .with_position(Position::new("events", 0, offset))
+        .with_position(Position::new("events", 0, offset));
+        with_key(delivery, "a")
     };
     let counted = calls.clone();
     App::new()
         .subscribe(
             "redelivery",
-            DeliverySource::new([
+            KeyedSource::new([
                 delivery(1, 7),
                 delivery(2, 8),
                 delivery(1, 7),
@@ -221,11 +297,11 @@ async fn state_stored_under_a_revoked_partition_is_discarded() {
     let totals = InMemoryState::<i32>::new();
     let sink = InMemorySink::default();
     let revoked = CancellationToken::new();
-    let first = keyed(1, "a").with_revocation(revoked.clone());
+    let first = with_key(Delivery::untracked(1).with_revocation(revoked.clone()), "a");
     App::new()
         .subscribe(
             "revoked",
-            DeliverySource::new([first]),
+            KeyedSource::new([first]),
             sink.clone(),
             stateful(totals.clone(), running_total),
         )
@@ -238,7 +314,7 @@ async fn state_stored_under_a_revoked_partition_is_discarded() {
     App::new()
         .subscribe(
             "reassigned",
-            DeliverySource::new([keyed(5, "a")]),
+            KeyedSource::new([keyed(5, "a")]),
             sink.clone(),
             stateful(totals.clone(), running_total),
         )
@@ -255,7 +331,7 @@ async fn clearing_removes_the_value_and_reading_stores_nothing() {
     App::new()
         .subscription(Subscription::new_emitting(
             "clear",
-            DeliverySource::new([keyed(1, "a"), keyed(0, "a"), keyed(0, "b")]),
+            KeyedSource::new([keyed(1, "a"), keyed(0, "a"), keyed(0, "b")]),
             sink.clone(),
             stateful(
                 totals.clone(),

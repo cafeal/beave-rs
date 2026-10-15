@@ -155,7 +155,9 @@ pub use error::{BoxError, Error};
 pub use error_policy::{ErrorPolicy, FailureAction, FailureKind};
 pub use handler::{Classify, Emit, Handler, HandlerError, Result};
 pub use health::Health;
-pub use message::{Delivery, MessagingAttributes, OrderingKey, Position, SourceMessage};
+pub use message::{
+    Delivery, KeyedMessage, MessagingAttributes, OrderingKey, Position, SourceMessage,
+};
 pub use middleware::{Flow, MapMetadata, Middleware};
 pub use propagation::PropagationCarrier;
 pub use record::{SamePlatform, ValueRecord};

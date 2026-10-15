@@ -65,10 +65,19 @@ registration fails validation.
 
 ## Keys
 
-State is kept per key. By default the key is the delivery's message key, such
-as the Kafka record key or the Pulsar message key, and a delivery without one
-is rejected and routed by the error policy. Choose another key from the
-handler's input with `key`:
+State is kept per key. By default the key is the delivery's message key:
+
+| Source | Message key |
+|---|---|
+| Kafka | Record key |
+| Pulsar | Message key |
+| SQS | Message group ID |
+| Pub/Sub | Ordering key |
+| Service Bus | Session ID |
+
+A single delivery without one, such as a Kafka record with a null key or an
+SQS message sent without a group ID, is rejected and routed by the error
+policy. Choose another key from the handler's input with `key`:
 
 ```rust,ignore
 let counts = InMemoryState::<Count>::new().key(|order: &Order| order.customer_id.to_string());
@@ -76,8 +85,10 @@ let counts = InMemoryState::<Count>::new().key(|order: &Order| order.customer_id
 
 A key closure receives the handler's input, so it takes the value for a value
 handler and the record for a record handler. Sources without message keys,
-such as RabbitMQ, SQS, Pub/Sub, Service Bus, and the local adapters, need a
-key closure.
+such as RabbitMQ, HTTP, stdin, channels, and `IterSource`, need a key
+closure: with the default key, the subscription fails to compile, with a note
+to choose a key with `.key(..)`. A source's messages have message keys when
+they implement `KeyedMessage`.
 
 In `InMemoryState`, deliveries with the same key take turns: a delivery waits
 to begin until the previous delivery with that key has committed or abandoned
@@ -114,7 +125,8 @@ example by moving it into a spawned task, fails the commit.
 
 ## Stores
 
-A store implements `StateStore<I>`, where `I` is the handler's input:
+A store implements `StateStore<I, M>`, where `I` is the handler's input and
+`M` the source's message type, so a store can require `M: KeyedMessage`:
 
 | Method | Called |
 |---|---|

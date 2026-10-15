@@ -9,7 +9,7 @@ use super::{
 use crate::{
     codec::Decoder,
     error::{BoxError, Error},
-    message::{MessagingAttributes, OrderingKey, Position, SourceMessage},
+    message::{KeyedMessage, MessagingAttributes, OrderingKey, Position, SourceMessage},
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source, SourceProbe},
 };
@@ -281,6 +281,8 @@ impl<C> KafkaMessage<C> {
         }
     }
 }
+
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> KeyedMessage for KafkaMessage<C> {}
 
 impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for KafkaMessage<C> {
     type Item = KafkaRecord<C::Value>;

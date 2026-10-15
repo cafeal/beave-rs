@@ -14,7 +14,7 @@ use super::{
 use crate::error::{BoxError, Context as _, Error};
 use crate::{
     codec::Decoder,
-    message::{MessagingAttributes, SourceMessage},
+    message::{KeyedMessage, MessagingAttributes, SourceMessage},
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
 };
@@ -435,6 +435,8 @@ impl<C> ServiceBusMessage<C> {
     }
 }
 
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> KeyedMessage for ServiceBusMessage<C> {}
+
 impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for ServiceBusMessage<C> {
     type Item = ServiceBusRecord<C::Value>;
     type Raw = ServiceBusRecord<Vec<u8>>;
@@ -474,6 +476,15 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for Service
             return Err(Error::wrap("completing a Service Bus message", error).into());
         }
         Ok(())
+    }
+
+    /// The session ID.
+    fn message_key(&self) -> Option<&[u8]> {
+        self.message
+            .properties
+            .as_ref()
+            .and_then(|properties| properties.group_id.as_ref())
+            .map(|session| session.as_bytes())
     }
 
     fn revocation(&self) -> Option<CancellationToken> {

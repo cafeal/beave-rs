@@ -112,8 +112,8 @@ pub trait SourceMessage: Send + 'static {
     }
     /// The broker's message key, such as a Kafka record key. A
     /// [stateful](crate::state) handler keeps its state per message key unless
-    /// its store chooses another key. Sources without message keys return
-    /// `None`.
+    /// its store chooses another key. Messages of sources that have message
+    /// keys also implement [`KeyedMessage`]; others return `None`.
     fn message_key(&self) -> Option<&[u8]> {
         None
     }
@@ -152,6 +152,21 @@ pub trait SourceMessage: Send + 'static {
         None
     }
 }
+
+/// A [`SourceMessage`] whose broker has message keys, such as Kafka record
+/// keys or SQS message group IDs, reported by
+/// [`message_key`](SourceMessage::message_key).
+///
+/// A [stateful](crate::state) handler keeps its state per message key by
+/// default only for sources whose messages implement this; others must choose
+/// a state key from the input. A single message without a key, such as a
+/// Kafka record with a null key, is rejected.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` has no message keys to keep state under",
+    label = "deliveries of this source carry no message key",
+    note = "choose a state key from the handler's input with `.key(|input| ..)`"
+)]
+pub trait KeyedMessage: SourceMessage {}
 
 /// OpenTelemetry messaging semantic-convention attributes of one delivery.
 ///
@@ -232,7 +247,6 @@ pub struct Delivery<T, R = ()> {
     revocation: Option<CancellationToken>,
     handoff: Option<CancellationToken>,
     propagation: Vec<(String, String)>,
-    message_key: Option<Vec<u8>>,
     position: Option<Position>,
     raw: R,
 }
@@ -250,7 +264,6 @@ impl<T> Delivery<T> {
             revocation: None,
             handoff: None,
             propagation: Vec::new(),
-            message_key: None,
             position: None,
             raw: (),
         }
@@ -270,7 +283,6 @@ impl<T, R> Delivery<T, R> {
             revocation: self.revocation,
             handoff: self.handoff,
             propagation: self.propagation,
-            message_key: self.message_key,
             position: self.position,
             raw,
         }
@@ -294,11 +306,6 @@ impl<T, R> Delivery<T, R> {
     /// continues the trace of the code that produced this value.
     pub fn with_propagation_fields(mut self, fields: Vec<(String, String)>) -> Self {
         self.propagation = fields;
-        self
-    }
-    /// Set the key reported by [`SourceMessage::message_key`].
-    pub fn with_message_key(mut self, key: impl Into<Vec<u8>>) -> Self {
-        self.message_key = Some(key.into());
         self
     }
     /// Set the position reported by [`SourceMessage::position`].
@@ -338,9 +345,6 @@ where
     }
     fn handoff(&self) -> Option<CancellationToken> {
         self.handoff.clone()
-    }
-    fn message_key(&self) -> Option<&[u8]> {
-        self.message_key.as_deref()
     }
     fn position(&self) -> Option<Position> {
         self.position.clone()

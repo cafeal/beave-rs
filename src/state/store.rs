@@ -16,8 +16,9 @@ use std::{fmt, future::Future, sync::Arc};
 /// `State` is what the handler works with: [`State<T>`](super::State) for one
 /// value per key, or a handle to the store's own client for stores that let
 /// the handler use the backend's features directly. `I` is the handler's
-/// input, from which a store may derive the state key.
-pub trait StateStore<I>: Send + Sync + 'static {
+/// input, from which a store may derive the state key, and `M` the source's
+/// message type, which a store can require to have message keys.
+pub trait StateStore<I, M>: Send + Sync + 'static {
     /// What the handler receives with each input.
     type State: Send + 'static;
     /// What the runtime keeps from `begin` until `commit`; dropping it

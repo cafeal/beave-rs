@@ -89,11 +89,19 @@ impl<T: Send + Sync + 'static> Cardinality<Emit<T>> for Many {
 ///
 /// A stateful handler takes its state as a second parameter, as in
 /// `async fn(String, State<u64>) -> Result<String>`, and the input and output
-/// shapes are chosen the same way.
+/// shapes are chosen the same way. Its store's key must suit the source: the
+/// default message key needs a source whose messages implement
+/// [`KeyedMessage`](crate::KeyedMessage).
 ///
 /// A handler whose shape the source or sink does not support fails to
 /// compile. Closures need their parameter type annotated, because the shape is
 /// chosen from it.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot handle the deliveries of `{S}` for `{K}`",
+    label = "this handler's input or output does not match the source or sink",
+    note = "a handler takes the source's record or its value, and returns the sink's publish type or a plain value",
+    note = "a stateful handler keeps its state per message key by default, which sources without message keys lack; choose a state key with `.key(|input| ..)`"
+)]
 pub trait IntoHandler<S: Source, K, M>: Send + Sync + 'static {
     /// Output type the sink publishes.
     type Output: Send + Sync + 'static;
@@ -233,7 +241,7 @@ where
 impl<S, K, St, H, C> IntoHandler<S, K, (ByRecord, ByRecord, C, WithState)> for Stateful<St, H>
 where
     S: Source,
-    St: StateStore<SourceItem<S>>,
+    St: StateStore<SourceItem<S>, S::Message>,
     H: StatefulHandler<SourceItem<S>, St::State>,
     C: Cardinality<H::Output>,
     K: Sink<C::Item>,
@@ -259,7 +267,7 @@ where
     S: Source,
     SourceItem<S>: ValueRecord,
     <SourceItem<S> as ValueRecord>::Value: Sync,
-    St: StateStore<<SourceItem<S> as ValueRecord>::Value>,
+    St: StateStore<<SourceItem<S> as ValueRecord>::Value, S::Message>,
     H: StatefulHandler<<SourceItem<S> as ValueRecord>::Value, St::State>,
     C: Cardinality<H::Output>,
     K: Sink<C::Item>,
@@ -286,7 +294,7 @@ where
 impl<S, K, St, H, C> IntoHandler<S, K, (ByRecord, ByValue, C, WithState)> for Stateful<St, H>
 where
     S: Source,
-    St: StateStore<SourceItem<S>>,
+    St: StateStore<SourceItem<S>, S::Message>,
     H: StatefulHandler<SourceItem<S>, St::State>,
     C: Cardinality<H::Output>,
     SourceItem<S>: SamePlatform<C::Item>,
@@ -320,7 +328,7 @@ impl<S, K, St, H, C> IntoHandler<S, K, (ByValue, ByValue, C, WithState)> for Sta
 where
     S: Source,
     <SourceItem<S> as ValueRecord>::Value: Sync,
-    St: StateStore<<SourceItem<S> as ValueRecord>::Value>,
+    St: StateStore<<SourceItem<S> as ValueRecord>::Value, S::Message>,
     H: StatefulHandler<<SourceItem<S> as ValueRecord>::Value, St::State>,
     C: Cardinality<H::Output>,
     SourceItem<S>: SamePlatform<C::Item>,
@@ -365,7 +373,7 @@ where
 
 /// Runs one attempt of a stateful handler: begins the state change, runs the
 /// handler with the state, and returns the outputs with the change to commit.
-async fn run_stateful<I, St, H, O>(
+async fn run_stateful<I, M, St, H, O>(
     stateful: Arc<Stateful<St, H>>,
     input: I,
     context: Option<Arc<StateContext>>,
@@ -373,7 +381,7 @@ async fn run_stateful<I, St, H, O>(
 ) -> Result<Outcome<O>>
 where
     I: Sync,
-    St: StateStore<I>,
+    St: StateStore<I, M>,
     H: StatefulHandler<I, St::State>,
 {
     let context = context

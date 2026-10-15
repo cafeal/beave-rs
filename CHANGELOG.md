@@ -35,9 +35,12 @@ project follows the versioning policy in
   acknowledgement. `InMemoryState` keeps `State<T>` values in memory, keyed by
   message key or by a closure over the input, and skips Kafka redeliveries it
   already holds.
-- `SourceMessage::message_key` and `SourceMessage::position`, reported by the
-  Kafka source and, for message keys, by the Pulsar source, and set on a
-  `Delivery` with `with_message_key` and `with_position`.
+- `SourceMessage::message_key` and `SourceMessage::position`. The Kafka and
+  Pulsar sources report message keys, the SQS source the message group ID, the
+  Pub/Sub source the ordering key, and the Service Bus source the session ID;
+  their messages implement the new `KeyedMessage` marker, without which a
+  stateful handler must choose its key from the input. The Kafka source
+  reports positions, and `Delivery::with_position` sets one.
 
 ### Changed
 

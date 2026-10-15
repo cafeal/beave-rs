@@ -150,11 +150,11 @@ pub struct InMemoryTxn<T> {
     owner: Option<CancellationToken>,
 }
 
-impl<I, T, K> StateStore<I> for InMemoryState<T, K>
+impl<I, M, T, K> StateStore<I, M> for InMemoryState<T, K>
 where
     I: Sync,
     T: Clone + Default + Send + Sync + 'static,
-    K: StateKey<I>,
+    K: StateKey<I, M>,
 {
     type State = State<T>;
     type Txn = InMemoryTxn<T>;

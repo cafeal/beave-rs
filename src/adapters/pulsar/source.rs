@@ -6,7 +6,7 @@ use super::{
 use crate::{
     codec::Decoder,
     error::{BoxError, Context, Error, ensure},
-    message::{MessagingAttributes, OrderingKey, SourceMessage},
+    message::{KeyedMessage, MessagingAttributes, OrderingKey, SourceMessage},
     retry::RetryPolicy,
     source::{Receive, ReceiveError, Source, SourceProbe},
 };
@@ -361,6 +361,8 @@ pub struct PulsarMessage<C> {
     codec: Arc<C>,
     acknowledgement: Acknowledgement,
 }
+
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> KeyedMessage for PulsarMessage<C> {}
 
 impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for PulsarMessage<C> {
     type Item = PulsarRecord<C::Value>;
