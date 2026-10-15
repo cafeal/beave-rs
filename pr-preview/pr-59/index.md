@@ -59,7 +59,7 @@ application uses:
 | `base64` | Base64 wrapper for another codec |
 | `gzip` | Gzip compression wrapper for another codec |
 | `zstd` | Zstandard compression wrapper for another codec |
-| `lua` | Handlers written in Lua |
+| `javascript` | Handlers written in JavaScript |
 | `python` | Handlers written in Python, embedding CPython |
 | `opentelemetry` | Trace-context propagation through broker metadata |
 | `health` | `/livez` and `/readyz` endpoints |

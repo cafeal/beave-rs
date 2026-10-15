@@ -15,7 +15,7 @@ All pages in one file: https://cafeal.github.io/beave-rs/pr-preview/pr-59/llms-f
 - [Architecture](https://cafeal.github.io/beave-rs/pr-preview/pr-59/docs/architecture.md): How sources, handlers, and sinks fit together, their trait contracts, and errors
 - [Runtime guide](https://cafeal.github.io/beave-rs/pr-preview/pr-59/docs/runtime.md): Registration, configuration, processing behavior, shutdown, and limitations, with topic guides for handlers, middleware, errors, tombstones, transactions, observability, and health checks
 - [Handlers](https://cafeal.github.io/beave-rs/pr-preview/pr-59/docs/runtime/handlers.md)
-- [Lua and Python handlers](https://cafeal.github.io/beave-rs/pr-preview/pr-59/docs/runtime/script-handlers.md)
+- [JavaScript and Python handlers](https://cafeal.github.io/beave-rs/pr-preview/pr-59/docs/runtime/script-handlers.md)
 - [Middleware](https://cafeal.github.io/beave-rs/pr-preview/pr-59/docs/runtime/middleware.md)
 - [Errors and retries](https://cafeal.github.io/beave-rs/pr-preview/pr-59/docs/runtime/errors.md)
 - [Tombstones](https://cafeal.github.io/beave-rs/pr-preview/pr-59/docs/runtime/tombstones.md)

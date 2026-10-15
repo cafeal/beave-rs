@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Lua and Python handlers - beave-rs</title>
+  <title>JavaScript and Python handlers - beave-rs</title>
   <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="../../style.css">
@@ -24,12 +24,12 @@
 
   <div class="wrap layout">
     <nav class="toc" aria-label="Guides">
-<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="handlers.html">Handlers</a></li><li><a href="script-handlers.html" aria-current="page">Lua and Python handlers</a></li><li><a href="middleware.html">Middleware</a></li><li><a href="errors.html">Errors and retries</a></li><li><a href="tombstones.html">Tombstones</a></li><li><a href="transactions.html">Transactions</a></li><li><a href="observability.html">Observability</a></li><li><a href="health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/local.html">Local adapters</a></li><li><a href="../adapters/channel.html">Channel</a></li><li><a href="../adapters/kafka.html">Kafka</a></li><li><a href="../adapters/pulsar.html">Pulsar</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="../adapters/sqs.html">SQS</a></li><li><a href="../adapters/pubsub.html">Pub/Sub</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus</a></li><li><a href="../adapters/http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-bytes.html">Raw bytes</a></li><li><a href="../codecs/utf8.html">UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li><li><a href="../codecs/msgpack.html">MessagePack</a></li><li><a href="../codecs/cbor.html">CBOR</a></li><li><a href="../codecs/wrappers.html">Codec wrappers</a><ul><li><a href="../codecs/wrappers/base64.html">Base64</a></li><li><a href="../codecs/wrappers/gzip.html">Gzip</a></li><li><a href="../codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
+<details open><summary>Guides</summary><ul><li><a href="../index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="../architecture.html">Architecture</a></li><li><a href="../runtime.html">Runtime guide</a><ul><li><a href="handlers.html">Handlers</a></li><li><a href="script-handlers.html" aria-current="page">JavaScript and Python handlers</a></li><li><a href="middleware.html">Middleware</a></li><li><a href="errors.html">Errors and retries</a></li><li><a href="tombstones.html">Tombstones</a></li><li><a href="transactions.html">Transactions</a></li><li><a href="observability.html">Observability</a></li><li><a href="health.html">Health checks</a></li></ul></li><li><a href="../adapters.html">Adapters</a><ul><li><a href="../adapters/local.html">Local adapters</a></li><li><a href="../adapters/channel.html">Channel</a></li><li><a href="../adapters/kafka.html">Kafka</a></li><li><a href="../adapters/pulsar.html">Pulsar</a></li><li><a href="../adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="../adapters/sqs.html">SQS</a></li><li><a href="../adapters/pubsub.html">Pub/Sub</a></li><li><a href="../adapters/servicebus.html">Azure Service Bus</a></li><li><a href="../adapters/http.html">HTTP</a></li></ul></li><li><a href="../codecs.html">Codecs</a><ul><li><a href="../codecs/json.html">JSON</a></li><li><a href="../codecs/raw-bytes.html">Raw bytes</a></li><li><a href="../codecs/utf8.html">UTF-8</a></li><li><a href="../codecs/protobuf.html">Protobuf</a></li><li><a href="../codecs/avro.html">Avro</a></li><li><a href="../codecs/msgpack.html">MessagePack</a></li><li><a href="../codecs/cbor.html">CBOR</a></li><li><a href="../codecs/wrappers.html">Codec wrappers</a><ul><li><a href="../codecs/wrappers/base64.html">Base64</a></li><li><a href="../codecs/wrappers/gzip.html">Gzip</a></li><li><a href="../codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="../testing.html">Testing</a></li><li><a href="../dead-letter-handling.html">Handling dead letters</a></li><li><a href="../monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="../monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="../monitoring-and-alerting/aws.html">AWS</a></li><li><a href="../monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="../monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="../development.html">Local development brokers</a></li><li><a href="../plan.html">Design plan</a></li><li><a href="../releasing.html">Versioning and releases</a></li></ul></details>
     </nav>
     <main class="doc">
-<h1 id="lua-and-python-handlers">Lua and Python handlers</h1>
-<p>The <code>lua</code> and <code>python</code> features add handlers in <code>beavers::handlers</code> that run
-code written in Lua or Python instead of Rust. Each takes the decoded input as
+<h1 id="javascript-and-python-handlers">JavaScript and Python handlers</h1>
+<p>The <code>javascript</code> and <code>python</code> features add handlers in <code>beavers::handlers</code> that
+run code written in JavaScript or Python instead of Rust. Each takes the decoded input as
 a JSON value and emits zero, one, or many JSON values, so it is registered with
 <code>Subscription::new_emitting</code> between a source and a sink that use the
 <code>Json&lt;serde_json::Value&gt;</code> codec:</p>
@@ -56,11 +56,14 @@ App::<span class="hljs-title function_ invoke__">new</span>()
 </code></pre><p>The handler takes the record&#39;s value, so outputs inherit the input&#39;s key and
 headers as described in <a href="handlers.html#handler-shapes">handler shapes</a>. The code
 cannot read or set broker metadata.</p>
-<h2 id="lua">Lua</h2>
-<p><code>Lua::new(code)</code> compiles a Lua 5.4 chunk and reports syntax errors as
-<code>Error::Config</code>. The chunk runs once per input:</p>
-<pre><code class="hljs language-lua"><span class="hljs-keyword">if</span> <span class="hljs-built_in">input</span>.<span class="hljs-built_in">status</span> ~= <span class="hljs-string">&quot;paid&quot;</span> <span class="hljs-keyword">then</span> <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span> <span class="hljs-keyword">end</span>
-<span class="hljs-keyword">return</span> { order_id = <span class="hljs-built_in">input</span>.id, amount = <span class="hljs-built_in">input</span>.total }
+<h2 id="javascript">JavaScript</h2>
+<p><code>JavaScript::new(code)</code> runs the code once in the embedded QuickJS engine and
+looks up its <code>handle(input)</code> function. Syntax errors, exceptions thrown while
+the code runs, and a missing <code>handle</code> are reported as <code>Error::Config</code>.</p>
+<pre><code class="hljs language-js"><span class="hljs-keyword">function</span> <span class="hljs-title function_">handle</span>(<span class="hljs-params">input</span>) {
+  <span class="hljs-keyword">if</span> (input.<span class="hljs-property">status</span> !== <span class="hljs-string">&quot;paid&quot;</span>) <span class="hljs-keyword">return</span>;
+  <span class="hljs-keyword">return</span> { <span class="hljs-attr">order_id</span>: input.<span class="hljs-property">id</span>, <span class="hljs-attr">amount</span>: input.<span class="hljs-property">total</span> };
+}
 </code></pre><table>
 <thead>
 <tr>
@@ -70,31 +73,37 @@ cannot read or set broker metadata.</p>
 </thead>
 <tbody><tr>
 <td>Input</td>
-<td>The local <code>input</code>, converted from JSON: objects and arrays become tables, JSON <code>null</code> is <code>beavers.null</code></td>
+<td>The value passed through <code>JSON.parse</code></td>
 </tr>
 <tr>
 <td>Outputs</td>
-<td>No value or <code>nil</code> emits nothing; each returned value other than <code>nil</code> is one output, so <code>return a, b</code> emits two</td>
+<td><code>undefined</code> or <code>null</code> emits nothing; a generator function (<code>function*</code>) emits one output per yielded value; any other value, including an array, is one output</td>
 </tr>
 <tr>
 <td>Output conversion</td>
-<td>Tables with consecutive integer keys from 1 become arrays, other tables, including empty ones, objects; a function or other value that JSON cannot represent rejects the input</td>
+<td><code>JSON.stringify</code>; a value it cannot encode, such as a function, rejects the input</td>
 </tr>
 <tr>
 <td>Errors</td>
-<td>A Lua error rejects the input; <code>beavers.retry(message)</code> raises an error that retries it under the handler retry policy</td>
+<td>A thrown value rejects the input; <code>throw new beavers.Retry(message)</code> retries it under the handler retry policy</td>
 </tr>
 <tr>
-<td>Libraries</td>
-<td><code>table</code>, <code>string</code>, <code>utf8</code>, <code>math</code>, and <code>coroutine</code>; <code>io</code>, <code>os</code>, <code>require</code>, and <code>debug</code> are not available</td>
+<td><code>beavers</code> object</td>
+<td>A predefined global holding <code>Retry</code></td>
+</tr>
+<tr>
+<td>Language</td>
+<td>The ECMAScript standard as implemented by QuickJS-ng; there is no <code>require</code>, <code>import</code>, <code>fetch</code>, <code>console</code>, or other file, network, or process access</td>
 </tr>
 <tr>
 <td>Execution</td>
-<td>One Lua state per handler on its own worker thread, one input at a time; globals persist between inputs and retries</td>
+<td>One engine per handler on its own worker thread, one input at a time; globals persist between inputs and retries</td>
 </tr>
 </tbody></table>
-<p>Lua 5.4 is compiled into the crate, so the <code>lua</code> feature needs a C compiler
-at build time and nothing at run time.</p>
+<p><code>handle</code> must return its result directly: an <code>async</code> function or another value
+with a <code>then</code> method rejects the input. QuickJS is compiled into the crate, so
+the <code>javascript</code> feature needs a C compiler at build time and nothing at run
+time.</p>
 <h2 id="python">Python</h2>
 <p><code>Python::new(code)</code> runs the code once in the embedded CPython interpreter and
 looks up its <code>handle(input)</code> function. Syntax errors, exceptions raised while

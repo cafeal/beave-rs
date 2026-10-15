@@ -322,14 +322,14 @@ Remaining decisions:
 
 Simple processing should be deployable without writing Rust: a prebuilt
 binary and container image start subscriptions listed in a configuration file,
-with handlers chosen from ready-made ones. The [Lua and Python
+with handlers chosen from ready-made ones. The [JavaScript and Python
 handlers](runtime/script-handlers.md) are the first of them. Remaining work:
 
 - handlers that delegate to a serverless function, such as AWS Lambda, and a
   generic HTTP function handler for Cloud Run, Azure Functions, or a service of
   the application, with function errors rejecting the input and throttling,
   `5xx`, and timeouts retrying it; batching several inputs into one call;
-- a separate crate with a `beavers` binary that reads YAML or TOML naming
+- a separate crate with a `beavers` binary that reads TOML naming
   connections, subscriptions, sources, sinks, codecs, handlers, retry and
   dead-letter settings, and health endpoints, with environment variable
   substitution for secrets; serde stays out of the library, which keeps its
@@ -338,10 +338,10 @@ handlers](runtime/script-handlers.md) are the first of them. Remaining work:
   packages to it;
 - Avro and Protobuf in configuration, which need schemas read from `.avsc` or
   `.proto` files at run time instead of Rust types;
-- whether Lua and Python code should read and set broker metadata, such as
+- whether JavaScript and Python code should read and set broker metadata, such as
   keys and headers, which the value-only handlers cannot today;
-- a time limit for Lua and Python calls, since neither handler can interrupt
-  code that does not return, and `async def` handlers for Python.
+- a time limit for JavaScript and Python calls, since neither handler can
+  interrupt code that does not return, and `async` handlers for both.
 
 ## Future adapters
 

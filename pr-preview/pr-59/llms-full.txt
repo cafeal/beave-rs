@@ -61,7 +61,7 @@ application uses:
 | `base64` | Base64 wrapper for another codec |
 | `gzip` | Gzip compression wrapper for another codec |
 | `zstd` | Zstandard compression wrapper for another codec |
-| `lua` | Handlers written in Lua |
+| `javascript` | Handlers written in JavaScript |
 | `python` | Handlers written in Python, embedding CPython |
 | `opentelemetry` | Trace-context propagation through broker metadata |
 | `health` | `/livez` and `/readyz` endpoints |
@@ -183,7 +183,7 @@ Licensed under the [MIT license](https://github.com/cafeal/beave-rs/blob/main/LI
 | [Monitoring and alerting](monitoring-and-alerting/README.md) | Signals to alert on, alert rules, and setups for Kubernetes, AWS, Google Cloud, and Azure |
 
 Runtime topics: [Handlers](runtime/handlers.md),
-[Lua and Python handlers](runtime/script-handlers.md),
+[JavaScript and Python handlers](runtime/script-handlers.md),
 [Middleware](runtime/middleware.md), [Errors and retries](runtime/errors.md),
 [Tombstones](runtime/tombstones.md), [Transactions](runtime/transactions.md),
 [Observability](runtime/observability.md), and [Health checks](runtime/health.md).
@@ -362,7 +362,7 @@ Topic guides cover the rest of the runtime:
 | Guide | Covers |
 |---|---|
 | [Handlers](runtime/handlers.md) | Handler signatures, emitting outputs, and blocking handlers |
-| [Lua and Python handlers](runtime/script-handlers.md) | Handlers written in Lua or Python instead of Rust |
+| [JavaScript and Python handlers](runtime/script-handlers.md) | Handlers written in JavaScript or Python instead of Rust |
 | [Middleware](runtime/middleware.md) | Hooks around the handler and metadata inheritance |
 | [Errors and retries](runtime/errors.md) | Retry policies, the error policy, and dead letters |
 | [Tombstones](runtime/tombstones.md) | Handling null-value records |
@@ -1650,10 +1650,10 @@ the jobs each subscription submits.
 
 <!-- https://cafeal.github.io/beave-rs/pr-preview/pr-59/docs/runtime/script-handlers.md -->
 
-# Lua and Python handlers
+# JavaScript and Python handlers
 
-The `lua` and `python` features add handlers in `beavers::handlers` that run
-code written in Lua or Python instead of Rust. Each takes the decoded input as
+The `javascript` and `python` features add handlers in `beavers::handlers` that
+run code written in JavaScript or Python instead of Rust. Each takes the decoded input as
 a JSON value and emits zero, one, or many JSON values, so it is registered with
 `Subscription::new_emitting` between a source and a sink that use the
 `Json<serde_json::Value>` codec:
@@ -1685,27 +1685,33 @@ The handler takes the record's value, so outputs inherit the input's key and
 headers as described in [handler shapes](handlers.md#handler-shapes). The code
 cannot read or set broker metadata.
 
-## Lua
+## JavaScript
 
-`Lua::new(code)` compiles a Lua 5.4 chunk and reports syntax errors as
-`Error::Config`. The chunk runs once per input:
+`JavaScript::new(code)` runs the code once in the embedded QuickJS engine and
+looks up its `handle(input)` function. Syntax errors, exceptions thrown while
+the code runs, and a missing `handle` are reported as `Error::Config`.
 
-```lua
-if input.status ~= "paid" then return nil end
-return { order_id = input.id, amount = input.total }
+```js
+function handle(input) {
+  if (input.status !== "paid") return;
+  return { order_id: input.id, amount: input.total };
+}
 ```
 
 | Topic | Behavior |
 |---|---|
-| Input | The local `input`, converted from JSON: objects and arrays become tables, JSON `null` is `beavers.null` |
-| Outputs | No value or `nil` emits nothing; each returned value other than `nil` is one output, so `return a, b` emits two |
-| Output conversion | Tables with consecutive integer keys from 1 become arrays, other tables, including empty ones, objects; a function or other value that JSON cannot represent rejects the input |
-| Errors | A Lua error rejects the input; `beavers.retry(message)` raises an error that retries it under the handler retry policy |
-| Libraries | `table`, `string`, `utf8`, `math`, and `coroutine`; `io`, `os`, `require`, and `debug` are not available |
-| Execution | One Lua state per handler on its own worker thread, one input at a time; globals persist between inputs and retries |
+| Input | The value passed through `JSON.parse` |
+| Outputs | `undefined` or `null` emits nothing; a generator function (`function*`) emits one output per yielded value; any other value, including an array, is one output |
+| Output conversion | `JSON.stringify`; a value it cannot encode, such as a function, rejects the input |
+| Errors | A thrown value rejects the input; `throw new beavers.Retry(message)` retries it under the handler retry policy |
+| `beavers` object | A predefined global holding `Retry` |
+| Language | The ECMAScript standard as implemented by QuickJS-ng; there is no `require`, `import`, `fetch`, `console`, or other file, network, or process access |
+| Execution | One engine per handler on its own worker thread, one input at a time; globals persist between inputs and retries |
 
-Lua 5.4 is compiled into the crate, so the `lua` feature needs a C compiler
-at build time and nothing at run time.
+`handle` must return its result directly: an `async` function or another value
+with a `then` method rejects the input. QuickJS is compiled into the crate, so
+the `javascript` feature needs a C compiler at build time and nothing at run
+time.
 
 ## Python
 
@@ -5706,14 +5712,14 @@ Remaining decisions:
 
 Simple processing should be deployable without writing Rust: a prebuilt
 binary and container image start subscriptions listed in a configuration file,
-with handlers chosen from ready-made ones. The [Lua and Python
+with handlers chosen from ready-made ones. The [JavaScript and Python
 handlers](runtime/script-handlers.md) are the first of them. Remaining work:
 
 - handlers that delegate to a serverless function, such as AWS Lambda, and a
   generic HTTP function handler for Cloud Run, Azure Functions, or a service of
   the application, with function errors rejecting the input and throttling,
   `5xx`, and timeouts retrying it; batching several inputs into one call;
-- a separate crate with a `beavers` binary that reads YAML or TOML naming
+- a separate crate with a `beavers` binary that reads TOML naming
   connections, subscriptions, sources, sinks, codecs, handlers, retry and
   dead-letter settings, and health endpoints, with environment variable
   substitution for secrets; serde stays out of the library, which keeps its
@@ -5722,10 +5728,10 @@ handlers](runtime/script-handlers.md) are the first of them. Remaining work:
   packages to it;
 - Avro and Protobuf in configuration, which need schemas read from `.avsc` or
   `.proto` files at run time instead of Rust types;
-- whether Lua and Python code should read and set broker metadata, such as
+- whether JavaScript and Python code should read and set broker metadata, such as
   keys and headers, which the value-only handlers cannot today;
-- a time limit for Lua and Python calls, since neither handler can interrupt
-  code that does not return, and `async def` handlers for Python.
+- a time limit for JavaScript and Python calls, since neither handler can
+  interrupt code that does not return, and `async` handlers for both.
 
 ## Future adapters
 
