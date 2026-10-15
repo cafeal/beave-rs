@@ -2,7 +2,7 @@ use super::{deliveries::Deliveries, record::TestRecord};
 use crate::{
     codec::Decoder,
     error::BoxError,
-    message::{OrderingKey, SourceMessage},
+    message::{KeyedMessage, OrderingKey, Position, SourceMessage},
     source::{Receive, ReceiveError, Source},
 };
 use std::{collections::VecDeque, sync::Arc};
@@ -151,6 +151,26 @@ pub struct TestMessage<C, R> {
     deliveries: Deliveries<R>,
 }
 
+/// Deliveries of records whose adapters have message keys.
+macro_rules! keyed_test_messages {
+    ($($feature:literal => $record:ty),* $(,)?) => {$(
+        #[cfg(feature = $feature)]
+        impl<C> KeyedMessage for TestMessage<C, $record>
+        where
+            C: Decoder<Value: Clone + Send + Sync + 'static>,
+        {
+        }
+    )*};
+}
+
+keyed_test_messages! {
+    "kafka" => KafkaRecord<Vec<u8>>,
+    "pubsub" => PubSubRecord<Vec<u8>>,
+    "pulsar" => PulsarRecord<Vec<u8>>,
+    "servicebus" => ServiceBusRecord<Vec<u8>>,
+    "sqs" => SqsRecord<Vec<u8>>,
+}
+
 impl<C, R> SourceMessage for TestMessage<C, R>
 where
     C: Decoder<Value: Clone + Send + Sync + 'static>,
@@ -178,5 +198,13 @@ where
 
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
         self.record.propagation_fields()
+    }
+
+    fn message_key(&self) -> Option<&[u8]> {
+        self.record.message_key()
+    }
+
+    fn position(&self) -> Option<Position> {
+        self.record.position()
     }
 }

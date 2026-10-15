@@ -1,7 +1,8 @@
 use beavers::{
     App, BoxError, DeadLetter, ErrorPolicy, FailureKind, HandlerError, InMemorySink, Json,
-    OrderingKey, Receive, Source, SourceMessage, Subscription,
+    OrderingKey, Position, Receive, Result, Source, SourceMessage, Subscription,
     adapters::kafka::{KafkaInherit, KafkaPublish, KafkaRecord},
+    state::{InMemoryState, State, stateful},
     testing::{KafkaTestSource, kafka_record},
 };
 
@@ -50,6 +51,8 @@ async fn deliveries_follow_the_kafka_adapter() {
     assert_eq!(message.raw(), order(42, "7"));
     assert_eq!(message.ordering_key(), Some(OrderingKey::new("orders", 3)));
     assert_eq!(message.propagation_fields(), [("traceparent", "00-trace")]);
+    assert_eq!(message.message_key(), Some(&b"customer-7"[..]));
+    assert_eq!(message.position(), Some(Position::new("orders", 3, 42)));
 
     let Receive::Message(message) = source.receive().await.unwrap() else {
         panic!("expected a delivery");
@@ -138,5 +141,47 @@ async fn dead_letters_keep_the_raw_kafka_record() {
     assert_eq!(dead_letters[0].raw, order(42, "not json"));
     assert!(dead_letters[0].input.is_none());
     assert_eq!(dead_letters[1].input.as_ref().unwrap().value, Some(5));
+    assert!(deliveries.all_acknowledged());
+}
+
+async fn count_orders(amount: u32, mut total: State<u32>) -> Result<u32> {
+    *total += amount;
+    Ok(*total)
+}
+
+#[tokio::test]
+async fn stateful_handlers_keep_state_per_record_key_and_skip_redeliveries() {
+    let mut other = order(44, "5");
+    other.key = Some(b"customer-9".to_vec());
+    // Offset 42 arrives again, as after a rebalance before its commit.
+    let source =
+        KafkaTestSource::<Json<u32>>::new([order(42, "7"), order(43, "1"), order(42, "7"), other]);
+    let deliveries = source.deliveries();
+    let totals = InMemoryState::<u32>::new();
+    let sink = InMemorySink::<KafkaPublish<u32>>::default();
+    App::new()
+        .subscribe(
+            "totals",
+            source,
+            sink.clone(),
+            stateful(totals.clone(), count_orders),
+        )
+        .run()
+        .await
+        .unwrap();
+    let published: Vec<_> = sink
+        .values()
+        .into_iter()
+        .map(|output| (output.key.unwrap(), output.value.unwrap()))
+        .collect();
+    assert_eq!(
+        published,
+        [
+            (b"customer-7".to_vec(), 7),
+            (b"customer-7".to_vec(), 8),
+            (b"customer-9".to_vec(), 5)
+        ]
+    );
+    assert_eq!(totals.get("customer-7").await, Some(8));
     assert!(deliveries.all_acknowledged());
 }

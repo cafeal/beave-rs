@@ -1,5 +1,8 @@
 use crate::error::BoxError;
-use crate::{codec::Decoder, message::OrderingKey};
+use crate::{
+    codec::Decoder,
+    message::{OrderingKey, Position},
+};
 use serde::Serialize;
 use std::fmt::Debug;
 
@@ -50,6 +53,16 @@ pub trait TestRecord: Clone + Debug + Serialize + Send + Sync + 'static {
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
         Vec::new()
     }
+
+    /// The message key the owning adapter reports for this record.
+    fn message_key(&self) -> Option<&[u8]> {
+        None
+    }
+
+    /// The position the owning adapter reports for this record.
+    fn position(&self) -> Option<Position> {
+        None
+    }
 }
 
 /// A bare payload without record metadata. Deliveries have no ordering scope.
@@ -94,6 +107,18 @@ impl TestRecord for KafkaRecord<Vec<u8>> {
         ))
     }
 
+    fn message_key(&self) -> Option<&[u8]> {
+        self.key.as_deref()
+    }
+
+    fn position(&self) -> Option<Position> {
+        Some(Position::new(
+            self.metadata.topic.as_str(),
+            i64::from(self.metadata.partition),
+            self.metadata.offset,
+        ))
+    }
+
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
         text_headers(
             self.headers
@@ -134,6 +159,10 @@ impl TestRecord for PulsarRecord<Vec<u8>> {
         ))
     }
 
+    fn message_key(&self) -> Option<&[u8]> {
+        self.key.as_deref()
+    }
+
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
         self.properties
             .iter()
@@ -168,8 +197,8 @@ impl TestRecord for RabbitMqRecord<Vec<u8>> {
 }
 
 /// Decodes like a [`PubSubSource`](crate::adapters::pubsub::PubSubSource). A
-/// message with an ordering key is ordered by it, and attributes carry trace
-/// context.
+/// message with an ordering key is ordered by it and keyed by it, and
+/// attributes carry trace context.
 #[cfg(feature = "pubsub")]
 impl TestRecord for PubSubRecord<Vec<u8>> {
     type Decoded<T: Clone + Send + Sync + 'static> = PubSubRecord<T>;
@@ -191,6 +220,10 @@ impl TestRecord for PubSubRecord<Vec<u8>> {
         Some(OrderingKey::new(self.metadata.subscription.as_str(), 0).with_key(key.as_bytes()))
     }
 
+    fn message_key(&self) -> Option<&[u8]> {
+        self.ordering_key.as_deref().map(str::as_bytes)
+    }
+
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
         self.attributes
             .iter()
@@ -201,7 +234,8 @@ impl TestRecord for PubSubRecord<Vec<u8>> {
 
 /// Decodes like an [`SqsSource`](crate::adapters::sqs::SqsSource). A FIFO
 /// queue message, whose queue URL ends in `.fifo`, is ordered by its message
-/// group, and `String` attributes carry trace context.
+/// group, the message group ID is the message key, and `String` attributes
+/// carry trace context.
 #[cfg(feature = "sqs")]
 impl TestRecord for SqsRecord<Vec<u8>> {
     type Decoded<T: Clone + Send + Sync + 'static> = SqsRecord<T>;
@@ -224,6 +258,10 @@ impl TestRecord for SqsRecord<Vec<u8>> {
         })
     }
 
+    fn message_key(&self) -> Option<&[u8]> {
+        self.metadata.message_group_id.as_deref().map(str::as_bytes)
+    }
+
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
         text_attributes(&self.attributes)
     }
@@ -231,7 +269,8 @@ impl TestRecord for SqsRecord<Vec<u8>> {
 
 /// Decodes like a
 /// [`ServiceBusSource`](crate::adapters::servicebus::ServiceBusSource): records
-/// are not ordered, and `String` application properties carry trace context.
+/// are not ordered, the session ID is the message key, and `String`
+/// application properties carry trace context.
 #[cfg(feature = "servicebus")]
 impl TestRecord for ServiceBusRecord<Vec<u8>> {
     type Decoded<T: Clone + Send + Sync + 'static> = ServiceBusRecord<T>;
@@ -250,6 +289,10 @@ impl TestRecord for ServiceBusRecord<Vec<u8>> {
 
     fn propagation_fields(&self) -> Vec<(&str, &str)> {
         servicebus_text_properties(&self.application_properties)
+    }
+
+    fn message_key(&self) -> Option<&[u8]> {
+        self.properties.session_id.as_deref().map(str::as_bytes)
     }
 }
 

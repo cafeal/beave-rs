@@ -51,7 +51,7 @@ impl App {
     ///
     /// The handler takes the received record or its value and returns the sink's
     /// output type or a plain value; see [`IntoHandler`] for the accepted shapes.
-    pub fn subscribe<S, K, H, In, Out>(
+    pub fn subscribe<S, K, H, In, Out, St>(
         self,
         name: impl Into<String>,
         source: S,
@@ -60,7 +60,7 @@ impl App {
     ) -> Self
     where
         S: Source,
-        H: IntoHandler<S, K, (In, Out, One)>,
+        H: IntoHandler<S, K, (In, Out, One, St)>,
         K: Sink<H::Output>,
     {
         self.subscription(Subscription::new(name, source, sink, handler))

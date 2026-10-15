@@ -30,9 +30,11 @@ pub(super) enum Stage {
     Ack,
     /// A transaction that publishes outputs and acknowledges together.
     Commit,
+    /// A stateful handler's state change, committed before the acknowledgement.
+    State,
 }
 
-const STAGES: [Stage; 8] = [
+const STAGES: [Stage; 9] = [
     Stage::Decode,
     Stage::Handler,
     Stage::Encode,
@@ -41,6 +43,7 @@ const STAGES: [Stage; 8] = [
     Stage::DeadLetter,
     Stage::Ack,
     Stage::Commit,
+    Stage::State,
 ];
 
 impl Stage {
@@ -54,6 +57,7 @@ impl Stage {
             Self::DeadLetter => "dead_letter",
             Self::Ack => "ack",
             Self::Commit => "commit",
+            Self::State => "state_commit",
         }
     }
 }
@@ -73,7 +77,7 @@ pub(super) struct Instruments {
     /// Health state the runtime reports while it receives and publishes.
     pub(super) health: Arc<Tracker>,
     failures: [Counter; 5],
-    stages: [Histogram; 8],
+    stages: [Histogram; 9],
 }
 
 impl Instruments {

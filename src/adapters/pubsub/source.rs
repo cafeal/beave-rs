@@ -6,7 +6,7 @@ use super::{
 use crate::{
     codec::Decoder,
     error::{BoxError, Error},
-    message::{MessagingAttributes, OrderingKey, SourceMessage},
+    message::{KeyedMessage, MessagingAttributes, OrderingKey, SourceMessage},
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
 };
@@ -236,6 +236,8 @@ async fn watch_lease(max_lease: Duration, revoked: CancellationToken, done: Canc
     }
 }
 
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> KeyedMessage for PubSubMessage<C> {}
+
 impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for PubSubMessage<C> {
     type Item = PubSubRecord<C::Value>;
     type Raw = PubSubRecord<Vec<u8>>;
@@ -280,6 +282,12 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for PubSubM
         let key = &self.message.ordering_key;
         (!key.is_empty())
             .then(|| OrderingKey::new(self.subscription.as_str(), 0).with_key(key.as_bytes()))
+    }
+
+    /// The ordering key, whether or not the subscription orders by it.
+    fn message_key(&self) -> Option<&[u8]> {
+        let key = &self.message.ordering_key;
+        (!key.is_empty()).then_some(key.as_bytes())
     }
 
     fn revocation(&self) -> Option<CancellationToken> {

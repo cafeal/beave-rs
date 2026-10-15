@@ -8,7 +8,7 @@ use super::{
 use crate::{
     codec::Decoder,
     error::{BoxError, Error},
-    message::{MessagingAttributes, OrderingKey, SourceMessage},
+    message::{KeyedMessage, MessagingAttributes, OrderingKey, SourceMessage},
     retry::RetryPolicy,
     shutdown::CancellationToken,
     source::{Receive, ReceiveError, Source},
@@ -304,6 +304,8 @@ impl<C> SqsMessage<C> {
     }
 }
 
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> KeyedMessage for SqsMessage<C> {}
+
 impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for SqsMessage<C> {
     type Item = SqsRecord<C::Value>;
     type Raw = SqsRecord<Vec<u8>>;
@@ -362,6 +364,13 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for SqsMess
         let group = self.system_attribute(MessageSystemAttributeName::MessageGroupId)?;
         self.fifo
             .then(|| OrderingKey::new(self.queue_url.as_str(), 0).with_key(group.as_bytes()))
+    }
+
+    /// The message group ID, which FIFO queues require and standard queues
+    /// accept.
+    fn message_key(&self) -> Option<&[u8]> {
+        self.system_attribute(MessageSystemAttributeName::MessageGroupId)
+            .map(str::as_bytes)
     }
 
     fn revocation(&self) -> Option<CancellationToken> {

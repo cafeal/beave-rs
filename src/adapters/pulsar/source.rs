@@ -6,7 +6,7 @@ use super::{
 use crate::{
     codec::Decoder,
     error::{BoxError, Context, Error, ensure},
-    message::{MessagingAttributes, OrderingKey, SourceMessage},
+    message::{KeyedMessage, MessagingAttributes, OrderingKey, SourceMessage},
     retry::RetryPolicy,
     source::{Receive, ReceiveError, Source, SourceProbe},
 };
@@ -362,6 +362,8 @@ pub struct PulsarMessage<C> {
     acknowledgement: Acknowledgement,
 }
 
+impl<C: Decoder<Value: Clone + Send + Sync + 'static>> KeyedMessage for PulsarMessage<C> {}
+
 impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for PulsarMessage<C> {
     type Item = PulsarRecord<C::Value>;
     type Raw = PulsarRecord<Vec<u8>>;
@@ -416,6 +418,10 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> SourceMessage for PulsarM
 
     fn ordering_key(&self) -> Option<OrderingKey> {
         self.ordering_key.clone()
+    }
+
+    fn message_key(&self) -> Option<&[u8]> {
+        self.key.as_deref()
     }
 
     fn propagation_fields(&self) -> Vec<(&str, &str)> {

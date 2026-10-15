@@ -10,20 +10,43 @@ use crate::{
     dead_letter::DeadLetter,
     error::{BoxContext, BoxError, Error, ensure},
     error_policy::ErrorPolicy,
-    handler::{Emit, Handler},
+    handler::Emit,
     health::Tracker,
     middleware::Middleware,
     retry::RetryPolicy,
     sink::Sink,
     source::{Source, SourceItem, SourceRaw},
+    state::StateContext,
     transaction::TransactionalSink,
 };
 use metrics::Counter;
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 pub(super) type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
-pub(super) type BoxHandler<I, O> =
-    Arc<dyn Fn(I) -> BoxFuture<crate::handler::Result<Emit<O>>> + Send + Sync>;
+pub(super) type BoxHandler<I, O> = Arc<
+    dyn Fn(I, Option<Arc<StateContext>>) -> BoxFuture<crate::handler::Result<Outcome<O>>>
+        + Send
+        + Sync,
+>;
+/// Applies a stateful handler's state change; runs after the outputs are
+/// published and before the delivery is acknowledged.
+pub(super) type Commit = Box<dyn FnOnce() -> BoxFuture<Result<(), BoxError>> + Send>;
+
+/// What one handler attempt produced.
+pub(super) struct Outcome<O> {
+    pub(super) outputs: Emit<O>,
+    /// The state change to commit, for a stateful handler that ran.
+    pub(super) commit: Option<Commit>,
+}
+
+impl<O> Outcome<O> {
+    pub(super) fn stateless(outputs: Emit<O>) -> Self {
+        Self {
+            outputs,
+            commit: None,
+        }
+    }
+}
 pub(super) type Mapper<I, O> = Arc<dyn DynMiddleware<I, O>>;
 pub(super) type DeadLetterRoute<I, R> = Arc<
     dyn Fn(DeadLetter<I, R>, RetryPolicy, Counter, Arc<Tracker>) -> BoxFuture<Result<(), BoxError>>
@@ -42,6 +65,7 @@ pub struct Subscription<S: Source, K, O> {
     pub(super) sink: Arc<K>,
     pub(super) output: Arc<dyn Complete<S::Message, O>>,
     pub(super) transactional: bool,
+    pub(super) stateful: bool,
     pub(super) handler: BoxHandler<SourceItem<S>, O>,
     pub(super) dlq: Option<DeadLetterRoute<SourceItem<S>, SourceRaw<S>>>,
     pub(super) middleware: Vec<Mapper<SourceItem<S>, O>>,
@@ -55,9 +79,9 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     ///
     /// The handler takes the received record or its value and returns the sink's
     /// output type or a plain value; see [`IntoHandler`] for the accepted shapes.
-    pub fn new<H, In, Out>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
+    pub fn new<H, In, Out, St>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
     where
-        H: IntoHandler<S, K, (In, Out, One), Output = O>,
+        H: IntoHandler<S, K, (In, Out, One, St), Output = O>,
     {
         handler.into_subscription(name.into(), source, sink)
     }
@@ -65,18 +89,25 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     /// Explicitly opts into 0/1/N output: the handler returns [`Emit`]. A plain `Vec`
     /// remains one payload. Each emitted value of a [`ByValue`](super::ByValue) output
     /// inherits metadata from the same input record.
-    pub fn new_emitting<H, In, Out>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
+    pub fn new_emitting<H, In, Out, St>(
+        name: impl Into<String>,
+        source: S,
+        sink: K,
+        handler: H,
+    ) -> Self
     where
-        H: IntoHandler<S, K, (In, Out, Many), Output = O>,
+        H: IntoHandler<S, K, (In, Out, Many, St), Output = O>,
     {
         handler.into_subscription(name.into(), source, sink)
     }
 
-    pub(super) fn with_handler<H>(name: String, source: S, sink: K, handler: H) -> Self
-    where
-        H: Handler<SourceItem<S>, Output = Emit<O>>,
-    {
-        let handler = Arc::new(handler);
+    pub(super) fn with_handler(
+        name: String,
+        source: S,
+        sink: K,
+        stateful: bool,
+        handler: BoxHandler<SourceItem<S>, O>,
+    ) -> Self {
         let sink = Arc::new(sink);
         Self {
             name,
@@ -84,10 +115,8 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             output: Arc::new(Publish(sink.clone())),
             sink,
             transactional: false,
-            handler: Arc::new(move |value| {
-                let handler = handler.clone();
-                Box::pin(async move { handler.handle(value).await })
-            }),
+            stateful,
+            handler,
             dlq: None,
             close_dlq: None,
             middleware: vec![],
@@ -257,7 +286,10 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     /// dead-lettered, joins a batch without outputs. Dead letters are published
     /// by the dead-letter sink outside the transaction.
     /// A transactional subscription requires [`ProcessingOrder::PerKey`], so
-    /// deliveries of one ordering scope join batches in receive order.
+    /// deliveries of one ordering scope join batches in receive order. A
+    /// [stateful](crate::state::stateful) handler cannot run in a
+    /// transactional subscription, because its state change could not commit
+    /// together with the transaction.
     pub fn transactional(mut self) -> Self
     where
         S::Message: Sync,
@@ -279,6 +311,11 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             !self.transactional || self.config.ordering == ProcessingOrder::PerKey,
             Error::config,
             "transactional subscriptions require ProcessingOrder::PerKey"
+        );
+        ensure!(
+            !(self.transactional && self.stateful),
+            Error::config,
+            "a transactional subscription cannot run a stateful handler"
         );
         self.config.error_policy.validate(self.dlq.is_some())
     }

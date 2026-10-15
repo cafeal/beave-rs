@@ -12,4 +12,4 @@ mod transaction;
 
 pub use builder::Subscription;
 pub use config::{ProcessingOrder, TransactionBatch};
-pub use handler::{ByRecord, ByValue, Cardinality, IntoHandler, Many, One};
+pub use handler::{ByRecord, ByValue, Cardinality, IntoHandler, Many, One, Stateless, WithState};

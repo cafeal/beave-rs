@@ -5,6 +5,9 @@ mod deliveries;
 #[cfg(feature = "kafka")]
 #[path = "testing/kafka.rs"]
 mod kafka;
+#[cfg(all(feature = "pubsub", feature = "servicebus", feature = "sqs"))]
+#[path = "testing/keys.rs"]
+mod keys;
 #[cfg(feature = "pulsar")]
 #[path = "testing/pulsar.rs"]
 mod pulsar;

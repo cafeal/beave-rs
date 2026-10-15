@@ -1,7 +1,7 @@
 //! One delivery: decode, middleware, handler retries, publishing, failure routing, then ACK.
 use super::{
-    builder::{BoxHandler, DeadLetterRoute, Mapper},
-    completion::{BoxFuture, Complete, Completion, acknowledge as ack_delivery},
+    builder::{BoxHandler, Commit, DeadLetterRoute, Mapper},
+    completion::{BoxFuture, Complete, Completion, acknowledge as ack_delivery, commit_state},
     instruments::{Instruments, Stage},
 };
 use crate::{
@@ -14,6 +14,7 @@ use crate::{
     middleware::Flow,
     retry::RetryPolicy,
     sink::PublishRejected,
+    state::StateContext,
 };
 use metrics::Counter;
 use std::{future::Future, sync::Arc, time::Instant};
@@ -23,6 +24,8 @@ use tracing::{Instrument, debug, info_span, warn};
 pub(super) struct Pipeline<M: SourceMessage, O> {
     pub(super) name: String,
     pub(super) handler: BoxHandler<M::Item, O>,
+    /// Whether the handler keeps state and needs each delivery's context.
+    pub(super) stateful: bool,
     pub(super) middleware: Vec<Mapper<M::Item, O>>,
     pub(super) output: Arc<dyn Complete<M, O>>,
     pub(super) dlq: Option<DeadLetterRoute<M::Item, M::Raw>>,
@@ -52,6 +55,7 @@ struct Outputs<I, O> {
     values: Vec<O>,
     input: I,
     attempts: usize,
+    commit: Option<Commit>,
 }
 
 /// Processes one delivery. Returns the acknowledgement still waiting for submitted
@@ -67,25 +71,40 @@ where
     let started = Instant::now();
     let decoded = info_span!("decode").in_scope(|| delivery.decode());
     pipeline.instruments.record(Stage::Decode, started);
+    let context = pipeline.stateful.then(|| {
+        Arc::new(StateContext::new(
+            Arc::from(pipeline.name.as_str()),
+            delivery.message_key(),
+            delivery.position(),
+            delivery.revocation(),
+        ))
+    });
     let failure = match decoded {
-        Ok(input) => match handle(input, &pipeline).await? {
+        Ok(input) => match handle(input, context, &pipeline).await? {
             Ok(Outputs {
                 values,
                 input,
                 attempts,
+                commit,
             }) => match pipeline
                 .output
                 .complete(
                     delivery,
                     values,
+                    commit,
                     &pipeline.publish_retry,
                     &pipeline.instruments,
                 )
                 .await?
             {
                 Completion::Done => return Ok(None),
-                Completion::Pending(delivery, completions) => {
-                    return Ok(Some(await_completions(delivery, completions, pipeline)));
+                Completion::Pending(delivery, completions, commit) => {
+                    return Ok(Some(await_completions(
+                        delivery,
+                        completions,
+                        commit,
+                        pipeline,
+                    )));
                 }
                 Completion::Committing(committed) => {
                     return Ok(Some(await_commit(committed, pipeline)));
@@ -121,11 +140,12 @@ where
     route(delivery, pipeline, failure).await
 }
 
-/// The job ends before this runs and frees its slot; the acknowledgement follows
-/// completion of every submitted output.
+/// The job ends before this runs and frees its slot; the state commit and the
+/// acknowledgement follow completion of every submitted output.
 fn await_completions<M, O>(
     delivery: M,
     completions: Vec<crate::sink::Completion>,
+    commit: Option<Commit>,
     pipeline: Arc<Pipeline<M, O>>,
 ) -> PendingAck
 where
@@ -144,6 +164,7 @@ where
         .await
         .map_err(|error| error.context("output completion failed"))?;
         pipeline.instruments.record(Stage::Complete, started);
+        commit_state(commit, &pipeline.instruments).await?;
         ack_delivery(delivery, &pipeline.instruments).await
     })
 }
@@ -183,6 +204,7 @@ where
         .complete(
             delivery,
             Vec::new(),
+            None,
             &pipeline.publish_retry,
             &pipeline.instruments,
         )
@@ -190,7 +212,7 @@ where
     {
         Completion::Done => Ok(None),
         // Without outputs nothing is submitted, so nothing can be pending.
-        Completion::Pending(delivery, _) => ack_delivery(delivery, &pipeline.instruments)
+        Completion::Pending(delivery, _, _) => ack_delivery(delivery, &pipeline.instruments)
             .await
             .map(|()| None),
         Completion::Committing(committed) => Ok(Some(await_commit(committed, pipeline))),
@@ -198,7 +220,11 @@ where
     }
 }
 
-async fn handle<M, O>(input: M::Item, pipeline: &Pipeline<M, O>) -> Handled<M::Item, O>
+async fn handle<M, O>(
+    input: M::Item,
+    context: Option<Arc<StateContext>>,
+    pipeline: &Pipeline<M, O>,
+) -> Handled<M::Item, O>
 where
     M: SourceMessage,
     O: Send + Sync + 'static,
@@ -225,19 +251,19 @@ where
     }
     let handler_input = match flow {
         Flow::Continue(value) => value,
-        Flow::Intercept(values) => return finish(values.values(), input, 0, pipeline).await,
+        Flow::Intercept(values) => return finish(values.values(), input, 0, None, pipeline).await,
     };
     let policy = &pipeline.handler_retry;
     let mut attempts = 0;
-    let outputs = loop {
+    let (outputs, commit) = loop {
         attempts += 1;
         let started = Instant::now();
-        let result = (pipeline.handler)(handler_input.clone())
+        let result = (pipeline.handler)(handler_input.clone(), context.clone())
             .instrument(info_span!("handler", attempt = attempts))
             .await;
         pipeline.instruments.record(Stage::Handler, started);
         let (kind, error) = match result {
-            Ok(values) => break values.values(),
+            Ok(outcome) => break (outcome.outputs.values(), outcome.commit),
             Err(HandlerError::Retry(error)) if attempts >= policy.max_attempts => {
                 (FailureKind::RetryExhausted, error)
             }
@@ -261,7 +287,7 @@ where
             input: Some(input),
         }));
     };
-    finish(outputs, input, attempts, pipeline).await
+    finish(outputs, input, attempts, commit, pipeline).await
 }
 
 /// Runs post-handler hooks over every output.
@@ -269,6 +295,7 @@ async fn finish<M, O>(
     outputs: Vec<O>,
     input: M::Item,
     attempts: usize,
+    commit: Option<Commit>,
     pipeline: &Pipeline<M, O>,
 ) -> Handled<M::Item, O>
 where
@@ -297,6 +324,7 @@ where
         values: mapped,
         input,
         attempts,
+        commit,
     }))
 }
 

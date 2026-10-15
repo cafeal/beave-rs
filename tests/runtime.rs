@@ -16,5 +16,7 @@ mod lifecycle;
 mod ordering;
 #[path = "runtime/retry.rs"]
 mod retry;
+#[path = "runtime/state.rs"]
+mod state;
 #[path = "runtime/transaction.rs"]
 mod transaction;

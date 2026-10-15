@@ -64,6 +64,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             pipeline: Arc::new(Pipeline {
                 name: self.name.clone(),
                 handler: self.handler,
+                stateful: self.stateful,
                 middleware: self.middleware,
                 output: output.clone(),
                 dlq: self.dlq,
