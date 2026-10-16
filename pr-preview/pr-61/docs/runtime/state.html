@@ -133,6 +133,10 @@ registration fails validation.</p>
 <td>Service Bus</td>
 <td>Session ID</td>
 </tr>
+<tr>
+<td>Channel</td>
+<td>Message key of the upstream delivery</td>
+</tr>
 </tbody></table>
 <p>A single delivery without one, such as a Kafka record with a null key or an
 SQS message sent without a group ID, is rejected and routed by the error
@@ -140,7 +144,7 @@ policy. Choose another key from the handler&#39;s input with <code>key</code>:</
 <pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">let</span> <span class="hljs-variable">counts</span> = InMemoryState::&lt;Count&gt;::<span class="hljs-title function_ invoke__">new</span>().<span class="hljs-title function_ invoke__">key</span>(|order: &amp;Order| order.customer_id.<span class="hljs-title function_ invoke__">to_string</span>());
 </code></pre><p>A key closure receives the handler&#39;s input, so it takes the value for a value
 handler and the record for a record handler. Sources without message keys,
-such as RabbitMQ, HTTP, stdin, channels, and <code>IterSource</code>, need a key
+such as RabbitMQ, HTTP, stdin, and <code>IterSource</code>, need a key
 closure: with the default key, the subscription fails to compile, with a note
 to choose a key with <code>.key(..)</code>. A source&#39;s messages have message keys when
 they implement <code>KeyedMessage</code>.</p>
