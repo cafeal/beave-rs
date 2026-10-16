@@ -2,6 +2,7 @@
 use super::{record::ChannelRaw, sink::ChannelSink, source::ChannelSource};
 use crate::error::Error;
 use crate::{message::OrderingKey, shutdown::CancellationToken, sink::Completion};
+use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
 /// A value handed from an upstream publication to the downstream subscription.
@@ -18,6 +19,7 @@ pub(super) struct Queued<T> {
 #[derive(Clone, Default)]
 pub(super) struct Origin {
     pub(super) ordering_key: Option<OrderingKey>,
+    pub(super) message_key: Option<Arc<[u8]>>,
     pub(super) raw: ChannelRaw,
 }
 
