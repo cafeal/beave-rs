@@ -24,19 +24,15 @@ use std::{fmt, future::Future, sync::Arc};
 /// input, from which a store may derive the state key, and `M` the source's
 /// message type, which a store can require to have message keys.
 pub trait StateStore<I, M>: Send + Sync + 'static {
+    /// [`Keyed`] for a store that keeps state per key and implements
+    /// [`KeyedStateStore`], or [`Unkeyed`] for a store whose handler finds its
+    /// state itself, such as through a database transaction.
+    type Keying: Keying;
     /// What the handler receives with each input.
     type State: Send + 'static;
     /// What the runtime keeps from `begin` until `commit`; dropping it
     /// abandons the change.
     type Txn: Send + 'static;
-
-    /// The key `input`'s state is kept under. The subscription distributes
-    /// deliveries by this key: deliveries with equal keys are processed one
-    /// at a time, in the order they were received, so each sees the state
-    /// committed by the one before. The runtime calls it before
-    /// [`begin`](Self::begin); an error here only leaves the delivery
-    /// undistributed, and `begin` reports it.
-    fn key(&self, input: &I, context: &StateContext) -> Result<Vec<u8>>;
 
     /// Starts the state change for one handler attempt, or reports that the
     /// store already holds this delivery's change, as recorded by a commit
@@ -59,6 +55,80 @@ pub trait StateStore<I, M>: Send + Sync + 'static {
         &self,
         txn: Self::Txn,
     ) -> impl Future<Output = std::result::Result<(), BoxError>> + Send;
+}
+
+/// A [`StateStore`] that keeps state per key.
+///
+/// A subscription with a keyed store distributes its deliveries by the state
+/// key: deliveries with equal keys are processed one at a time, in the order
+/// they were received, so each sees the state committed by the one before.
+/// Such a subscription takes no
+/// [`distribution`](crate::Subscription::distribution) of its own.
+pub trait KeyedStateStore<I, M>: StateStore<I, M, Keying = Keyed> {
+    /// The key `input`'s state is kept under. The runtime calls it when it
+    /// distributes the delivery and again before [`begin`](StateStore::begin);
+    /// an error leaves the delivery undistributed, and `begin` reports it.
+    fn key(&self, input: &I, context: &StateContext) -> Result<Vec<u8>>;
+}
+
+/// Whether a [`StateStore`] keeps state per key: [`Keyed`] or [`Unkeyed`].
+pub trait Keying: sealed::Sealed + Send + Sync + 'static {}
+
+/// [`Keying`] of a [`KeyedStateStore`], and of a subscription whose
+/// deliveries are distributed by their state key.
+#[derive(Debug)]
+pub enum Keyed {}
+
+/// [`Keying`] of a store without state keys, and of a subscription that
+/// takes any [`Distribution`](crate::Distribution), such as one with a
+/// stateless handler.
+///
+/// The runtime does not order the deliveries of such a store beyond the
+/// subscription's distribution, so concurrent changes are the store's to
+/// detect, for example with database transactions.
+#[derive(Debug)]
+pub enum Unkeyed {}
+
+impl Keying for Keyed {}
+impl Keying for Unkeyed {}
+
+/// The [`Keying`] of a subscription that takes a
+/// [`distribution`](crate::Subscription::distribution): [`Unkeyed`].
+#[diagnostic::on_unimplemented(
+    message = "a subscription with keyed state distributes by its state key and takes no distribution",
+    label = "the stateful handler's store keeps keyed state",
+    note = "deliveries with one state key are already processed one at a time, in receive order; remove `.distribution(..)`"
+)]
+pub trait Distributable: Keying {}
+impl Distributable for Unkeyed {}
+
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for super::Keyed {}
+    impl Sealed for super::Unkeyed {}
+}
+
+/// The state key of a delivery, as a store of keying `Self` reports it.
+#[doc(hidden)]
+pub trait KeyOf<St, I, M>: Keying {
+    /// Whether the store has keys to distribute by.
+    const KEYED: bool;
+    /// The key, or `None` when the store has no keys or fails to report one.
+    fn key(store: &St, input: &I, context: &StateContext) -> Option<Vec<u8>>;
+}
+
+impl<St: KeyedStateStore<I, M>, I, M> KeyOf<St, I, M> for Keyed {
+    const KEYED: bool = true;
+    fn key(store: &St, input: &I, context: &StateContext) -> Option<Vec<u8>> {
+        store.key(input, context).ok()
+    }
+}
+
+impl<St: StateStore<I, M, Keying = Unkeyed>, I, M> KeyOf<St, I, M> for Unkeyed {
+    const KEYED: bool = false;
+    fn key(_: &St, _: &I, _: &StateContext) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 /// Outcome of [`StateStore::begin`].

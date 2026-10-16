@@ -123,8 +123,9 @@ Subscription::new("orders", source, sink, handler)
     .distribution(|order: &KafkaRecord<Order>| order.value.as_ref().map(|o| o.customer));
 ```
 
-A subscription with a [stateful handler](runtime/state.md) distributes by its
-state key instead and takes no distribution of its own.
+A subscription whose [stateful handler](runtime/state.md) keeps keyed state,
+such as `InMemoryState`, distributes by its state key instead and takes no
+distribution of its own.
 
 Under `Parallel`, or any distribution finer than the source scope, deliveries
 from one partition can run and complete out of order. Sources remain

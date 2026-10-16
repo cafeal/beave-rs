@@ -8,7 +8,7 @@ use crate::{
     record::{SamePlatform, ValueRecord},
     sink::Sink,
     source::{Source, SourceItem},
-    state::{Begin, StateContext, StateStore, Stateful, StatefulHandler},
+    state::{Begin, KeyOf, Keying, StateContext, StateStore, Stateful, StatefulHandler, Unkeyed},
 };
 use std::sync::Arc;
 use tracing::debug;
@@ -108,6 +108,9 @@ impl<T: Send + Sync + 'static> Cardinality<Emit<T>> for Many {
 pub trait IntoHandler<S: Source, K, M>: Send + Sync + 'static {
     /// Output type the sink publishes.
     type Output: Send + Sync + 'static;
+    /// [`Keyed`](crate::state::Keyed) for a stateful handler whose store keeps keyed state,
+    /// otherwise [`Unkeyed`].
+    type Keying: Keying;
     /// Build a subscription that runs this handler.
     #[doc(hidden)]
     fn into_subscription(
@@ -115,7 +118,7 @@ pub trait IntoHandler<S: Source, K, M>: Send + Sync + 'static {
         name: String,
         source: S,
         sink: K,
-    ) -> Subscription<S, K, Self::Output>;
+    ) -> Subscription<S, K, Self::Output, Self::Keying>;
 }
 
 impl<S, K, H, C> IntoHandler<S, K, (ByRecord, ByRecord, C, Stateless)> for H
@@ -126,14 +129,20 @@ where
     K: Sink<C::Item>,
 {
     type Output = C::Item;
+    type Keying = Unkeyed;
 
-    fn into_subscription(self, name: String, source: S, sink: K) -> Subscription<S, K, C::Item> {
+    fn into_subscription(
+        self,
+        name: String,
+        source: S,
+        sink: K,
+    ) -> Subscription<S, K, C::Item, Unkeyed> {
         let handler = Arc::new(self);
         Subscription::with_handler(
             name,
             source,
             sink,
-            None,
+            false,
             Arc::new(move |input, _| {
                 let handler = handler.clone();
                 Box::pin(async move {
@@ -154,14 +163,20 @@ where
     K: Sink<C::Item>,
 {
     type Output = C::Item;
+    type Keying = Unkeyed;
 
-    fn into_subscription(self, name: String, source: S, sink: K) -> Subscription<S, K, C::Item> {
+    fn into_subscription(
+        self,
+        name: String,
+        source: S,
+        sink: K,
+    ) -> Subscription<S, K, C::Item, Unkeyed> {
         let handler = Arc::new(self);
         Subscription::with_handler(
             name,
             source,
             sink,
-            None,
+            false,
             Arc::new(move |record: SourceItem<S>, _| {
                 let handler = handler.clone();
                 Box::pin(async move {
@@ -182,19 +197,20 @@ where
     K: Sink<<SourceItem<S> as SamePlatform<C::Item>>::Publish>,
 {
     type Output = <SourceItem<S> as SamePlatform<C::Item>>::Publish;
+    type Keying = Unkeyed;
 
     fn into_subscription(
         self,
         name: String,
         source: S,
         sink: K,
-    ) -> Subscription<S, K, Self::Output> {
+    ) -> Subscription<S, K, Self::Output, Unkeyed> {
         let handler = Arc::new(self);
         Subscription::with_handler(
             name,
             source,
             sink,
-            None,
+            false,
             Arc::new(move |input, _| {
                 let handler = handler.clone();
                 Box::pin(async move {
@@ -216,19 +232,20 @@ where
     K: Sink<<SourceItem<S> as SamePlatform<C::Item>>::Publish>,
 {
     type Output = <SourceItem<S> as SamePlatform<C::Item>>::Publish;
+    type Keying = Unkeyed;
 
     fn into_subscription(
         self,
         name: String,
         source: S,
         sink: K,
-    ) -> Subscription<S, K, Self::Output> {
+    ) -> Subscription<S, K, Self::Output, Unkeyed> {
         let handler = Arc::new(self);
         Subscription::with_handler(
             name,
             source,
             sink,
-            None,
+            false,
             Arc::new(move |record: SourceItem<S>, _| {
                 let handler = handler.clone();
                 Box::pin(async move {
@@ -245,24 +262,32 @@ impl<S, K, St, H, C> IntoHandler<S, K, (ByRecord, ByRecord, C, WithState)> for S
 where
     S: Source,
     St: StateStore<SourceItem<S>, S::Message>,
+    St::Keying: KeyOf<St, SourceItem<S>, S::Message>,
     H: StatefulHandler<SourceItem<S>, St::State>,
     C: Cardinality<H::Output>,
     K: Sink<C::Item>,
 {
     type Output = C::Item;
+    type Keying = St::Keying;
 
-    fn into_subscription(self, name: String, source: S, sink: K) -> Subscription<S, K, C::Item> {
+    fn into_subscription(
+        self,
+        name: String,
+        source: S,
+        sink: K,
+    ) -> Subscription<S, K, C::Item, St::Keying> {
         let stateful = Arc::new(self);
-        let state = by_record_key::<S, _, _>(&stateful, &name);
+        let distributor = by_record_key::<S, _, _>(&stateful, &name);
         Subscription::with_handler(
             name,
             source,
             sink,
-            Some(state),
+            true,
             Arc::new(move |input, context| {
                 Box::pin(run_stateful(stateful.clone(), input, context, C::emit))
             }),
         )
+        .distribute_by(distributor)
     }
 }
 
@@ -272,20 +297,27 @@ where
     SourceItem<S>: ValueRecord,
     <SourceItem<S> as ValueRecord>::Value: Sync,
     St: StateStore<<SourceItem<S> as ValueRecord>::Value, S::Message>,
+    St::Keying: KeyOf<St, <SourceItem<S> as ValueRecord>::Value, S::Message>,
     H: StatefulHandler<<SourceItem<S> as ValueRecord>::Value, St::State>,
     C: Cardinality<H::Output>,
     K: Sink<C::Item>,
 {
     type Output = C::Item;
+    type Keying = St::Keying;
 
-    fn into_subscription(self, name: String, source: S, sink: K) -> Subscription<S, K, C::Item> {
+    fn into_subscription(
+        self,
+        name: String,
+        source: S,
+        sink: K,
+    ) -> Subscription<S, K, C::Item, St::Keying> {
         let stateful = Arc::new(self);
-        let state = by_value_key::<S, _, _>(&stateful, &name);
+        let distributor = by_value_key::<S, _, _>(&stateful, &name);
         Subscription::with_handler(
             name,
             source,
             sink,
-            Some(state),
+            true,
             Arc::new(move |record: SourceItem<S>, context| {
                 let stateful = stateful.clone();
                 Box::pin(
@@ -293,6 +325,7 @@ where
                 )
             }),
         )
+        .distribute_by(distributor)
     }
 }
 
@@ -300,32 +333,35 @@ impl<S, K, St, H, C> IntoHandler<S, K, (ByRecord, ByValue, C, WithState)> for St
 where
     S: Source,
     St: StateStore<SourceItem<S>, S::Message>,
+    St::Keying: KeyOf<St, SourceItem<S>, S::Message>,
     H: StatefulHandler<SourceItem<S>, St::State>,
     C: Cardinality<H::Output>,
     SourceItem<S>: SamePlatform<C::Item>,
     K: Sink<<SourceItem<S> as SamePlatform<C::Item>>::Publish>,
 {
     type Output = <SourceItem<S> as SamePlatform<C::Item>>::Publish;
+    type Keying = St::Keying;
 
     fn into_subscription(
         self,
         name: String,
         source: S,
         sink: K,
-    ) -> Subscription<S, K, Self::Output> {
+    ) -> Subscription<S, K, Self::Output, St::Keying> {
         let stateful = Arc::new(self);
-        let state = by_record_key::<S, _, _>(&stateful, &name);
+        let distributor = by_record_key::<S, _, _>(&stateful, &name);
         Subscription::with_handler(
             name,
             source,
             sink,
-            Some(state),
+            true,
             Arc::new(move |input, context| {
                 Box::pin(run_stateful(stateful.clone(), input, context, |result| {
                     publish::<S, _>(C::emit(result))
                 }))
             }),
         )
+        .distribute_by(distributor)
         .middleware(<SourceItem<S> as SamePlatform<C::Item>>::Inherit::default())
     }
 }
@@ -335,26 +371,28 @@ where
     S: Source,
     <SourceItem<S> as ValueRecord>::Value: Sync,
     St: StateStore<<SourceItem<S> as ValueRecord>::Value, S::Message>,
+    St::Keying: KeyOf<St, <SourceItem<S> as ValueRecord>::Value, S::Message>,
     H: StatefulHandler<<SourceItem<S> as ValueRecord>::Value, St::State>,
     C: Cardinality<H::Output>,
     SourceItem<S>: SamePlatform<C::Item>,
     K: Sink<<SourceItem<S> as SamePlatform<C::Item>>::Publish>,
 {
     type Output = <SourceItem<S> as SamePlatform<C::Item>>::Publish;
+    type Keying = St::Keying;
 
     fn into_subscription(
         self,
         name: String,
         source: S,
         sink: K,
-    ) -> Subscription<S, K, Self::Output> {
+    ) -> Subscription<S, K, Self::Output, St::Keying> {
         let stateful = Arc::new(self);
-        let state = by_value_key::<S, _, _>(&stateful, &name);
+        let distributor = by_value_key::<S, _, _>(&stateful, &name);
         Subscription::with_handler(
             name,
             source,
             sink,
-            Some(state),
+            true,
             Arc::new(move |record: SourceItem<S>, context| {
                 let stateful = stateful.clone();
                 Box::pin(async move {
@@ -365,40 +403,59 @@ where
                 })
             }),
         )
+        .distribute_by(distributor)
         .middleware(<SourceItem<S> as SamePlatform<C::Item>>::Inherit::default())
     }
 }
 
-/// Distributes deliveries by the state key of the record a handler takes.
-fn by_record_key<S, St, H>(stateful: &Arc<Stateful<St, H>>, name: &str) -> Distributor<S::Message>
+/// Distributes deliveries by the state key of the record a handler takes,
+/// for a keyed store.
+fn by_record_key<S, St, H>(
+    stateful: &Arc<Stateful<St, H>>,
+    name: &str,
+) -> Option<Distributor<S::Message>>
 where
     S: Source,
     St: StateStore<SourceItem<S>, S::Message>,
+    St::Keying: KeyOf<St, SourceItem<S>, S::Message>,
     H: Send + Sync + 'static,
 {
+    if !<St::Keying as KeyOf<St, SourceItem<S>, S::Message>>::KEYED {
+        return None;
+    }
     let stateful = stateful.clone();
     let name = name.to_owned();
-    Distributor::by_key(move |message, record| {
+    Some(Distributor::by_key(move |message, record| {
         let context = StateContext::of(&name, message);
-        stateful.store.key(record, &context).ok()
-    })
+        St::Keying::key(&stateful.store, record, &context)
+    }))
 }
 
-/// Distributes deliveries by the state key of the value a handler takes.
-fn by_value_key<S, St, H>(stateful: &Arc<Stateful<St, H>>, name: &str) -> Distributor<S::Message>
+/// Distributes deliveries by the state key of the value a handler takes,
+/// for a keyed store.
+fn by_value_key<S, St, H>(
+    stateful: &Arc<Stateful<St, H>>,
+    name: &str,
+) -> Option<Distributor<S::Message>>
 where
     S: Source,
     SourceItem<S>: ValueRecord,
     St: StateStore<<SourceItem<S> as ValueRecord>::Value, S::Message>,
+    St::Keying: KeyOf<St, <SourceItem<S> as ValueRecord>::Value, S::Message>,
     H: Send + Sync + 'static,
 {
+    if !<St::Keying as KeyOf<St, _, S::Message>>::KEYED {
+        return None;
+    }
     let stateful = stateful.clone();
     let name = name.to_owned();
-    Distributor::by_key(move |message, record: &SourceItem<S>| {
-        let context = StateContext::of(&name, message);
-        let value = record.value().ok()?;
-        stateful.store.key(&value, &context).ok()
-    })
+    Some(Distributor::by_key(
+        move |message, record: &SourceItem<S>| {
+            let context = StateContext::of(&name, message);
+            let value = record.value().ok()?;
+            St::Keying::key(&stateful.store, &value, &context)
+        },
+    ))
 }
 
 /// Wraps each value output in the source platform's publish record.

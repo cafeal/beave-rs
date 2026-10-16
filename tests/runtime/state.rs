@@ -1,9 +1,9 @@
 use super::fixtures::{Flaky, TransactionalSource, Transactions, fast};
 use beavers::{
     App, BoxError, CancellationToken, Completion, DeadLetter, Delivery, Emit, ErrorPolicy,
-    FailureKind, HandlerError, InMemorySink, IterSource, KeyedMessage, OrderingKey, Position,
-    Receive, ReceiveError, Sink, Source, SourceMessage, Subscription,
-    state::{InMemoryState, State, stateful},
+    FailureKind, HandlerError, InMemorySink, IterSource, KeyedMessage, OrderingKey, Parallel,
+    Position, Receive, ReceiveError, Sink, Source, SourceMessage, Subscription,
+    state::{Begin, InMemoryState, State, StateContext, StateStore, Unkeyed, stateful},
 };
 use std::{
     collections::VecDeque,
@@ -442,25 +442,60 @@ async fn one_state_key_is_processed_in_receive_order_across_ordering_scopes() {
     assert_eq!(sink.values(), [1, 3, 6, 10, 15, 21]);
 }
 
+/// A store without keys: the handler adds to one shared total itself.
+#[derive(Clone, Default)]
+struct SharedTotal(Arc<Mutex<i32>>);
+
+impl<M> StateStore<i32, M> for SharedTotal {
+    type Keying = Unkeyed;
+    type State = Arc<Mutex<i32>>;
+    type Txn = ();
+
+    async fn begin(
+        &self,
+        _: &i32,
+        _: &StateContext,
+    ) -> beavers::Result<Begin<Arc<Mutex<i32>>, ()>> {
+        Ok(Begin::Ready(self.0.clone(), ()))
+    }
+
+    async fn commit(&self, (): ()) -> Result<(), BoxError> {
+        Ok(())
+    }
+}
+
 #[tokio::test]
-async fn a_stateful_subscription_takes_no_distribution() {
-    let error = App::new()
+async fn an_unkeyed_store_runs_on_any_source_under_any_distribution() {
+    let total = SharedTotal::default();
+    let running = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let (counted, highest) = (running.clone(), peak.clone());
+    App::new()
         .subscription(
             Subscription::new(
-                "distributed",
-                IterSource::new([1]),
+                "shared",
+                IterSource::new(1..=8),
                 InMemorySink::default(),
-                stateful(
-                    InMemoryState::<i32>::new().key(|_: &i32| "all"),
-                    running_total,
-                ),
+                stateful(total.clone(), move |value: i32, total: Arc<Mutex<i32>>| {
+                    let (running, peak) = (counted.clone(), highest.clone());
+                    async move {
+                        let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+                        peak.fetch_max(now, Ordering::SeqCst);
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                        *total.lock().unwrap() += value;
+                        running.fetch_sub(1, Ordering::SeqCst);
+                        Ok(value)
+                    }
+                }),
             )
-            .distribution(beavers::Parallel),
+            .concurrency(4)
+            .distribution(Parallel),
         )
         .run()
         .await
-        .unwrap_err();
-    assert!(error.to_string().contains("state key"), "{error}");
+        .unwrap();
+    assert_eq!(*total.0.lock().unwrap(), 36);
+    assert_eq!(peak.load(Ordering::SeqCst), 4);
 }
 
 #[tokio::test]

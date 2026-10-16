@@ -90,14 +90,16 @@ closure: with the default key, the subscription fails to compile, with a note
 to choose a key with `.key(..)`. A source's messages have message keys when
 they implement `KeyedMessage`.
 
-A stateful subscription [distributes](../runtime.md#decoding-and-distribution)
-deliveries by their state key: deliveries with the same key are processed one
+A subscription with a keyed store, such as `InMemoryState`,
+[distributes](../runtime.md#decoding-and-distribution) deliveries by their
+state key: deliveries with the same key are processed one
 at a time, in the order they were received, so each sees the state the
 previous one committed, while deliveries with other keys run in parallel up to
 the subscription's concurrency. This holds for a key closure too, such as a
 customer ID whose orders arrive in several Kafka partitions, because the
-runtime decodes each delivery before distributing it. A stateful subscription
-takes no `distribution` of its own; setting one fails when the app starts.
+runtime decodes each delivery before distributing it. Such a subscription
+takes no `distribution` of its own: calling `.distribution(..)` on it fails to
+compile.
 
 ## Redeliveries
 
@@ -132,7 +134,6 @@ A store implements `StateStore<I, M>`, where `I` is the handler's input and
 
 | Method | Called |
 |---|---|
-| `key(&input, &context)` | When the delivery is distributed. Returns the key the delivery's state is kept under, which the subscription distributes by |
 | `begin(&input, &context)` | Before each handler attempt. Returns the state passed to the handler and a transaction kept by the runtime, or `Begin::Applied` for a redelivery the store already holds |
 | `commit(txn)` | After the outputs are published, before the acknowledgement. Dropping the transaction abandons the change |
 
@@ -141,6 +142,19 @@ would in a handler: `Retry` reruns the attempt, `Reject` routes the delivery,
 and `Fatal` stops the subscription. `StateContext` carries the subscription
 name, the delivery's message key and position, and the revocation token of
 its partition.
+
+A store declares its `Keying`, which decides how its subscription is
+distributed:
+
+| `Keying` | Store | Distribution |
+|---|---|---|
+| `Keyed` | Keeps state per key and implements `KeyedStateStore`, whose `key(&input, &context)` returns the key a delivery's state is kept under | By the state key; `.distribution(..)` does not compile |
+| `Unkeyed` | Has no keys, such as a store that hands the handler a database transaction and lets the database detect concurrent changes | The subscription's own: `SourceOrder` by default, or any `.distribution(..)` |
+
+A keyed store's `key` is called when the delivery is distributed and may build
+the key from the input or the context, so it works with any source. An
+unkeyed store works with any source and distribution, and leaves concurrent
+changes to its backend.
 
 The store's `State` type is what the handler receives. It is `State<T>` for
 one value per key, and a store can instead hand the handler a client of its

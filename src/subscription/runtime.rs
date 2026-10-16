@@ -14,6 +14,7 @@ use crate::{
     shutdown::CancellationToken,
     sink::Sink,
     source::{Receive, ReceiveError, Source},
+    state::Keying,
 };
 use std::{future::Future, result::Result as StdResult, sync::Arc};
 use tokio::{
@@ -28,7 +29,7 @@ type Jobs = JoinSet<Result<(Ticket, Option<PendingAck>), BoxError>>;
 /// `max_in_flight`; sinks bound them by applying backpressure in `submit`.
 type Acks = JoinSet<Result<(), BoxError>>;
 
-impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
+impl<S: Source, K: Sink<O>, O: Send + Sync + 'static, Ks: Keying> Subscription<S, K, O, Ks> {
     pub(crate) async fn run(
         self,
         shutdown: CancellationToken,

@@ -8,5 +8,7 @@ mod value;
 pub use handler::{Stateful, StatefulHandler, stateful};
 pub use key::{MessageKey, StateKey};
 pub use memory::{InMemoryState, InMemoryTxn};
-pub use store::{Begin, StateContext, StateStore};
+pub use store::{
+    Begin, Distributable, KeyOf, Keyed, KeyedStateStore, Keying, StateContext, StateStore, Unkeyed,
+};
 pub use value::State;

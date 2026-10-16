@@ -34,9 +34,10 @@ project follows the versioning policy in
   commits the change after the outputs are published and before the
   acknowledgement. `InMemoryState` keeps `State<T>` values in memory, keyed by
   message key or by a closure over the input, and skips Kafka redeliveries it
-  already holds. A stateful subscription distributes deliveries by their state
-  key, so the deliveries of one key are processed one at a time in receive
-  order.
+  already holds. A store is `Keyed`, implementing `KeyedStateStore`, or
+  `Unkeyed`. A subscription with a keyed store distributes deliveries by their
+  state key, so the deliveries of one key are processed one at a time in
+  receive order, and `.distribution(..)` on it does not compile.
 - `SourceMessage::message_key` and `SourceMessage::position`. The Kafka and
   Pulsar sources report message keys, the SQS source the message group ID, the
   Pub/Sub source the ordering key, and the Service Bus source the session ID;

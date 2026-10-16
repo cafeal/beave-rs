@@ -1,7 +1,7 @@
 //! State kept in the memory of the running process.
 use super::{
     key::{MessageKey, StateKey},
-    store::{Begin, StateContext, StateStore},
+    store::{Begin, Keyed, KeyedStateStore, StateContext, StateStore},
     value::{Final, Returned, State},
 };
 use crate::{error::BoxError, handler::Result, message::Position, shutdown::CancellationToken};
@@ -143,6 +143,17 @@ fn is_stale<T>(entry: &Entry<T>) -> bool {
     entry.owners.iter().any(CancellationToken::is_cancelled)
 }
 
+impl<I, M, T, K> KeyedStateStore<I, M> for InMemoryState<T, K>
+where
+    I: Sync,
+    T: Clone + Default + Send + Sync + 'static,
+    K: StateKey<I, M>,
+{
+    fn key(&self, input: &I, context: &StateContext) -> Result<Vec<u8>> {
+        self.key.key(input, context)
+    }
+}
+
 /// A held key of an [`InMemoryState`] from `begin` until `commit`.
 pub struct InMemoryTxn<T> {
     entry: OwnedMutexGuard<Entry<T>>,
@@ -157,19 +168,16 @@ where
     T: Clone + Default + Send + Sync + 'static,
     K: StateKey<I, M>,
 {
+    type Keying = Keyed;
     type State = State<T>;
     type Txn = InMemoryTxn<T>;
-
-    fn key(&self, input: &I, context: &StateContext) -> Result<Vec<u8>> {
-        self.key.key(input, context)
-    }
 
     async fn begin(
         &self,
         input: &I,
         context: &StateContext,
     ) -> Result<Begin<State<T>, InMemoryTxn<T>>> {
-        let key = StateStore::<I, M>::key(self, input, context)?;
+        let key = KeyedStateStore::<I, M>::key(self, input, context)?;
         let entry = self.entries.lock().unwrap().entry(key).or_default().clone();
         // Deliveries with one key take turns, so each sees the last commit.
         let mut entry = entry.lock_owned().await;

@@ -18,11 +18,11 @@ use crate::{
     retry::RetryPolicy,
     sink::Sink,
     source::{Source, SourceItem, SourceRaw},
-    state::StateContext,
+    state::{Distributable, Keying, StateContext, Unkeyed},
     transaction::TransactionalSink,
 };
 use metrics::Counter;
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc, time::Duration};
 
 pub(super) type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 pub(super) type BoxHandler<I, O> = Arc<
@@ -61,7 +61,11 @@ type CloseDeadLetter = Arc<dyn Fn() -> BoxFuture<Result<(), BoxError>> + Send + 
 /// and processing settings such as concurrency, retries, and the [`ErrorPolicy`].
 ///
 /// Register it on an [`App`](crate::App) with [`App::subscription`](crate::App::subscription).
-pub struct Subscription<S: Source, K, O> {
+///
+/// `Ks` is [`Keyed`](crate::state::Keyed) when a stateful handler keeps keyed
+/// state, which fixes the subscription's distribution to the state key, and
+/// [`Unkeyed`] otherwise.
+pub struct Subscription<S: Source, K, O, Ks: Keying = Unkeyed> {
     pub(super) name: String,
     pub(super) source: S,
     pub(super) sink: Arc<K>,
@@ -73,12 +77,11 @@ pub struct Subscription<S: Source, K, O> {
     pub(super) middleware: Vec<Mapper<SourceItem<S>, O>>,
     pub(super) close_dlq: Option<CloseDeadLetter>,
     pub(super) distributor: Distributor<S::Message>,
-    /// Whether [`distribution`](Self::distribution) replaced the default.
-    pub(super) distribution_chosen: bool,
     pub(super) config: SubscriptionConfig,
+    pub(super) keying: PhantomData<Ks>,
 }
 
-impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
+impl<S: Source, K: Sink<O>, O: Send + Sync + 'static, Ks: Keying> Subscription<S, K, O, Ks> {
     /// Registers a handler. `name` identifies the subscription in errors, dead letters,
     /// spans, and metric labels; it must be non-empty and unique within an [`App`](crate::App).
     ///
@@ -86,7 +89,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     /// output type or a plain value; see [`IntoHandler`] for the accepted shapes.
     pub fn new<H, In, Out, St>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
     where
-        H: IntoHandler<S, K, (In, Out, One, St), Output = O>,
+        H: IntoHandler<S, K, (In, Out, One, St), Output = O, Keying = Ks>,
     {
         handler.into_subscription(name.into(), source, sink)
     }
@@ -101,7 +104,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         handler: H,
     ) -> Self
     where
-        H: IntoHandler<S, K, (In, Out, Many, St), Output = O>,
+        H: IntoHandler<S, K, (In, Out, Many, St), Output = O, Keying = Ks>,
     {
         handler.into_subscription(name.into(), source, sink)
     }
@@ -110,7 +113,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         name: String,
         source: S,
         sink: K,
-        state: Option<Distributor<S::Message>>,
+        stateful: bool,
         handler: BoxHandler<SourceItem<S>, O>,
     ) -> Self {
         let sink = Arc::new(sink);
@@ -120,15 +123,24 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             output: Arc::new(Publish(sink.clone())),
             sink,
             transactional: false,
-            stateful: state.is_some(),
+            stateful,
             handler,
             dlq: None,
             close_dlq: None,
             middleware: vec![],
-            distributor: state.unwrap_or_else(|| Distributor::new(SourceOrder)),
-            distribution_chosen: false,
+            distributor: Distributor::new(SourceOrder),
             config: SubscriptionConfig::default(),
+            keying: PhantomData,
         }
+    }
+
+    /// Distributes by `distributor`, which a keyed stateful handler sets to its
+    /// state key.
+    pub(super) fn distribute_by(mut self, distributor: Option<Distributor<S::Message>>) -> Self {
+        if let Some(distributor) = distributor {
+            self.distributor = distributor;
+        }
+        self
     }
 
     /// Maximum number of deliveries processed at the same time. Defaults to 1.
@@ -170,13 +182,34 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     /// [`Parallel`](crate::Parallel), an adapter's own distribution, or a
     /// closure that returns a key from the decoded value.
     ///
-    /// A subscription with a [stateful](crate::state::stateful) handler
-    /// distributes by the [state key](crate::state::StateStore::key) instead,
-    /// so that deliveries sharing state are processed in the order they were
-    /// received, and rejects this setting.
-    pub fn distribution<D: Distribution<S::Message>>(mut self, distribution: D) -> Self {
+    /// A subscription whose [stateful](crate::state::stateful) handler keeps
+    /// [keyed](crate::state::Keyed) state distributes by the
+    /// [state key](crate::state::KeyedStateStore::key) instead, so that
+    /// deliveries sharing state are processed in the order they were
+    /// received, and does not compile with it:
+    ///
+    /// ```compile_fail
+    /// use beavers::{InMemorySink, IterSource, Parallel, Subscription};
+    /// use beavers::state::{InMemoryState, State, stateful};
+    ///
+    /// async fn total(value: i32, mut total: State<i32>) -> beavers::Result<i32> {
+    ///     *total += value;
+    ///     Ok(*total)
+    /// }
+    ///
+    /// Subscription::new(
+    ///     "totals",
+    ///     IterSource::new([1, 2]),
+    ///     InMemorySink::<i32>::default(),
+    ///     stateful(InMemoryState::<i32>::new().key(|_: &i32| "all"), total),
+    /// )
+    /// .distribution(Parallel);
+    /// ```
+    pub fn distribution<D: Distribution<S::Message>>(mut self, distribution: D) -> Self
+    where
+        Ks: Distributable,
+    {
         self.distributor = Distributor::new(distribution);
-        self.distribution_chosen = true;
         self
     }
 
@@ -340,11 +373,6 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             !self.transactional || self.distributor.keeps_source_order(),
             Error::config,
             "transactional subscriptions require a distribution that keeps the source order"
-        );
-        ensure!(
-            !(self.stateful && self.distribution_chosen),
-            Error::config,
-            "a stateful subscription distributes by its state key and takes no distribution"
         );
         self.config.error_policy.validate(self.dlq.is_some())
     }
