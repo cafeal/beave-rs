@@ -1,5 +1,10 @@
 //! The contract between the runtime and a state store.
-use crate::{error::BoxError, handler::Result, message::Position, shutdown::CancellationToken};
+use crate::{
+    error::BoxError,
+    handler::Result,
+    message::{Position, SourceMessage},
+    shutdown::CancellationToken,
+};
 use std::{fmt, future::Future, sync::Arc};
 
 /// Storage that a [stateful](super::stateful) handler reads and changes for
@@ -24,6 +29,14 @@ pub trait StateStore<I, M>: Send + Sync + 'static {
     /// What the runtime keeps from `begin` until `commit`; dropping it
     /// abandons the change.
     type Txn: Send + 'static;
+
+    /// The key `input`'s state is kept under. The subscription distributes
+    /// deliveries by this key: deliveries with equal keys are processed one
+    /// at a time, in the order they were received, so each sees the state
+    /// committed by the one before. The runtime calls it before
+    /// [`begin`](Self::begin); an error here only leaves the delivery
+    /// undistributed, and `begin` reports it.
+    fn key(&self, input: &I, context: &StateContext) -> Result<Vec<u8>>;
 
     /// Starts the state change for one handler attempt, or reports that the
     /// store already holds this delivery's change, as recorded by a commit
@@ -68,17 +81,13 @@ pub struct StateContext {
 }
 
 impl StateContext {
-    pub(crate) fn new(
-        subscription: Arc<str>,
-        message_key: Option<&[u8]>,
-        position: Option<Position>,
-        revocation: Option<CancellationToken>,
-    ) -> Self {
+    /// The context of `delivery` in the subscription named `subscription`.
+    pub(crate) fn of<M: SourceMessage>(subscription: &str, delivery: &M) -> Self {
         Self {
-            subscription,
-            message_key: message_key.map(Arc::from),
-            position,
-            revocation,
+            subscription: Arc::from(subscription),
+            message_key: delivery.message_key().map(Arc::from),
+            position: delivery.position(),
+            revocation: delivery.revocation(),
         }
     }
 

@@ -70,14 +70,9 @@ where
     M: SourceMessage,
     O: Send + Sync + 'static,
 {
-    let context = pipeline.stateful.then(|| {
-        Arc::new(StateContext::new(
-            Arc::from(pipeline.name.as_str()),
-            delivery.message_key(),
-            delivery.position(),
-            delivery.revocation(),
-        ))
-    });
+    let context = pipeline
+        .stateful
+        .then(|| Arc::new(StateContext::of(&pipeline.name, &delivery)));
     let failure = match decoded {
         Ok(input) => match handle(input, context, &pipeline).await? {
             Ok(Outputs {

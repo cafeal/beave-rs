@@ -90,17 +90,14 @@ closure: with the default key, the subscription fails to compile, with a note
 to choose a key with `.key(..)`. A source's messages have message keys when
 they implement `KeyedMessage`.
 
-In `InMemoryState`, deliveries with the same key take turns: a delivery waits
-to begin until the previous delivery with that key has committed or abandoned
-its change, so each sees the last committed state. With the Kafka source, deliveries with the
-same record key arrive in one partition and are processed in offset order.
-Deliveries with the same state key in different ordering scopes, or under a
-[distribution](../runtime.md#decoding-and-distribution) such as `Parallel`, take
-turns in whichever order they begin, and a delivery waiting for its turn holds
-a job slot. Distribute by the state key to process each key's deliveries in
-receive order without waiting in a job slot: with a key closure
-`.key(|order: &Order| order.customer)`, use
-`.distribution(|order: &Order| order.customer)` as well.
+A stateful subscription [distributes](../runtime.md#decoding-and-distribution)
+deliveries by their state key: deliveries with the same key are processed one
+at a time, in the order they were received, so each sees the state the
+previous one committed, while deliveries with other keys run in parallel up to
+the subscription's concurrency. This holds for a key closure too, such as a
+customer ID whose orders arrive in several Kafka partitions, because the
+runtime decodes each delivery before distributing it. A stateful subscription
+takes no `distribution` of its own; setting one fails when the app starts.
 
 ## Redeliveries
 
@@ -135,6 +132,7 @@ A store implements `StateStore<I, M>`, where `I` is the handler's input and
 
 | Method | Called |
 |---|---|
+| `key(&input, &context)` | When the delivery is distributed. Returns the key the delivery's state is kept under, which the subscription distributes by |
 | `begin(&input, &context)` | Before each handler attempt. Returns the state passed to the handler and a transaction kept by the runtime, or `Begin::Applied` for a redelivery the store already holds |
 | `commit(txn)` | After the outputs are published, before the acknowledgement. Dropping the transaction abandons the change |
 
@@ -155,7 +153,8 @@ committing the backend's transaction at the commit step.
 state that may be lost. The values are lost when the process stops. When a
 partition is revoked, the values its deliveries committed are discarded on
 their next use, because another consumer may change them meanwhile, so the
-key starts again from `T::default()`. Every key used keeps an entry for the
+key starts again from `T::default()`. A key whose deliveries come from several
+partitions is discarded when any of them is revoked. Every key used keeps an entry for the
 life of the process. Clones of an `InMemoryState` share its values, and `get`
 returns the value stored under a key, for example to inspect it in a test.
 

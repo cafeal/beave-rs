@@ -387,6 +387,106 @@ async fn deliveries_with_one_key_take_turns_across_jobs() {
 }
 
 #[tokio::test]
+async fn a_delivery_waiting_for_its_state_key_leaves_its_job_slot_free() {
+    let sink = InMemorySink::default();
+    App::new()
+        .subscription(
+            Subscription::new(
+                "lanes",
+                KeyedSource::new([keyed(100, "a"), keyed(1, "a"), keyed(10, "b")]),
+                sink.clone(),
+                stateful(
+                    InMemoryState::<i32>::new(),
+                    |value: i32, mut total: State<i32>| async move {
+                        tokio::time::sleep(Duration::from_millis(value as u64)).await;
+                        *total += value;
+                        Ok(*total)
+                    },
+                ),
+            )
+            .concurrency(2),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(sink.values(), [10, 100, 101]);
+}
+
+#[tokio::test]
+async fn one_state_key_is_processed_in_receive_order_across_ordering_scopes() {
+    let sink = InMemorySink::default();
+    let deliveries = (1..=6).map(|value| {
+        let partition = OrderingKey::new("events", i64::from(value % 2));
+        with_key(Delivery::untracked(value).with_ordering_key(partition), "a")
+    });
+    App::new()
+        .subscription(
+            Subscription::new(
+                "receive-order",
+                KeyedSource::new(deliveries),
+                sink.clone(),
+                stateful(
+                    InMemoryState::<i32>::new(),
+                    |value: i32, mut total: State<i32>| async move {
+                        tokio::time::sleep(Duration::from_millis(10 - value as u64)).await;
+                        *total += value;
+                        Ok(*total)
+                    },
+                ),
+            )
+            .concurrency(8),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(sink.values(), [1, 3, 6, 10, 15, 21]);
+}
+
+#[tokio::test]
+async fn a_stateful_subscription_takes_no_distribution() {
+    let error = App::new()
+        .subscription(
+            Subscription::new(
+                "distributed",
+                IterSource::new([1]),
+                InMemorySink::default(),
+                stateful(
+                    InMemoryState::<i32>::new().key(|_: &i32| "all"),
+                    running_total,
+                ),
+            )
+            .distribution(beavers::Parallel),
+        )
+        .run()
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("state key"), "{error}");
+}
+
+#[tokio::test]
+async fn state_from_several_partitions_is_discarded_when_any_is_revoked() {
+    let totals = InMemoryState::<i32>::new();
+    let first = CancellationToken::new();
+    let second = CancellationToken::new();
+    App::new()
+        .subscribe(
+            "partitions",
+            KeyedSource::new([
+                with_key(Delivery::untracked(1).with_revocation(first.clone()), "a"),
+                with_key(Delivery::untracked(2).with_revocation(second.clone()), "a"),
+            ]),
+            InMemorySink::default(),
+            stateful(totals.clone(), running_total),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(totals.get("a").await, Some(3));
+    first.cancel();
+    assert_eq!(totals.get("a").await, None);
+}
+
+#[tokio::test]
 async fn a_transactional_subscription_cannot_be_stateful() {
     let error = App::new()
         .subscription(

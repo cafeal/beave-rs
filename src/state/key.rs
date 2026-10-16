@@ -24,11 +24,9 @@ use crate::{
 /// # let _ = counts;
 /// ```
 ///
-/// Deliveries with the same key share state. The runtime processes them one
-/// at a time per store, but only deliveries the subscription's
-/// [`Distribution`](crate::Distribution) gives the same key are processed in
-/// the order they were received; distribute by the state key to keep that
-/// order.
+/// Deliveries with the same key share state. The subscription
+/// [distributes](crate::Distribution) by this key, so they are processed one
+/// at a time, in the order they were received.
 pub trait StateKey<I, M>: Send + Sync + 'static {
     /// The key for `input`. An error is classified like a handler error.
     fn key(&self, input: &I, context: &StateContext) -> Result<Vec<u8>>;

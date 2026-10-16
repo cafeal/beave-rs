@@ -73,6 +73,8 @@ pub struct Subscription<S: Source, K, O> {
     pub(super) middleware: Vec<Mapper<SourceItem<S>, O>>,
     pub(super) close_dlq: Option<CloseDeadLetter>,
     pub(super) distributor: Distributor<S::Message>,
+    /// Whether [`distribution`](Self::distribution) replaced the default.
+    pub(super) distribution_chosen: bool,
     pub(super) config: SubscriptionConfig,
 }
 
@@ -108,7 +110,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         name: String,
         source: S,
         sink: K,
-        stateful: bool,
+        state: Option<Distributor<S::Message>>,
         handler: BoxHandler<SourceItem<S>, O>,
     ) -> Self {
         let sink = Arc::new(sink);
@@ -118,12 +120,13 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             output: Arc::new(Publish(sink.clone())),
             sink,
             transactional: false,
-            stateful,
+            stateful: state.is_some(),
             handler,
             dlq: None,
             close_dlq: None,
             middleware: vec![],
-            distributor: Distributor::new(SourceOrder),
+            distributor: state.unwrap_or_else(|| Distributor::new(SourceOrder)),
+            distribution_chosen: false,
             config: SubscriptionConfig::default(),
         }
     }
@@ -166,8 +169,14 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     /// Takes any [`Distribution`] of the source's messages, such as
     /// [`Parallel`](crate::Parallel), an adapter's own distribution, or a
     /// closure that returns a key from the decoded value.
+    ///
+    /// A subscription with a [stateful](crate::state::stateful) handler
+    /// distributes by the [state key](crate::state::StateStore::key) instead,
+    /// so that deliveries sharing state are processed in the order they were
+    /// received, and rejects this setting.
     pub fn distribution<D: Distribution<S::Message>>(mut self, distribution: D) -> Self {
         self.distributor = Distributor::new(distribution);
+        self.distribution_chosen = true;
         self
     }
 
@@ -323,14 +332,19 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         );
         self.config.validate()?;
         ensure!(
+            !(self.transactional && self.stateful),
+            Error::config,
+            "a transactional subscription cannot run a stateful handler"
+        );
+        ensure!(
             !self.transactional || self.distributor.keeps_source_order(),
             Error::config,
             "transactional subscriptions require a distribution that keeps the source order"
         );
         ensure!(
-            !(self.transactional && self.stateful),
+            !(self.stateful && self.distribution_chosen),
             Error::config,
-            "a transactional subscription cannot run a stateful handler"
+            "a stateful subscription distributes by its state key and takes no distribution"
         );
         self.config.error_policy.validate(self.dlq.is_some())
     }

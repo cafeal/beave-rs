@@ -5,7 +5,7 @@ use crate::{
 };
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    hash::{BuildHasher, RandomState},
+    hash::{BuildHasher, Hash, RandomState},
 };
 
 /// Deliveries with equal lanes run one at a time. A lane is the hash of a
@@ -32,6 +32,19 @@ impl<M: SourceMessage> Distributor<M> {
                 distribution
                     .key(message, value)
                     .map(|key| Lane(hasher.hash_one(&key)))
+            }),
+        }
+    }
+
+    /// Distributes by the key `key` returns, without keeping the source order.
+    pub(super) fn by_key<K: Hash>(
+        key: impl Fn(&M, &M::Item) -> Option<K> + Send + Sync + 'static,
+    ) -> Self {
+        let hasher = RandomState::new();
+        Self {
+            keeps_source_order: false,
+            lane: Box::new(move |message, value| {
+                key(message, value).map(|key| Lane(hasher.hash_one(&key)))
             }),
         }
     }
