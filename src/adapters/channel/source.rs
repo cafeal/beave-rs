@@ -1,7 +1,7 @@
 //! The downstream end of a channel and its application-side sender.
 use super::{
+    message::ChannelMessage,
     queue::{Origin, Queued, enqueue, propagation},
-    record::ChannelRaw,
 };
 use crate::{
     error::{BoxError, Error},
@@ -62,8 +62,9 @@ impl<T> ChannelSender<T> {
 ///
 /// Each delivery carries the ordering key of the upstream delivery that produced
 /// its value, so [`ProcessingOrder::PerKey`](crate::ProcessingOrder::PerKey)
-/// keeps the upstream order, and its [raw form](ChannelRaw) is that upstream
-/// delivery.
+/// keeps the upstream order, and its message key, so a
+/// [stateful](crate::state) handler keeps its state per upstream key. Its
+/// [raw form](crate::ChannelRaw) is that upstream delivery.
 ///
 /// Created by [`channel`](crate::channel), application shutdown does not stop this source: it keeps
 /// receiving until every upstream sink clone is closed or dropped, so values the
@@ -94,7 +95,7 @@ impl<T> ChannelSource<T> {
 }
 
 impl<T: Clone + Send + Sync + 'static> Source for ChannelSource<T> {
-    type Message = Delivery<T, ChannelRaw>;
+    type Message = ChannelMessage<T>;
 
     async fn receive(&mut self) -> Result<Receive<Self::Message>, ReceiveError> {
         loop {
@@ -123,7 +124,10 @@ impl<T: Clone + Send + Sync + 'static> Source for ChannelSource<T> {
             if let Some(key) = origin.ordering_key {
                 delivery = delivery.with_ordering_key(key);
             }
-            return Ok(Receive::Message(delivery.with_raw(origin.raw)));
+            return Ok(Receive::Message(ChannelMessage {
+                delivery: delivery.with_raw(origin.raw),
+                message_key: origin.message_key,
+            }));
         }
     }
 
