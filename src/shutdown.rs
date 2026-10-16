@@ -23,6 +23,14 @@ impl CancellationToken {
     pub fn is_cancelled(&self) -> bool {
         *self.0.borrow()
     }
+    /// Whether `other` is this token or a clone of it.
+    pub(crate) fn same(&self, other: &Self) -> bool {
+        self.0.same_channel(&other.0)
+    }
+    /// Whether no other clone of this token is left to cancel it.
+    pub(crate) fn is_orphaned(&self) -> bool {
+        self.0.sender_count() == 1
+    }
     /// Wait until the token is cancelled.
     pub async fn cancelled(&self) {
         let mut receiver = self.0.subscribe();

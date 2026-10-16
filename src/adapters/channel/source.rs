@@ -61,7 +61,7 @@ impl<T> ChannelSender<T> {
 /// Downstream end of a channel, used as a subscription's source.
 ///
 /// Each delivery carries the ordering key of the upstream delivery that produced
-/// its value, so [`ProcessingOrder::PerKey`](crate::ProcessingOrder::PerKey)
+/// its value, so the default [`SourceOrder`](crate::SourceOrder) distribution
 /// keeps the upstream order, and its message key, so a
 /// [stateful](crate::state) handler keeps its state per upstream key. Its
 /// [raw form](crate::ChannelRaw) is that upstream delivery.

@@ -110,7 +110,8 @@ RabbitMQ delivers a queue's messages to one consumer in order, but distributes
 them among several consumers and requeues unacknowledged messages, so
 deliveries have no ordering key by default and run in parallel up to the
 subscription's `concurrency`. Set the source's `ordered` to give every
-delivery the queue as its ordering key, so that `ProcessingOrder::PerKey`
+delivery the queue as its ordering key, so that the default `SourceOrder`
+distribution
 processes one message at a time in delivery order. Combine it with a queue that
 has a single active consumer (`x-single-active-consumer`) for order across
 application instances; a requeued message is still delivered again after later

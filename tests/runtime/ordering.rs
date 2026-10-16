@@ -1,10 +1,11 @@
-use super::fixtures::{DeliverySource, keyed};
+use super::fixtures::{DeliverySource, TextSource, keyed};
 use beavers::{
-    App, CancellationToken, Delivery, InMemorySink, OrderingKey, ProcessingOrder, Result,
+    App, BoxError, CancellationToken, DeadLetter, Delivery, ErrorPolicy, FailureAction,
+    InMemorySink, OrderingKey, Parallel, Receive, ReceiveError, Result, Source, SourceMessage,
     Subscription,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     future::pending,
     sync::{
         Arc, Mutex,
@@ -104,20 +105,20 @@ async fn same_key_runs_sequentially_while_other_keys_run_in_parallel() {
 }
 
 #[tokio::test]
-async fn unordered_mode_runs_same_key_in_parallel() {
+async fn parallel_distribution_runs_same_key_in_parallel() {
     let acks = Arc::new(AtomicUsize::new(0));
     let source = DeliverySource::new([keyed(0, 0, &acks), keyed(1, 0, &acks)]);
     let probe = Probe::new();
     let handler_probe = probe.clone();
     let app = App::new().subscription(
         Subscription::new(
-            "unordered_mode_runs_same_key_in_parallel",
+            "parallel_distribution_runs_same_key_in_parallel",
             source,
             InMemorySink::default(),
             move |value| handler_probe.clone().handle(value),
         )
         .concurrency(2)
-        .ordering(ProcessingOrder::Unordered),
+        .distribution(Parallel),
     );
     let run = tokio::spawn(app.run());
 
@@ -249,4 +250,164 @@ async fn shutdown_leaves_deliveries_queued_behind_a_key_unstarted() {
     run.await.unwrap().unwrap();
     assert_eq!(probe.started(), vec![0]);
     assert_eq!(acks.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_closure_distributes_by_a_value_of_the_payload() {
+    let acks = Arc::new(AtomicUsize::new(0));
+    // 0 and 1 share the payload key `value / 100` but not a partition.
+    let source =
+        DeliverySource::new([keyed(0, 0, &acks), keyed(1, 1, &acks), keyed(100, 0, &acks)]);
+    let probe = Probe::new();
+    let handler_probe = probe.clone();
+    let sink = InMemorySink::default();
+    let app = App::new().subscription(
+        Subscription::new(
+            "a_closure_distributes_by_a_value_of_the_payload",
+            source,
+            sink.clone(),
+            move |value| handler_probe.clone().handle(value),
+        )
+        .concurrency(4)
+        .distribution(|value: &i32| value / 100),
+    );
+    let run = tokio::spawn(app.run());
+
+    probe.wait_started(2).await;
+    settle().await;
+    assert_eq!(probe.started(), vec![0, 100]);
+
+    probe.gate.add_permits(3);
+    run.await.unwrap().unwrap();
+    assert_eq!(probe.peak.load(Ordering::SeqCst), 1);
+    let values = sink.values();
+    let position = |value| values.iter().position(|v| *v == value).unwrap();
+    assert!(position(0) < position(1));
+    assert_eq!(acks.load(Ordering::SeqCst), 3);
+}
+
+/// A delivery whose decoding takes `delay` and records how many deliveries
+/// decode at the same time.
+struct SlowDecode {
+    value: i32,
+    delay: Duration,
+    decoding: Arc<AtomicUsize>,
+    peak: Arc<AtomicUsize>,
+}
+
+impl SourceMessage for SlowDecode {
+    type Item = i32;
+    type Raw = i32;
+
+    fn decode(&self) -> std::result::Result<i32, BoxError> {
+        let decoding = self.decoding.fetch_add(1, Ordering::SeqCst) + 1;
+        self.peak.fetch_max(decoding, Ordering::SeqCst);
+        std::thread::sleep(self.delay);
+        self.decoding.fetch_sub(1, Ordering::SeqCst);
+        Ok(self.value)
+    }
+
+    async fn ack(self) -> std::result::Result<(), BoxError> {
+        Ok(())
+    }
+
+    fn raw(&self) -> i32 {
+        self.value
+    }
+}
+
+struct SlowDecodeSource(VecDeque<SlowDecode>);
+
+impl Source for SlowDecodeSource {
+    type Message = SlowDecode;
+
+    async fn receive(&mut self) -> std::result::Result<Receive<SlowDecode>, ReceiveError> {
+        Ok(match self.0.pop_front() {
+            Some(message) => Receive::Message(message),
+            None => Receive::End,
+        })
+    }
+}
+
+#[tokio::test]
+async fn deliveries_decode_in_parallel_and_are_distributed_in_receive_order() {
+    let decoding = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let message = |value, delay| SlowDecode {
+        value,
+        delay,
+        decoding: decoding.clone(),
+        peak: peak.clone(),
+    };
+    // The first delivery decodes last, yet runs first in their shared lane.
+    let source = SlowDecodeSource(VecDeque::from([
+        message(1, Duration::from_millis(100)),
+        message(2, Duration::ZERO),
+    ]));
+    let sink = InMemorySink::default();
+    App::new()
+        .subscription(
+            Subscription::new(
+                "deliveries_decode_in_parallel_and_are_distributed_in_receive_order",
+                source,
+                sink.clone(),
+                |value: i32| async move { Ok(value) },
+            )
+            .concurrency(2)
+            .distribution(|_: &i32| ()),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(sink.values(), vec![1, 2]);
+    assert_eq!(peak.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn a_delivery_that_fails_to_decode_does_not_wait_in_a_lane() {
+    let acks = Arc::new(AtomicUsize::new(0));
+    let source = TextSource {
+        payloads: VecDeque::from(["1", "oops", "2"]),
+        acks: acks.clone(),
+    };
+    let gate = Arc::new(Semaphore::new(0));
+    let handler_gate = gate.clone();
+    let sink = InMemorySink::default();
+    let dlq = InMemorySink::<DeadLetter<i32, Vec<u8>>>::default();
+    let app = App::new().subscription(
+        Subscription::new(
+            "a_delivery_that_fails_to_decode_does_not_wait_in_a_lane",
+            source,
+            sink.clone(),
+            move |value: i32| {
+                let gate = handler_gate.clone();
+                async move {
+                    if value == 1 {
+                        gate.acquire().await.unwrap().forget();
+                    }
+                    Ok(value)
+                }
+            },
+        )
+        .concurrency(2)
+        .distribution(|_: &i32| ())
+        .dead_letter(dlq.clone())
+        .error_policy(ErrorPolicy::default().decode(FailureAction::DeadLetter)),
+    );
+    let run = tokio::spawn(app.run());
+
+    // The undecodable delivery is dead-lettered while 1 still holds the lane.
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while dlq.values().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the undecodable delivery was not dead-lettered");
+    assert!(sink.values().is_empty());
+
+    gate.add_permits(1);
+    run.await.unwrap().unwrap();
+    assert_eq!(sink.values(), vec![1, 2]);
+    assert_eq!(acks.load(Ordering::SeqCst), 3);
 }

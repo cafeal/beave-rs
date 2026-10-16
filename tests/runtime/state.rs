@@ -1,9 +1,9 @@
 use super::fixtures::{Flaky, TransactionalSource, Transactions, fast};
 use beavers::{
     App, BoxError, CancellationToken, Completion, DeadLetter, Delivery, Emit, ErrorPolicy,
-    FailureKind, HandlerError, InMemorySink, IterSource, KeyedMessage, OrderingKey, Position,
-    Receive, ReceiveError, Sink, Source, SourceMessage, Subscription,
-    state::{InMemoryState, State, stateful},
+    FailureKind, HandlerError, InMemorySink, IterSource, KeyedMessage, OrderingKey, Parallel,
+    Position, Receive, ReceiveError, Sink, Source, SourceMessage, Subscription,
+    state::{Begin, InMemoryState, State, StateContext, StateStore, Unkeyed, stateful},
 };
 use std::{
     collections::VecDeque,
@@ -384,6 +384,141 @@ async fn deliveries_with_one_key_take_turns_across_jobs() {
         .await
         .unwrap();
     assert_eq!(totals.get("all").await, Some((1..=50).sum()));
+}
+
+#[tokio::test]
+async fn a_delivery_waiting_for_its_state_key_leaves_its_job_slot_free() {
+    let sink = InMemorySink::default();
+    App::new()
+        .subscription(
+            Subscription::new(
+                "lanes",
+                KeyedSource::new([keyed(100, "a"), keyed(1, "a"), keyed(10, "b")]),
+                sink.clone(),
+                stateful(
+                    InMemoryState::<i32>::new(),
+                    |value: i32, mut total: State<i32>| async move {
+                        tokio::time::sleep(Duration::from_millis(value as u64)).await;
+                        *total += value;
+                        Ok(*total)
+                    },
+                ),
+            )
+            .concurrency(2),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(sink.values(), [10, 100, 101]);
+}
+
+#[tokio::test]
+async fn one_state_key_is_processed_in_receive_order_across_ordering_scopes() {
+    let sink = InMemorySink::default();
+    let deliveries = (1..=6).map(|value| {
+        let partition = OrderingKey::new("events", i64::from(value % 2));
+        with_key(Delivery::untracked(value).with_ordering_key(partition), "a")
+    });
+    App::new()
+        .subscription(
+            Subscription::new(
+                "receive-order",
+                KeyedSource::new(deliveries),
+                sink.clone(),
+                stateful(
+                    InMemoryState::<i32>::new(),
+                    |value: i32, mut total: State<i32>| async move {
+                        tokio::time::sleep(Duration::from_millis(10 - value as u64)).await;
+                        *total += value;
+                        Ok(*total)
+                    },
+                ),
+            )
+            .concurrency(8),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(sink.values(), [1, 3, 6, 10, 15, 21]);
+}
+
+/// A store without keys: the handler adds to one shared total itself.
+#[derive(Clone, Default)]
+struct SharedTotal(Arc<Mutex<i32>>);
+
+impl<M> StateStore<i32, M> for SharedTotal {
+    type Keying = Unkeyed;
+    type State = Arc<Mutex<i32>>;
+    type Txn = ();
+
+    async fn begin(
+        &self,
+        _: &i32,
+        _: &StateContext,
+    ) -> beavers::Result<Begin<Arc<Mutex<i32>>, ()>> {
+        Ok(Begin::Ready(self.0.clone(), ()))
+    }
+
+    async fn commit(&self, (): ()) -> Result<(), BoxError> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn an_unkeyed_store_runs_on_any_source_under_any_distribution() {
+    let total = SharedTotal::default();
+    let running = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let (counted, highest) = (running.clone(), peak.clone());
+    App::new()
+        .subscription(
+            Subscription::new(
+                "shared",
+                IterSource::new(1..=8),
+                InMemorySink::default(),
+                stateful(total.clone(), move |value: i32, total: Arc<Mutex<i32>>| {
+                    let (running, peak) = (counted.clone(), highest.clone());
+                    async move {
+                        let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+                        peak.fetch_max(now, Ordering::SeqCst);
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                        *total.lock().unwrap() += value;
+                        running.fetch_sub(1, Ordering::SeqCst);
+                        Ok(value)
+                    }
+                }),
+            )
+            .concurrency(4)
+            .distribution(Parallel),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(*total.0.lock().unwrap(), 36);
+    assert_eq!(peak.load(Ordering::SeqCst), 4);
+}
+
+#[tokio::test]
+async fn state_from_several_partitions_is_discarded_when_any_is_revoked() {
+    let totals = InMemoryState::<i32>::new();
+    let first = CancellationToken::new();
+    let second = CancellationToken::new();
+    App::new()
+        .subscribe(
+            "partitions",
+            KeyedSource::new([
+                with_key(Delivery::untracked(1).with_revocation(first.clone()), "a"),
+                with_key(Delivery::untracked(2).with_revocation(second.clone()), "a"),
+            ]),
+            InMemorySink::default(),
+            stateful(totals.clone(), running_total),
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(totals.get("a").await, Some(3));
+    first.cancel();
+    assert_eq!(totals.get("a").await, None);
 }
 
 #[tokio::test]

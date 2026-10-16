@@ -7,8 +7,9 @@ use std::{borrow::Cow, fmt::Debug, future::Future, pin::Pin, sync::Arc};
 /// Identifies a source-defined ordering scope, such as a Kafka topic partition
 /// or a message key within a Pulsar topic partition.
 ///
-/// Deliveries with equal keys are processed sequentially under
-/// [`ProcessingOrder::PerKey`](crate::subscription::ProcessingOrder::PerKey).
+/// Deliveries with equal keys are processed sequentially under the default
+/// [`SourceOrder`](crate::SourceOrder) distribution, and a source can
+/// [pause](crate::Source::pause) one key.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OrderingKey {
     scope: Arc<str>,

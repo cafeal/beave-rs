@@ -75,11 +75,29 @@ cannot advance the commit. Broker commit failures leave completed local
 progress in place, so a later acknowledgement can retry the same position.
 
 Each delivery's ordering key is its topic partition. Under the default
-`ProcessingOrder::PerKey`, a subscription processes one record at a time per
-partition, in offset order, while different partitions run in parallel up to
-the subscription's `concurrency`. With `ProcessingOrder::Unordered`, records of
-one partition can complete out of order; the commit still never skips an
-unfinished record.
+[distribution](../runtime.md#decoding-and-distribution), `SourceOrder`, a
+subscription processes one record at a time per partition, in offset order,
+while different partitions run in parallel up to the subscription's
+`concurrency`. `KafkaDistribution` names the choices for Kafka records:
+
+| `KafkaDistribution` | Processed one at a time |
+|---|---|
+| `Partition` (default) | The records of one topic partition, as `SourceOrder` |
+| `MessageKey` | The records of one record key within a topic partition; records with a null key one at a time per partition |
+
+```rust,ignore
+use beavers::adapters::kafka::KafkaDistribution;
+
+Subscription::new("orders", source, sink, handler)
+    .concurrency(16)
+    .distribution(KafkaDistribution::MessageKey);
+```
+
+A producer's default partitioner sends the records of one key to one
+partition, so `MessageKey` keeps each key in offset order while different keys
+of a busy partition run in parallel. Under `MessageKey`, `Parallel`, or a
+distribution by a value of the payload, records of one partition can complete
+out of order; the commit still never skips an unfinished record.
 
 Each partition assignment has its own generation and revocation token. When
 Kafka revokes a partition, or the adapter detects that its assignment was lost,

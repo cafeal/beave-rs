@@ -9,6 +9,7 @@ mod config;
 mod connection;
 mod convert;
 mod dead_letter;
+mod distribution;
 mod inherit;
 mod lock;
 mod management;
@@ -18,6 +19,7 @@ mod source;
 
 pub use client::ServiceBus;
 pub use dead_letter::{ServiceBusDeadLetter, ServiceBusOrigin};
+pub use distribution::ServiceBusDistribution;
 pub use inherit::ServiceBusInherit;
 #[cfg(feature = "testing")]
 pub(crate) use record::text_properties;

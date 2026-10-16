@@ -34,19 +34,33 @@ project follows the versioning policy in
   commits the change after the outputs are published and before the
   acknowledgement. `InMemoryState` keeps `State<T>` values in memory, keyed by
   message key or by a closure over the input, and skips Kafka redeliveries it
-  already holds.
+  already holds. A store is `Keyed`, implementing `KeyedStateStore`, or
+  `Unkeyed`. A subscription with a keyed store distributes deliveries by their
+  state key, so the deliveries of one key are processed one at a time in
+  receive order, and `.distribution(..)` on it does not compile.
 - `SourceMessage::message_key` and `SourceMessage::position`. The Kafka and
   Pulsar sources report message keys, the SQS source the message group ID, the
   Pub/Sub source the ordering key, and the Service Bus source the session ID;
-  channels carry the message key of the upstream delivery. Their messages implement the new `KeyedMessage` marker, without which a
-  stateful handler must choose its key from the input. The Kafka source
+  channels carry the message key of the upstream delivery. Their messages
+  implement the new `KeyedMessage` marker, without which a stateful handler
+  must choose its key from the input. The Kafka source
   reports positions, and `Delivery::with_position` sets one.
+- `Subscription::distribution` with the new `Distribution` trait, which decides
+  which deliveries are processed one at a time: `SourceOrder` (the default),
+  `Parallel`, a closure over the decoded input such as a customer ID, or an
+  adapter's own: `KafkaDistribution` and `PulsarDistribution` with `Partition`
+  and `MessageKey`, the latter for the deliveries of one key within a
+  partition, and `ServiceBusDistribution::Session` for the deliveries of one
+  session ID.
 
 ### Changed
 
+- Deliveries decode on the blocking thread pool, up to `concurrency` at once,
+  before they are distributed in receive order. A delivery that fails to decode
+  is routed by the error policy without waiting behind earlier deliveries.
 - `ChannelSource` delivers the new `ChannelMessage<T>` instead of
   `Delivery<T, ChannelRaw>`.
-- `FailureKind`, `FailureAction`, `ProcessingOrder`, `Jitter`,
+- `FailureKind`, `FailureAction`, `Jitter`,
   `SubscriptionStatus`, `HttpMethod`, `RabbitMqValue`, `ServiceBusValue`, and
   `SqsAttributeValue` are `#[non_exhaustive]`, as are `RetryPolicy`,
   `ErrorPolicy`, `TransactionBatch`, `HealthReport`, `SubscriptionReport`, and
@@ -73,6 +87,8 @@ project follows the versioning policy in
 
 - `SubscriptionConfig` and `Subscription::config`; the `Subscription` builder
   methods set every setting.
+- `ProcessingOrder` and `Subscription::ordering`; use `Subscription::distribution`
+  with `SourceOrder` for `PerKey` and `Parallel` for `Unordered`.
 - The `metadata()` methods of the adapter records, which duplicated their
   public `metadata` field.
 - The implementations of the Pulsar client's `AuthProvider` for

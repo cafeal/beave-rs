@@ -1,4 +1,4 @@
-//! One delivery: decode, middleware, handler retries, publishing, failure routing, then ACK.
+//! One decoded delivery: middleware, handler retries, publishing, failure routing, then ACK.
 use super::{
     builder::{BoxHandler, Commit, DeadLetterRoute, Mapper},
     completion::{BoxFuture, Complete, Completion, acknowledge as ack_delivery, commit_state},
@@ -58,27 +58,21 @@ struct Outputs<I, O> {
     commit: Option<Commit>,
 }
 
-/// Processes one delivery. Returns the acknowledgement still waiting for submitted
-/// outputs to complete, if any; otherwise the delivery was already settled.
+/// Processes one delivery with the outcome of decoding it. Returns the
+/// acknowledgement still waiting for submitted outputs to complete, if any;
+/// otherwise the delivery was already settled.
 pub(super) async fn process<M, O>(
     delivery: M,
+    decoded: Result<M::Item, BoxError>,
     pipeline: Arc<Pipeline<M, O>>,
 ) -> Result<Option<PendingAck>, BoxError>
 where
     M: SourceMessage,
     O: Send + Sync + 'static,
 {
-    let started = Instant::now();
-    let decoded = info_span!("decode").in_scope(|| delivery.decode());
-    pipeline.instruments.record(Stage::Decode, started);
-    let context = pipeline.stateful.then(|| {
-        Arc::new(StateContext::new(
-            Arc::from(pipeline.name.as_str()),
-            delivery.message_key(),
-            delivery.position(),
-            delivery.revocation(),
-        ))
-    });
+    let context = pipeline
+        .stateful
+        .then(|| Arc::new(StateContext::of(&pipeline.name, &delivery)));
     let failure = match decoded {
         Ok(input) => match handle(input, context, &pipeline).await? {
             Ok(Outputs {

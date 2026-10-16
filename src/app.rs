@@ -7,6 +7,7 @@ use crate::{
     shutdown::{CancellationToken, termination_signal},
     sink::Sink,
     source::Source,
+    state::Keying,
     subscription::{IntoHandler, One, Subscription},
 };
 use std::{collections::HashSet, future::Future, pin::Pin};
@@ -69,9 +70,10 @@ impl App {
     ///
     /// Subscription names must be unique. Invalid configuration is reported when the
     /// application starts running.
-    pub fn subscription<S, K, O>(mut self, subscription: Subscription<S, K, O>) -> Self
+    pub fn subscription<S, K, O, Ks>(mut self, subscription: Subscription<S, K, O, Ks>) -> Self
     where
         S: Source,
+        Ks: Keying,
         K: Sink<O>,
         O: Send + Sync + 'static,
     {

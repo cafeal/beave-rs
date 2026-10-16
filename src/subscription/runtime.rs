@@ -1,9 +1,11 @@
-//! Receive scheduling, bounded concurrency, revocation, draining, and resource cleanup.
+//! Receiving, parallel decoding, distribution, bounded concurrency, revocation, draining,
+//! and resource cleanup.
 use super::{
     builder::Subscription,
+    decoding::{Decoded, Decoding},
     instruments::{Instruments, report_probe},
     processing::{PendingAck, Pipeline, process},
-    scheduler::{FlowChange, Scheduler, Ticket},
+    scheduler::{Admission, Distributor, FlowChange, Scheduler, Ticket},
 };
 use crate::{
     error::{BoxContext, BoxError, Error, chain},
@@ -12,6 +14,7 @@ use crate::{
     shutdown::CancellationToken,
     sink::Sink,
     source::{Receive, ReceiveError, Source},
+    state::Keying,
 };
 use std::{future::Future, result::Result as StdResult, sync::Arc};
 use tokio::{
@@ -26,7 +29,7 @@ type Jobs = JoinSet<Result<(Ticket, Option<PendingAck>), BoxError>>;
 /// `max_in_flight`; sinks bound them by applying backpressure in `submit`.
 type Acks = JoinSet<Result<(), BoxError>>;
 
-impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
+impl<S: Source, K: Sink<O>, O: Send + Sync + 'static, Ks: Keying> Subscription<S, K, O, Ks> {
     pub(crate) async fn run(
         self,
         shutdown: CancellationToken,
@@ -61,6 +64,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         );
         let output = self.output;
         let worker = Worker {
+            distributor: self.distributor,
             pipeline: Arc::new(Pipeline {
                 name: self.name.clone(),
                 handler: self.handler,
@@ -78,7 +82,8 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         output.start(&self.config, &worker.pipeline.instruments);
         let concurrency = self.config.concurrency;
         let max_in_flight = self.config.max_in_flight;
-        let mut scheduler = Scheduler::new(self.config.ordering, self.config.max_in_flight_per_key);
+        let mut scheduler = Scheduler::new(self.config.max_in_flight_per_key);
+        let mut decoding = Decoding::new();
         let mut jobs = JoinSet::new();
         let mut acks: Acks = JoinSet::new();
         let mut failure = None;
@@ -135,12 +140,20 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                 result = acks.join_next(), if !acks.is_empty() => {
                     if let Err(error) = flatten(result.unwrap()) { failure = Some(error); shutdown.cancel(); break; }
                 }
+                Some(result) = decoding.next() => {
+                    match result {
+                        Ok((admission, decoded)) => worker.distribute(&mut scheduler, admission, decoded),
+                        Err(error) => { failure = Some(error.context("decoding failed")); shutdown.cancel(); break; }
+                    }
+                }
                 received = async {
                     sleep_until(next_receive).await;
                     health.receive_resumed();
                     self.source.receive().await
                 },
-                    if jobs.len() < concurrency && scheduler.outstanding() < max_in_flight => {
+                    if jobs.len() < concurrency
+                        && decoding.len() < concurrency
+                        && scheduler.outstanding() < max_in_flight => {
                     match received {
                         Ok(Receive::End) => { ended = true; break; }
                         Ok(Receive::Message(delivery)) => {
@@ -160,7 +173,11 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                                     Some(Err(error)) => { failure = Some(error); shutdown.cancel(); break; }
                                 }
                             };
-                            scheduler.push(delivery);
+                            let admission = scheduler.admit(delivery.ordering_key());
+                            let span = message_span(&delivery);
+                            #[cfg(feature = "opentelemetry")]
+                            crate::telemetry::set_remote_parent(&span, &delivery.propagation_fields());
+                            decoding.start(admission, delivery, span, &instruments);
                         }
                         Err(ReceiveError::Retry(error)) => {
                             worker.pipeline.instruments.receive_errors.increment(1);
@@ -182,12 +199,12 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         // unstarted deliveries are dropped unacknowledged.
         if !ended {
             self.source.stop_receiving();
-            scheduler.discard_pending();
+            discard_unstarted(&mut scheduler, &mut decoding);
         }
         let drained = timeout(self.config.drain_timeout, async {
             loop {
                 if stop.is_cancelled() || failure.is_some() {
-                    scheduler.discard_pending();
+                    discard_unstarted(&mut scheduler, &mut decoding);
                 }
                 instruments.set_in_flight(scheduler.outstanding() + acks.len());
                 worker.start_ready(&mut jobs, &mut scheduler, concurrency);
@@ -199,6 +216,9 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
                         }
                     }),
                     Some(result) = acks.join_next() => flatten(result),
+                    Some(result) = decoding.next() => result.map(|(admission, decoded)| {
+                        worker.distribute(&mut scheduler, admission, decoded);
+                    }).map_err(|error| error.context("decoding failed")),
                     else => break,
                 };
                 if let Err(error) = result {
@@ -209,6 +229,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         })
         .await;
         if drained.is_err() {
+            decoding.discard();
             jobs.abort_all();
             acks.abort_all();
             while jobs.join_next().await.is_some() {}
@@ -263,14 +284,42 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
 /// Everything a job needs to process one delivery independently of the scheduler.
 struct Worker<M: SourceMessage, O> {
     pipeline: Arc<Pipeline<M, O>>,
+    distributor: Distributor<M>,
 }
 
 impl<M: SourceMessage, O: Send + Sync + 'static> Worker<M, O> {
-    fn start_ready(&self, jobs: &mut Jobs, scheduler: &mut Scheduler<M>, concurrency: usize) {
+    /// Queues a decoded delivery in the lane of its distribution key. A
+    /// delivery that failed to decode has no key; its failure is routed as
+    /// soon as a job slot is free.
+    fn distribute(
+        &self,
+        scheduler: &mut Scheduler<Decoded<M>>,
+        admission: Admission,
+        decoded: Decoded<M>,
+    ) {
+        let lane = decoded
+            .value
+            .as_ref()
+            .ok()
+            .and_then(|value| self.distributor.lane(&decoded.delivery, value));
+        scheduler.push(admission, lane, decoded);
+    }
+
+    fn start_ready(
+        &self,
+        jobs: &mut Jobs,
+        scheduler: &mut Scheduler<Decoded<M>>,
+        concurrency: usize,
+    ) {
         while jobs.len() < concurrency {
-            let Some((ticket, delivery)) = scheduler.next_ready() else {
+            let Some((ticket, decoded)) = scheduler.next_ready() else {
                 return;
             };
+            let Decoded {
+                delivery,
+                value,
+                span,
+            } = decoded;
             // A delivery the source is handing off is abandoned unless it has started.
             if delivery
                 .handoff()
@@ -283,11 +332,8 @@ impl<M: SourceMessage, O: Send + Sync + 'static> Worker<M, O> {
                 continue;
             }
             let revocation = delivery.revocation();
-            let span = message_span(&delivery);
-            #[cfg(feature = "opentelemetry")]
-            crate::telemetry::set_remote_parent(&span, &delivery.propagation_fields());
             let pipeline = self.pipeline.clone();
-            let processing = process(delivery, pipeline.clone());
+            let processing = process(delivery, value, pipeline.clone());
             let span_for_ack = span.clone();
             let job = async move {
                 let pending = abandon_on_revocation(processing, revocation.clone(), &pipeline)
@@ -309,6 +355,18 @@ impl<M: SourceMessage, O: Send + Sync + 'static> Worker<M, O> {
             jobs.spawn(job.instrument(span));
         }
     }
+}
+
+/// Drops every delivery that has not started, whether still decoding or
+/// distributed. They remain unacknowledged.
+fn discard_unstarted<M: SourceMessage>(
+    scheduler: &mut Scheduler<Decoded<M>>,
+    decoding: &mut Decoding<M>,
+) {
+    for admission in decoding.discard() {
+        scheduler.withdraw(admission);
+    }
+    scheduler.discard_pending();
 }
 
 /// Runs `work` unless the delivery is revoked first. A revoked delivery belongs to

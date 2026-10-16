@@ -125,10 +125,29 @@ configured subscription type:
 | `Key_Shared` | Ordering key, or the message key when no ordering key is set, within the topic partition |
 | `Shared` | None |
 
-Under the default `ProcessingOrder::PerKey`, deliveries with the same ordering
+Under the default `SourceOrder` distribution, deliveries with the same ordering
 key are processed one at a time in receive order. `Key_Shared` messages without
 a key and all `Shared` deliveries run in parallel up to the subscription's
-`concurrency`. The Pulsar client does not report consumer failover or key-range
+`concurrency`. `PulsarDistribution` names choices that apply the same way under
+every subscription type:
+
+| `PulsarDistribution` | Processed one at a time |
+|---|---|
+| `Partition` | The deliveries of one topic partition, as `SourceOrder` under `Exclusive` and `Failover` |
+| `MessageKey` | The deliveries of one key within a topic partition: the ordering key, or the message key when no ordering key is set; deliveries with neither one at a time per partition |
+
+```rust,ignore
+use beavers::adapters::pulsar::PulsarDistribution;
+
+Subscription::new("orders", source, sink, handler)
+    .concurrency(16)
+    .distribution(PulsarDistribution::MessageKey);
+```
+
+Under `Exclusive` or `Failover`, `MessageKey` runs different keys of a busy
+partition in parallel while keeping each key in receive order. Under `Shared`,
+it orders only the deliveries this consumer receives, since the broker may
+deliver one key's messages to several consumers. The Pulsar client does not report consumer failover or key-range
 reassignment, so Pulsar deliveries have no revocation token. When the broker
 moves a subscription to another consumer, unacknowledged messages are
 redelivered there and can be processed twice.

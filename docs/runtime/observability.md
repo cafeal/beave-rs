@@ -25,7 +25,10 @@ A [transactional subscription](transactions.md) records no `publish` or `ack`
 span. Its `commit` spans belong to the subscription, not to a delivery,
 because one transaction commits several deliveries.
 
-`pre_handler` and `post_handler` middleware run in the `message` span.
+The `message` span opens when the delivery is received, so it also covers the
+time the delivery waits behind earlier deliveries of its
+[distribution](../runtime.md#decoding-and-distribution) key before its handler
+starts. `pre_handler` and `post_handler` middleware run in the `message` span.
 
 ### Messaging attributes
 

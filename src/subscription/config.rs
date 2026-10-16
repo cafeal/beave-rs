@@ -3,19 +3,6 @@ use crate::error::{Error, ensure};
 use crate::{error_policy::ErrorPolicy, retry::RetryPolicy};
 use std::time::Duration;
 
-/// How deliveries that share an [`OrderingKey`](crate::message::OrderingKey) are scheduled.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum ProcessingOrder {
-    /// Process deliveries with the same ordering key one at a time, in receive
-    /// order. Deliveries with different keys, or without a key, run in parallel.
-    #[default]
-    PerKey,
-    /// Ignore ordering keys. Deliveries from one ordering scope may complete out
-    /// of order; source adapters still acknowledge only safe progress.
-    Unordered,
-}
-
 /// How a transactional subscription groups deliveries into sink transactions.
 ///
 /// A batch opens with the first delivery that completes processing and closes
@@ -62,22 +49,22 @@ impl Default for TransactionBatch {
     }
 }
 
-/// Concurrency, ordering, retry, and failure settings of one subscription.
+/// Concurrency, retry, and failure settings of one subscription.
 ///
 /// Set through the matching [`Subscription`](crate::Subscription) builder methods. Invalid
 /// values fail validation before the application starts.
 #[derive(Clone, Debug)]
 pub(crate) struct SubscriptionConfig {
-    /// Maximum number of deliveries processed at the same time.
+    /// Maximum number of deliveries processed, and of deliveries decoded, at
+    /// the same time.
     pub(crate) concurrency: usize,
     /// Maximum number of received deliveries that are unfinished, including
-    /// deliveries waiting behind an earlier delivery with the same ordering key.
+    /// deliveries still decoding and deliveries waiting behind an earlier
+    /// delivery with the same distribution key.
     pub(crate) max_in_flight: usize,
     /// Maximum number of received but unfinished deliveries with one ordering
     /// key before the source is asked to pause that key; `None` never pauses.
     pub(crate) max_in_flight_per_key: Option<usize>,
-    /// How deliveries that share an ordering key are scheduled.
-    pub(crate) ordering: ProcessingOrder,
     /// Retries of the handler after [`HandlerError::Retry`](crate::HandlerError::Retry).
     pub(crate) handler_retry: RetryPolicy,
     /// Retries of [`Source::receive`](crate::Source::receive) after
@@ -107,7 +94,6 @@ impl Default for SubscriptionConfig {
             concurrency: 1,
             max_in_flight: 64,
             max_in_flight_per_key: None,
-            ordering: ProcessingOrder::default(),
             handler_retry: RetryPolicy::default(),
             receive_retry: RetryPolicy::default(),
             publish_retry: RetryPolicy::default(),

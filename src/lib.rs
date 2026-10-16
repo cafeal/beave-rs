@@ -62,6 +62,8 @@
 //! - A [`Sink`] prepares an output once and publishes it, with retries.
 //! - A [`Subscription`] connects one source, handler, and sink with [`Middleware`], a
 //!   dead-letter sink, an [`ErrorPolicy`], and settings such as concurrency and retries.
+//! - A [`Distribution`] decides which of a subscription's deliveries are processed one at a
+//!   time, such as the records of one Kafka partition or one customer.
 //! - An [`App`] runs subscriptions together and shuts them down on SIGINT or SIGTERM.
 //! - [`Decoder`] and [`Encoder`] implementations such as [`Json`] convert payloads.
 //!
@@ -108,6 +110,7 @@ pub mod app;
 pub mod blocking;
 pub mod codec;
 pub mod dead_letter;
+pub mod distribution;
 pub mod error;
 pub mod error_policy;
 pub mod handler;
@@ -151,6 +154,7 @@ pub use codec::Zstd;
 pub use codec::{Avro, AvroSchema};
 pub use codec::{Codec, Decoder, Encoder, Json, RawBytes, Utf8};
 pub use dead_letter::{DEAD_LETTER_HEADER_PREFIX, DeadLetter, DeadLetterDetails};
+pub use distribution::{Distribution, Parallel, SourceOrder};
 pub use error::{BoxError, Error};
 pub use error_policy::{ErrorPolicy, FailureAction, FailureKind};
 pub use handler::{Classify, Emit, Handler, HandlerError, Result};
@@ -165,9 +169,7 @@ pub use retry::{Jitter, RetryPolicy};
 pub use shutdown::CancellationToken;
 pub use sink::{Completion, PublishRejected, Sink};
 pub use source::{Receive, ReceiveError, Source, SourceItem, SourceProbe, SourceRaw};
-pub use subscription::{
-    ByRecord, ByValue, IntoHandler, ProcessingOrder, Subscription, TransactionBatch,
-};
+pub use subscription::{ByRecord, ByValue, IntoHandler, Subscription, TransactionBatch};
 #[cfg(feature = "opentelemetry")]
 pub use telemetry::TraceContext;
 pub use tombstone::{PropagateTombstones, TombstonePublish, TombstoneRecord, Tombstones};

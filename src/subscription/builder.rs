@@ -1,13 +1,15 @@
 //! Subscription type and builder API.
 use super::{
     completion::{Complete, Publish, Transact},
-    config::{ProcessingOrder, SubscriptionConfig, TransactionBatch},
+    config::{SubscriptionConfig, TransactionBatch},
     handler::{IntoHandler, Many, One},
     hooks::DynMiddleware,
     processing,
+    scheduler::Distributor,
 };
 use crate::{
     dead_letter::DeadLetter,
+    distribution::{Distribution, SourceOrder},
     error::{BoxContext, BoxError, Error, ensure},
     error_policy::ErrorPolicy,
     handler::Emit,
@@ -16,11 +18,11 @@ use crate::{
     retry::RetryPolicy,
     sink::Sink,
     source::{Source, SourceItem, SourceRaw},
-    state::StateContext,
+    state::{Distributable, Keying, StateContext, Unkeyed},
     transaction::TransactionalSink,
 };
 use metrics::Counter;
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc, time::Duration};
 
 pub(super) type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 pub(super) type BoxHandler<I, O> = Arc<
@@ -59,7 +61,11 @@ type CloseDeadLetter = Arc<dyn Fn() -> BoxFuture<Result<(), BoxError>> + Send + 
 /// and processing settings such as concurrency, retries, and the [`ErrorPolicy`].
 ///
 /// Register it on an [`App`](crate::App) with [`App::subscription`](crate::App::subscription).
-pub struct Subscription<S: Source, K, O> {
+///
+/// `Ks` is [`Keyed`](crate::state::Keyed) when a stateful handler keeps keyed
+/// state, which fixes the subscription's distribution to the state key, and
+/// [`Unkeyed`] otherwise.
+pub struct Subscription<S: Source, K, O, Ks: Keying = Unkeyed> {
     pub(super) name: String,
     pub(super) source: S,
     pub(super) sink: Arc<K>,
@@ -70,10 +76,12 @@ pub struct Subscription<S: Source, K, O> {
     pub(super) dlq: Option<DeadLetterRoute<SourceItem<S>, SourceRaw<S>>>,
     pub(super) middleware: Vec<Mapper<SourceItem<S>, O>>,
     pub(super) close_dlq: Option<CloseDeadLetter>,
+    pub(super) distributor: Distributor<S::Message>,
     pub(super) config: SubscriptionConfig,
+    pub(super) keying: PhantomData<Ks>,
 }
 
-impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
+impl<S: Source, K: Sink<O>, O: Send + Sync + 'static, Ks: Keying> Subscription<S, K, O, Ks> {
     /// Registers a handler. `name` identifies the subscription in errors, dead letters,
     /// spans, and metric labels; it must be non-empty and unique within an [`App`](crate::App).
     ///
@@ -81,7 +89,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     /// output type or a plain value; see [`IntoHandler`] for the accepted shapes.
     pub fn new<H, In, Out, St>(name: impl Into<String>, source: S, sink: K, handler: H) -> Self
     where
-        H: IntoHandler<S, K, (In, Out, One, St), Output = O>,
+        H: IntoHandler<S, K, (In, Out, One, St), Output = O, Keying = Ks>,
     {
         handler.into_subscription(name.into(), source, sink)
     }
@@ -96,7 +104,7 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         handler: H,
     ) -> Self
     where
-        H: IntoHandler<S, K, (In, Out, Many, St), Output = O>,
+        H: IntoHandler<S, K, (In, Out, Many, St), Output = O, Keying = Ks>,
     {
         handler.into_subscription(name.into(), source, sink)
     }
@@ -120,17 +128,31 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             dlq: None,
             close_dlq: None,
             middleware: vec![],
+            distributor: Distributor::new(SourceOrder),
             config: SubscriptionConfig::default(),
+            keying: PhantomData,
         }
     }
 
+    /// Distributes by `distributor`, which a keyed stateful handler sets to its
+    /// state key.
+    pub(super) fn distribute_by(mut self, distributor: Option<Distributor<S::Message>>) -> Self {
+        if let Some(distributor) = distributor {
+            self.distributor = distributor;
+        }
+        self
+    }
+
     /// Maximum number of deliveries processed at the same time. Defaults to 1.
+    /// Received deliveries decode in parallel up to the same number.
     pub fn concurrency(mut self, value: usize) -> Self {
         self.config.concurrency = value;
         self
     }
 
-    /// Maximum number of received but unfinished deliveries. Defaults to 64.
+    /// Maximum number of received but unfinished deliveries, including
+    /// deliveries still decoding or waiting for their
+    /// [distribution](Self::distribution) key. Defaults to 64.
     pub fn max_in_flight(mut self, value: usize) -> Self {
         self.config.max_in_flight = value;
         self
@@ -151,10 +173,43 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         self
     }
 
-    /// How deliveries that share an ordering key are scheduled. Defaults to
-    /// [`ProcessingOrder::PerKey`].
-    pub fn ordering(mut self, order: ProcessingOrder) -> Self {
-        self.config.ordering = order;
+    /// Which deliveries are processed one at a time, in the order they were
+    /// received; the others run in parallel up to
+    /// [`concurrency`](Self::concurrency). Defaults to [`SourceOrder`], the
+    /// order in which the source delivers, such as one Kafka partition.
+    ///
+    /// Takes any [`Distribution`] of the source's messages, such as
+    /// [`Parallel`](crate::Parallel), an adapter's own distribution, or a
+    /// closure that returns a key from the decoded value.
+    ///
+    /// A subscription whose [stateful](crate::state::stateful) handler keeps
+    /// [keyed](crate::state::Keyed) state distributes by the
+    /// [state key](crate::state::KeyedStateStore::key) instead, so that
+    /// deliveries sharing state are processed in the order they were
+    /// received, and does not compile with it:
+    ///
+    /// ```compile_fail
+    /// use beavers::{InMemorySink, IterSource, Parallel, Subscription};
+    /// use beavers::state::{InMemoryState, State, stateful};
+    ///
+    /// async fn total(value: i32, mut total: State<i32>) -> beavers::Result<i32> {
+    ///     *total += value;
+    ///     Ok(*total)
+    /// }
+    ///
+    /// Subscription::new(
+    ///     "totals",
+    ///     IterSource::new([1, 2]),
+    ///     InMemorySink::<i32>::default(),
+    ///     stateful(InMemoryState::<i32>::new().key(|_: &i32| "all"), total),
+    /// )
+    /// .distribution(Parallel);
+    /// ```
+    pub fn distribution<D: Distribution<S::Message>>(mut self, distribution: D) -> Self
+    where
+        Ks: Distributable,
+    {
+        self.distributor = Distributor::new(distribution);
         self
     }
 
@@ -285,8 +340,10 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     /// A delivery acknowledged without output, because it was discarded or
     /// dead-lettered, joins a batch without outputs. Dead letters are published
     /// by the dead-letter sink outside the transaction.
-    /// A transactional subscription requires [`ProcessingOrder::PerKey`], so
-    /// deliveries of one ordering scope join batches in receive order. A
+    /// A transactional subscription requires a [`Distribution`] that
+    /// [keeps the source order](Distribution::keeps_source_order), such as the
+    /// default [`SourceOrder`], so deliveries of one ordering scope join
+    /// batches in receive order. A
     /// [stateful](crate::state::stateful) handler cannot run in a
     /// transactional subscription, because its state change could not commit
     /// together with the transaction.
@@ -308,14 +365,14 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         );
         self.config.validate()?;
         ensure!(
-            !self.transactional || self.config.ordering == ProcessingOrder::PerKey,
-            Error::config,
-            "transactional subscriptions require ProcessingOrder::PerKey"
-        );
-        ensure!(
             !(self.transactional && self.stateful),
             Error::config,
             "a transactional subscription cannot run a stateful handler"
+        );
+        ensure!(
+            !self.transactional || self.distributor.keeps_source_order(),
+            Error::config,
+            "transactional subscriptions require a distribution that keeps the source order"
         );
         self.config.error_policy.validate(self.dlq.is_some())
     }

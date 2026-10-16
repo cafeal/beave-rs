@@ -1,11 +1,11 @@
 #![cfg(feature = "servicebus")]
 
 use beavers::{
-    App, BoxError, CancellationToken, Receive, ReceiveError, Sink, Source, SourceMessage,
-    Subscription, Utf8,
+    App, BoxError, CancellationToken, Distribution, OrderingKey, Receive, ReceiveError, Sink,
+    Source, SourceMessage, Subscription, Utf8,
     adapters::servicebus::{
-        ServiceBus, ServiceBusMessage, ServiceBusPublish, ServiceBusSink, ServiceBusSource,
-        ServiceBusValue,
+        ServiceBus, ServiceBusDistribution, ServiceBusMessage, ServiceBusPublish, ServiceBusSink,
+        ServiceBusSource, ServiceBusValue,
     },
 };
 use std::{
@@ -499,5 +499,36 @@ async fn pipeline_forwards_application_properties_and_completes_every_input() ->
         "an input was left uncompleted"
     );
     leftover.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the Service Bus emulator; run with cargo test --features servicebus -- --ignored"]
+async fn the_session_distribution_keys_deliveries_by_session_id() -> Result<(), BoxError> {
+    let queue = Queue::default("beavers-sb-distribution").await?;
+    let sink = sink(&queue.0);
+    send(
+        &sink,
+        ServiceBusPublish::new("order".to_owned()).with_session_id("customer-7"),
+    )
+    .await?;
+    send(&sink, ServiceBusPublish::new("order".to_owned())).await?;
+    sink.close().await?;
+
+    let mut source = source(&queue.0);
+    for session in [Some("customer-7"), None] {
+        let message = next_message(&mut source, Duration::from_secs(30))
+            .await?
+            .expect("no Service Bus message");
+        let record = message.decode()?;
+        assert_eq!(
+            ServiceBusDistribution::Session.key(&message, &record),
+            session.map(|session| {
+                OrderingKey::new(queue.0.as_str(), 0).with_key(session.as_bytes())
+            })
+        );
+        message.ack().await?;
+    }
+    source.close().await?;
     Ok(())
 }
