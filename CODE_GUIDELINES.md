@@ -26,6 +26,7 @@ src/
 ├── blocking.rs            # Synchronous handlers on a bounded worker pool
 ├── error_policy.rs        # FailureKind, FailureAction, and ErrorPolicy
 ├── dead_letter.rs         # DeadLetter envelope
+├── distribution.rs        # Distribution, SourceOrder, and Parallel
 ├── retry.rs               # Retry policy and jitter
 ├── propagation.rs         # Trace-context carrier contract for outputs
 ├── telemetry.rs           # OpenTelemetry propagation (`opentelemetry` feature)
@@ -62,7 +63,8 @@ src/
 │   ├── handler.rs         # Handler shapes: IntoHandler, ByRecord, ByValue, and state markers
 │   ├── config.rs          # Runtime configuration and validation
 │   ├── runtime.rs         # Private receive loop, draining, and cleanup
-│   ├── scheduler.rs       # Private ordering-key queues
+│   ├── decoding.rs        # Private parallel decoding, finished in receive order
+│   ├── scheduler.rs       # Private distribution lanes and per-key flow control
 │   ├── instruments.rs     # Private per-subscription metric handles
 │   ├── hooks.rs           # Private object-safe form of stored middleware
 │   ├── processing.rs      # Private per-message processing lifecycle

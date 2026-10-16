@@ -30,7 +30,7 @@ App::new()
             .concurrency(16)
             .max_in_flight(64)
             .max_in_flight_per_key(16)
-            .ordering(ProcessingOrder::PerKey)
+            .distribution(SourceOrder)
             .handler_retry(handler_retry)
             .receive_retry(receive_retry)
             .publish_retry(publish_retry)
@@ -53,10 +53,10 @@ Registration constructs the application. Processing starts in `run()`.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `concurrency` | 1 | Maximum concurrent message jobs |
-| `max_in_flight` | 64 | Maximum received but unfinished deliveries, including queued ones |
+| `concurrency` | 1 | Maximum concurrent message jobs, and maximum deliveries decoding at once |
+| `max_in_flight` | 64 | Maximum received but unfinished deliveries, including decoding and queued ones |
 | `max_in_flight_per_key` | none | Unfinished deliveries of one ordering key at which the source pauses that key |
-| `ordering` | `PerKey` | Sequential processing within a source ordering key |
+| `distribution` | `SourceOrder` | Which deliveries are processed one at a time; see [distribution](#decoding-and-distribution) |
 | Retry attempts | 3 | Includes the first attempt |
 | Initial retry delay | 100 ms | Exponential backoff starting delay |
 | Maximum retry delay | 5 s | Backoff cap |
@@ -77,7 +77,27 @@ delay: `Jitter::Full` waits a uniformly random duration up to it, and
 `Jitter::Equal` waits half of it plus a random share of the other half. Jitter
 spreads retries from many consumers that failed at the same moment.
 
-## Ordering and backpressure
+## Decoding and distribution
+
+Each subscription receives deliveries from its source one at a time. The
+runtime then:
+
+1. decodes each delivery on the blocking thread pool, up to `concurrency`
+   deliveries at once, so a slow codec holds up neither receiving nor
+   handlers;
+2. passes the decoded deliveries to the subscription's `Distribution` in the
+   order they were received, even when a later delivery finished decoding
+   first;
+3. queues each delivery behind earlier deliveries with the same distribution
+   key, and runs deliveries with different keys, or without a key, in parallel
+   up to `concurrency`.
+
+A delivery whose key is busy waits in a queue and starts when the earlier
+delivery finishes. Outputs of deliveries with different keys have no ordering
+relationship with each other. A delivery that fails to decode has no key: the
+runtime routes it by the [error policy](runtime/errors.md) as soon as a job
+slot is free, even while earlier deliveries from the same source scope still
+run.
 
 A source can give each delivery an `OrderingKey`, the scope in which the source
 delivers in order. The Kafka source uses the topic partition. The Pulsar source
@@ -87,26 +107,46 @@ uses the message group of a FIFO queue. The Pub/Sub source uses the ordering
 key of a message published with one. The Azure Service Bus source and local
 adapters provide no key.
 
-With the default `ProcessingOrder::PerKey`, the runtime runs at most one
-delivery per key at a time, in receive order. A delivery whose key is busy waits
-in a queue behind it and starts when the earlier delivery finishes. Deliveries
-with other keys, and deliveries without a key, run in parallel up to
-`concurrency`. Their outputs have no ordering relationship with each other.
+The distribution decides the key:
 
-`ProcessingOrder::Unordered` ignores keys, so deliveries from one partition can
-run and complete out of order. Sources remain responsible for safe
-acknowledgement; Kafka still commits only the contiguous completed prefix of
-each partition.
+| Distribution | Key |
+|---|---|
+| `SourceOrder` (default) | The delivery's `OrderingKey`, so each source scope is processed in the order the source delivers it |
+| `Parallel` | None: every delivery runs independently |
+| An adapter's distribution, such as [`KafkaDistribution`](adapters/kafka.md#acknowledgements-and-ordering) | A choice the adapter offers, such as the Kafka record key within its partition |
+| A closure `Fn(&Item) -> K` | A value of the decoded input, such as a customer ID |
+| Your own `Distribution` implementation | Anything the delivery or its decoded input carries |
 
-The runtime receives only while a job slot is free and fewer than
-`max_in_flight` deliveries are unfinished. Queued deliveries count toward
-`max_in_flight`, so consumption stays bounded when a handler or sink is slow.
-Deliveries without a key never queue: each one starts as soon as it is
-received.
+```rust,ignore
+Subscription::new("orders", source, sink, handler)
+    .concurrency(16)
+    .distribution(|order: &KafkaRecord<Order>| order.value.as_ref().map(|o| o.customer));
+```
 
-Without a per-key limit, a busy key can fill `max_in_flight` and stop
-receiving for all keys. `max_in_flight_per_key` bounds the unfinished
-deliveries of each key, whatever the `ordering`. When a key reaches the limit,
+Under `Parallel`, or any distribution finer than the source scope, deliveries
+from one partition can run and complete out of order. Sources remain
+responsible for safe acknowledgement; Kafka still commits only the contiguous
+completed prefix of each partition. A [transactional](runtime/transactions.md)
+subscription requires a distribution that keeps the source order, such as
+`SourceOrder` or `KafkaDistribution::Partition`.
+
+A key taken from the payload orders deliveries within one process only. The
+broker does not read the payload, so with several consumers the deliveries of
+one payload key can reach different processes. Distribute by a key the broker
+also routes by, such as the Kafka record key, when one process must see all of
+a key's deliveries, as [in-memory state](runtime/state.md) does.
+
+## Backpressure
+
+The runtime receives only while a job slot is free, fewer than `concurrency`
+deliveries are decoding, and fewer than `max_in_flight` deliveries are
+unfinished. Decoding and queued deliveries count toward `max_in_flight`, so
+consumption stays bounded when a handler or sink is slow. Deliveries without a
+key never queue: each one starts as soon as it is distributed.
+
+Without a per-key limit, a busy partition can fill `max_in_flight` and stop
+receiving for all of them. `max_in_flight_per_key` bounds the unfinished
+deliveries of each source `OrderingKey`, whatever the distribution. When a key reaches the limit,
 the runtime calls `Source::pause` for it, and calls `Source::resume` once the
 key's unfinished deliveries drop to half the limit, so a key near the limit
 does not pause and resume on every delivery. Other keys keep flowing while one
@@ -188,7 +228,7 @@ success after all subscriptions finish. A failure requests shutdown across the
 application, which ultimately returns an error.
 
 SIGINT / SIGTERM or `App::run_until(CancellationToken)` stops new receives and
-starts draining running jobs. Deliveries still queued behind an ordering key are
+starts draining running jobs. Deliveries still decoding or queued behind a key are
 dropped without ACK. After `Receive::End`, queued deliveries still run. A source whose
 `stops_on_shutdown` returns `false`, such as a `ChannelSource` created by `channel`,
 keeps receiving until its upstream subscriptions close it; see
@@ -209,7 +249,7 @@ arbitrary synchronous code.
 Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, and Azure Service Bus adapters, broker
 record types, Protobuf, and Avro
 codecs are implemented. Kafka commits up to the first unfinished offset per partition,
-schedules work per partition, and abandons revoked work. Kafka-to-Kafka
+schedules work per partition or per record key, and abandons revoked work. Kafka-to-Kafka
 subscriptions can publish and commit offsets in batched Kafka transactions;
 other pairs are at-least-once. Pulsar uses individual
 acknowledgements, schedules work by its subscription type's ordering scope, and

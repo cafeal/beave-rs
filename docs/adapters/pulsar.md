@@ -125,7 +125,7 @@ configured subscription type:
 | `Key_Shared` | Ordering key, or the message key when no ordering key is set, within the topic partition |
 | `Shared` | None |
 
-Under the default `ProcessingOrder::PerKey`, deliveries with the same ordering
+Under the default `SourceOrder` distribution, deliveries with the same ordering
 key are processed one at a time in receive order. `Key_Shared` messages without
 a key and all `Shared` deliveries run in parallel up to the subscription's
 `concurrency`. The Pulsar client does not report consumer failover or key-range

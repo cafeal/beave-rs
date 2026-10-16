@@ -63,13 +63,13 @@ range a durable source redelivers after a crash.
 
 Outputs of one upstream delivery, including each value of `Emit::Many`, are
 enqueued in order, and the delivery is acknowledged after all of them complete.
-With `ProcessingOrder::PerKey`, the next delivery of a key starts once the
+With the default `SourceOrder` distribution, the next delivery of a key starts once the
 previous one has enqueued its outputs, so values of one key enter the channel in
 order.
 
 Each channel delivery carries the ordering key of the upstream delivery that
 produced it, such as a Kafka topic partition. A downstream subscription with
-`ProcessingOrder::PerKey` therefore processes the values of one upstream key in
+the default `SourceOrder` distribution therefore processes the values of one upstream key in
 order, while values of other keys run concurrently. Values sent by application
 code have no ordering key.
 

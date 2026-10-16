@@ -79,8 +79,10 @@ acknowledged. Shutdown during the check leaves the delivery unacknowledged.
 
 ## Ordering
 
-A transactional subscription requires `ProcessingOrder::PerKey`. Deliveries of
-one ordering scope then join batches in receive order, and a batch lists them
-in that order, so the acknowledgement of a scope's last delivery in a batch
-covers every earlier delivery of that scope. Other orderings fail validation
-before the application starts.
+A transactional subscription requires a
+[distribution](../runtime.md#decoding-and-distribution) that keeps the source
+order, such as the default `SourceOrder` or `KafkaDistribution::Partition`.
+Deliveries of one ordering scope then join batches in receive order, and a
+batch lists them in that order, so the acknowledgement of a scope's last
+delivery in a batch covers every earlier delivery of that scope. Other
+distributions fail validation before the application starts.

@@ -41,10 +41,19 @@ project follows the versioning policy in
   their messages implement the new `KeyedMessage` marker, without which a
   stateful handler must choose its key from the input. The Kafka source
   reports positions, and `Delivery::with_position` sets one.
+- `Subscription::distribution` with the new `Distribution` trait, which decides
+  which deliveries are processed one at a time: `SourceOrder` (the default),
+  `Parallel`, a closure over the decoded input such as a customer ID, or an
+  adapter's own, such as `KafkaDistribution::MessageKey` for the records of one
+  key within a partition.
 
 ### Changed
 
-- `FailureKind`, `FailureAction`, `ProcessingOrder`, `Jitter`,
+- Deliveries decode on the blocking thread pool, up to `concurrency` at once,
+  before they are distributed in receive order. A delivery that fails to decode
+  is routed by the error policy without waiting behind earlier deliveries.
+
+- `FailureKind`, `FailureAction`, `Jitter`,
   `SubscriptionStatus`, `HttpMethod`, `RabbitMqValue`, `ServiceBusValue`, and
   `SqsAttributeValue` are `#[non_exhaustive]`, as are `RetryPolicy`,
   `ErrorPolicy`, `TransactionBatch`, `HealthReport`, `SubscriptionReport`, and
@@ -71,6 +80,8 @@ project follows the versioning policy in
 
 - `SubscriptionConfig` and `Subscription::config`; the `Subscription` builder
   methods set every setting.
+- `ProcessingOrder` and `Subscription::ordering`; use `Subscription::distribution`
+  with `SourceOrder` for `PerKey` and `Parallel` for `Unordered`.
 - The `metadata()` methods of the adapter records, which duplicated their
   public `metadata` field.
 - The implementations of the Pulsar client's `AuthProvider` for

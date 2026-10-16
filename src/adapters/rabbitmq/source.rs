@@ -73,8 +73,8 @@ impl<C> RabbitMqSource<C> {
     }
 
     /// Gives every delivery the queue as its ordering key, so the subscription
-    /// processes them one at a time in delivery order under
-    /// [`ProcessingOrder::PerKey`](crate::ProcessingOrder::PerKey). Use it with
+    /// processes them one at a time in delivery order under the default
+    /// [`SourceOrder`](crate::SourceOrder) distribution. Use it with
     /// a queue that has a single active consumer. Disabled by default.
     pub fn ordered(mut self, ordered: bool) -> Self {
         self.config.ordered = ordered;

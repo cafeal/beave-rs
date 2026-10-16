@@ -156,7 +156,7 @@ brokers.
 ## Per-key backpressure
 
 `max_in_flight_per_key` pauses and resumes keys through `Source::pause`, as
-described in the [runtime guide](runtime.md#ordering-and-backpressure). Only
+described in the [runtime guide](runtime.md#backpressure). Only
 the Kafka source can pause a key. Remaining decisions:
 
 - pausing a Pulsar partition under Failover or Exclusive subscriptions, which

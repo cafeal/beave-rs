@@ -1,7 +1,7 @@
 use super::fixtures::{TransactionalSource, Transactions, fast};
 use beavers::{
     App, BoxError, CancellationToken, Emit, ErrorPolicy, FailureAction, HandlerError, InMemorySink,
-    ProcessingOrder, Subscription, TransactionBatch,
+    Parallel, Subscription, TransactionBatch,
 };
 use std::{
     sync::{
@@ -119,7 +119,7 @@ async fn exhausted_commit_retries_stop_without_acknowledgement() {
 }
 
 #[tokio::test]
-async fn transactional_subscriptions_require_per_key_ordering() {
+async fn transactional_subscriptions_require_the_source_order() {
     let error = App::new()
         .subscription(
             Subscription::new(
@@ -129,12 +129,12 @@ async fn transactional_subscriptions_require_per_key_ordering() {
                 |n: i32| async move { Ok(n) },
             )
             .transactional()
-            .ordering(ProcessingOrder::Unordered),
+            .distribution(Parallel),
         )
         .run()
         .await
         .unwrap_err();
-    assert!(error.to_string().contains("ProcessingOrder::PerKey"));
+    assert!(error.to_string().contains("keeps the source order"));
 }
 
 #[tokio::test]

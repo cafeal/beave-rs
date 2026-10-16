@@ -94,8 +94,13 @@ In `InMemoryState`, deliveries with the same key take turns: a delivery waits
 to begin until the previous delivery with that key has committed or abandoned
 its change, so each sees the last committed state. With the Kafka source, deliveries with the
 same record key arrive in one partition and are processed in offset order.
-Deliveries with the same state key in different ordering scopes, or under
-`ProcessingOrder::Unordered`, take turns in whichever order they begin.
+Deliveries with the same state key in different ordering scopes, or under a
+[distribution](../runtime.md#decoding-and-distribution) such as `Parallel`, take
+turns in whichever order they begin, and a delivery waiting for its turn holds
+a job slot. Distribute by the state key to process each key's deliveries in
+receive order without waiting in a job slot: with a key closure
+`.key(|order: &Order| order.customer)`, use
+`.distribution(|order: &Order| order.customer)` as well.
 
 ## Redeliveries
 

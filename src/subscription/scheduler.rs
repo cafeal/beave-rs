@@ -1,14 +1,63 @@
-//! Ordering-key queues and per-key flow control between receive and bounded job execution.
-use super::config::ProcessingOrder;
-use crate::message::{OrderingKey, SourceMessage};
-use std::collections::{HashMap, HashSet, VecDeque};
+//! Distribution lanes and per-key flow control between decoding and bounded job execution.
+use crate::{
+    distribution::Distribution,
+    message::{OrderingKey, SourceMessage},
+};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    hash::{BuildHasher, RandomState},
+};
+
+/// Deliveries with equal lanes run one at a time. A lane is the hash of a
+/// [`Distribution`] key: two keys that share a hash only share a lane, which
+/// orders more than needed but never less.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) struct Lane(u64);
+
+/// Assigns a decoded delivery its lane.
+type AssignLane<M> = Box<dyn Fn(&M, &<M as SourceMessage>::Item) -> Option<Lane> + Send + Sync>;
+
+/// A subscription's [`Distribution`], independent of its key type.
+pub(super) struct Distributor<M: SourceMessage> {
+    lane: AssignLane<M>,
+    keeps_source_order: bool,
+}
+
+impl<M: SourceMessage> Distributor<M> {
+    pub(super) fn new<D: Distribution<M>>(distribution: D) -> Self {
+        let hasher = RandomState::new();
+        Self {
+            keeps_source_order: distribution.keeps_source_order(),
+            lane: Box::new(move |message, value| {
+                distribution
+                    .key(message, value)
+                    .map(|key| Lane(hasher.hash_one(&key)))
+            }),
+        }
+    }
+
+    pub(super) fn lane(&self, message: &M, value: &M::Item) -> Option<Lane> {
+        (self.lane)(message, value)
+    }
+
+    pub(super) fn keeps_source_order(&self) -> bool {
+        self.keeps_source_order
+    }
+}
+
+/// A received delivery counted by the scheduler before it is distributed,
+/// passed back to [`Scheduler::push`] or [`Scheduler::withdraw`].
+pub(super) struct Admission {
+    /// The key counted against the per-key limit; absent without a limit.
+    flow: Option<OrderingKey>,
+}
 
 /// Identifies a delivery's place in the scheduler, passed back to
 /// [`Scheduler::complete`] when the delivery finishes.
 pub(super) struct Ticket {
-    /// The key later deliveries queue behind; absent when unordered.
-    order: Option<OrderingKey>,
-    /// The key counted against the per-key limit; absent without a limit.
+    /// The lane later deliveries queue behind; absent when the delivery runs
+    /// independently.
+    lane: Option<Lane>,
     flow: Option<OrderingKey>,
 }
 
@@ -19,14 +68,14 @@ pub(super) enum FlowChange {
     Resume(OrderingKey),
 }
 
-/// Tracks every received but unfinished delivery.
+/// Tracks every received but unfinished delivery, from admission through
+/// distribution to completion.
 ///
-/// A key is present in `waiting` while one delivery with that key is running or
-/// ready; later deliveries with the same key queue behind it.
-pub(super) struct Scheduler<M> {
-    order: ProcessingOrder,
-    ready: VecDeque<(Ticket, M)>,
-    waiting: HashMap<OrderingKey, VecDeque<(Ticket, M)>>,
+/// A lane is present in `waiting` while one delivery in that lane is running
+/// or ready; later deliveries in the same lane queue behind it.
+pub(super) struct Scheduler<E> {
+    ready: VecDeque<(Ticket, E)>,
+    waiting: HashMap<Lane, VecDeque<(Ticket, E)>>,
     outstanding: usize,
     flow: Option<FlowControl>,
 }
@@ -65,12 +114,11 @@ impl FlowControl {
     }
 }
 
-impl<M: SourceMessage> Scheduler<M> {
-    /// `per_key_limit` bounds unfinished deliveries per ordering key regardless
-    /// of `order`, through pause and resume requests to the source.
-    pub(super) fn new(order: ProcessingOrder, per_key_limit: Option<usize>) -> Self {
+impl<E> Scheduler<E> {
+    /// `per_key_limit` bounds unfinished deliveries per ordering key, through
+    /// pause and resume requests to the source, whatever the distribution.
+    pub(super) fn new(per_key_limit: Option<usize>) -> Self {
         Self {
-            order,
             ready: VecDeque::new(),
             waiting: HashMap::new(),
             outstanding: 0,
@@ -83,60 +131,69 @@ impl<M: SourceMessage> Scheduler<M> {
         }
     }
 
-    /// Received deliveries that have not completed, including running ones.
+    /// Received deliveries that have not completed, including ones still
+    /// decoding and running ones.
     pub(super) fn outstanding(&self) -> usize {
         self.outstanding
     }
 
-    pub(super) fn push(&mut self, delivery: M) {
+    /// Counts a received delivery whose source ordering scope is `scope`.
+    pub(super) fn admit(&mut self, scope: Option<OrderingKey>) -> Admission {
         self.outstanding += 1;
-        let key = delivery.ordering_key();
-        let flow = match (&mut self.flow, &key) {
+        let flow = match (&mut self.flow, scope) {
             (Some(flow), Some(key)) => {
-                flow.add(key);
-                Some(key.clone())
+                flow.add(&key);
+                Some(key)
             }
             _ => None,
         };
-        let order = match self.order {
-            ProcessingOrder::PerKey => key,
-            ProcessingOrder::Unordered => None,
-        };
+        Admission { flow }
+    }
+
+    /// Queues an admitted delivery behind earlier deliveries in `lane`, or
+    /// makes it ready at once without a lane.
+    pub(super) fn push(&mut self, admission: Admission, lane: Option<Lane>, entry: E) {
         let ticket = Ticket {
-            order: order.clone(),
-            flow,
+            lane,
+            flow: admission.flow,
         };
-        match order {
-            Some(key) => match self.waiting.get_mut(&key) {
-                Some(queue) => queue.push_back((ticket, delivery)),
+        match lane {
+            Some(lane) => match self.waiting.get_mut(&lane) {
+                Some(queue) => queue.push_back((ticket, entry)),
                 None => {
-                    self.waiting.insert(key, VecDeque::new());
-                    self.ready.push_back((ticket, delivery));
+                    self.waiting.insert(lane, VecDeque::new());
+                    self.ready.push_back((ticket, entry));
                 }
             },
-            None => self.ready.push_back((ticket, delivery)),
+            None => self.ready.push_back((ticket, entry)),
         }
     }
 
+    /// Forgets an admitted delivery that was dropped before it was pushed.
+    pub(super) fn withdraw(&mut self, admission: Admission) {
+        self.outstanding -= 1;
+        self.release(admission.flow.as_ref());
+    }
+
     /// The next delivery allowed to start, with the ticket to pass to `complete`.
-    pub(super) fn next_ready(&mut self) -> Option<(Ticket, M)> {
+    pub(super) fn next_ready(&mut self) -> Option<(Ticket, E)> {
         self.ready.pop_front()
     }
 
-    /// Records that a started delivery finished and releases its key's successor.
+    /// Records that a started delivery finished and releases its lane's successor.
     pub(super) fn complete(&mut self, ticket: Ticket) {
         self.outstanding -= 1;
-        self.release(&ticket);
-        let Some(key) = ticket.order else {
+        self.release(ticket.flow.as_ref());
+        let Some(lane) = ticket.lane else {
             return;
         };
-        let Some(queue) = self.waiting.get_mut(&key) else {
+        let Some(queue) = self.waiting.get_mut(&lane) else {
             return;
         };
         match queue.pop_front() {
             Some(next) => self.ready.push_back(next),
             None => {
-                self.waiting.remove(&key);
+                self.waiting.remove(&lane);
             }
         }
     }
@@ -154,7 +211,8 @@ impl<M: SourceMessage> Scheduler<M> {
         self.flow = None;
     }
 
-    /// Drops deliveries that have not started. They remain unacknowledged.
+    /// Drops distributed deliveries that have not started. They remain
+    /// unacknowledged.
     pub(super) fn discard_pending(&mut self) {
         let mut pending = std::mem::take(&mut self.ready);
         for (_, queue) in self.waiting.drain() {
@@ -162,12 +220,12 @@ impl<M: SourceMessage> Scheduler<M> {
         }
         self.outstanding -= pending.len();
         for (ticket, _) in &pending {
-            self.release(ticket);
+            self.release(ticket.flow.as_ref());
         }
     }
 
-    fn release(&mut self, ticket: &Ticket) {
-        if let (Some(flow), Some(key)) = (&mut self.flow, &ticket.flow) {
+    fn release(&mut self, key: Option<&OrderingKey>) {
+        if let (Some(flow), Some(key)) = (&mut self.flow, key) {
             flow.remove(key);
         }
     }
@@ -176,75 +234,84 @@ impl<M: SourceMessage> Scheduler<M> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::Delivery;
-
-    fn keyed(value: i32, partition: i64) -> Delivery<i32> {
-        Delivery::untracked(value).with_ordering_key(key(partition))
-    }
 
     fn key(partition: i64) -> OrderingKey {
         OrderingKey::new("orders", partition)
     }
 
-    fn drain_ready(scheduler: &mut Scheduler<Delivery<i32>>) -> Vec<(Ticket, i32)> {
-        std::iter::from_fn(|| scheduler.next_ready())
-            .map(|(ticket, delivery)| (ticket, delivery.value))
-            .collect()
+    fn lane(id: u64) -> Option<Lane> {
+        Some(Lane(id))
     }
 
-    fn orders(ready: &[(Ticket, i32)]) -> Vec<(Option<OrderingKey>, i32)> {
+    fn push(scheduler: &mut Scheduler<i32>, value: i32, lane: Option<Lane>) {
+        let admission = scheduler.admit(None);
+        scheduler.push(admission, lane, value);
+    }
+
+    /// Admits and pushes a delivery of partition `partition` into the lane of
+    /// that partition.
+    fn push_keyed(scheduler: &mut Scheduler<i32>, value: i32, partition: i64) {
+        let admission = scheduler.admit(Some(key(partition)));
+        scheduler.push(admission, lane(partition as u64), value);
+    }
+
+    fn drain_ready(scheduler: &mut Scheduler<i32>) -> Vec<(Ticket, i32)> {
+        std::iter::from_fn(|| scheduler.next_ready()).collect()
+    }
+
+    fn lanes(ready: &[(Ticket, i32)]) -> Vec<(Option<Lane>, i32)> {
         ready
             .iter()
-            .map(|(ticket, value)| (ticket.order.clone(), *value))
+            .map(|(ticket, value)| (ticket.lane, *value))
             .collect()
     }
 
     #[test]
-    fn same_key_waits_for_completion_while_other_keys_start() {
-        let mut scheduler = Scheduler::new(ProcessingOrder::PerKey, None);
-        scheduler.push(keyed(1, 0));
-        scheduler.push(keyed(2, 0));
-        scheduler.push(keyed(3, 1));
-        scheduler.push(Delivery::untracked(4));
+    fn same_lane_waits_for_completion_while_other_lanes_start() {
+        let mut scheduler = Scheduler::new(None);
+        push(&mut scheduler, 1, lane(0));
+        push(&mut scheduler, 2, lane(0));
+        push(&mut scheduler, 3, lane(1));
+        push(&mut scheduler, 4, None);
 
         let mut ready = drain_ready(&mut scheduler);
-        assert_eq!(
-            orders(&ready),
-            vec![(Some(key(0)), 1), (Some(key(1)), 3), (None, 4)]
-        );
+        assert_eq!(lanes(&ready), vec![(lane(0), 1), (lane(1), 3), (None, 4)]);
         assert_eq!(scheduler.outstanding(), 4);
 
-        let (unkeyed, _) = ready.pop().unwrap();
+        let (independent, _) = ready.pop().unwrap();
         let (second, _) = ready.pop().unwrap();
         let (first, _) = ready.pop().unwrap();
-        scheduler.complete(unkeyed);
+        scheduler.complete(independent);
         scheduler.complete(second);
         assert!(scheduler.next_ready().is_none());
         scheduler.complete(first);
         let mut ready = drain_ready(&mut scheduler);
-        assert_eq!(orders(&ready), vec![(Some(key(0)), 2)]);
+        assert_eq!(lanes(&ready), vec![(lane(0), 2)]);
         scheduler.complete(ready.pop().unwrap().0);
         assert_eq!(scheduler.outstanding(), 0);
         assert!(scheduler.waiting.is_empty());
     }
 
     #[test]
-    fn unordered_mode_ignores_ordering_keys() {
-        let mut scheduler = Scheduler::new(ProcessingOrder::Unordered, None);
-        scheduler.push(keyed(1, 0));
-        scheduler.push(keyed(2, 0));
-        assert_eq!(
-            orders(&drain_ready(&mut scheduler)),
-            vec![(None, 1), (None, 2)]
-        );
+    fn admitted_deliveries_count_until_withdrawn() {
+        let mut scheduler = Scheduler::<i32>::new(Some(2));
+        let first = scheduler.admit(Some(key(0)));
+        let second = scheduler.admit(Some(key(0)));
+        assert_eq!(scheduler.outstanding(), 2);
+        assert_eq!(scheduler.take_flow_changes(), [FlowChange::Pause(key(0))]);
+
+        scheduler.withdraw(first);
+        scheduler.withdraw(second);
+        assert_eq!(scheduler.outstanding(), 0);
+        assert_eq!(scheduler.take_flow_changes(), [FlowChange::Resume(key(0))]);
     }
 
     #[test]
     fn discarding_keeps_running_deliveries_outstanding() {
-        let mut scheduler = Scheduler::new(ProcessingOrder::PerKey, None);
-        scheduler.push(keyed(1, 0));
-        scheduler.push(keyed(2, 0));
-        scheduler.push(keyed(3, 1));
+        let mut scheduler = Scheduler::new(None);
+        push(&mut scheduler, 1, lane(0));
+        push(&mut scheduler, 2, lane(0));
+        push(&mut scheduler, 3, lane(1));
         let (running, _) = scheduler.next_ready().unwrap();
 
         scheduler.discard_pending();
@@ -256,21 +323,21 @@ mod tests {
 
     #[test]
     fn a_key_pauses_at_the_limit_and_resumes_at_half_of_it() {
-        let mut scheduler = Scheduler::new(ProcessingOrder::PerKey, Some(4));
+        let mut scheduler = Scheduler::new(Some(4));
         for value in 0..4 {
-            scheduler.push(keyed(value, 0));
+            push_keyed(&mut scheduler, value, 0);
         }
-        scheduler.push(keyed(10, 1));
+        push_keyed(&mut scheduler, 10, 1);
         assert_eq!(scheduler.take_flow_changes(), [FlowChange::Pause(key(0))]);
 
         // Buffered deliveries arriving after the pause do not pause again.
-        scheduler.push(keyed(4, 0));
+        push_keyed(&mut scheduler, 4, 0);
         assert!(scheduler.take_flow_changes().is_empty());
 
         let mut finished = 0;
         while finished < 3 {
             let (ticket, value) = scheduler.next_ready().unwrap();
-            if value.value < 10 {
+            if value < 10 {
                 finished += 1;
             }
             scheduler.complete(ticket);
@@ -279,10 +346,12 @@ mod tests {
     }
 
     #[test]
-    fn unordered_mode_still_limits_each_key() {
-        let mut scheduler = Scheduler::new(ProcessingOrder::Unordered, Some(2));
-        scheduler.push(keyed(1, 0));
-        scheduler.push(keyed(2, 0));
+    fn independent_deliveries_still_count_against_their_key() {
+        let mut scheduler = Scheduler::new(Some(2));
+        for value in [1, 2] {
+            let admission = scheduler.admit(Some(key(0)));
+            scheduler.push(admission, None, value);
+        }
         assert_eq!(scheduler.take_flow_changes(), [FlowChange::Pause(key(0))]);
         for (ticket, _) in drain_ready(&mut scheduler) {
             scheduler.complete(ticket);
@@ -292,9 +361,9 @@ mod tests {
 
     #[test]
     fn discarded_deliveries_no_longer_count_against_the_limit() {
-        let mut scheduler = Scheduler::new(ProcessingOrder::PerKey, Some(2));
-        scheduler.push(keyed(1, 0));
-        scheduler.push(keyed(2, 0));
+        let mut scheduler = Scheduler::new(Some(2));
+        push_keyed(&mut scheduler, 1, 0);
+        push_keyed(&mut scheduler, 2, 0);
         let (running, _) = scheduler.next_ready().unwrap();
         scheduler.discard_pending();
         scheduler.complete(running);
@@ -303,8 +372,8 @@ mod tests {
 
     #[test]
     fn disabled_flow_control_requests_nothing() {
-        let mut scheduler = Scheduler::new(ProcessingOrder::PerKey, Some(1));
-        scheduler.push(keyed(1, 0));
+        let mut scheduler = Scheduler::new(Some(1));
+        push_keyed(&mut scheduler, 1, 0);
         assert_eq!(scheduler.take_flow_changes(), [FlowChange::Pause(key(0))]);
         scheduler.disable_flow_control();
         let (ticket, _) = scheduler.next_ready().unwrap();

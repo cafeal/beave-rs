@@ -1,9 +1,11 @@
 #![cfg(feature = "kafka")]
 
 use beavers::{
-    App, CancellationToken, OrderingKey, Receive, ReceiveError, Sink, Source, SourceMessage,
-    Subscription, Utf8,
-    adapters::kafka::{Kafka, KafkaMessage, KafkaPublish, KafkaSource, KafkaTransactionalSink},
+    App, CancellationToken, Distribution, OrderingKey, Receive, ReceiveError, Sink, Source,
+    SourceMessage, Subscription, Utf8,
+    adapters::kafka::{
+        Kafka, KafkaDistribution, KafkaMessage, KafkaPublish, KafkaSource, KafkaTransactionalSink,
+    },
 };
 use rdkafka::{
     ClientConfig, Offset, TopicPartitionList,
@@ -444,6 +446,52 @@ async fn a_paused_partition_receives_nothing_until_resumed() {
     assert_eq!(second_record.metadata.offset, first_record.offset + 1);
     first.ack().await.unwrap();
     second.ack().await.unwrap();
+    source.close().await.unwrap();
+}
+
+/// Requires a reachable development broker. It uses `KAFKA_BROKERS` when set,
+/// otherwise `localhost:9092`.
+#[tokio::test]
+#[ignore = "requires a Kafka broker; run with cargo test --features kafka -- --ignored"]
+async fn distributions_key_records_by_partition_or_message_key() {
+    let brokers = env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into());
+    let topic = unique_name("beavers-kafka-distribution");
+    let kafka = Kafka::new(&brokers);
+    let sink = kafka.sink::<Utf8>(&topic);
+    for key in [Some(b"customer-7".to_vec()), None] {
+        let mut output = KafkaPublish::new("order".to_owned());
+        output.key = key;
+        let prepared = sink.prepare(output).unwrap();
+        tokio::time::timeout(Duration::from_secs(20), sink.publish(&prepared))
+            .await
+            .expect("timed out publishing to Kafka")
+            .unwrap();
+    }
+    sink.close().await.unwrap();
+
+    let mut source = kafka
+        .source::<Utf8>(unique_name("beavers-kafka-distribution-group"), [&topic])
+        .property("auto.offset.reset", "earliest");
+    for _ in 0..2 {
+        let message = receive_within(&mut source, Duration::from_secs(20))
+            .await
+            .expect("timed out waiting for a record");
+        let record = message.decode().unwrap();
+        let partition = OrderingKey::new(topic.as_str(), i64::from(record.metadata.partition));
+        assert_eq!(
+            KafkaDistribution::Partition.key(&message, &record),
+            Some(partition.clone())
+        );
+        let by_key = match &record.key {
+            Some(key) => partition.with_key(key.as_slice()),
+            None => partition,
+        };
+        assert_eq!(
+            KafkaDistribution::MessageKey.key(&message, &record),
+            Some(by_key)
+        );
+        message.ack().await.unwrap();
+    }
     source.close().await.unwrap();
 }
 

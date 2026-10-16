@@ -1,13 +1,15 @@
 //! Subscription type and builder API.
 use super::{
     completion::{Complete, Publish, Transact},
-    config::{ProcessingOrder, SubscriptionConfig, TransactionBatch},
+    config::{SubscriptionConfig, TransactionBatch},
     handler::{IntoHandler, Many, One},
     hooks::DynMiddleware,
     processing,
+    scheduler::Distributor,
 };
 use crate::{
     dead_letter::DeadLetter,
+    distribution::{Distribution, SourceOrder},
     error::{BoxContext, BoxError, Error, ensure},
     error_policy::ErrorPolicy,
     handler::Emit,
@@ -70,6 +72,7 @@ pub struct Subscription<S: Source, K, O> {
     pub(super) dlq: Option<DeadLetterRoute<SourceItem<S>, SourceRaw<S>>>,
     pub(super) middleware: Vec<Mapper<SourceItem<S>, O>>,
     pub(super) close_dlq: Option<CloseDeadLetter>,
+    pub(super) distributor: Distributor<S::Message>,
     pub(super) config: SubscriptionConfig,
 }
 
@@ -120,17 +123,21 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
             dlq: None,
             close_dlq: None,
             middleware: vec![],
+            distributor: Distributor::new(SourceOrder),
             config: SubscriptionConfig::default(),
         }
     }
 
     /// Maximum number of deliveries processed at the same time. Defaults to 1.
+    /// Received deliveries decode in parallel up to the same number.
     pub fn concurrency(mut self, value: usize) -> Self {
         self.config.concurrency = value;
         self
     }
 
-    /// Maximum number of received but unfinished deliveries. Defaults to 64.
+    /// Maximum number of received but unfinished deliveries, including
+    /// deliveries still decoding or waiting for their
+    /// [distribution](Self::distribution) key. Defaults to 64.
     pub fn max_in_flight(mut self, value: usize) -> Self {
         self.config.max_in_flight = value;
         self
@@ -151,10 +158,16 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         self
     }
 
-    /// How deliveries that share an ordering key are scheduled. Defaults to
-    /// [`ProcessingOrder::PerKey`].
-    pub fn ordering(mut self, order: ProcessingOrder) -> Self {
-        self.config.ordering = order;
+    /// Which deliveries are processed one at a time, in the order they were
+    /// received; the others run in parallel up to
+    /// [`concurrency`](Self::concurrency). Defaults to [`SourceOrder`], the
+    /// order in which the source delivers, such as one Kafka partition.
+    ///
+    /// Takes any [`Distribution`] of the source's messages, such as
+    /// [`Parallel`](crate::Parallel), an adapter's own distribution, or a
+    /// closure that returns a key from the decoded value.
+    pub fn distribution<D: Distribution<S::Message>>(mut self, distribution: D) -> Self {
+        self.distributor = Distributor::new(distribution);
         self
     }
 
@@ -285,8 +298,10 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
     /// A delivery acknowledged without output, because it was discarded or
     /// dead-lettered, joins a batch without outputs. Dead letters are published
     /// by the dead-letter sink outside the transaction.
-    /// A transactional subscription requires [`ProcessingOrder::PerKey`], so
-    /// deliveries of one ordering scope join batches in receive order. A
+    /// A transactional subscription requires a [`Distribution`] that
+    /// [keeps the source order](Distribution::keeps_source_order), such as the
+    /// default [`SourceOrder`], so deliveries of one ordering scope join
+    /// batches in receive order. A
     /// [stateful](crate::state::stateful) handler cannot run in a
     /// transactional subscription, because its state change could not commit
     /// together with the transaction.
@@ -308,9 +323,9 @@ impl<S: Source, K: Sink<O>, O: Send + Sync + 'static> Subscription<S, K, O> {
         );
         self.config.validate()?;
         ensure!(
-            !self.transactional || self.config.ordering == ProcessingOrder::PerKey,
+            !self.transactional || self.distributor.keeps_source_order(),
             Error::config,
-            "transactional subscriptions require ProcessingOrder::PerKey"
+            "transactional subscriptions require a distribution that keeps the source order"
         );
         ensure!(
             !(self.transactional && self.stateful),
