@@ -232,8 +232,9 @@ adapters provide no key.</p>
 <pre><code class="hljs language-rust,ignore">Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, handler)
     .<span class="hljs-title function_ invoke__">concurrency</span>(<span class="hljs-number">16</span>)
     .<span class="hljs-title function_ invoke__">distribution</span>(|order: &amp;KafkaRecord&lt;Order&gt;| order.value.<span class="hljs-title function_ invoke__">as_ref</span>().<span class="hljs-title function_ invoke__">map</span>(|o| o.customer));
-</code></pre><p>A subscription with a <a href="runtime/state.html">stateful handler</a> distributes by its
-state key instead and takes no distribution of its own.</p>
+</code></pre><p>A subscription whose <a href="runtime/state.html">stateful handler</a> keeps keyed state,
+such as <code>InMemoryState</code>, distributes by its state key instead and takes no
+distribution of its own.</p>
 <p>Under <code>Parallel</code>, or any distribution finer than the source scope, deliveries
 from one partition can run and complete out of order. Sources remain
 responsible for safe acknowledgement; Kafka still commits only the contiguous

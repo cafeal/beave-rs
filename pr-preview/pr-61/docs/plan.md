@@ -182,6 +182,10 @@ Stateful handlers and `InMemoryState` are described in the
 
 Remaining decisions:
 
+- how an unkeyed store that records applied positions, such as the planned
+  Postgres store, handles a distribution that completes one partition's
+  deliveries out of order, where a later position committed first would make
+  an earlier delivery look applied;
 - what the runtime does when a durable store detects a concurrent change at
   commit. The outputs were already published from the stale state, so rerunning
   the handler publishes a second set, and stopping the subscription restarts

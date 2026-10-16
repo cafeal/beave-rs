@@ -144,14 +144,16 @@ such as RabbitMQ, HTTP, stdin, channels, and <code>IterSource</code>, need a key
 closure: with the default key, the subscription fails to compile, with a note
 to choose a key with <code>.key(..)</code>. A source&#39;s messages have message keys when
 they implement <code>KeyedMessage</code>.</p>
-<p>A stateful subscription <a href="../runtime.html#decoding-and-distribution">distributes</a>
-deliveries by their state key: deliveries with the same key are processed one
+<p>A subscription with a keyed store, such as <code>InMemoryState</code>,
+<a href="../runtime.html#decoding-and-distribution">distributes</a> deliveries by their
+state key: deliveries with the same key are processed one
 at a time, in the order they were received, so each sees the state the
 previous one committed, while deliveries with other keys run in parallel up to
 the subscription&#39;s concurrency. This holds for a key closure too, such as a
 customer ID whose orders arrive in several Kafka partitions, because the
-runtime decodes each delivery before distributing it. A stateful subscription
-takes no <code>distribution</code> of its own; setting one fails when the app starts.</p>
+runtime decodes each delivery before distributing it. Such a subscription
+takes no <code>distribution</code> of its own: calling <code>.distribution(..)</code> on it fails to
+compile.</p>
 <h2 id="redeliveries">Redeliveries</h2>
 <p>Delivery is at least once, so a delivery whose change was committed can arrive
 again when the process stops after the commit and before the acknowledgement,
@@ -183,10 +185,6 @@ example by moving it into a spawned task, fails the commit.</p>
 </tr>
 </thead>
 <tbody><tr>
-<td><code>key(&amp;input, &amp;context)</code></td>
-<td>When the delivery is distributed. Returns the key the delivery&#39;s state is kept under, which the subscription distributes by</td>
-</tr>
-<tr>
 <td><code>begin(&amp;input, &amp;context)</code></td>
 <td>Before each handler attempt. Returns the state passed to the handler and a transaction kept by the runtime, or <code>Begin::Applied</code> for a redelivery the store already holds</td>
 </tr>
@@ -200,6 +198,31 @@ would in a handler: <code>Retry</code> reruns the attempt, <code>Reject</code> r
 and <code>Fatal</code> stops the subscription. <code>StateContext</code> carries the subscription
 name, the delivery&#39;s message key and position, and the revocation token of
 its partition.</p>
+<p>A store declares its <code>Keying</code>, which decides how its subscription is
+distributed:</p>
+<table>
+<thead>
+<tr>
+<th><code>Keying</code></th>
+<th>Store</th>
+<th>Distribution</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Keyed</code></td>
+<td>Keeps state per key and implements <code>KeyedStateStore</code>, whose <code>key(&amp;input, &amp;context)</code> returns the key a delivery&#39;s state is kept under</td>
+<td>By the state key; <code>.distribution(..)</code> does not compile</td>
+</tr>
+<tr>
+<td><code>Unkeyed</code></td>
+<td>Has no keys, such as a store that hands the handler a database transaction and lets the database detect concurrent changes</td>
+<td>The subscription&#39;s own: <code>SourceOrder</code> by default, or any <code>.distribution(..)</code></td>
+</tr>
+</tbody></table>
+<p>A keyed store&#39;s <code>key</code> is called when the delivery is distributed and may build
+the key from the input or the context, so it works with any source. An
+unkeyed store works with any source and distribution, and leaves concurrent
+changes to its backend.</p>
 <p>The store&#39;s <code>State</code> type is what the handler receives. It is <code>State&lt;T&gt;</code> for
 one value per key, and a store can instead hand the handler a client of its
 backend so the handler uses the backend&#39;s own features, with the store
