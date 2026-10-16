@@ -74,6 +74,7 @@ State is kept per key. By default the key is the delivery's message key:
 | SQS | Message group ID |
 | Pub/Sub | Ordering key |
 | Service Bus | Session ID |
+| Channel | Message key of the upstream delivery |
 
 A single delivery without one, such as a Kafka record with a null key or an
 SQS message sent without a group ID, is rejected and routed by the error
@@ -85,7 +86,7 @@ let counts = InMemoryState::<Count>::new().key(|order: &Order| order.customer_id
 
 A key closure receives the handler's input, so it takes the value for a value
 handler and the record for a record handler. Sources without message keys,
-such as RabbitMQ, HTTP, stdin, channels, and `IterSource`, need a key
+such as RabbitMQ, HTTP, stdin, and `IterSource`, need a key
 closure: with the default key, the subscription fails to compile, with a note
 to choose a key with `.key(..)`. A source's messages have message keys when
 they implement `KeyedMessage`.

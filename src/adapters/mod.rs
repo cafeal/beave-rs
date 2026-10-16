@@ -15,7 +15,8 @@ pub use stdout::StdoutSink;
 
 mod channel;
 pub use channel::{
-    ChannelOutput, ChannelRaw, ChannelReceiver, ChannelSender, ChannelSink, ChannelSource, channel,
+    ChannelMessage, ChannelOutput, ChannelRaw, ChannelReceiver, ChannelSender, ChannelSink,
+    ChannelSource, channel,
 };
 
 #[cfg(feature = "http")]

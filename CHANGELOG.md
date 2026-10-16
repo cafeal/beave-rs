@@ -41,8 +41,9 @@ project follows the versioning policy in
 - `SourceMessage::message_key` and `SourceMessage::position`. The Kafka and
   Pulsar sources report message keys, the SQS source the message group ID, the
   Pub/Sub source the ordering key, and the Service Bus source the session ID;
-  their messages implement the new `KeyedMessage` marker, without which a
-  stateful handler must choose its key from the input. The Kafka source
+  channels carry the message key of the upstream delivery. Their messages
+  implement the new `KeyedMessage` marker, without which a stateful handler
+  must choose its key from the input. The Kafka source
   reports positions, and `Delivery::with_position` sets one.
 - `Subscription::distribution` with the new `Distribution` trait, which decides
   which deliveries are processed one at a time: `SourceOrder` (the default),
@@ -57,7 +58,8 @@ project follows the versioning policy in
 - Deliveries decode on the blocking thread pool, up to `concurrency` at once,
   before they are distributed in receive order. A delivery that fails to decode
   is routed by the error policy without waiting behind earlier deliveries.
-
+- `ChannelSource` delivers the new `ChannelMessage<T>` instead of
+  `Delivery<T, ChannelRaw>`.
 - `FailureKind`, `FailureAction`, `Jitter`,
   `SubscriptionStatus`, `HttpMethod`, `RabbitMqValue`, `ServiceBusValue`, and
   `SqsAttributeValue` are `#[non_exhaustive]`, as are `RetryPolicy`,

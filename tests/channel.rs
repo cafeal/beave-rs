@@ -168,6 +168,57 @@ async fn downstream_dead_letters_keep_the_first_upstream_delivery() {
     assert_eq!(json["raw"], "record-2");
 }
 
+#[cfg(all(feature = "kafka", feature = "testing"))]
+#[tokio::test]
+async fn downstream_state_is_kept_per_upstream_message_key() {
+    use beavers::{
+        Json, Position,
+        state::{InMemoryState, State, stateful},
+        testing::{KafkaTestSource, kafka_record},
+    };
+
+    async fn running_total(value: u32, mut total: State<u32>) -> beavers::Result<u32> {
+        *total += value;
+        Ok(*total)
+    }
+
+    let records = [("a", 1), ("b", 10), ("a", 2)].map(|(key, value)| {
+        let mut record = kafka_record("orders", 0, i64::from(value), value.to_string());
+        record.key = Some(key.into());
+        record
+    });
+    let (to_count, fetched) = channel::<u32>(4);
+    let (to_check, mut counted) = channel::<u32>(4);
+    let totals = InMemoryState::<u32>::new();
+    let run = tokio::spawn(
+        App::new()
+            .subscribe(
+                "fetch",
+                KafkaTestSource::<Json<u32>>::new(records),
+                to_count,
+                |value: u32| async move { Ok(value) },
+            )
+            .subscribe(
+                "count",
+                fetched,
+                to_check,
+                stateful(totals.clone(), running_total),
+            )
+            .run_until(CancellationToken::new()),
+    );
+    for (total, key) in [(1, "a"), (10, "b"), (3, "a")] {
+        let Receive::Message(delivery) = counted.receive().await.unwrap() else {
+            panic!("missing delivery")
+        };
+        assert_eq!(delivery.decode().unwrap(), total);
+        assert_eq!(delivery.message_key(), Some(key.as_bytes()));
+        assert_eq!(delivery.position(), None::<Position>);
+        delivery.ack().await.unwrap();
+    }
+    run.await.unwrap().unwrap();
+    assert_eq!(totals.get("a").await, Some(3));
+}
+
 #[tokio::test]
 async fn values_from_application_code_have_no_upstream_delivery() {
     let (sender, mut input) = ChannelSource::bounded(1);
@@ -176,6 +227,7 @@ async fn values_from_application_code_have_no_upstream_delivery() {
         panic!("missing delivery")
     };
     assert_eq!(delivery.ordering_key(), None);
+    assert_eq!(delivery.message_key(), None);
     let raw = delivery.raw();
     assert!(raw.is_empty());
     assert_eq!(raw.downcast_ref::<()>(), None);

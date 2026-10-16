@@ -30,11 +30,13 @@
 //! # Ok(()) }
 //! ```
 
+mod message;
 mod queue;
 mod record;
 mod sink;
 mod source;
 
+pub use message::ChannelMessage;
 pub use queue::channel;
 pub use record::{ChannelOutput, ChannelRaw};
 pub use sink::{ChannelReceiver, ChannelSink};

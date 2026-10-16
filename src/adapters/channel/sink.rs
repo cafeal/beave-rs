@@ -8,7 +8,7 @@ use crate::{
     message::SourceMessage,
     sink::{Completion, Sink},
 };
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::mpsc;
 
 /// Upstream end of a channel, used as a subscription's sink.
@@ -64,7 +64,8 @@ impl<T> Clone for ChannelSink<T> {
 impl<T: Clone + Send + Sync + 'static> Sink<T> for ChannelSink<T> {
     type Prepared = ChannelOutput<T>;
 
-    /// A value without an upstream delivery: no ordering key and an empty raw form.
+    /// A value without an upstream delivery: no ordering key, no message key,
+    /// and an empty raw form.
     fn prepare(&self, value: T) -> Result<ChannelOutput<T>, BoxError> {
         Ok(value.into())
     }
@@ -78,6 +79,7 @@ impl<T: Clone + Send + Sync + 'static> Sink<T> for ChannelSink<T> {
             value,
             origin: Origin {
                 ordering_key: delivery.ordering_key(),
+                message_key: delivery.message_key().map(Arc::from),
                 raw: ChannelRaw::of(delivery.raw()),
             },
         })
