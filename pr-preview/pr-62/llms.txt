@@ -1,0 +1,63 @@
+# beave-rs
+
+> A lightweight Rust message processing framework built around typed handlers.
+
+Every page is available as Markdown at the page URL with `.html` replaced by `.md`.
+All pages in one file: https://cafeal.github.io/beave-rs/pr-preview/pr-62/llms-full.txt
+
+## Overview
+
+- [README](https://cafeal.github.io/beave-rs/pr-preview/pr-62/index.md): Project overview, installation, quick start, and Cargo features
+- [Guides](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/index.md): Index of the guides
+
+## Using beave-rs
+
+- [Architecture](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/architecture.md): How sources, handlers, and sinks fit together, their trait contracts, and errors
+- [Runtime guide](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/runtime.md): Registration, configuration, processing behavior, shutdown, and limitations, with topic guides for handlers, middleware, errors, tombstones, transactions, observability, and health checks
+- [Handlers](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/runtime/handlers.md)
+- [Middleware](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/runtime/middleware.md)
+- [Errors and retries](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/runtime/errors.md)
+- [Tombstones](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/runtime/tombstones.md)
+- [Transactions](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/runtime/transactions.md)
+- [Observability](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/runtime/observability.md)
+- [Health checks](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/runtime/health.md)
+- [State](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/runtime/state.md)
+- [Adapters](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/adapters.md): Local, channel, Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, Azure Service Bus, and HTTP adapters, usage, and extension contracts
+- [Local adapters](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/adapters/local.md)
+- [Channel adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/adapters/channel.md)
+- [Kafka adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/adapters/kafka.md)
+- [Pulsar adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/adapters/pulsar.md)
+- [RabbitMQ adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/adapters/rabbitmq.md)
+- [SQS adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/adapters/sqs.md)
+- [Pub/Sub adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/adapters/pubsub.md)
+- [Azure Service Bus adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/adapters/servicebus.md)
+- [HTTP adapter](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/adapters/http.md)
+- [Codecs](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/codecs.md): Serialization contracts; JSON, raw bytes, UTF-8, Protobuf, Avro, MessagePack, and CBOR codecs; Base64 and compression wrappers
+- [JSON codec](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/codecs/json.md)
+- [Raw bytes codec](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/codecs/raw-bytes.md)
+- [UTF-8 codec](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/codecs/utf8.md)
+- [Protobuf codec](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/codecs/protobuf.md)
+- [Avro codec](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/codecs/avro.md)
+- [MessagePack codec](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/codecs/msgpack.md)
+- [CBOR codec](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/codecs/cbor.md)
+- [Codec wrappers](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/codecs/wrappers.md)
+- [Base64 wrapper](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/codecs/wrappers/base64.md)
+- [Gzip wrapper](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/codecs/wrappers/gzip.md)
+- [Zstd wrapper](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/codecs/wrappers/zstd.md)
+- [Testing](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/testing.md): Testing handlers, middleware, and error policies with fabricated broker records
+- [Handling dead letters](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/dead-letter-handling.md): Finding the cause of dead letters, and reprocessing, parking, or dropping them on log and queue brokers
+- [Monitoring and alerting](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/monitoring-and-alerting/index.md): Signals to alert on, alert rules, and setups for Kubernetes, AWS, Google Cloud, and Azure
+- [Kubernetes](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/monitoring-and-alerting/kubernetes.md)
+- [AWS](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/monitoring-and-alerting/aws.md)
+- [Google Cloud](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/monitoring-and-alerting/gcp.md)
+- [Azure](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/monitoring-and-alerting/azure.md)
+
+## Contributing
+
+- [Local development brokers](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/development.md): Docker Compose Kafka, Pulsar, RabbitMQ, ElasticMQ, Pub/Sub emulator, and Service Bus emulator brokers, web consoles, broker examples, and live tests
+- [beave-rs — Design plan](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/plan.md): Product goals, agreed design direction, future work, and open questions
+- [Versioning and releases](https://cafeal.github.io/beave-rs/pr-preview/pr-62/docs/releasing.md): Version numbers, the compatibility contract, the minimum supported Rust version, and the website
+
+## Optional
+
+- [API reference](https://docs.rs/beavers): Rust API documentation on docs.rs

@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local development brokers - beave-rs</title>
+  <meta name="description" content="A lightweight Rust message processing framework built around typed handlers.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="alternate" type="text/markdown" href="development.md">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="name" href="../">beave-rs</a>
+      <nav>
+        <a href="index.html" aria-current="true">Guides</a>
+        <a href="https://docs.rs/beavers">docs.rs</a>
+        <a href="https://crates.io/crates/beavers">crates.io</a>
+        <a href="https://github.com/cafeal/beave-rs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Guides">
+<details open><summary>Guides</summary><ul><li><a href="index.html">Guides</a></li></ul><p class="toc-group">Using beave-rs</p><ul><li><a href="architecture.html">Architecture</a></li><li><a href="runtime.html">Runtime guide</a><ul><li><a href="runtime/handlers.html">Handlers</a></li><li><a href="runtime/middleware.html">Middleware</a></li><li><a href="runtime/errors.html">Errors and retries</a></li><li><a href="runtime/tombstones.html">Tombstones</a></li><li><a href="runtime/transactions.html">Transactions</a></li><li><a href="runtime/observability.html">Observability</a></li><li><a href="runtime/health.html">Health checks</a></li><li><a href="runtime/state.html">State</a></li></ul></li><li><a href="adapters.html">Adapters</a><ul><li><a href="adapters/local.html">Local adapters</a></li><li><a href="adapters/channel.html">Channel</a></li><li><a href="adapters/kafka.html">Kafka</a></li><li><a href="adapters/pulsar.html">Pulsar</a></li><li><a href="adapters/rabbitmq.html">RabbitMQ</a></li><li><a href="adapters/sqs.html">SQS</a></li><li><a href="adapters/pubsub.html">Pub/Sub</a></li><li><a href="adapters/servicebus.html">Azure Service Bus</a></li><li><a href="adapters/http.html">HTTP</a></li></ul></li><li><a href="codecs.html">Codecs</a><ul><li><a href="codecs/json.html">JSON</a></li><li><a href="codecs/raw-bytes.html">Raw bytes</a></li><li><a href="codecs/utf8.html">UTF-8</a></li><li><a href="codecs/protobuf.html">Protobuf</a></li><li><a href="codecs/avro.html">Avro</a></li><li><a href="codecs/msgpack.html">MessagePack</a></li><li><a href="codecs/cbor.html">CBOR</a></li><li><a href="codecs/wrappers.html">Codec wrappers</a><ul><li><a href="codecs/wrappers/base64.html">Base64</a></li><li><a href="codecs/wrappers/gzip.html">Gzip</a></li><li><a href="codecs/wrappers/zstd.html">Zstd</a></li></ul></li></ul></li><li><a href="testing.html">Testing</a></li><li><a href="dead-letter-handling.html">Handling dead letters</a></li><li><a href="monitoring-and-alerting/index.html">Monitoring and alerting</a><ul><li><a href="monitoring-and-alerting/kubernetes.html">Kubernetes</a></li><li><a href="monitoring-and-alerting/aws.html">AWS</a></li><li><a href="monitoring-and-alerting/gcp.html">Google Cloud</a></li><li><a href="monitoring-and-alerting/azure.html">Azure</a></li></ul></li></ul><p class="toc-group">Contributing</p><ul><li><a href="development.html" aria-current="page">Local development brokers</a></li><li><a href="plan.html">Design plan</a></li><li><a href="releasing.html">Versioning and releases</a></li></ul></details>
+    </nav>
+    <main class="doc">
+<h1 id="local-development-brokers">Local development brokers</h1>
+<p><code>compose.yaml</code> at the repository root starts single-node Kafka, Apache Pulsar,
+and RabbitMQ brokers, an ElasticMQ SQS emulator, the Google Cloud Pub/Sub
+emulator, and the Azure Service Bus emulator, with web consoles for the
+brokers. Use it to run the broker examples, the
+ignored live tests, and manual experiments. It requires Docker with Compose v2.</p>
+<h2 id="quick-start">Quick start</h2>
+<pre><code class="hljs language-sh">docker compose up -d --<span class="hljs-built_in">wait</span>   <span class="hljs-comment"># start the brokers and wait until they are healthy</span>
+cargo kafka-produce           <span class="hljs-comment"># publish sample orders to Kafka</span>
+cargo kafka-process           <span class="hljs-comment"># run the Kafka pipeline until Ctrl-C</span>
+cargo test-live               <span class="hljs-comment"># run every ignored live test</span>
+docker compose down           <span class="hljs-comment"># stop the brokers and discard their data</span>
+</code></pre><p>The <code>cargo</code> commands are aliases defined in <code>.cargo/config.toml</code>; they only
+run <code>cargo run --example</code> and <code>cargo test</code> with the required features. Cargo
+aliases cannot start Docker, so the brokers are always started and stopped with
+<code>docker compose</code> directly.</p>
+<h2 id="managing-the-environment">Managing the environment</h2>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>docker compose up -d --wait</code></td>
+<td>Starts every service and returns when the brokers pass their health checks</td>
+</tr>
+<tr>
+<td><code>docker compose up -d --wait kafka pulsar rabbitmq elasticmq pubsub servicebus-health</code></td>
+<td>Starts only the brokers, without the separate web consoles; <code>servicebus-health</code> brings the Service Bus emulator and its SQL Server</td>
+</tr>
+<tr>
+<td><code>docker compose ps --all</code></td>
+<td>Shows the state of each service, including the finished <code>pulsar-init</code></td>
+</tr>
+<tr>
+<td><code>docker compose logs -f pulsar</code></td>
+<td>Follows the logs of one service</td>
+</tr>
+<tr>
+<td><code>docker compose down</code></td>
+<td>Stops and removes the containers</td>
+</tr>
+</tbody></table>
+<p>The brokers keep no named volumes, so <code>docker compose down</code> discards every
+topic, offset, and subscription; the next <code>up</code> starts from empty brokers.
+<code>docker compose stop</code> keeps the containers and their data for a later
+<code>docker compose start</code>.</p>
+<h2 id="services">Services</h2>
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>Address</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Kafka</td>
+<td><code>localhost:9092</code></td>
+<td>Kafka 4.1 in KRaft mode</td>
+</tr>
+<tr>
+<td>Kafka UI</td>
+<td><a href="http://localhost:8081">http://localhost:8081</a></td>
+<td>Topics, messages, and consumer groups (kafbat kafka-ui)</td>
+</tr>
+<tr>
+<td>Pulsar</td>
+<td><code>pulsar://localhost:6650</code></td>
+<td>Pulsar 4.0 standalone</td>
+</tr>
+<tr>
+<td>Pulsar admin API</td>
+<td><a href="http://localhost:8080">http://localhost:8080</a></td>
+<td><code>pulsar-admin --admin-url</code> and REST</td>
+</tr>
+<tr>
+<td>Pulsar Manager</td>
+<td><a href="http://localhost:9527">http://localhost:9527</a></td>
+<td>Tenants, topics, and subscriptions; log in as <code>admin</code> / <code>apachepulsar</code></td>
+</tr>
+<tr>
+<td>RabbitMQ</td>
+<td><code>amqp://guest:guest@localhost:5672/%2f</code></td>
+<td>RabbitMQ 4.1</td>
+</tr>
+<tr>
+<td>RabbitMQ management</td>
+<td><a href="http://localhost:15672">http://localhost:15672</a></td>
+<td>Queues, exchanges, connections, and the management HTTP API; log in as <code>guest</code> / <code>guest</code></td>
+</tr>
+<tr>
+<td>ElasticMQ</td>
+<td><a href="http://localhost:9324">http://localhost:9324</a></td>
+<td>SQS-compatible API; queue URLs look like <code>http://localhost:9324/000000000000/orders</code></td>
+</tr>
+<tr>
+<td>ElasticMQ UI</td>
+<td><a href="http://localhost:9325">http://localhost:9325</a></td>
+<td>Queues and their message counts</td>
+</tr>
+<tr>
+<td>Pub/Sub emulator</td>
+<td><code>localhost:8085</code></td>
+<td>Pub/Sub gRPC and REST APIs for the <code>beavers</code> project; set the adapter <code>endpoint</code> to <code>http://localhost:8085</code></td>
+</tr>
+<tr>
+<td>Service Bus emulator</td>
+<td><code>localhost:5673</code></td>
+<td>Azure Service Bus over plain AMQP; connection string <code>Endpoint=sb://localhost:5673;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true</code></td>
+</tr>
+<tr>
+<td>Service Bus emulator management</td>
+<td><a href="http://localhost:5300">http://localhost:5300</a></td>
+<td>Health endpoint and the queue management API the live tests use</td>
+</tr>
+</tbody></table>
+<p>The examples and live tests use these addresses by default. Set these
+variables to target other brokers:</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Used by</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>KAFKA_BROKERS</code></td>
+<td><code>localhost:9092</code></td>
+<td>Kafka examples and live tests</td>
+</tr>
+<tr>
+<td><code>PULSAR_URL</code></td>
+<td><code>pulsar://localhost:6650</code> in examples, <code>pulsar://127.0.0.1:6650</code> in tests</td>
+<td>Pulsar examples and live tests</td>
+</tr>
+<tr>
+<td><code>HTTP_SINK_URL</code></td>
+<td><code>http://127.0.0.1:8090/orders</code></td>
+<td><code>kafka_to_http</code> example</td>
+</tr>
+<tr>
+<td><code>PULSAR_ADMIN_ADDR</code></td>
+<td><code>127.0.0.1:8080</code></td>
+<td>Live tests that create Pulsar topics or subscriptions</td>
+</tr>
+<tr>
+<td><code>RABBITMQ_URL</code></td>
+<td><code>amqp://guest:guest@127.0.0.1:5672/%2f</code></td>
+<td>RabbitMQ live tests</td>
+</tr>
+<tr>
+<td><code>RABBITMQ_MANAGEMENT_ADDR</code></td>
+<td><code>127.0.0.1:15672</code></td>
+<td>RabbitMQ live tests that declare queues or close connections</td>
+</tr>
+<tr>
+<td><code>SQS_ENDPOINT</code></td>
+<td><code>http://127.0.0.1:9324</code></td>
+<td>SQS live tests</td>
+</tr>
+<tr>
+<td><code>PUBSUB_EMULATOR_HOST</code></td>
+<td><code>127.0.0.1:8085</code></td>
+<td>Pub/Sub live tests</td>
+</tr>
+<tr>
+<td><code>SERVICEBUS_CONNECTION_STRING</code></td>
+<td>The emulator connection string on <code>127.0.0.1:5673</code></td>
+<td>Service Bus live tests</td>
+</tr>
+<tr>
+<td><code>SERVICEBUS_ADMIN_ADDR</code></td>
+<td><code>127.0.0.1:5300</code></td>
+<td>Service Bus live tests that create or delete queues</td>
+</tr>
+</tbody></table>
+<h2 id="broker-configuration">Broker configuration</h2>
+<p>Kafka auto-creates topics with three partitions, so per-partition ordering and
+parallelism are visible with a single broker. Replication factors are 1 and the
+transaction state log accepts a single replica, which allows transactional
+producers against the one broker. Applications on the host use the listener
+advertised as <code>localhost:9092</code>; containers use <code>kafka:29092</code>.</p>
+<p>Pulsar runs in standalone mode without the functions worker or stream storage.
+<code>standalone.conf</code> settings can be added to the <code>pulsar</code> service environment, which <code>apply-config-from-env.py</code>
+applies before the broker starts.</p>
+<p>The one-shot <code>pulsar-init</code> service runs after the broker and Pulsar Manager
+start. It creates the <code>beavers-examples</code> subscription on
+<code>persistent://public/default/orders</code> at the earliest position, because a new
+Pulsar subscription otherwise starts at the latest message, and it creates the
+Pulsar Manager login. Pulsar Manager is preconfigured with a <code>local</code>
+environment pointing at the broker. The credentials are for local use only.</p>
+<p>RabbitMQ runs with its management plugin and the default <code>guest</code> user, which
+the broker accepts from the host through the published port. It starts without
+queues; the live tests declare their own through the management API.</p>
+<p>ElasticMQ implements the SQS API in memory and accepts any credentials and
+region. Point a handle at it with
+<code>Sqs::new().region(&quot;elasticmq&quot;).endpoint_url(&quot;http://localhost:9324&quot;)</code> and
+static credentials such as <code>.credentials(SqsCredentials::new(&quot;local&quot;, &quot;local&quot;))</code>.
+It starts without queues; create one with the AWS CLI
+(<code>aws --endpoint-url http://localhost:9324 sqs create-queue --queue-name orders</code>)
+or the query API, as the live tests do. It does not reproduce every AWS limit
+and behavior, so verify production settings against SQS itself.</p>
+<p>The Pub/Sub emulator, from the <code>google/cloud-sdk</code> emulators image, keeps topics
+and subscriptions in memory and needs no credentials. Connect to it with
+<code>PubSub::new().endpoint(&quot;http://localhost:8085&quot;).anonymous()</code>. It starts without topics; create them through
+its REST API, as the live tests do:</p>
+<pre><code class="hljs language-sh">curl -X PUT http://localhost:8085/v1/projects/beavers/topics/orders
+curl -X PUT http://localhost:8085/v1/projects/beavers/subscriptions/orders \
+  -H <span class="hljs-string">&#x27;Content-Type: application/json&#x27;</span> -d <span class="hljs-string">&#x27;{&quot;topic&quot;:&quot;projects/beavers/topics/orders&quot;}&#x27;</span>
+</code></pre><p>It does not reproduce every Pub/Sub limit and behavior, so verify production
+settings against Pub/Sub itself.</p>
+<p>The Service Bus emulator stores its entities in the <code>servicebus-sql</code> SQL Server
+container and reads its namespace from <code>dev/servicebus/config.json</code>, which
+defines the <code>beavers-events</code> topic with the <code>beavers-test</code> subscription.
+Connect to it with <code>ServiceBus::from_connection_string(...)</code> and the connection
+string listed above; <code>UseDevelopmentEmulator=true</code> selects plain AMQP, which
+<code>.emulator()</code> sets on a handle built with <code>ServiceBus::new</code>. Its
+management API on port 5300 creates and deletes queues
+(<code>PUT /{queue}?api-version=2021-05</code> with an Atom <code>QueueDescription</code>), as the
+live tests do, but cannot create topic subscriptions, so add topics and
+subscriptions to the configuration file and recreate the container. Its AMQP
+port is published as 5673 because RabbitMQ uses 5672. The emulator image has no
+shell, so the <code>servicebus-health</code> container polls its health endpoint for
+<code>docker compose up --wait</code>. Both images are amd64 only and need the Microsoft
+license accepted, which <code>ACCEPT_EULA</code> does. The emulator serves plain AMQP
+without TLS, refuses binary application properties, and applies smaller quotas
+than a real namespace, so verify production settings against Azure.</p>
+<h2 id="examples">Examples</h2>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Example</th>
+<th>Flow</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>cargo kafka-produce [count]</code></td>
+<td><code>kafka_orders</code></td>
+<td>Publishes orders, 10 by default, to Kafka <code>orders</code></td>
+</tr>
+<tr>
+<td><code>cargo kafka-process</code></td>
+<td><code>kafka_orders</code></td>
+<td>Kafka <code>orders</code> → <code>order-events</code></td>
+</tr>
+<tr>
+<td><code>cargo pulsar-produce [count]</code></td>
+<td><code>pulsar_orders</code></td>
+<td>Publishes orders, 10 by default, to Pulsar <code>orders</code></td>
+</tr>
+<tr>
+<td><code>cargo pulsar-process</code></td>
+<td><code>pulsar_orders</code></td>
+<td>Pulsar <code>orders</code> → <code>order-events</code> with a <code>Key_Shared</code> subscription</td>
+</tr>
+<tr>
+<td><code>cargo kafka-to-pulsar</code></td>
+<td><code>kafka_to_pulsar</code></td>
+<td>Kafka <code>orders</code> → Pulsar <code>orders-from-kafka</code></td>
+</tr>
+<tr>
+<td><code>cargo http-receive</code></td>
+<td><code>kafka_to_http</code></td>
+<td>HTTP server on <code>127.0.0.1:8090</code> that prints the orders it receives</td>
+</tr>
+<tr>
+<td><code>cargo kafka-to-http</code></td>
+<td><code>kafka_to_http</code></td>
+<td>Kafka <code>orders</code> → HTTP <code>POST</code> to <code>HTTP_SINK_URL</code></td>
+</tr>
+</tbody></table>
+<p>Each alias expands to <code>cargo run --example &lt;name&gt; --features &lt;features&gt; -- &lt;command&gt;</code>, and arguments after the alias are appended, as in
+<code>cargo kafka-produce 100</code>.</p>
+<p>The <code>produce</code> commands are ordinary beavers applications that publish an
+<code>IterSource</code> of JSON orders keyed by customer through a broker sink, and end
+when the source is exhausted. The <code>process</code> commands and <code>kafka-to-pulsar</code> run
+a subscription until Ctrl-C. <code>process</code> registers a value handler, so each
+output inherits the input&#39;s key and headers or properties.</p>
+<p><code>kafka_to_http</code> sends each order to <code>HTTP_SINK_URL</code>, by default the
+<code>http-receive</code> server, with an <code>idempotency-key</code> header built from the record&#39;s
+topic, partition, and offset. Stop <code>http-receive</code> while <code>kafka-to-http</code> runs to
+see the sink retry, stop after its publish retries, and resume from the
+uncommitted offset on the next run.</p>
+<p><code>kafka_to_pulsar</code> maps metadata explicitly with <code>MapMetadata</code>: the Kafka key
+becomes the Pulsar key and the <code>tenant</code> and <code>request-id</code> headers with UTF-8
+values become Pulsar properties. It skips Kafka tombstones with <code>Tombstones::skip()</code>.</p>
+<p>The Kafka examples read from the earliest offset when their consumer group has
+no committed offset, and the Pulsar example uses the subscription created by
+<code>pulsar-init</code>, so orders produced before a first <code>process</code> run are consumed.
+Run a <code>process</code> command again to see that committed or acknowledged deliveries
+are not processed twice.</p>
+<p>GitHub Actions runs each example flow in its own <code>Example</code> job, which starts
+the services the flow needs and runs <code>.github/scripts/example.sh</code>. The script
+runs the commands above and checks that 10 outputs arrive on the output topic
+or at the HTTP receiver. Run the script locally with the same scenario name, such
+as <code>.github/scripts/example.sh kafka-to-http</code>, after starting the brokers.</p>
+<h2 id="inspecting-broker-state">Inspecting broker state</h2>
+<p>Kafka UI shows topics, partitions, messages, and consumer group offsets. Pulsar
+Manager shows tenants, namespaces, topics, and subscription backlogs. The same
+information is available from the command line:</p>
+<pre><code class="hljs language-sh">docker compose <span class="hljs-built_in">exec</span> kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:29092 --topic order-events --from-beginning \
+  --property print.key=<span class="hljs-literal">true</span>
+docker compose <span class="hljs-built_in">exec</span> kafka /opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server localhost:29092 --describe --group beavers-examples
+docker compose <span class="hljs-built_in">exec</span> pulsar bin/pulsar-admin topics stats \
+  persistent://public/default/order-events
+</code></pre><h2 id="live-tests">Live tests</h2>
+<p>The Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, and Service Bus adapter tests in
+<code>tests/kafka.rs</code>, <code>tests/pulsar.rs</code>, <code>tests/rabbitmq.rs</code>, <code>tests/sqs.rs</code>,
+<code>tests/pubsub.rs</code>, and <code>tests/servicebus.rs</code> and the end-to-end pipeline tests in <code>tests/pipelines.rs</code> are ignored by
+default. With the brokers running:</p>
+<pre><code class="hljs language-sh">cargo test-live             <span class="hljs-comment"># cargo test --features kafka,pulsar,rabbitmq,sqs,pubsub,servicebus -- --ignored</span>
+cargo test-live pipeline    <span class="hljs-comment"># only tests whose name contains &quot;pipeline&quot;</span>
+</code></pre><p>The pipeline tests run the same flows as the examples as complete
+applications: a Kafka pipeline that inherits keys and headers and commits every
+consumed offset, a Pulsar pipeline that inherits keys and properties and leaves
+no subscription backlog, and a Kafka-to-Pulsar pipeline with an explicit
+metadata mapping. They create Pulsar subscriptions through the admin API before
+producing input.</p>
+<p>Every live test uses unique topic, group, subscription, and queue names, so the
+tests can run repeatedly without resetting the brokers. GitHub Actions runs them
+in the <code>Live broker tests</code> job, which starts the <code>kafka</code>, <code>pulsar</code>,
+<code>rabbitmq</code>, <code>elasticmq</code>, and <code>pubsub</code> services and the Service Bus emulator from
+<code>compose.yaml</code> and runs <code>cargo test --all-features -- --ignored</code>.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<ul>
+<li><strong>A port is already in use.</strong> The environment publishes ports 9092, 6650,
+8080, 8081, 9527, 5672, 15672, 9324, 9325, 8085, 5673, and 5300. Stop the conflicting process, or change the host side
+of the mapping in <code>compose.yaml</code>; the Kafka port must stay 9092 unless the
+advertised <code>HOST</code> listener changes with it.</li>
+<li><strong>An example or test waits without output.</strong> The brokers are probably not
+running. Check <code>docker compose ps</code>. A Kafka producer keeps retrying an
+unreachable broker until its delivery timeout expires.</li>
+<li><strong>A Pulsar consumer misses messages produced before it started.</strong> New
+subscriptions start at the latest message. Create the subscription first, as
+<code>pulsar-init</code> and the pipeline tests do.</li>
+<li><strong>Stale state from an earlier session.</strong> Run <code>docker compose down</code> and start
+again.</li>
+</ul>
+
+      <p class="source"><a href="development.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/development.md">Source on GitHub</a></p>
+    </main>
+  </div>
+  <script>
+    if (matchMedia("(max-width: 860px)").matches) document.querySelector(".toc details").open = false;
+  </script>
+
+  <footer class="foot">
+    <div class="wrap">MIT license · <a href="https://github.com/cafeal/beave-rs">GitHub</a> · <a href="https://crates.io/crates/beavers">crates.io</a> · <a href="https://docs.rs/beavers">docs.rs</a> · <a href="../llms.txt">llms.txt</a></div>
+  </footer>
+</body>
+</html>
