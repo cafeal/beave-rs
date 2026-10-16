@@ -217,8 +217,8 @@ adapters provide no key.</p>
 <td>None: every delivery runs independently</td>
 </tr>
 <tr>
-<td>An adapter&#39;s distribution, such as <a href="adapters/kafka.html#acknowledgements-and-ordering"><code>KafkaDistribution</code></a></td>
-<td>A choice the adapter offers, such as the Kafka record key within its partition</td>
+<td>An adapter&#39;s distribution: <a href="adapters/kafka.html#acknowledgements-and-ordering"><code>KafkaDistribution</code></a>, <a href="adapters/pulsar.html#acknowledgements-and-ordering"><code>PulsarDistribution</code></a>, <a href="adapters/servicebus.html#acknowledgements-and-ordering"><code>ServiceBusDistribution</code></a></td>
+<td>A choice the adapter offers, such as the record key within its partition or the Service Bus session ID</td>
 </tr>
 <tr>
 <td>A closure <code>Fn(&amp;Item) -&gt; K</code></td>

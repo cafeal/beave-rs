@@ -57,7 +57,7 @@ The <a href="runtime.html">runtime guide</a> describes processing behavior, and 
 </tr>
 <tr>
 <td><code>Distribution&lt;Message&gt;</code></td>
-<td>Give each decoded delivery the key whose deliveries the subscription processes one at a time; built in as <code>SourceOrder</code>, <code>Parallel</code>, and closures over the decoded input, and offered by adapters such as <code>KafkaDistribution</code></td>
+<td>Give each decoded delivery the key whose deliveries the subscription processes one at a time; built in as <code>SourceOrder</code>, <code>Parallel</code>, and closures over the decoded input, and offered by adapters as <code>KafkaDistribution</code>, <code>PulsarDistribution</code>, and <code>ServiceBusDistribution</code></td>
 </tr>
 <tr>
 <td><code>Handler&lt;Input&gt;</code></td>

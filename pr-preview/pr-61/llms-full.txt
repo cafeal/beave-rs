@@ -235,7 +235,7 @@ The [runtime guide](runtime.md) describes processing behavior, and the
 | `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure; declare whether application shutdown stops receiving; optionally expose a `SourceProbe` with its connection state |
 | `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, message key, position, revocation, propagation fields, and messaging attributes |
 | `KeyedMessage` | Mark a `SourceMessage` whose source has message keys, so state can be kept per message key |
-| `Distribution<Message>` | Give each decoded delivery the key whose deliveries the subscription processes one at a time; built in as `SourceOrder`, `Parallel`, and closures over the decoded input, and offered by adapters such as `KafkaDistribution` |
+| `Distribution<Message>` | Give each decoded delivery the key whose deliveries the subscription processes one at a time; built in as `SourceOrder`, `Parallel`, and closures over the decoded input, and offered by adapters as `KafkaDistribution`, `PulsarDistribution`, and `ServiceBusDistribution` |
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
 | `StatefulHandler<Input, State>` | Transform typed input with the state a `StateStore` keeps for it; also implemented for async functions and closures |
 | `StateStore<Input, Message>` | Begin a state change for each handler attempt and commit it after the outputs are published, before the acknowledgement |
@@ -468,7 +468,7 @@ The distribution decides the key:
 |---|---|
 | `SourceOrder` (default) | The delivery's `OrderingKey`, so each source scope is processed in the order the source delivers it |
 | `Parallel` | None: every delivery runs independently |
-| An adapter's distribution, such as [`KafkaDistribution`](adapters/kafka.md#acknowledgements-and-ordering) | A choice the adapter offers, such as the Kafka record key within its partition |
+| An adapter's distribution: [`KafkaDistribution`](adapters/kafka.md#acknowledgements-and-ordering), [`PulsarDistribution`](adapters/pulsar.md#acknowledgements-and-ordering), [`ServiceBusDistribution`](adapters/servicebus.md#acknowledgements-and-ordering) | A choice the adapter offers, such as the record key within its partition or the Service Bus session ID |
 | A closure `Fn(&Item) -> K` | A value of the decoded input, such as a customer ID |
 | Your own `Distribution` implementation | Anything the delivery or its decoded input carries |
 
@@ -3331,7 +3331,26 @@ configured subscription type:
 Under the default `SourceOrder` distribution, deliveries with the same ordering
 key are processed one at a time in receive order. `Key_Shared` messages without
 a key and all `Shared` deliveries run in parallel up to the subscription's
-`concurrency`. The Pulsar client does not report consumer failover or key-range
+`concurrency`. `PulsarDistribution` names choices that apply the same way under
+every subscription type:
+
+| `PulsarDistribution` | Processed one at a time |
+|---|---|
+| `Partition` | The deliveries of one topic partition, as `SourceOrder` under `Exclusive` and `Failover` |
+| `MessageKey` | The deliveries of one key within a topic partition: the ordering key, or the message key when no ordering key is set; deliveries with neither one at a time per partition |
+
+```rust,ignore
+use beavers::adapters::pulsar::PulsarDistribution;
+
+Subscription::new("orders", source, sink, handler)
+    .concurrency(16)
+    .distribution(PulsarDistribution::MessageKey);
+```
+
+Under `Exclusive` or `Failover`, `MessageKey` runs different keys of a busy
+partition in parallel while keeping each key in receive order. Under `Shared`,
+it orders only the deliveries this consumer receives, since the broker may
+deliver one key's messages to several consumers. The Pulsar client does not report consumer failover or key-range
 reassignment, so Pulsar deliveries have no revocation token. When the broker
 moves a subscription to another consumer, unacknowledged messages are
 redelivered there and can be processed twice.
@@ -4176,7 +4195,21 @@ again, reopening the handle's connection when it was lost.
 
 Without sessions, Service Bus delivers messages in no guaranteed order, so the
 deliveries have no ordering key and run in parallel up to the subscription's
-`concurrency`.
+`concurrency`. `ServiceBusDistribution::Session` processes the deliveries of
+one session ID one at a time, in the order this source received them, while
+deliveries without a session ID run in parallel:
+
+```rust,ignore
+use beavers::adapters::servicebus::ServiceBusDistribution;
+
+Subscription::new("orders", source, sink, handler)
+    .concurrency(16)
+    .distribution(ServiceBusDistribution::Session);
+```
+
+Service Bus neither orders a session's messages for a receiver without
+sessions nor keeps them on one receiver, so this orders only what one process
+receives.
 
 `receive` is cancel-safe: a message that arrives for a dropped `receive` is
 kept for the next one.

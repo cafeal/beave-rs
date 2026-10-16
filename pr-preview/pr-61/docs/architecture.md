@@ -15,7 +15,7 @@ The [runtime guide](runtime.md) describes processing behavior, and the
 | `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure; declare whether application shutdown stops receiving; optionally expose a `SourceProbe` with its connection state |
 | `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, message key, position, revocation, propagation fields, and messaging attributes |
 | `KeyedMessage` | Mark a `SourceMessage` whose source has message keys, so state can be kept per message key |
-| `Distribution<Message>` | Give each decoded delivery the key whose deliveries the subscription processes one at a time; built in as `SourceOrder`, `Parallel`, and closures over the decoded input, and offered by adapters such as `KafkaDistribution` |
+| `Distribution<Message>` | Give each decoded delivery the key whose deliveries the subscription processes one at a time; built in as `SourceOrder`, `Parallel`, and closures over the decoded input, and offered by adapters as `KafkaDistribution`, `PulsarDistribution`, and `ServiceBusDistribution` |
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
 | `StatefulHandler<Input, State>` | Transform typed input with the state a `StateStore` keeps for it; also implemented for async functions and closures |
 | `StateStore<Input, Message>` | Begin a state change for each handler attempt and commit it after the outputs are published, before the acknowledgement |
