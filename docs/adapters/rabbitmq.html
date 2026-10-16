@@ -116,7 +116,8 @@ connection loss.</p>
 them among several consumers and requeues unacknowledged messages, so
 deliveries have no ordering key by default and run in parallel up to the
 subscription&#39;s <code>concurrency</code>. Set the source&#39;s <code>ordered</code> to give every
-delivery the queue as its ordering key, so that <code>ProcessingOrder::PerKey</code>
+delivery the queue as its ordering key, so that the default <code>SourceOrder</code>
+distribution
 processes one message at a time in delivery order. Combine it with a queue that
 has a single active consumer (<code>x-single-active-consumer</code>) for order across
 application instances; a requeued message is still delivered again after later

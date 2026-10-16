@@ -235,6 +235,7 @@ The [runtime guide](runtime.md) describes processing behavior, and the
 | `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure; declare whether application shutdown stops receiving; optionally expose a `SourceProbe` with its connection state |
 | `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, message key, position, revocation, propagation fields, and messaging attributes |
 | `KeyedMessage` | Mark a `SourceMessage` whose source has message keys, so state can be kept per message key |
+| `Distribution<Message>` | Give each decoded delivery the key whose deliveries the subscription processes one at a time; built in as `SourceOrder`, `Parallel`, and closures over the decoded input, and offered by adapters as `KafkaDistribution`, `PulsarDistribution`, and `ServiceBusDistribution` |
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
 | `StatefulHandler<Input, State>` | Transform typed input with the state a `StateStore` keeps for it; also implemented for async functions and closures |
 | `StateStore<Input, Message>` | Begin a state change for each handler attempt and commit it after the outputs are published, before the acknowledgement |
@@ -268,8 +269,9 @@ implementation for already typed local input; `Delivery::with_raw` gives it a
 raw form other than `()`.
 
 A message can retain raw bytes and broker-specific information until processing
-finishes. The runtime calls `decode` once and passes the decoded value to the
-handler. `decode` must not publish or acknowledge. Dropping a message must never
+finishes. The runtime calls `decode` once, on the blocking thread pool before
+the delivery is [distributed](runtime.md#decoding-and-distribution), and passes
+the decoded value to the handler. `decode` must not publish or acknowledge. Dropping a message must never
 acknowledge it. `raw` returns the undecoded delivery, including broker metadata,
 as the adapter's `Raw` type, which implements `Debug` and `Serialize`. The
 runtime calls it when a failure is routed to a dead-letter sink, and a sink
@@ -280,7 +282,7 @@ ACK consumes the message. Its adapter owns safe broker completion behavior,
 including offset ordering and assignment validity where applicable. A message
 can expose an `OrderingKey` for its ordered delivery scope and a revocation
 `CancellationToken` that the adapter cancels when it loses ownership. The
-runtime uses these for [scheduling and revocation](runtime.md#ordering-and-backpressure)
+runtime uses these for [scheduling](runtime.md#decoding-and-distribution) and [revocation](runtime.md#revocation)
 without exposing broker rebalances to handlers. A custom
 `Source::receive` must be cancellation-safe: dropping its future must not silently
 lose a delivery.
@@ -383,7 +385,7 @@ App::new()
             .concurrency(16)
             .max_in_flight(64)
             .max_in_flight_per_key(16)
-            .ordering(ProcessingOrder::PerKey)
+            .distribution(SourceOrder)
             .handler_retry(handler_retry)
             .receive_retry(receive_retry)
             .publish_retry(publish_retry)
@@ -406,10 +408,10 @@ Registration constructs the application. Processing starts in `run()`.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `concurrency` | 1 | Maximum concurrent message jobs |
-| `max_in_flight` | 64 | Maximum received but unfinished deliveries, including queued ones |
+| `concurrency` | 1 | Maximum concurrent message jobs, and maximum deliveries decoding at once |
+| `max_in_flight` | 64 | Maximum received but unfinished deliveries, including decoding and queued ones |
 | `max_in_flight_per_key` | none | Unfinished deliveries of one ordering key at which the source pauses that key |
-| `ordering` | `PerKey` | Sequential processing within a source ordering key |
+| `distribution` | `SourceOrder` | Which deliveries are processed one at a time; see [distribution](#decoding-and-distribution) |
 | Retry attempts | 3 | Includes the first attempt |
 | Initial retry delay | 100 ms | Exponential backoff starting delay |
 | Maximum retry delay | 5 s | Backoff cap |
@@ -430,7 +432,27 @@ delay: `Jitter::Full` waits a uniformly random duration up to it, and
 `Jitter::Equal` waits half of it plus a random share of the other half. Jitter
 spreads retries from many consumers that failed at the same moment.
 
-## Ordering and backpressure
+## Decoding and distribution
+
+Each subscription receives deliveries from its source one at a time. The
+runtime then:
+
+1. decodes each delivery on the blocking thread pool, up to `concurrency`
+   deliveries at once, so a slow codec holds up neither receiving nor
+   handlers;
+2. passes the decoded deliveries to the subscription's `Distribution` in the
+   order they were received, even when a later delivery finished decoding
+   first;
+3. queues each delivery behind earlier deliveries with the same distribution
+   key, and runs deliveries with different keys, or without a key, in parallel
+   up to `concurrency`.
+
+A delivery whose key is busy waits in a queue and starts when the earlier
+delivery finishes. Outputs of deliveries with different keys have no ordering
+relationship with each other. A delivery that fails to decode has no key: the
+runtime routes it by the [error policy](runtime/errors.md) as soon as a job
+slot is free, even while earlier deliveries from the same source scope still
+run.
 
 A source can give each delivery an `OrderingKey`, the scope in which the source
 delivers in order. The Kafka source uses the topic partition. The Pulsar source
@@ -440,26 +462,50 @@ uses the message group of a FIFO queue. The Pub/Sub source uses the ordering
 key of a message published with one. The Azure Service Bus source and local
 adapters provide no key.
 
-With the default `ProcessingOrder::PerKey`, the runtime runs at most one
-delivery per key at a time, in receive order. A delivery whose key is busy waits
-in a queue behind it and starts when the earlier delivery finishes. Deliveries
-with other keys, and deliveries without a key, run in parallel up to
-`concurrency`. Their outputs have no ordering relationship with each other.
+The distribution decides the key:
 
-`ProcessingOrder::Unordered` ignores keys, so deliveries from one partition can
-run and complete out of order. Sources remain responsible for safe
-acknowledgement; Kafka still commits only the contiguous completed prefix of
-each partition.
+| Distribution | Key |
+|---|---|
+| `SourceOrder` (default) | The delivery's `OrderingKey`, so each source scope is processed in the order the source delivers it |
+| `Parallel` | None: every delivery runs independently |
+| An adapter's distribution: [`KafkaDistribution`](adapters/kafka.md#acknowledgements-and-ordering), [`PulsarDistribution`](adapters/pulsar.md#acknowledgements-and-ordering), [`ServiceBusDistribution`](adapters/servicebus.md#acknowledgements-and-ordering) | A choice the adapter offers, such as the record key within its partition or the Service Bus session ID |
+| A closure `Fn(&Item) -> K` | A value of the decoded input, such as a customer ID |
+| Your own `Distribution` implementation | Anything the delivery or its decoded input carries |
 
-The runtime receives only while a job slot is free and fewer than
-`max_in_flight` deliveries are unfinished. Queued deliveries count toward
-`max_in_flight`, so consumption stays bounded when a handler or sink is slow.
-Deliveries without a key never queue: each one starts as soon as it is
-received.
+```rust,ignore
+Subscription::new("orders", source, sink, handler)
+    .concurrency(16)
+    .distribution(|order: &KafkaRecord<Order>| order.value.as_ref().map(|o| o.customer));
+```
 
-Without a per-key limit, a busy key can fill `max_in_flight` and stop
-receiving for all keys. `max_in_flight_per_key` bounds the unfinished
-deliveries of each key, whatever the `ordering`. When a key reaches the limit,
+A subscription whose [stateful handler](runtime/state.md) keeps keyed state,
+such as `InMemoryState`, distributes by its state key instead and takes no
+distribution of its own.
+
+Under `Parallel`, or any distribution finer than the source scope, deliveries
+from one partition can run and complete out of order. Sources remain
+responsible for safe acknowledgement; Kafka still commits only the contiguous
+completed prefix of each partition. A [transactional](runtime/transactions.md)
+subscription requires a distribution that keeps the source order, such as
+`SourceOrder` or `KafkaDistribution::Partition`.
+
+A key taken from the payload orders deliveries within one process only. The
+broker does not read the payload, so with several consumers the deliveries of
+one payload key can reach different processes. Distribute by a key the broker
+also routes by, such as the Kafka record key, when one process must see all of
+a key's deliveries, as [in-memory state](runtime/state.md) does.
+
+## Backpressure
+
+The runtime receives only while a job slot is free, fewer than `concurrency`
+deliveries are decoding, and fewer than `max_in_flight` deliveries are
+unfinished. Decoding and queued deliveries count toward `max_in_flight`, so
+consumption stays bounded when a handler or sink is slow. Deliveries without a
+key never queue: each one starts as soon as it is distributed.
+
+Without a per-key limit, a busy partition can fill `max_in_flight` and stop
+receiving for all of them. `max_in_flight_per_key` bounds the unfinished
+deliveries of each source `OrderingKey`, whatever the distribution. When a key reaches the limit,
 the runtime calls `Source::pause` for it, and calls `Source::resume` once the
 key's unfinished deliveries drop to half the limit, so a key near the limit
 does not pause and resume on every delivery. Other keys keep flowing while one
@@ -541,7 +587,7 @@ success after all subscriptions finish. A failure requests shutdown across the
 application, which ultimately returns an error.
 
 SIGINT / SIGTERM or `App::run_until(CancellationToken)` stops new receives and
-starts draining running jobs. Deliveries still queued behind an ordering key are
+starts draining running jobs. Deliveries still decoding or queued behind a key are
 dropped without ACK. After `Receive::End`, queued deliveries still run. A source whose
 `stops_on_shutdown` returns `false`, such as a `ChannelSource` created by `channel`,
 keeps receiving until its upstream subscriptions close it; see
@@ -562,7 +608,7 @@ arbitrary synchronous code.
 Kafka, Pulsar, RabbitMQ, SQS, Pub/Sub, and Azure Service Bus adapters, broker
 record types, Protobuf, and Avro
 codecs are implemented. Kafka commits up to the first unfinished offset per partition,
-schedules work per partition, and abandons revoked work. Kafka-to-Kafka
+schedules work per partition or per record key, and abandons revoked work. Kafka-to-Kafka
 subscriptions can publish and commit offsets in batched Kafka transactions;
 other pairs are at-least-once. Pulsar uses individual
 acknowledgements, schedules work by its subscription type's ordering scope, and
@@ -2122,11 +2168,13 @@ acknowledged. Shutdown during the check leaves the delivery unacknowledged.
 
 ## Ordering
 
-A transactional subscription requires `ProcessingOrder::PerKey`. Deliveries of
-one ordering scope then join batches in receive order, and a batch lists them
-in that order, so the acknowledgement of a scope's last delivery in a batch
-covers every earlier delivery of that scope. Other orderings fail validation
-before the application starts.
+A transactional subscription requires a
+[distribution](../runtime.md#decoding-and-distribution) that keeps the source
+order, such as the default `SourceOrder` or `KafkaDistribution::Partition`.
+Deliveries of one ordering scope then join batches in receive order, and a
+batch lists them in that order, so the acknowledgement of a scope's last
+delivery in a batch covers every earlier delivery of that scope. Other
+distributions fail validation before the application starts.
 
 <!-- https://cafeal.github.io/beave-rs/docs/runtime/observability.md -->
 
@@ -2157,7 +2205,10 @@ A [transactional subscription](transactions.md) records no `publish` or `ack`
 span. Its `commit` spans belong to the subscription, not to a delivery,
 because one transaction commits several deliveries.
 
-`pre_handler` and `post_handler` middleware run in the `message` span.
+The `message` span opens when the delivery is received, so it also covers the
+time the delivery waits behind earlier deliveries of its
+[distribution](../runtime.md#decoding-and-distribution) key before its handler
+starts. `pre_handler` and `post_handler` middleware run in the `message` span.
 
 ### Messaging attributes
 
@@ -2419,8 +2470,8 @@ retry attempt counts as progress, so backoff does not trigger it. Stall
 detection is disabled by default; choose a duration longer than the slowest
 expected handler attempt, because a restart abandons the deliveries in
 progress. It detects a subscription in which nothing progresses. One stuck
-delivery while others still complete, such as one ordering key blocked under
-`ProcessingOrder::PerKey`, keeps the subscription live; its partition's commit
+delivery while others still complete, such as one partition blocked under the
+default `SourceOrder` distribution, keeps the subscription live; its partition's commit
 stops advancing, which shows as growing consumer lag on the broker.
 
 With the `health` feature, `HealthServer` answers probes over HTTP/1.1 while
@@ -2669,13 +2720,13 @@ range a durable source redelivers after a crash.
 
 Outputs of one upstream delivery, including each value of `Emit::Many`, are
 enqueued in order, and the delivery is acknowledged after all of them complete.
-With `ProcessingOrder::PerKey`, the next delivery of a key starts once the
+With the default `SourceOrder` distribution, the next delivery of a key starts once the
 previous one has enqueued its outputs, so values of one key enter the channel in
 order.
 
 Each channel delivery carries the ordering key of the upstream delivery that
 produced it, such as a Kafka topic partition. A downstream subscription with
-`ProcessingOrder::PerKey` therefore processes the values of one upstream key in
+the default `SourceOrder` distribution therefore processes the values of one upstream key in
 order, while values of other keys run concurrently. Values sent by application
 code have no ordering key.
 
@@ -2883,11 +2934,29 @@ cannot advance the commit. Broker commit failures leave completed local
 progress in place, so a later acknowledgement can retry the same position.
 
 Each delivery's ordering key is its topic partition. Under the default
-`ProcessingOrder::PerKey`, a subscription processes one record at a time per
-partition, in offset order, while different partitions run in parallel up to
-the subscription's `concurrency`. With `ProcessingOrder::Unordered`, records of
-one partition can complete out of order; the commit still never skips an
-unfinished record.
+[distribution](../runtime.md#decoding-and-distribution), `SourceOrder`, a
+subscription processes one record at a time per partition, in offset order,
+while different partitions run in parallel up to the subscription's
+`concurrency`. `KafkaDistribution` names the choices for Kafka records:
+
+| `KafkaDistribution` | Processed one at a time |
+|---|---|
+| `Partition` (default) | The records of one topic partition, as `SourceOrder` |
+| `MessageKey` | The records of one record key within a topic partition; records with a null key one at a time per partition |
+
+```rust,ignore
+use beavers::adapters::kafka::KafkaDistribution;
+
+Subscription::new("orders", source, sink, handler)
+    .concurrency(16)
+    .distribution(KafkaDistribution::MessageKey);
+```
+
+A producer's default partitioner sends the records of one key to one
+partition, so `MessageKey` keeps each key in offset order while different keys
+of a busy partition run in parallel. Under `MessageKey`, `Parallel`, or a
+distribution by a value of the payload, records of one partition can complete
+out of order; the commit still never skips an unfinished record.
 
 Each partition assignment has its own generation and revocation token. When
 Kafka revokes a partition, or the adapter detects that its assignment was lost,
@@ -3267,10 +3336,29 @@ configured subscription type:
 | `Key_Shared` | Ordering key, or the message key when no ordering key is set, within the topic partition |
 | `Shared` | None |
 
-Under the default `ProcessingOrder::PerKey`, deliveries with the same ordering
+Under the default `SourceOrder` distribution, deliveries with the same ordering
 key are processed one at a time in receive order. `Key_Shared` messages without
 a key and all `Shared` deliveries run in parallel up to the subscription's
-`concurrency`. The Pulsar client does not report consumer failover or key-range
+`concurrency`. `PulsarDistribution` names choices that apply the same way under
+every subscription type:
+
+| `PulsarDistribution` | Processed one at a time |
+|---|---|
+| `Partition` | The deliveries of one topic partition, as `SourceOrder` under `Exclusive` and `Failover` |
+| `MessageKey` | The deliveries of one key within a topic partition: the ordering key, or the message key when no ordering key is set; deliveries with neither one at a time per partition |
+
+```rust,ignore
+use beavers::adapters::pulsar::PulsarDistribution;
+
+Subscription::new("orders", source, sink, handler)
+    .concurrency(16)
+    .distribution(PulsarDistribution::MessageKey);
+```
+
+Under `Exclusive` or `Failover`, `MessageKey` runs different keys of a busy
+partition in parallel while keeping each key in receive order. Under `Shared`,
+it orders only the deliveries this consumer receives, since the broker may
+deliver one key's messages to several consumers. The Pulsar client does not report consumer failover or key-range
 reassignment, so Pulsar deliveries have no revocation token. When the broker
 moves a subscription to another consumer, unacknowledged messages are
 redelivered there and can be processed twice.
@@ -3510,7 +3598,8 @@ RabbitMQ delivers a queue's messages to one consumer in order, but distributes
 them among several consumers and requeues unacknowledged messages, so
 deliveries have no ordering key by default and run in parallel up to the
 subscription's `concurrency`. Set the source's `ordered` to give every
-delivery the queue as its ordering key, so that `ProcessingOrder::PerKey`
+delivery the queue as its ordering key, so that the default `SourceOrder`
+distribution
 processes one message at a time in delivery order. Combine it with a queue that
 has a single active consumer (`x-single-active-consumer`) for order across
 application instances; a requeued message is still delivered again after later
@@ -3708,7 +3797,8 @@ invalid receipt handle, also revokes the delivery and fails.
 A standard queue delivers messages in no particular order, so its deliveries
 have no ordering key and run in parallel up to the subscription's
 `concurrency`. A FIFO queue delivers each message group in order; each delivery's
-ordering key is its message group, so `ProcessingOrder::PerKey` processes one
+ordering key is its message group, so the default `SourceOrder` distribution
+processes one
 message per group at a time while groups run in parallel.
 
 `ReceiveMessage` runs as a task the source keeps: dropping a pending `receive`
@@ -3899,7 +3989,7 @@ fails with an error the client does not retry itself is replaced on the next
 finish.
 
 A message published with an ordering key has the subscription and that key as
-its ordering key, so `ProcessingOrder::PerKey` processes one message per key at
+its ordering key, so the default `SourceOrder` distribution processes one message per key at
 a time while keys run in parallel. Pub/Sub delivers the messages of a key in
 order only on a subscription with message ordering enabled. Messages without an
 ordering key have no ordering key and run in parallel up to the subscription's
@@ -4113,7 +4203,21 @@ again, reopening the handle's connection when it was lost.
 
 Without sessions, Service Bus delivers messages in no guaranteed order, so the
 deliveries have no ordering key and run in parallel up to the subscription's
-`concurrency`.
+`concurrency`. `ServiceBusDistribution::Session` processes the deliveries of
+one session ID one at a time, in the order this source received them, while
+deliveries without a session ID run in parallel:
+
+```rust,ignore
+use beavers::adapters::servicebus::ServiceBusDistribution;
+
+Subscription::new("orders", source, sink, handler)
+    .concurrency(16)
+    .distribution(ServiceBusDistribution::Session);
+```
+
+Service Bus neither orders a session's messages for a receiver without
+sessions nor keeps them on one receiver, so this orders only what one process
+receives.
 
 `receive` is cancel-safe: a message that arrives for a dropped `receive` is
 kept for the next one.
@@ -5460,7 +5564,7 @@ brokers.
 ## Per-key backpressure
 
 `max_in_flight_per_key` pauses and resumes keys through `Source::pause`, as
-described in the [runtime guide](runtime.md#ordering-and-backpressure). Only
+described in the [runtime guide](runtime.md#backpressure). Only
 the Kafka source can pause a key. Remaining decisions:
 
 - pausing a Pulsar partition under Failover or Exclusive subscriptions, which
@@ -5486,6 +5590,10 @@ Stateful handlers and `InMemoryState` are described in the
 
 Remaining decisions:
 
+- how an unkeyed store that records applied positions, such as the planned
+  Postgres store, handles a distribution that completes one partition's
+  deliveries out of order, where a later position committed first would make
+  an earlier delivery look applied;
 - what the runtime does when a durable store detects a concurrent change at
   commit. The outputs were already published from the stale state, so rerunning
   the handler publishes a second set, and stopping the subscription restarts
@@ -6076,12 +6184,16 @@ closure: with the default key, the subscription fails to compile, with a note
 to choose a key with `.key(..)`. A source's messages have message keys when
 they implement `KeyedMessage`.
 
-In `InMemoryState`, deliveries with the same key take turns: a delivery waits
-to begin until the previous delivery with that key has committed or abandoned
-its change, so each sees the last committed state. With the Kafka source, deliveries with the
-same record key arrive in one partition and are processed in offset order.
-Deliveries with the same state key in different ordering scopes, or under
-`ProcessingOrder::Unordered`, take turns in whichever order they begin.
+A subscription with a keyed store, such as `InMemoryState`,
+[distributes](../runtime.md#decoding-and-distribution) deliveries by their
+state key: deliveries with the same key are processed one
+at a time, in the order they were received, so each sees the state the
+previous one committed, while deliveries with other keys run in parallel up to
+the subscription's concurrency. This holds for a key closure too, such as a
+customer ID whose orders arrive in several Kafka partitions, because the
+runtime decodes each delivery before distributing it. Such a subscription
+takes no `distribution` of its own: calling `.distribution(..)` on it fails to
+compile.
 
 ## Redeliveries
 
@@ -6125,6 +6237,19 @@ and `Fatal` stops the subscription. `StateContext` carries the subscription
 name, the delivery's message key and position, and the revocation token of
 its partition.
 
+A store declares its `Keying`, which decides how its subscription is
+distributed:
+
+| `Keying` | Store | Distribution |
+|---|---|---|
+| `Keyed` | Keeps state per key and implements `KeyedStateStore`, whose `key(&input, &context)` returns the key a delivery's state is kept under | By the state key; `.distribution(..)` does not compile |
+| `Unkeyed` | Has no keys, such as a store that hands the handler a database transaction and lets the database detect concurrent changes | The subscription's own: `SourceOrder` by default, or any `.distribution(..)` |
+
+A keyed store's `key` is called when the delivery is distributed and may build
+the key from the input or the context, so it works with any source. An
+unkeyed store works with any source and distribution, and leaves concurrent
+changes to its backend.
+
 The store's `State` type is what the handler receives. It is `State<T>` for
 one value per key, and a store can instead hand the handler a client of its
 backend so the handler uses the backend's own features, with the store
@@ -6136,7 +6261,8 @@ committing the backend's transaction at the commit step.
 state that may be lost. The values are lost when the process stops. When a
 partition is revoked, the values its deliveries committed are discarded on
 their next use, because another consumer may change them meanwhile, so the
-key starts again from `T::default()`. Every key used keeps an entry for the
+key starts again from `T::default()`. A key whose deliveries come from several
+partitions is discarded when any of them is revoked. Every key used keeps an entry for the
 life of the process. Clones of an `InMemoryState` share its values, and `get`
 returns the value stored under a key, for example to inspect it in a test.
 

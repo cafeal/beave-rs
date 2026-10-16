@@ -15,6 +15,7 @@ The [runtime guide](runtime.md) describes processing behavior, and the
 | `Source` | Receive an associated `Message: SourceMessage`; report end of input or receive failure; declare whether application shutdown stops receiving; optionally expose a `SourceProbe` with its connection state |
 | `SourceMessage` | Own a delivery, decode its input, expose its undecoded form, acknowledge completion, and report its ordering key, message key, position, revocation, propagation fields, and messaging attributes |
 | `KeyedMessage` | Mark a `SourceMessage` whose source has message keys, so state can be kept per message key |
+| `Distribution<Message>` | Give each decoded delivery the key whose deliveries the subscription processes one at a time; built in as `SourceOrder`, `Parallel`, and closures over the decoded input, and offered by adapters as `KafkaDistribution`, `PulsarDistribution`, and `ServiceBusDistribution` |
 | `Handler<Input>` | Transform typed input asynchronously; also implemented for async functions and closures |
 | `StatefulHandler<Input, State>` | Transform typed input with the state a `StateStore` keeps for it; also implemented for async functions and closures |
 | `StateStore<Input, Message>` | Begin a state change for each handler attempt and commit it after the outputs are published, before the acknowledgement |
@@ -48,8 +49,9 @@ implementation for already typed local input; `Delivery::with_raw` gives it a
 raw form other than `()`.
 
 A message can retain raw bytes and broker-specific information until processing
-finishes. The runtime calls `decode` once and passes the decoded value to the
-handler. `decode` must not publish or acknowledge. Dropping a message must never
+finishes. The runtime calls `decode` once, on the blocking thread pool before
+the delivery is [distributed](runtime.md#decoding-and-distribution), and passes
+the decoded value to the handler. `decode` must not publish or acknowledge. Dropping a message must never
 acknowledge it. `raw` returns the undecoded delivery, including broker metadata,
 as the adapter's `Raw` type, which implements `Debug` and `Serialize`. The
 runtime calls it when a failure is routed to a dead-letter sink, and a sink
@@ -60,7 +62,7 @@ ACK consumes the message. Its adapter owns safe broker completion behavior,
 including offset ordering and assignment validity where applicable. A message
 can expose an `OrderingKey` for its ordered delivery scope and a revocation
 `CancellationToken` that the adapter cancels when it loses ownership. The
-runtime uses these for [scheduling and revocation](runtime.md#ordering-and-backpressure)
+runtime uses these for [scheduling](runtime.md#decoding-and-distribution) and [revocation](runtime.md#revocation)
 without exposing broker rebalances to handlers. A custom
 `Source::receive` must be cancellation-safe: dropping its future must not silently
 lose a delivery.

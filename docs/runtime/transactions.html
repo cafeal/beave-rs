@@ -104,11 +104,13 @@ check is retried under the <code>publish_retry</code> policy, and a failure stop
 subscription before any handler runs or anything is published or
 acknowledged. Shutdown during the check leaves the delivery unacknowledged.</p>
 <h2 id="ordering">Ordering</h2>
-<p>A transactional subscription requires <code>ProcessingOrder::PerKey</code>. Deliveries of
-one ordering scope then join batches in receive order, and a batch lists them
-in that order, so the acknowledgement of a scope&#39;s last delivery in a batch
-covers every earlier delivery of that scope. Other orderings fail validation
-before the application starts.</p>
+<p>A transactional subscription requires a
+<a href="../runtime.html#decoding-and-distribution">distribution</a> that keeps the source
+order, such as the default <code>SourceOrder</code> or <code>KafkaDistribution::Partition</code>.
+Deliveries of one ordering scope then join batches in receive order, and a
+batch lists them in that order, so the acknowledgement of a scope&#39;s last
+delivery in a batch covers every earlier delivery of that scope. Other
+distributions fail validation before the application starts.</p>
 
       <p class="source"><a href="transactions.md">Markdown</a> · <a href="https://github.com/cafeal/beave-rs/blob/main/docs/runtime/transactions.md">Source on GitHub</a></p>
     </main>

@@ -87,11 +87,36 @@ do not hold the commit back. A completion after an earlier in-flight offset
 cannot advance the commit. Broker commit failures leave completed local
 progress in place, so a later acknowledgement can retry the same position.</p>
 <p>Each delivery&#39;s ordering key is its topic partition. Under the default
-<code>ProcessingOrder::PerKey</code>, a subscription processes one record at a time per
-partition, in offset order, while different partitions run in parallel up to
-the subscription&#39;s <code>concurrency</code>. With <code>ProcessingOrder::Unordered</code>, records of
-one partition can complete out of order; the commit still never skips an
-unfinished record.</p>
+<a href="../runtime.html#decoding-and-distribution">distribution</a>, <code>SourceOrder</code>, a
+subscription processes one record at a time per partition, in offset order,
+while different partitions run in parallel up to the subscription&#39;s
+<code>concurrency</code>. <code>KafkaDistribution</code> names the choices for Kafka records:</p>
+<table>
+<thead>
+<tr>
+<th><code>KafkaDistribution</code></th>
+<th>Processed one at a time</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Partition</code> (default)</td>
+<td>The records of one topic partition, as <code>SourceOrder</code></td>
+</tr>
+<tr>
+<td><code>MessageKey</code></td>
+<td>The records of one record key within a topic partition; records with a null key one at a time per partition</td>
+</tr>
+</tbody></table>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::adapters::kafka::KafkaDistribution;
+
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, handler)
+    .<span class="hljs-title function_ invoke__">concurrency</span>(<span class="hljs-number">16</span>)
+    .<span class="hljs-title function_ invoke__">distribution</span>(KafkaDistribution::MessageKey);
+</code></pre><p>A producer&#39;s default partitioner sends the records of one key to one
+partition, so <code>MessageKey</code> keeps each key in offset order while different keys
+of a busy partition run in parallel. Under <code>MessageKey</code>, <code>Parallel</code>, or a
+distribution by a value of the payload, records of one partition can complete
+out of order; the commit still never skips an unfinished record.</p>
 <p>Each partition assignment has its own generation and revocation token. When
 Kafka revokes a partition, or the adapter detects that its assignment was lost,
 the token is cancelled. The runtime abandons that partition&#39;s running and

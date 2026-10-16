@@ -118,8 +118,8 @@ retry attempt counts as progress, so backoff does not trigger it. Stall
 detection is disabled by default; choose a duration longer than the slowest
 expected handler attempt, because a restart abandons the deliveries in
 progress. It detects a subscription in which nothing progresses. One stuck
-delivery while others still complete, such as one ordering key blocked under
-<code>ProcessingOrder::PerKey</code>, keeps the subscription live; its partition&#39;s commit
+delivery while others still complete, such as one partition blocked under the
+default <code>SourceOrder</code> distribution, keeps the subscription live; its partition&#39;s commit
 stops advancing, which shows as growing consumer lag on the broker.</p>
 <p>With the <code>health</code> feature, <code>HealthServer</code> answers probes over HTTP/1.1 while
 the application runs:</p>

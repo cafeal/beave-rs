@@ -135,7 +135,21 @@ again, reopening the handle's connection when it was lost.
 
 Without sessions, Service Bus delivers messages in no guaranteed order, so the
 deliveries have no ordering key and run in parallel up to the subscription's
-`concurrency`.
+`concurrency`. `ServiceBusDistribution::Session` processes the deliveries of
+one session ID one at a time, in the order this source received them, while
+deliveries without a session ID run in parallel:
+
+```rust,ignore
+use beavers::adapters::servicebus::ServiceBusDistribution;
+
+Subscription::new("orders", source, sink, handler)
+    .concurrency(16)
+    .distribution(ServiceBusDistribution::Session);
+```
+
+Service Bus neither orders a session's messages for a receiver without
+sessions nor keeps them on one receiver, so this orders only what one process
+receives.
 
 `receive` is cancel-safe: a message that arrives for a dropped `receive` is
 kept for the next one.

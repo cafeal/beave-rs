@@ -116,7 +116,7 @@ fails with an error the client does not retry itself is replaced on the next
 finish.
 
 A message published with an ordering key has the subscription and that key as
-its ordering key, so `ProcessingOrder::PerKey` processes one message per key at
+its ordering key, so the default `SourceOrder` distribution processes one message per key at
 a time while keys run in parallel. Pub/Sub delivers the messages of a key in
 order only on a subscription with message ordering enabled. Messages without an
 ordering key have no ordering key and run in parallel up to the subscription's

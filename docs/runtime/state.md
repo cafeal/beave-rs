@@ -91,12 +91,16 @@ closure: with the default key, the subscription fails to compile, with a note
 to choose a key with `.key(..)`. A source's messages have message keys when
 they implement `KeyedMessage`.
 
-In `InMemoryState`, deliveries with the same key take turns: a delivery waits
-to begin until the previous delivery with that key has committed or abandoned
-its change, so each sees the last committed state. With the Kafka source, deliveries with the
-same record key arrive in one partition and are processed in offset order.
-Deliveries with the same state key in different ordering scopes, or under
-`ProcessingOrder::Unordered`, take turns in whichever order they begin.
+A subscription with a keyed store, such as `InMemoryState`,
+[distributes](../runtime.md#decoding-and-distribution) deliveries by their
+state key: deliveries with the same key are processed one
+at a time, in the order they were received, so each sees the state the
+previous one committed, while deliveries with other keys run in parallel up to
+the subscription's concurrency. This holds for a key closure too, such as a
+customer ID whose orders arrive in several Kafka partitions, because the
+runtime decodes each delivery before distributing it. Such a subscription
+takes no `distribution` of its own: calling `.distribution(..)` on it fails to
+compile.
 
 ## Redeliveries
 
@@ -140,6 +144,19 @@ and `Fatal` stops the subscription. `StateContext` carries the subscription
 name, the delivery's message key and position, and the revocation token of
 its partition.
 
+A store declares its `Keying`, which decides how its subscription is
+distributed:
+
+| `Keying` | Store | Distribution |
+|---|---|---|
+| `Keyed` | Keeps state per key and implements `KeyedStateStore`, whose `key(&input, &context)` returns the key a delivery's state is kept under | By the state key; `.distribution(..)` does not compile |
+| `Unkeyed` | Has no keys, such as a store that hands the handler a database transaction and lets the database detect concurrent changes | The subscription's own: `SourceOrder` by default, or any `.distribution(..)` |
+
+A keyed store's `key` is called when the delivery is distributed and may build
+the key from the input or the context, so it works with any source. An
+unkeyed store works with any source and distribution, and leaves concurrent
+changes to its backend.
+
 The store's `State` type is what the handler receives. It is `State<T>` for
 one value per key, and a store can instead hand the handler a client of its
 backend so the handler uses the backend's own features, with the store
@@ -151,7 +168,8 @@ committing the backend's transaction at the commit step.
 state that may be lost. The values are lost when the process stops. When a
 partition is revoked, the values its deliveries committed are discarded on
 their next use, because another consumer may change them meanwhile, so the
-key starts again from `T::default()`. Every key used keeps an entry for the
+key starts again from `T::default()`. A key whose deliveries come from several
+partitions is discarded when any of them is revoked. Every key used keeps an entry for the
 life of the process. Clones of an `InMemoryState` share its values, and `get`
 returns the value stored under a key, for example to inspect it in a test.
 

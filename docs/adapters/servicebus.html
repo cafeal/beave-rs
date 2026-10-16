@@ -136,7 +136,17 @@ is lost, every unsettled delivery is revoked and the next <code>receive</code> a
 again, reopening the handle&#39;s connection when it was lost.</p>
 <p>Without sessions, Service Bus delivers messages in no guaranteed order, so the
 deliveries have no ordering key and run in parallel up to the subscription&#39;s
-<code>concurrency</code>.</p>
+<code>concurrency</code>. <code>ServiceBusDistribution::Session</code> processes the deliveries of
+one session ID one at a time, in the order this source received them, while
+deliveries without a session ID run in parallel:</p>
+<pre><code class="hljs language-rust,ignore"><span class="hljs-keyword">use</span> beavers::adapters::servicebus::ServiceBusDistribution;
+
+Subscription::<span class="hljs-title function_ invoke__">new</span>(<span class="hljs-string">&quot;orders&quot;</span>, source, sink, handler)
+    .<span class="hljs-title function_ invoke__">concurrency</span>(<span class="hljs-number">16</span>)
+    .<span class="hljs-title function_ invoke__">distribution</span>(ServiceBusDistribution::Session);
+</code></pre><p>Service Bus neither orders a session&#39;s messages for a receiver without
+sessions nor keeps them on one receiver, so this orders only what one process
+receives.</p>
 <p><code>receive</code> is cancel-safe: a message that arrives for a dropped <code>receive</code> is
 kept for the next one.</p>
 <h2 id="publication">Publication</h2>

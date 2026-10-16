@@ -47,7 +47,10 @@ starts, so install the recorder before <code>App::run</code>.</p>
 </code></pre><p>A <a href="transactions.html">transactional subscription</a> records no <code>publish</code> or <code>ack</code>
 span. Its <code>commit</code> spans belong to the subscription, not to a delivery,
 because one transaction commits several deliveries.</p>
-<p><code>pre_handler</code> and <code>post_handler</code> middleware run in the <code>message</code> span.</p>
+<p>The <code>message</code> span opens when the delivery is received, so it also covers the
+time the delivery waits behind earlier deliveries of its
+<a href="../runtime.html#decoding-and-distribution">distribution</a> key before its handler
+starts. <code>pre_handler</code> and <code>post_handler</code> middleware run in the <code>message</code> span.</p>
 <h3 id="messaging-attributes">Messaging attributes</h3>
 <p>Broker sources describe each delivery through
 <code>SourceMessage::messaging_attributes</code>, and the runtime records the

@@ -56,6 +56,10 @@ The <a href="runtime.html">runtime guide</a> describes processing behavior, and 
 <td>Mark a <code>SourceMessage</code> whose source has message keys, so state can be kept per message key</td>
 </tr>
 <tr>
+<td><code>Distribution&lt;Message&gt;</code></td>
+<td>Give each decoded delivery the key whose deliveries the subscription processes one at a time; built in as <code>SourceOrder</code>, <code>Parallel</code>, and closures over the decoded input, and offered by adapters as <code>KafkaDistribution</code>, <code>PulsarDistribution</code>, and <code>ServiceBusDistribution</code></td>
+</tr>
+<tr>
 <td><code>Handler&lt;Input&gt;</code></td>
 <td>Transform typed input asynchronously; also implemented for async functions and closures</td>
 </tr>
@@ -98,8 +102,9 @@ use a shared byte buffer or boxed ACK callback. <code>Delivery&lt;T&gt;</code> i
 implementation for already typed local input; <code>Delivery::with_raw</code> gives it a
 raw form other than <code>()</code>.</p>
 <p>A message can retain raw bytes and broker-specific information until processing
-finishes. The runtime calls <code>decode</code> once and passes the decoded value to the
-handler. <code>decode</code> must not publish or acknowledge. Dropping a message must never
+finishes. The runtime calls <code>decode</code> once, on the blocking thread pool before
+the delivery is <a href="runtime.html#decoding-and-distribution">distributed</a>, and passes
+the decoded value to the handler. <code>decode</code> must not publish or acknowledge. Dropping a message must never
 acknowledge it. <code>raw</code> returns the undecoded delivery, including broker metadata,
 as the adapter&#39;s <code>Raw</code> type, which implements <code>Debug</code> and <code>Serialize</code>. The
 runtime calls it when a failure is routed to a dead-letter sink, and a sink
@@ -109,7 +114,7 @@ output.</p>
 including offset ordering and assignment validity where applicable. A message
 can expose an <code>OrderingKey</code> for its ordered delivery scope and a revocation
 <code>CancellationToken</code> that the adapter cancels when it loses ownership. The
-runtime uses these for <a href="runtime.html#ordering-and-backpressure">scheduling and revocation</a>
+runtime uses these for <a href="runtime.html#decoding-and-distribution">scheduling</a> and <a href="runtime.html#revocation">revocation</a>
 without exposing broker rebalances to handlers. A custom
 <code>Source::receive</code> must be cancellation-safe: dropping its future must not silently
 lose a delivery.</p>

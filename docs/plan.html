@@ -165,7 +165,7 @@ next record is due, if the <code>max.poll.interval.ms</code> limit becomes a pro
 brokers.</p>
 <h2 id="per-key-backpressure">Per-key backpressure</h2>
 <p><code>max_in_flight_per_key</code> pauses and resumes keys through <code>Source::pause</code>, as
-described in the <a href="runtime.html#ordering-and-backpressure">runtime guide</a>. Only
+described in the <a href="runtime.html#backpressure">runtime guide</a>. Only
 the Kafka source can pause a key. Remaining decisions:</p>
 <ul>
 <li>pausing a Pulsar partition under Failover or Exclusive subscriptions, which
@@ -190,6 +190,10 @@ key, since a compacted topic cannot detect a concurrent writer.</li>
 </ul>
 <p>Remaining decisions:</p>
 <ul>
+<li>how an unkeyed store that records applied positions, such as the planned
+Postgres store, handles a distribution that completes one partition&#39;s
+deliveries out of order, where a later position committed first would make
+an earlier delivery look applied;</li>
 <li>what the runtime does when a durable store detects a concurrent change at
 commit. The outputs were already published from the stale state, so rerunning
 the handler publishes a second set, and stopping the subscription restarts

@@ -101,7 +101,8 @@ invalid receipt handle, also revokes the delivery and fails.
 A standard queue delivers messages in no particular order, so its deliveries
 have no ordering key and run in parallel up to the subscription's
 `concurrency`. A FIFO queue delivers each message group in order; each delivery's
-ordering key is its message group, so `ProcessingOrder::PerKey` processes one
+ordering key is its message group, so the default `SourceOrder` distribution
+processes one
 message per group at a time while groups run in parallel.
 
 `ReceiveMessage` runs as a task the source keeps: dropping a pending `receive`
