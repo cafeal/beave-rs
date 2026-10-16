@@ -113,7 +113,7 @@ The distribution decides the key:
 |---|---|
 | `SourceOrder` (default) | The delivery's `OrderingKey`, so each source scope is processed in the order the source delivers it |
 | `Parallel` | None: every delivery runs independently |
-| An adapter's distribution, such as [`KafkaDistribution`](adapters/kafka.md#acknowledgements-and-ordering) | A choice the adapter offers, such as the Kafka record key within its partition |
+| An adapter's distribution: [`KafkaDistribution`](adapters/kafka.md#acknowledgements-and-ordering), [`PulsarDistribution`](adapters/pulsar.md#acknowledgements-and-ordering), [`ServiceBusDistribution`](adapters/servicebus.md#acknowledgements-and-ordering) | A choice the adapter offers, such as the record key within its partition or the Service Bus session ID |
 | A closure `Fn(&Item) -> K` | A value of the decoded input, such as a customer ID |
 | Your own `Distribution` implementation | Anything the delivery or its decoded input carries |
 

@@ -16,7 +16,8 @@ use std::hash::Hash;
 /// [`SourceOrder`], the default, follows the order in which the source
 /// delivers, such as a Kafka partition. [`Parallel`] processes every delivery
 /// independently. Adapters can offer their own distributions, such as
-/// [`KafkaDistribution`](crate::adapters::kafka::KafkaDistribution), and a
+/// `KafkaDistribution`, `PulsarDistribution`, and `ServiceBusDistribution`
+/// in their adapter modules, and a
 /// closure that takes the decoded value and returns a key distributes by a
 /// value of the payload:
 ///

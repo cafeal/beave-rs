@@ -33,7 +33,7 @@ src/
 ├── shutdown.rs            # Cancellation and process signals
 ├── state/
 │   ├── mod.rs             # Module declarations and public re-exports
-│   ├── store.rs           # StateStore, Begin, and StateContext
+│   ├── store.rs           # StateStore, KeyedStateStore, Keying, Begin, and StateContext
 │   ├── handler.rs         # StatefulHandler and stateful()
 │   ├── key.rs             # StateKey and MessageKey
 │   ├── value.rs           # State<T>, one stored value per key

@@ -192,6 +192,8 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for PulsarSource<C
         let delivery = Delivery::new(consumer.topic(), &message).map_err(ReceiveError::Fatal)?;
         Ok(Receive::Message(PulsarMessage {
             ordering_key: ordering_key(self.config.subscription_type, &delivery),
+            partition: partition(&delivery),
+            keyed_partition: keyed_partition(&delivery),
             payload: delivery
                 .payload
                 .filter(|bytes| !(self.config.empty_payload_is_tombstone && bytes.is_empty())),
@@ -313,19 +315,32 @@ fn ordering_key(
     subscription_type: PulsarSubscriptionType,
     delivery: &Delivery,
 ) -> Option<OrderingKey> {
-    let partition = OrderingKey::new(
-        delivery.metadata.topic.as_str(),
-        i64::from(delivery.metadata.message_id.partition),
-    );
     match subscription_type {
-        PulsarSubscriptionType::Exclusive | PulsarSubscriptionType::Failover => Some(partition),
-        PulsarSubscriptionType::KeyShared => delivery
-            .ordering_key
-            .as_deref()
-            .or(delivery.key.as_deref())
-            .map(|key| partition.with_key(key)),
+        PulsarSubscriptionType::Exclusive | PulsarSubscriptionType::Failover => {
+            Some(partition(delivery))
+        }
+        PulsarSubscriptionType::KeyShared => keyed_partition(delivery),
         PulsarSubscriptionType::Shared => None,
     }
+}
+
+/// The delivery's topic partition.
+fn partition(delivery: &Delivery) -> OrderingKey {
+    OrderingKey::new(
+        delivery.metadata.topic.as_str(),
+        i64::from(delivery.metadata.message_id.partition),
+    )
+}
+
+/// The delivery's topic partition with the key Key_Shared routes by: the
+/// ordering key, or the message key when no ordering key is set. `None` for a
+/// message with neither.
+fn keyed_partition(delivery: &Delivery) -> Option<OrderingKey> {
+    delivery
+        .ordering_key
+        .as_deref()
+        .or(delivery.key.as_deref())
+        .map(|key| partition(delivery).with_key(key))
 }
 
 /// What acknowledging one delivery needs.
@@ -352,6 +367,8 @@ impl Acknowledgement {
 /// One delivery; dropping it leaves the broker message unacknowledged.
 pub struct PulsarMessage<C> {
     ordering_key: Option<OrderingKey>,
+    pub(super) partition: OrderingKey,
+    pub(super) keyed_partition: Option<OrderingKey>,
     payload: Option<Vec<u8>>,
     key: Option<Vec<u8>>,
     properties: HashMap<String, String>,

@@ -392,7 +392,7 @@ impl<C: Decoder<Value: Clone + Send + Sync + 'static>> Source for ServiceBusSour
 pub struct ServiceBusMessage<C> {
     message: Message<Body<Value>>,
     info: Option<DeliveryInfo>,
-    entity_path: String,
+    pub(super) entity_path: String,
     lock_token: String,
     lock: u64,
     locks: Arc<Locks>,

@@ -6,6 +6,7 @@
 mod client;
 mod config;
 mod dead_letter;
+mod distribution;
 mod inherit;
 mod producer;
 mod record;
@@ -17,6 +18,7 @@ mod tombstone;
 pub use client::Pulsar;
 pub use config::{PulsarAuthentication, PulsarSubscriptionType};
 pub use dead_letter::PulsarDeadLetter;
+pub use distribution::PulsarDistribution;
 pub use inherit::PulsarInherit;
 pub use record::{PulsarMessageId, PulsarMetadata, PulsarPublish, PulsarRecord};
 pub use sink::{PulsarPrepared, PulsarSink};

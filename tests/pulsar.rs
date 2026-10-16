@@ -1,10 +1,11 @@
 #![cfg(feature = "pulsar")]
 
 use beavers::{
-    BoxError, Receive, ReceiveError, RetryPolicy, Sink, Source, SourceMessage, Utf8,
+    BoxError, Distribution, OrderingKey, Receive, ReceiveError, RetryPolicy, Sink, Source,
+    SourceMessage, Utf8,
     adapters::pulsar::{
-        Pulsar, PulsarAuthentication, PulsarMessage, PulsarPublish, PulsarSource,
-        PulsarSubscriptionType,
+        Pulsar, PulsarAuthentication, PulsarDistribution, PulsarMessage, PulsarPublish,
+        PulsarSource, PulsarSubscriptionType,
     },
 };
 use tokio::{
@@ -427,4 +428,56 @@ async fn probe_reports_the_consumer_connection() -> Result<(), BoxError> {
     source.close().await?;
     assert_eq!(probe.connected(), None);
     Ok(())
+}
+
+/// Requires the development broker at `PULSAR_URL` and its admin API at
+/// `PULSAR_ADMIN_ADDR`. The distributions key deliveries by partition, by the
+/// ordering key over the message key, and fall back to the partition for a
+/// message without either.
+#[tokio::test]
+#[ignore = "requires a Pulsar broker; run with cargo test --features pulsar -- --ignored"]
+async fn distributions_key_deliveries_by_partition_or_message_key() -> Result<(), BoxError> {
+    let topic = unique_topic("beavers-pulsar-distribution");
+    let subscription = unique_name("beavers-pulsar-distribution");
+    create_subscription(&topic, &subscription).await?;
+    let sink = Pulsar::new(service_url()).sink::<Utf8>(&topic);
+    // Each message's key and ordering key.
+    let keys = [
+        (Some(b"customer".as_slice()), None),
+        (Some(b"customer".as_slice()), Some(b"order".as_slice())),
+        (None, None),
+    ];
+    for (key, ordering_key) in keys {
+        let mut output = PulsarPublish::new("order".to_owned());
+        output.key = key.map(<[u8]>::to_vec);
+        output.ordering_key = ordering_key.map(<[u8]>::to_vec);
+        sink.publish(&sink.prepare(output)?).await?;
+    }
+    sink.close().await?;
+
+    let mut source = exclusive_source(&topic, &subscription);
+    for (key, ordering_key) in keys {
+        let message = next_message(&mut source, Duration::from_secs(20))
+            .await?
+            .expect("timed out waiting for a delivery");
+        let record = message.decode()?;
+        let partition = OrderingKey::new(
+            record.metadata.topic.as_str(),
+            i64::from(record.metadata.message_id.partition),
+        );
+        assert_eq!(
+            PulsarDistribution::Partition.key(&message, &record),
+            Some(partition.clone())
+        );
+        let by_key = match ordering_key.or(key) {
+            Some(key) => partition.with_key(key),
+            None => partition,
+        };
+        assert_eq!(
+            PulsarDistribution::MessageKey.key(&message, &record),
+            Some(by_key)
+        );
+        message.ack().await?;
+    }
+    source.close().await
 }

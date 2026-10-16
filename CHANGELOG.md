@@ -47,8 +47,10 @@ project follows the versioning policy in
 - `Subscription::distribution` with the new `Distribution` trait, which decides
   which deliveries are processed one at a time: `SourceOrder` (the default),
   `Parallel`, a closure over the decoded input such as a customer ID, or an
-  adapter's own, such as `KafkaDistribution::MessageKey` for the records of one
-  key within a partition.
+  adapter's own: `KafkaDistribution` and `PulsarDistribution` with `Partition`
+  and `MessageKey`, the latter for the deliveries of one key within a
+  partition, and `ServiceBusDistribution::Session` for the deliveries of one
+  session ID.
 
 ### Changed
 
