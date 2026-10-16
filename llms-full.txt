@@ -2679,6 +2679,14 @@ produced it, such as a Kafka topic partition. A downstream subscription with
 order, while values of other keys run concurrently. Values sent by application
 code have no ordering key.
 
+Each channel delivery also carries the upstream delivery's message key, such
+as the Kafka record key, so a downstream [stateful](../runtime/state.md)
+handler keeps its state per upstream key without choosing a key itself. The
+upstream position is not carried, because one upstream delivery can produce
+several values; a redelivered upstream delivery runs the downstream handler
+again. Values sent by application code have no message key, so a stateful
+handler reading them rejects them unless it chooses a key from the input.
+
 ## Metadata and tracing
 
 A downstream handler receives only the typed value. Broker metadata of the
@@ -6051,6 +6059,7 @@ State is kept per key. By default the key is the delivery's message key:
 | SQS | Message group ID |
 | Pub/Sub | Ordering key |
 | Service Bus | Session ID |
+| Channel | Message key of the upstream delivery |
 
 A single delivery without one, such as a Kafka record with a null key or an
 SQS message sent without a group ID, is rejected and routed by the error
@@ -6062,7 +6071,7 @@ let counts = InMemoryState::<Count>::new().key(|order: &Order| order.customer_id
 
 A key closure receives the handler's input, so it takes the value for a value
 handler and the record for a record handler. Sources without message keys,
-such as RabbitMQ, HTTP, stdin, channels, and `IterSource`, need a key
+such as RabbitMQ, HTTP, stdin, and `IterSource`, need a key
 closure: with the default key, the subscription fails to compile, with a note
 to choose a key with `.key(..)`. A source's messages have message keys when
 they implement `KeyedMessage`.

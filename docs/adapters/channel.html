@@ -106,6 +106,13 @@ produced it, such as a Kafka topic partition. A downstream subscription with
 <code>ProcessingOrder::PerKey</code> therefore processes the values of one upstream key in
 order, while values of other keys run concurrently. Values sent by application
 code have no ordering key.</p>
+<p>Each channel delivery also carries the upstream delivery&#39;s message key, such
+as the Kafka record key, so a downstream <a href="../runtime/state.html">stateful</a>
+handler keeps its state per upstream key without choosing a key itself. The
+upstream position is not carried, because one upstream delivery can produce
+several values; a redelivered upstream delivery runs the downstream handler
+again. Values sent by application code have no message key, so a stateful
+handler reading them rejects them unless it chooses a key from the input.</p>
 <h2 id="metadata-and-tracing">Metadata and tracing</h2>
 <p>A downstream handler receives only the typed value. Broker metadata of the
 original delivery, such as Kafka keys and headers, reaches the handler only when

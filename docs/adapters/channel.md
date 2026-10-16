@@ -73,6 +73,14 @@ produced it, such as a Kafka topic partition. A downstream subscription with
 order, while values of other keys run concurrently. Values sent by application
 code have no ordering key.
 
+Each channel delivery also carries the upstream delivery's message key, such
+as the Kafka record key, so a downstream [stateful](../runtime/state.md)
+handler keeps its state per upstream key without choosing a key itself. The
+upstream position is not carried, because one upstream delivery can produce
+several values; a redelivered upstream delivery runs the downstream handler
+again. Values sent by application code have no message key, so a stateful
+handler reading them rejects them unless it chooses a key from the input.
+
 ## Metadata and tracing
 
 A downstream handler receives only the typed value. Broker metadata of the
